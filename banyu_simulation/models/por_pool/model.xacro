@@ -1,0 +1,116 @@
+<?xml version="1.0"?>
+<robot name="pool" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Pool Parameters -->
+  <!-- Dimensions are in meters. -->
+  <xacro:property name="length" value="16.0" />
+  <xacro:property name="width" value="6.0" />
+  <xacro:property name="depth" value="3.0" />
+  <xacro:property name="thickness" value="0.2" />
+
+  <!-- Base Link -->
+  <link name="base_link">
+
+    <!-- ================= FLOOR ================= -->
+    <visual>
+      <origin xyz="0 0 ${-thickness/2}" rpy="0 0 0" />
+      <geometry>
+        <box size="${length + 2*thickness} ${width + 2*thickness} ${thickness}" />
+      </geometry>
+      <material name="blue">
+        <color rgba="0.2 0.6 1.0 1.0" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${-thickness/2}" rpy="0 0 0" />
+      <geometry>
+        <box size="${length + 2*thickness} ${width + 2*thickness} ${thickness}" />
+      </geometry>
+    </collision>
+
+    <!-- ================= LEFT WALL (+y) ================= -->
+    <visual>
+      <origin xyz="0 ${width/2 + thickness/2} ${depth/2}" rpy="0 0 0" />
+      <geometry>
+        <box size="${length + 2*thickness} ${thickness} ${depth}" />
+      </geometry>
+      <material name="blue" />
+    </visual>
+    <collision>
+      <origin xyz="0 ${width/2 + thickness/2} ${depth/2}" rpy="0 0 0" />
+      <geometry>
+        <box size="${length + 2*thickness} ${thickness} ${depth}" />
+      </geometry>
+    </collision>
+
+    <!-- ================= RIGHT WALL (-y) ================= -->
+    <visual>
+      <origin xyz="0 ${-width/2 - thickness/2} ${depth/2}" rpy="0 0 0" />
+      <geometry>
+        <box size="${length + 2*thickness} ${thickness} ${depth}" />
+      </geometry>
+      <material name="blue" />
+    </visual>
+    <collision>
+      <origin xyz="0 ${-width/2 - thickness/2} ${depth/2}" rpy="0 0 0" />
+      <geometry>
+        <box size="${length + 2*thickness} ${thickness} ${depth}" />
+      </geometry>
+    </collision>
+
+    <!-- ================= FRONT WALL (+x) ================= -->
+    <!-- Front and back walls fit inside the left and right walls to seal the corners -->
+    <visual>
+      <origin xyz="${length/2 + thickness/2} 0 ${depth/2}" rpy="0 0 0" />
+      <geometry>
+        <box size="${thickness} ${width} ${depth}" />
+      </geometry>
+      <material name="blue" />
+    </visual>
+    <collision>
+      <origin xyz="${length/2 + thickness/2} 0 ${depth/2}" rpy="0 0 0" />
+      <geometry>
+        <box size="${thickness} ${width} ${depth}" />
+      </geometry>
+    </collision>
+
+    <!-- ================= BACK WALL (-x) ================= -->
+    <visual>
+      <origin xyz="${-length/2 - thickness/2} 0 ${depth/2}" rpy="0 0 0" />
+      <geometry>
+        <box size="${thickness} ${width} ${depth}" />
+      </geometry>
+      <material name="blue" />
+    </visual>
+    <collision>
+      <origin xyz="${-length/2 - thickness/2} 0 ${depth/2}" rpy="0 0 0" />
+      <geometry>
+        <box size="${thickness} ${width} ${depth}" />
+      </geometry>
+    </collision>
+
+    <!-- Dummy Inertia (Gazebo requires inertial tags for objects, even if static) -->
+    <inertial>
+      <mass value="5000.0" />
+      <origin xyz="0 0 0" />
+      <inertia ixx="1.0" ixy="0.0" ixz="0.0" iyy="1.0" iyz="0.0" izz="1.0" />
+    </inertial>
+  </link>
+
+  <!-- Gazebo specific plugins and material mapping -->
+  <gazebo reference="base_link">
+    <visual>
+      <material>
+        <ambient>0.2 0.6 1.0 1.0</ambient>
+        <diffuse>0.2 0.6 1.0 1.0</diffuse>
+        <specular>0.1 0.1 0.1 1.0</specular>
+      </material>
+    </visual>
+  </gazebo>
+
+  <!-- Make the pool static so it doesn't fall due to gravity or get pushed by robots -->
+  <gazebo>
+    <static>true</static>
+  </gazebo>
+
+</robot>
