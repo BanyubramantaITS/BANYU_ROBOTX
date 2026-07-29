@@ -17,13 +17,14 @@ def generate_launch_description():
         "worlds",
         "proof_of_readiness.world",
     )
+    bluerov2_gz_pkg_share = get_package_share_directory("bluerov2_gz")
     por_pool_file = os.path.join(
         banyu_sim_pkg_share, "models", "por_pool", "model.xacro"
     )
     por_pool_xml = xacro.process(por_pool_file)
 
     bluerov2_heavy_file = os.path.join(
-        banyu_sim_pkg_share, "models", "bluerov2_heavy", "model.urdf"
+        bluerov2_gz_pkg_share, "models", "bluerov2_heavy", "model.urdf"
     )
     with open(bluerov2_heavy_file, "r") as f:
         bluerov2_heavy_xml = f.read()
@@ -55,8 +56,6 @@ def generate_launch_description():
     ardusub_launch = ExecuteProcess(
         cmd=ardusub_cmd,
         output="screen",
-        log_cmd=True,
-        # respawn=True
     )
 
     # ros_gz_bridge = Node(
