@@ -7,7 +7,10 @@
   <maintainer email="jalucahyoseno@gmail.com">gryd</maintainer>
   <license>MIT</license>
 
-  <depend>simple_launch</depend>
+  <depend>xacro</depend>
+  <depend>ros2launch</depend>
+  <depend>ament_index_python</depend>
+
   <depend>banyu_simulation</depend>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
