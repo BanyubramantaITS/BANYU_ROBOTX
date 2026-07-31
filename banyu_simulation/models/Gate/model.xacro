@@ -1,0 +1,73 @@
+<?xml version="1.0"?>
+<robot name="gate" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Gate Dimensions -->
+  <!-- Width: 2m between post centers (Y scale 0.4) -->
+  <!-- Depth: Top crossbar top surface placed 1m below water surface (z=0) -->
+  <xacro:property name="scale_x" value="1.0" />
+  <xacro:property name="scale_y" value="0.4" />
+  <xacro:property name="scale_z" value="0.5" />
+
+  <link name="link">
+    <inertial>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+      <mass value="5000.0" />
+      <inertia ixx="1.0" ixy="0.0" ixz="0.0" iyy="1.0" iyz="0.0" izz="1.0" />
+    </inertial>
+
+    <visual>
+      <origin xyz="0 0 -3.1" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://Gate/meshes/gate.dae"
+          scale="${scale_x} ${scale_y} ${scale_z}" />
+      </geometry>
+    </visual>
+
+    <!-- Right Post Collision (-Y) -->
+    <collision name="right_collision">
+      <origin xyz="0 -1.0 -2.1" rpy="0 0 0" />
+      <geometry>
+        <box size="0.2 0.08 2.0" />
+      </geometry>
+    </collision>
+
+    <!-- Left Post Collision (+Y) -->
+    <collision name="left_collision">
+      <origin xyz="0 1.0 -2.1" rpy="0 0 0" />
+      <geometry>
+        <box size="0.2 0.08 2.0" />
+      </geometry>
+    </collision>
+
+    <!-- Top Crossbar Collision (top surface at -1.0m, depth 1m below surface z=0) -->
+    <collision name="top_collision">
+      <origin xyz="0 0 -1.05" rpy="0 0 0" />
+      <geometry>
+        <box size="0.2 2.08 0.1" />
+      </geometry>
+    </collision>
+  </link>
+
+  <gazebo reference="link">
+    <visual>
+      <material>
+        <diffuse>1.0 1.0 1.0 1.0</diffuse>
+        <specular>0.2 0.2 0.2 1.0</specular>
+        <pbr>
+          <metal>
+            <albedo_map>model://Gate/materials/textures/gate.png</albedo_map>
+          </metal>
+        </pbr>
+        <script>
+          <uri>model://Gate/materials/scripts/gate.material</uri>
+          <uri>model://Gate/materials/textures</uri>
+          <name>vrc/gate</name>
+        </script>
+      </material>
+    </visual>
+  </gazebo>
+
+  <gazebo>
+    <static>true</static>
+  </gazebo>
+</robot>

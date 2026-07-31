@@ -3,7 +3,7 @@
 
   <!-- Pool Parameters -->
   <!-- Dimensions are in meters. -->
-  <xacro:property name="length" value="16.0" />
+  <xacro:property name="length" value="19.0" />
   <xacro:property name="width" value="6.0" />
   <xacro:property name="depth" value="3.0" />
   <xacro:property name="thickness" value="0.2" />
