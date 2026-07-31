@@ -87,11 +87,17 @@ def generate_launch_description():
         cmd=ardusub_cmd,
         name="ardusub_cmd",
         output="screen",
+        log_cmd=True,
         condition=IfCondition(
-            PythonExpression([
-                "'", LaunchConfiguration("use_sim"), "' == 'True' and '",
-                LaunchConfiguration("use_ardusub_sitl"), "' == 'False'"
-            ])
+            PythonExpression(
+                [
+                    "'",
+                    LaunchConfiguration("use_sim"),
+                    "' == 'True' and '",
+                    LaunchConfiguration("use_ardusub_sitl"),
+                    "' == 'False'",
+                ]
+            )
         ),
     )
 
@@ -111,12 +117,17 @@ def generate_launch_description():
     ardusub_sitl_launch = ExecuteProcess(
         cmd=ardusub_sitl_cmd,
         name="ardusub_sitl",
-        output="screen",
+        log_cmd=True,
         condition=IfCondition(
-            PythonExpression([
-                "'", LaunchConfiguration("use_sim"), "' == 'True' and '",
-                LaunchConfiguration("use_ardusub_sitl"), "' == 'True'"
-            ])
+            PythonExpression(
+                [
+                    "'",
+                    LaunchConfiguration("use_sim"),
+                    "' == 'True' and '",
+                    LaunchConfiguration("use_ardusub_sitl"),
+                    "' == 'True'",
+                ]
+            )
         ),
     )
 
@@ -158,7 +169,7 @@ def generate_launch_description():
         executable="create",
         package="ros_gz_sim",
         name="spawn_buoy",
-        arguments=["-string", buoy_xml, "-name", "white_buoy", "-x", "6"],
+        arguments=["-string", buoy_xml, "-name", "white_buoy", "-x", "6", "-z", "-2.1"],
         condition=IfCondition(LaunchConfiguration("use_sim")),
     )
 
