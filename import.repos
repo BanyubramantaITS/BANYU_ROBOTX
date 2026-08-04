@@ -1,9 +1,9 @@
 repositories:
-  src/ardupilot_gazebo:
+  ardupilot_gazebo:
     type: git
     url: git@github.com:ArduPilot/ardupilot_gazebo.git
     version: ros2
-  src/bluerov2_gz:
+  bluerov2_gz:
     type: git
     url: git@github.com:BanyubramantaITS/bluerov2_gz.git
     version: banyu
