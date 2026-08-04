@@ -1,0 +1,31 @@
+# MAVROS configuration for BANYU ArduSub teleop.
+#
+# IMPORTANT: system_id must be 255 so ArduSub accepts MAVLink MANUAL_CONTROL
+# (and RC overrides) from MAVROS. ArduPilot's sysid_is_gcs() only recognizes
+# sysid 255 (= SYSID_MYGCS default) for these messages;
+/**:
+  ros__parameters:
+    system_id: 255
+    startup_px4_usb_quirk: false
+
+    # Mirror mavros/apm_pluginlists.yaml so we don't need to include it.
+    plugin_denylist:
+      - actuator_control
+      - ftp
+      - hil
+      - altitude
+      - debug_value
+      - image_pub
+      - px4flow
+      - vibration
+      - vision_speed_estimate
+      - wheel_odometry
+
+# Process-level params of the mavros executable (declared in its main).
+mavros:
+  ros__parameters:
+    use_sim_time: true
+    gcs_url: ""
+    tgt_system: 1
+    tgt_component: 1
+    fcu_protocol: "v2.0"

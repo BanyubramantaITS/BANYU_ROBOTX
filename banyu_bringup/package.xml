@@ -12,6 +12,7 @@
   <depend>ament_index_python</depend>
 
   <depend>banyu_simulation</depend>
+  <depend>banyu_teleop</depend>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
