@@ -1,8 +1,4 @@
 repositories:
-  src/BANYU_ROBOTX:
-    type: git
-    url: git@github.com:BanyubramantaITS/BANYU_ROBOTX.git
-    version: main
   src/ardupilot_gazebo:
     type: git
     url: git@github.com:ArduPilot/ardupilot_gazebo.git
