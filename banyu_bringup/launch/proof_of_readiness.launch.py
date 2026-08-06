@@ -58,11 +58,27 @@ def generate_launch_description():
     )
 
     _bluerov2_heavy_file = os.path.join(
-        _bluerov2_gz_pkg_share, "models", "bluerov2_heavy", "model.urdf"
+        _bluerov2_gz_pkg_share, "models", "bluerov2_heavy", "model.xacro"
     )
 
-    with open(_bluerov2_heavy_file, "r") as f:
-        bluerov2_heavy_xml = f.read()
+    bluerov2_heavy_xml = xacro.process(_bluerov2_heavy_file)
+
+    spawn_bluerov2_heavy = Node(
+        executable="create",
+        package="ros_gz_sim",
+        name="spawn_bluerov2_heavy",
+        arguments=[
+            "-string",
+            bluerov2_heavy_xml,
+            "-name",
+            "bluerov2_heavy",
+            "-x",
+            "-7",
+            "-z",
+            "-2",
+        ],
+        condition=IfCondition(LaunchConfiguration("use_sim")),
+    )
 
     robot_state_publisher = Node(
         package="robot_state_publisher",
@@ -163,6 +179,7 @@ def generate_launch_description():
         cmd=["gz", "sim", "-v3", "-r", _world_file],
         output="both",
         condition=IfCondition(LaunchConfiguration("use_sim")),
+        # on_exit="shutdown",
     )
 
     _por_pool_file = os.path.join(
@@ -208,23 +225,6 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("use_sim")),
     )
 
-    spawn_bluerov2_heavy = Node(
-        executable="create",
-        package="ros_gz_sim",
-        name="spawn_bluerov2_heavy",
-        arguments=[
-            "-string",
-            bluerov2_heavy_xml,
-            "-name",
-            "bluerov2_heavy",
-            "-x",
-            "-7",
-            "-z",
-            "-2",
-        ],
-        condition=IfCondition(LaunchConfiguration("use_sim")),
-    )
-
     return LaunchDescription(
         [
             use_sim_arg,
@@ -238,8 +238,8 @@ def generate_launch_description():
             spawn_buoy,
             spawn_bluerov2_heavy,
             robot_state_publisher,
-            ardusub_launch,
-            ardusub_sitl_launch,
-            mavros_launch,
+            # ardusub_launch,
+            # ardusub_sitl_launch,
+            # mavros_launch,
         ]
     )
