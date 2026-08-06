@@ -225,6 +225,13 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("use_sim")),
     )
 
+    gazebo_ros_image_bridge = Node(
+        package="ros_gz_image",
+        executable="image_bridge",
+        arguments=["/front_camera/image_raw"],
+        output="screen",
+    )
+
     return LaunchDescription(
         [
             use_sim_arg,
@@ -238,8 +245,9 @@ def generate_launch_description():
             spawn_buoy,
             spawn_bluerov2_heavy,
             robot_state_publisher,
-            # ardusub_launch,
-            # ardusub_sitl_launch,
-            # mavros_launch,
+            gazebo_ros_image_bridge,
+            ardusub_launch,
+            ardusub_sitl_launch,
+            mavros_launch,
         ]
     )
