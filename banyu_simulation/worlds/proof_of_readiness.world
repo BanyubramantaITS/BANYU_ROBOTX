@@ -41,18 +41,6 @@
             <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Sun</uri>
         </include>
 
-        <!-- <include>
-      <uri>
-        model://Gate
-      </uri>
-      <pose>0 0 0 0 0 0</pose>
-    </include> -->
-
-        <include>
-            <uri>model://bluerov2_heavy</uri>
-            <pose>-7 0 -2 0 0 0</pose>
-        </include>
-
         <include>
             <uri>model://axes</uri>
             <pose>0 0 0.2 0 0 0</pose>

@@ -188,7 +188,7 @@ def generate_launch_description():
     )
 
     _buoy_file = os.path.join(
-        _banyu_sim_pkg_share, "models", "white_buoy", "model.xacro"
+        _banyu_sim_pkg_share, "models", "yellow_buoy", "model.xacro"
     )
     _buoy_xml = xacro.process(_buoy_file)
     spawn_buoy = Node(
@@ -199,11 +199,28 @@ def generate_launch_description():
             "-string",
             _buoy_xml,
             "-name",
-            "white_buoy",
+            "yellow_buoy",
             "-x",
             "6",
             "-z",
             "-2.1",
+        ],
+        condition=IfCondition(LaunchConfiguration("use_sim")),
+    )
+
+    spawn_bluerov2_heavy = Node(
+        executable="create",
+        package="ros_gz_sim",
+        name="spawn_bluerov2_heavy",
+        arguments=[
+            "-string",
+            bluerov2_heavy_xml,
+            "-name",
+            "bluerov2_heavy",
+            "-x",
+            "-7",
+            "-z",
+            "-2",
         ],
         condition=IfCondition(LaunchConfiguration("use_sim")),
     )
@@ -219,6 +236,7 @@ def generate_launch_description():
             spawn_por_pool,
             spawn_gate,
             spawn_buoy,
+            spawn_bluerov2_heavy,
             robot_state_publisher,
             ardusub_launch,
             ardusub_sitl_launch,

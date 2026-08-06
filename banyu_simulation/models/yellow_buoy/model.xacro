@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<robot name="white_buoy" xmlns:xacro="http://www.ros.org/wiki/xacro">
+<robot name="yellow_buoy" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <link name=" link">
     <inertial>
       <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
@@ -10,7 +10,7 @@
     <visual>
       <origin />
       <geometry>
-        <mesh filename=" package://white_buoy/meshes/white_buoy.dae" />
+        <mesh filename="package://banyu_simulation/models/yellow_buoy/meshes/yellow_buoy.dae" />
       </geometry>
     </visual>
     <collision name="collision_inner">

@@ -9,7 +9,7 @@ This package provides the Gazebo simulation environment, 3D world models, and la
 - **`worlds/proof_of_readiness.world`**: Main simulation world featuring buoyancy physics, underwater environment settings, and lighting.
 - **`models/Gate/`**: 3D underwater gate model (`model.xacro` & `model.sdf`) with PBR textures.
 - **`models/por_pool/`**: Proof of Readiness pool model (`model.xacro`).
-- **`models/white_buoy/`**: White navigation buoy model (`model.xacro`).
+- **`models/yellow_buoy/`**: Yellow navigation buoy model (`model.xacro`).
 
 ---
 

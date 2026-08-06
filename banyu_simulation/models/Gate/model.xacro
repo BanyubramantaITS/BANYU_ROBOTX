@@ -5,8 +5,16 @@
   <!-- Width: 2m between post centers (Y scale 0.4) -->
   <!-- Depth: Top crossbar top surface placed 1m below water surface (z=0) -->
   <xacro:property name="scale_x" value="1.0" />
-  <xacro:property name="scale_y" value="0.4" />
-  <xacro:property name="scale_z" value="0.5" />
+  <xacro:property name="scale_y" value="0.46" />
+  <xacro:property name="scale_z" value="0.48" />
+
+  <xacro:property name="orig_v_post_x" value="0.2" />
+  <xacro:property name="orig_v_post_y" value="0.2" />
+  <xacro:property name="orig_v_post_z" value="4.0" />
+
+  <xacro:property name="orig_h_post_x" value="0.2" />
+  <xacro:property name="orig_h_post_y" value="5.2" />
+  <xacro:property name="orig_h_post_z" value="0.2" />
 
   <link name="link">
     <inertial>
@@ -16,26 +24,26 @@
     </inertial>
 
     <visual>
-      <origin xyz="0 0 -3.1" rpy="0 0 0" />
+      <origin xyz="0 0 -3" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://Gate/meshes/gate.dae"
+        <mesh filename="package://banyu_simulation/models/Gate/meshes/gate.dae"
           scale="${scale_x} ${scale_y} ${scale_z}" />
       </geometry>
     </visual>
 
     <!-- Right Post Collision (-Y) -->
     <collision name="right_collision">
-      <origin xyz="0 -1.0 -2.1" rpy="0 0 0" />
+      <origin xyz="0 -1.15 -2.0" rpy="0 0 0" />
       <geometry>
-        <box size="0.2 0.08 2.0" />
+        <box size="${orig_v_post_x*scale_x} ${orig_v_post_y*scale_y} ${orig_v_post_z*scale_z}" />
       </geometry>
     </collision>
 
     <!-- Left Post Collision (+Y) -->
     <collision name="left_collision">
-      <origin xyz="0 1.0 -2.1" rpy="0 0 0" />
+      <origin xyz="0 1.15 -2.0" rpy="0 0 0" />
       <geometry>
-        <box size="0.2 0.08 2.0" />
+        <box size="${orig_v_post_x*scale_x} ${orig_v_post_y*scale_y} ${orig_v_post_z*scale_z}" />
       </geometry>
     </collision>
 
@@ -43,7 +51,7 @@
     <collision name="top_collision">
       <origin xyz="0 0 -1.05" rpy="0 0 0" />
       <geometry>
-        <box size="0.2 2.08 0.1" />
+        <box size="${orig_h_post_x*scale_x} ${orig_h_post_y*scale_y} ${orig_h_post_z*scale_z}" />
       </geometry>
     </collision>
   </link>
@@ -55,12 +63,12 @@
         <specular>0.2 0.2 0.2 1.0</specular>
         <pbr>
           <metal>
-            <albedo_map>model://Gate/materials/textures/gate.png</albedo_map>
+            <albedo_map>model://banyu_simulation/models/Gate/materials/textures/gate.png</albedo_map>
           </metal>
         </pbr>
         <script>
-          <uri>model://Gate/materials/scripts/gate.material</uri>
-          <uri>model://Gate/materials/textures</uri>
+          <uri>model://banyu_simulation/models/Gate/materials/scripts/gate.material</uri>
+          <uri>model://banyu_simulation/models/Gate/materials/textures</uri>
           <name>vrc/gate</name>
         </script>
       </material>

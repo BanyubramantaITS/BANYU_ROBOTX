@@ -8,7 +8,7 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 
-ament_environment_hooks("${CMAKE_CURRENT_SOURCE_DIR}/hooks/gazebo_env.dsv.in")
+ament_environment_hooks("${CMAKE_CURRENT_SOURCE_DIR}/hooks/gazebo_env.dsv")
 
 install(
     DIRECTORY models worlds
