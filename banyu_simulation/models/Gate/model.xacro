@@ -61,16 +61,16 @@
       <material>
         <diffuse>1.0 1.0 1.0 1.0</diffuse>
         <specular>0.2 0.2 0.2 1.0</specular>
+        <!-- Matches yellow_buoy (diffuse 1 0.85 0 + emission 0.15 0.13 0). -->
+        <emissive>0.15 0.13 0.0 1.0</emissive>
         <pbr>
           <metal>
             <albedo_map>model://banyu_simulation/models/Gate/materials/textures/gate.png</albedo_map>
+            <!-- metalness=0: plain albedo (matte), avoids the dark full-metal look -->
+            <metalness>0.0</metalness>
+            <roughness>0.6</roughness>
           </metal>
         </pbr>
-        <script>
-          <uri>model://banyu_simulation/models/Gate/materials/scripts/gate.material</uri>
-          <uri>model://banyu_simulation/models/Gate/materials/textures</uri>
-          <name>vrc/gate</name>
-        </script>
       </material>
     </visual>
   </gazebo>

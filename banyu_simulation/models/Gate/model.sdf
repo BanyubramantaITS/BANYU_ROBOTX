@@ -40,11 +40,15 @@
           </mesh>
         </geometry>
         <material>
-          <script>
-            <uri>model://Gate/materials/scripts/gate.material</uri>
-            <uri>model://Gate/materials/textures</uri>
-            <name>vrc/gate</name>
-          </script>
+          <diffuse>1 1 1 1</diffuse>
+          <emissive>0.15 0.13 0 1</emissive>
+          <pbr>
+            <metal>
+              <albedo_map>model://Gate/materials/textures/gate.png</albedo_map>
+              <metalness>0</metalness>
+              <roughness>0.6</roughness>
+            </metal>
+          </pbr>
         </material>
       </visual>
 
