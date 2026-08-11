@@ -13,16 +13,10 @@ find_package(OpenCV REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(banyu_msgs REQUIRED)
 
-add_executable(por_detection src/por_detection)
+add_executable(por_detection src/por_detection.cpp)
 ament_target_dependencies(por_detection rclcpp cv_bridge OpenCV sensor_msgs banyu_msgs)
 
-target_include_directories(por_detection PUBLIC
-$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-$<INSTALL_INTERFACE:include/${PROJECT_NAME}>)
-
-install(DIRECTORY include
-    DESTINATION include/${PROEJCT_NAME}
-)
+target_include_directories(por_detection PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 install(TARGETS por_detection
     DESTINATION lib/${PROJECT_NAME}

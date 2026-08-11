@@ -11,7 +11,9 @@ PorDetection::PorDetection() : Node("por_detection") {
         "/front_camera/image_raw", rclcpp::SensorDataQoS(),
         std::bind(&PorDetection::frontCameraCb, this, std::placeholders::_1));
 
-    this->createHSVSlider();
+    _detectionPub = this->create_publisher<banyu_msgs::msg::Detection>("/banyu/detection", rclcpp::SensorDataQoS());
+
+    this->createSlider();
 
     RCLCPP_INFO(this->get_logger(), "por_detection node started");
 }
@@ -19,16 +21,17 @@ PorDetection::PorDetection() : Node("por_detection") {
 void PorDetection::frontCameraCb(sensor_msgs::msg::Image::SharedPtr msg) {
     if (msg->data.empty()) {
         RCLCPP_WARN(this->get_logger(), "Image msg Empty");
-        rclcpp::shutdown();
+        return;
     }
+
+    this->getSliderValue();
+
     cv::Mat origImage = cv_bridge::toCvCopy(msg, "bgr8")->image;
     cv::imshow("Original Frame", origImage);
 
     cv::Mat blurred {};
-    cv::GaussianBlur(origImage, blurred, cv::Size(5, 5), 0);
+    cv::GaussianBlur(origImage, blurred, cv::Size(kernelSize, kernelSize), 0);
     cv::imshow("Blurred Frame", blurred);
-
-    this->getHSVSliderValue();
 
     cv::Mat hsvImage {};
     cv::cvtColor(blurred, hsvImage, cv::COLOR_BGR2HSV);
@@ -38,49 +41,158 @@ void PorDetection::frontCameraCb(sensor_msgs::msg::Image::SharedPtr msg) {
     cv::Mat upper { { hMax, sMax, vMax } };
     cv::Mat mask {};
     cv::inRange(hsvImage, lower, upper, mask);
-
-    // morphological opening (removes small objects from the foreground)
-    cv::erode(mask, mask, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5)));
-    cv::dilate(mask, mask, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5)));
-
-    // morphological closing (removes small holes from the foreground)
-    cv::dilate(mask, mask, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5)));
-    cv::erode(mask, mask, cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5)));
     cv::imshow("Mask Image", mask);
+
+    std::vector<cv::Mat> contours {};
+    cv::findContours(mask, contours, cv::RetrievalModes::RETR_EXTERNAL,
+                     cv::ContourApproximationModes::CHAIN_APPROX_SIMPLE);
+
+    cv::Mat labels, stats, centroids;
+    cv::connectedComponentsWithStats(mask, labels, stats, centroids);
+
+    cv::Mat annotated { origImage.clone() };
+    DetectionCandidate bestCandidate;
+
+    bool foundBest = this->detectObjectFromContours(origImage, annotated, stats, centroids, bestCandidate);
+    if (foundBest) {
+        banyu_msgs::msg::Detection detection;
+        detection.header = msg->header;
+        detection.object_id = bestCandidate.objectId;
+        detection.apparent_size = bestCandidate.apparentSize;
+        detection.confidence = bestCandidate.confidence;
+        detection.distance = 0.0f;
+        detection.offset_x = bestCandidate.offsetX;
+        detection.offset_y = bestCandidate.offsetY;
+
+        _detectionPub->publish(detection);
+    }
+    cv::imshow("Annotated", annotated);
 
     cv::Mat matched {};
     cv::bitwise_and(origImage, origImage, matched, mask);
+    cv::drawContours(matched, contours, -1, CV_WHITE);
     cv::imshow("Matched Image", matched);
 
     cv::waitKey(1);
 }
 
-void PorDetection::createHSVSlider() {
-    cv::namedWindow("HSVSlider");
+bool PorDetection::detectObjectFromContours(const cv::Mat origImage, const cv::Mat annotated, const cv::Mat stats,
+                                            const cv::Mat centroids, DetectionCandidate& bestCandidate) {
+    candidates.clear();
 
-    cv::createTrackbar("HMin", "HSVSlider", 0, 179);
-    cv::createTrackbar("SMin", "HSVSlider", 0, 255);
-    cv::createTrackbar("VMin", "HSVSlider", 0, 255);
-    cv::createTrackbar("HMax", "HSVSlider", 0, 179);
-    cv::createTrackbar("SMax", "HSVSlider", 0, 255);
-    cv::createTrackbar("VMax", "HSVSlider", 0, 255);
+    for (int i = 1; i < stats.rows; i++) {
+        int x = stats.at<int>(i, cv::CC_STAT_LEFT);
+        int y = stats.at<int>(i, cv::CC_STAT_TOP);
+        int width = stats.at<int>(i, cv::CC_STAT_WIDTH);
+        int height = stats.at<int>(i, cv::CC_STAT_HEIGHT);
+        int area = stats.at<int>(i, cv::CC_STAT_AREA);
 
-    (hMin != 179) ? cv::setTrackbarPos("HMin", "HSVSlider", hMin) : cv::setTrackbarPos("HMin", "HSVSlider", 179);
-    (sMin != 255) ? cv::setTrackbarPos("SMin", "HSVSlider", sMin) : cv::setTrackbarPos("SMin", "HSVSlider", 255);
-    (vMin != 255) ? cv::setTrackbarPos("VMin", "HSVSlider", vMin) : cv::setTrackbarPos("VMin", "HSVSlider", 255);
-    (hMax != 179) ? cv::setTrackbarPos("HMax", "HSVSlider", hMax) : cv::setTrackbarPos("HMax", "HSVSlider", 179);
-    (sMax != 255) ? cv::setTrackbarPos("SMax", "HSVSlider", sMax) : cv::setTrackbarPos("SMax", "HSVSlider", 255);
-    (vMax != 255) ? cv::setTrackbarPos("VMax", "HSVSlider", vMax) : cv::setTrackbarPos("VMax", "HSVSlider", 255);
+        if (area < minArea) continue;
+
+        double aspect = static_cast<double>(width) / static_cast<double>(height);
+        double cx = centroids.at<double>(i, 0);
+        double cy = centroids.at<double>(i, 1);
+
+        const double buoyAspectMaxRatio = this->buoyAspectMax / 100.0;
+        const double gateAspectMinRatio = this->gateAspectMin / 100.0;
+        const bool isBuoy = aspect <= buoyAspectMaxRatio;
+        const bool isGate = aspect >= gateAspectMinRatio;
+
+        const double targetCx = isGate ? x + width / 2.0 : cx;
+        const double targetCy = isGate ? y + height / 2.0 : cy;
+
+        if (!isBuoy && !isGate) continue;
+
+        const float offsetX = static_cast<float>((targetCx - origImage.cols / 2.0) / (origImage.cols / 2.0));
+        const float offsetY = static_cast<float>((targetCy - origImage.rows / 2.0) / (origImage.rows / 2.0));
+
+        const float apparentSize = static_cast<float>(area) / (origImage.cols * origImage.rows);
+        float confidence = std::clamp(static_cast<float>(area) / static_cast<float>(width * height), 0.0f, 1.0f);
+
+        DetectionCandidate candidate;
+        candidate.objectId = (isBuoy) ? 1 : (isGate) ? 0 : -1;
+        candidate.x = x;
+        candidate.y = y;
+        candidate.width = width;
+        candidate.height = height;
+        candidate.area = area;
+        candidate.offsetX = offsetX;
+        candidate.offsetY = offsetY;
+        candidate.apparentSize = apparentSize;
+        candidate.confidence = confidence;
+
+        candidates.push_back(candidate);
+
+        const cv::Scalar color = isBuoy ? CV_YELLOW : isGate ? CV_GREEN : CV_GRAY;
+
+        cv::rectangle(annotated, cv::Rect(x, y, width, height), color, 2);
+        cv::circle(annotated, cv::Point(cvRound(targetCx), cvRound(targetCy)), 4, color, -1);
+
+        char text[64];
+        const char* label = isBuoy ? "buoy" : isGate ? "gate" : "unknown";
+        snprintf(text, sizeof(text), "%s ar=%.2f fill=%.2f ox=%.2f oy=%.2f", label, aspect, confidence, offsetX,
+                 offsetY);
+        cv::putText(annotated, text, cv::Point(x, std::max(y - 8, 12)), cv::FONT_HERSHEY_SIMPLEX, 0.6, color, 2);
+
+        const cv::Scalar red(0, 0, 255);
+        cv::line(annotated, { origImage.cols / 2 - 20, origImage.rows / 2 },
+                 { origImage.cols / 2 + 20, origImage.rows / 2 }, red, 1);
+        cv::line(annotated, { origImage.cols / 2, origImage.rows / 2 - 20 },
+                 { origImage.cols / 2, origImage.rows / 2 + 20 }, red, 1);
+    }
+
+    bool foundBest = false;
+
+    for (const auto& cd : candidates) {
+        if (priority == "gate" && cd.objectId != 0) continue;
+        if (priority == "buoy" && cd.objectId != 1) continue;
+
+        if (!foundBest || cd.area > bestCandidate.area) {
+            bestCandidate = cd;
+            foundBest = true;
+        }
+    }
+
+    return foundBest;
 }
 
-void PorDetection::getHSVSliderValue() {
-    hMin = cv::getTrackbarPos("HMin", "HSVSlider");
-    sMin = cv::getTrackbarPos("SMin", "HSVSlider");
-    vMin = cv::getTrackbarPos("VMin", "HSVSlider");
+void PorDetection::createSlider() {
+    cv::namedWindow("Slider");
 
-    hMax = cv::getTrackbarPos("HMax", "HSVSlider");
-    sMax = cv::getTrackbarPos("SMax", "HSVSlider");
-    vMax = cv::getTrackbarPos("VMax", "HSVSlider");
+    cv::createTrackbar("HMin", "Slider", 0, 179);
+    cv::createTrackbar("SMin", "Slider", 0, 255);
+    cv::createTrackbar("VMin", "Slider", 0, 255);
+    cv::createTrackbar("HMax", "Slider", 0, 179);
+    cv::createTrackbar("SMax", "Slider", 0, 255);
+    cv::createTrackbar("VMax", "Slider", 0, 255);
+
+    cv::createTrackbar("minArea", "Slider", 0, 1000);
+    cv::createTrackbar("BuoyARx100", "Slider", 0, 200);
+    cv::createTrackbar("GateARx100", "Slider", 0, 300);
+
+    cv::setTrackbarPos("HMin", "Slider", hMin);
+    cv::setTrackbarPos("SMin", "Slider", sMin);
+    cv::setTrackbarPos("VMin", "Slider", vMin);
+    cv::setTrackbarPos("HMax", "Slider", hMax);
+    cv::setTrackbarPos("SMax", "Slider", sMax);
+    cv::setTrackbarPos("VMax", "Slider", vMax);
+    cv::setTrackbarPos("minArea", "Slider", minArea);
+    cv::setTrackbarPos("BuoyARx100", "Slider", buoyAspectMax);
+    cv::setTrackbarPos("GateARx100", "Slider", gateAspectMin);
+}
+
+void PorDetection::getSliderValue() {
+    hMin = cv::getTrackbarPos("HMin", "Slider");
+    sMin = cv::getTrackbarPos("SMin", "Slider");
+    vMin = cv::getTrackbarPos("VMin", "Slider");
+
+    hMax = cv::getTrackbarPos("HMax", "Slider");
+    sMax = cv::getTrackbarPos("SMax", "Slider");
+    vMax = cv::getTrackbarPos("VMax", "Slider");
+
+    minArea = cv::getTrackbarPos("minArea", "Slider");
+    buoyAspectMax = cv::getTrackbarPos("BuoyARx100", "Slider");
+    gateAspectMin = cv::getTrackbarPos("GateARx100", "Slider");
 }
 }  // namespace por_detection
 
