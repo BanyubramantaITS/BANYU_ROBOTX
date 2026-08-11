@@ -88,12 +88,19 @@ def generate_launch_description():
         parameters=[{"robot_description": bluerov2_heavy_xml}],
     )
 
+    _banyu_bringup_share = get_package_share_directory("banyu_bringup")
+    _banyu_defaults_file = os.path.join(
+        _banyu_bringup_share, "config", "banyu_defaults.parm"
+    )
+
     _ardusub_cmd = [
         "ardusub",
         "-w",
         "-M",
         "JSON",
         "-I0",
+        "--defaults",
+        _banyu_defaults_file,
     ]
     ardusub_launch = ExecuteProcess(
         cmd=_ardusub_cmd,
@@ -121,6 +128,7 @@ def generate_launch_description():
         "--out=udp:127.0.0.1:14551",
         "--console",
         "-w",
+        "--add-param-file=" + _banyu_defaults_file,
     ]
     ardusub_sitl_launch = ExecuteProcess(
         cmd=_ardusub_sitl_cmd,
@@ -135,7 +143,6 @@ def generate_launch_description():
         ),
     )
 
-    _banyu_bringup_share = get_package_share_directory("banyu_bringup")
     _mavros_config_file = os.path.join(
         _banyu_bringup_share, "config", "mavros_config.yaml"
     )
@@ -232,6 +239,13 @@ def generate_launch_description():
         output="screen",
     )
 
+    mission_manager = Node(
+        package="banyu_mission",
+        executable="banyu_mission",
+        name="banyu_mission",
+        output="screen",
+    )
+
     return LaunchDescription(
         [
             use_sim_arg,
@@ -249,5 +263,6 @@ def generate_launch_description():
             ardusub_launch,
             ardusub_sitl_launch,
             mavros_launch,
+            mission_manager,
         ]
     )

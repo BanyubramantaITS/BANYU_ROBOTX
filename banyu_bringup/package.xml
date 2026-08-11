@@ -13,6 +13,7 @@
 
   <depend>banyu_simulation</depend>
   <depend>banyu_teleop</depend>
+  <depend>banyu_mission</depend>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 

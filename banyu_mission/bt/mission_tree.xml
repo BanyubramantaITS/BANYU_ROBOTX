@@ -1,0 +1,17 @@
+<root BTCPP_format="4" main_tree_to_execute="BanyuMission">
+  <BehaviorTree ID="BanyuMission">
+    <ReactiveFallback name="MissionSupervisor">
+      <AbortedOrTeleop name="IdleOrAborted" />
+      <ReactiveSequence name="MissionFlow">
+        <MissionActive name="MissionRunning" />
+        <NavToGate name="NavToGate" />
+        <GateAlign name="GateAlign" />
+        <GatePass name="GatePass" />
+        <SearchMarker name="SearchMarker" />
+        <MarkerAlign name="MarkerAlign" />
+        <MarkerOrbit name="MarkerOrbit" />
+        <ReturnToStart name="ReturnToStart" />
+      </ReactiveSequence>
+    </ReactiveFallback>
+  </BehaviorTree>
+</root>
