@@ -11,6 +11,10 @@ PorDetection::PorDetection() : Node("por_detection") {
     fallbackFocalLengthPx = this->declare_parameter<double>("fallback_focal_length_px", 0.0);
     buoyReferenceHeightM = this->declare_parameter<double>("buoy_reference_height_m", 1.5);
     gateReferenceHeightM = this->declare_parameter<double>("gate_reference_height_m", 2.0);
+    edgeMarginPx = this->declare_parameter<int>("edge_margin_px", 5);
+    minHeightPx = this->declare_parameter<int>("min_height_px", 10);
+    minApparentSize = this->declare_parameter<double>("min_apparent_size", 0.001);
+    maxDistanceM = this->declare_parameter<double>("max_distance_m", 20.0);
 
     _frontCameraSub = this->create_subscription<sensor_msgs::msg::Image>(
         "/front_camera/image_raw", rclcpp::SensorDataQoS(),
@@ -117,6 +121,12 @@ bool PorDetection::detectObjectFromContours(const cv::Mat& origImage, cv::Mat& a
 
         if (area < minArea) continue;
 
+        // A component touching the image border is only partially visible,
+        // so its pixel height cannot produce a valid monocular distance.
+        const bool touchesEdge = x <= edgeMarginPx || y <= edgeMarginPx || x + width >= origImage.cols - edgeMarginPx ||
+                                 y + height >= origImage.rows - edgeMarginPx;
+        if (touchesEdge || height < minHeightPx) continue;
+
         double aspect = static_cast<double>(width) / static_cast<double>(height);
         double cx = centroids.at<double>(i, 0);
         double cy = centroids.at<double>(i, 1);
@@ -135,6 +145,8 @@ bool PorDetection::detectObjectFromContours(const cv::Mat& origImage, cv::Mat& a
         const float offsetY = static_cast<float>((targetCy - origImage.rows / 2.0) / (origImage.rows / 2.0));
 
         const float apparentSize = static_cast<float>(area) / (origImage.cols * origImage.rows);
+        if (apparentSize < minApparentSize) continue;
+
         float confidence = std::clamp(static_cast<float>(area) / static_cast<float>(width * height), 0.0f, 1.0f);
 
         DetectionCandidate candidate;
@@ -149,6 +161,10 @@ bool PorDetection::detectObjectFromContours(const cv::Mat& origImage, cv::Mat& a
         candidate.apparentSize = apparentSize;
         candidate.confidence = confidence;
         candidate.distance = calculateDistance(candidate);
+
+        // A zero distance means that no camera calibration is available.
+        // Otherwise reject estimates outside the configured operating range.
+        if (maxDistanceM > 0.0 && candidate.distance > maxDistanceM) continue;
 
         candidates.push_back(candidate);
 
