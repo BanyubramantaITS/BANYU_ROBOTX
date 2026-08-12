@@ -4,7 +4,7 @@ ROS 2 Humble underwater ROV autonomy stack: ArduSub SITL + Gazebo Harmonic + MAV
 
 ## Architecture (non-obvious wiring)
 
-- Packages: `banyu_bringup` (launch + config), `banyu_simulation` (worlds/models), `banyu_teleop` (gamepad → `mavros/manual_control/send`), `banyu_msgs` (`Detection.msg`), `banyu_mission` (BT mission manager), `banyu_detection` (**fresh scaffold, WIP — empty impl**).
+- Packages: `banyu_bringup` (launch + config), `banyu_simulation` (worlds/models), `banyu_teleop` (gamepad → `mavros/manual_control/send`), `banyu_msgs` (`Detection.msg`), `banyu_mission` (BT mission manager), `banyu_detection` (**WIP — `por_detection` HSV/OpenCV detector; no finished target classifier yet**).
 - `proof_of_readiness.launch.py` is the main sim entrypoint: spawns `bluerov2_heavy` (from `model.xacro`, NOT `.urdf` — the install tree has a stale dangling `model.urdf` symlink, ignore it), `por_pool`, `Gate`, `yellow_buoy`, runs SITL + MAVROS + `banyu_mission`.
 - Camera: gz topic `front_camera/image_raw` → `ros_gz_image image_bridge` → ROS `/front_camera/image_raw` (30 Hz). `camera/camera_info` is NOT bridged. Never modify the `front_camera` sensor block in `bluerov2_gz/models/bluerov2_heavy/model.xacro` — user-configured.
 - Frames: Gazebo world is **ENU**; MAVROS `PositionTarget` is **NED** (z down). `NavToGate` captures origin from `/mavros/local_position/pose` and streams absolute `FRAME_LOCAL_NED` position setpoints (`type_mask 0xDF8`); velocity-only = `0xDC7`. ArduSub accepts `setpoint_raw/local` **only in GUIDED**, and setpoints must stream continuously (~10–50 Hz), not once.
