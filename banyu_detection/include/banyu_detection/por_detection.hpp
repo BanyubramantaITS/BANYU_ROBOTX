@@ -5,7 +5,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
-
 #include <string>
 #include <vector>
 
@@ -46,6 +45,10 @@ private:
     double fallbackFocalLengthPx { 0.0 };
     double buoyReferenceHeightM { 1.5 };
     double gateReferenceHeightM { 2.0 };
+    int edgeMarginPx { 5 };
+    int minHeightPx { 10 };
+    double minApparentSize { 0.001 };
+    double maxDistanceM { 20.0 };
 
     int hMin { 25 };
     int sMin { 75 };
