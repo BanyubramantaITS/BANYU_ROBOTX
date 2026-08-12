@@ -3,7 +3,11 @@
 #include <banyu_msgs/msg/detection.hpp>
 #include <opencv2/core.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
+
+#include <string>
+#include <vector>
 
 namespace por_detection {
 
@@ -24,16 +28,24 @@ struct DetectionCandidate {
     float offsetY;
     float apparentSize;
     float confidence;
+    float distance;
 };
 
 class PorDetection : public rclcpp::Node {
 private:
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr _frontCameraSub;
+    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr _cameraInfoSub;
     rclcpp::Publisher<banyu_msgs::msg::Detection>::SharedPtr _detectionPub;
 
     std::vector<DetectionCandidate> candidates;
 
     std::string priority = "largest";
+
+    double focalX { 0.0 };
+    double focalY { 0.0 };
+    double fallbackFocalLengthPx { 0.0 };
+    double buoyReferenceHeightM { 1.5 };
+    double gateReferenceHeightM { 2.0 };
 
     int hMin { 25 };
     int sMin { 75 };
@@ -51,8 +63,10 @@ private:
     int gateAspectMin { 85 };
 
     void frontCameraCb(sensor_msgs::msg::Image::SharedPtr msg);
-    bool detectObjectFromContours(const cv::Mat origImage, const cv::Mat annotated, const cv::Mat stats,
-                                  const cv::Mat centroids, DetectionCandidate& bestCandidate);
+    void cameraInfoCb(sensor_msgs::msg::CameraInfo::SharedPtr msg);
+    float calculateDistance(const DetectionCandidate& candidate) const;
+    bool detectObjectFromContours(const cv::Mat& origImage, cv::Mat& annotated, const cv::Mat& stats,
+                                  const cv::Mat& centroids, DetectionCandidate& bestCandidate);
     void createSlider();
     void getSliderValue();
 

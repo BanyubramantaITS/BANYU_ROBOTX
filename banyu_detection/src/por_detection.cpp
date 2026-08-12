@@ -7,9 +7,18 @@
 namespace por_detection {
 
 PorDetection::PorDetection() : Node("por_detection") {
+    priority = this->declare_parameter<std::string>("target_priority", "largest");
+    fallbackFocalLengthPx = this->declare_parameter<double>("fallback_focal_length_px", 0.0);
+    buoyReferenceHeightM = this->declare_parameter<double>("buoy_reference_height_m", 1.5);
+    gateReferenceHeightM = this->declare_parameter<double>("gate_reference_height_m", 2.0);
+
     _frontCameraSub = this->create_subscription<sensor_msgs::msg::Image>(
         "/front_camera/image_raw", rclcpp::SensorDataQoS(),
         std::bind(&PorDetection::frontCameraCb, this, std::placeholders::_1));
+
+    const auto cameraInfoTopic = this->declare_parameter<std::string>("camera_info_topic", "/camera/camera_info");
+    _cameraInfoSub = this->create_subscription<sensor_msgs::msg::CameraInfo>(
+        cameraInfoTopic, rclcpp::SensorDataQoS(), std::bind(&PorDetection::cameraInfoCb, this, std::placeholders::_1));
 
     _detectionPub = this->create_publisher<banyu_msgs::msg::Detection>("/banyu/detection", rclcpp::SensorDataQoS());
 
@@ -60,7 +69,7 @@ void PorDetection::frontCameraCb(sensor_msgs::msg::Image::SharedPtr msg) {
         detection.object_id = bestCandidate.objectId;
         detection.apparent_size = bestCandidate.apparentSize;
         detection.confidence = bestCandidate.confidence;
-        detection.distance = 0.0f;
+        detection.distance = bestCandidate.distance;
         detection.offset_x = bestCandidate.offsetX;
         detection.offset_y = bestCandidate.offsetY;
 
@@ -76,8 +85,27 @@ void PorDetection::frontCameraCb(sensor_msgs::msg::Image::SharedPtr msg) {
     cv::waitKey(1);
 }
 
-bool PorDetection::detectObjectFromContours(const cv::Mat origImage, const cv::Mat annotated, const cv::Mat stats,
-                                            const cv::Mat centroids, DetectionCandidate& bestCandidate) {
+void PorDetection::cameraInfoCb(sensor_msgs::msg::CameraInfo::SharedPtr msg) {
+    if (msg->k[0] <= 0.0 || msg->k[4] <= 0.0) {
+        return;
+    }
+
+    focalX = msg->k[0];
+    focalY = msg->k[4];
+}
+
+float PorDetection::calculateDistance(const DetectionCandidate& candidate) const {
+    const double focalLength = focalY > 0.0 ? focalY : fallbackFocalLengthPx;
+    if (focalLength <= 0.0 || candidate.height <= 0) {
+        return 0.0f;
+    }
+
+    const double referenceHeight = candidate.objectId == 1 ? buoyReferenceHeightM : gateReferenceHeightM;
+    return static_cast<float>(focalLength * referenceHeight / static_cast<double>(candidate.height));
+}
+
+bool PorDetection::detectObjectFromContours(const cv::Mat& origImage, cv::Mat& annotated, const cv::Mat& stats,
+                                            const cv::Mat& centroids, DetectionCandidate& bestCandidate) {
     candidates.clear();
 
     for (int i = 1; i < stats.rows; i++) {
@@ -120,6 +148,7 @@ bool PorDetection::detectObjectFromContours(const cv::Mat origImage, const cv::M
         candidate.offsetY = offsetY;
         candidate.apparentSize = apparentSize;
         candidate.confidence = confidence;
+        candidate.distance = calculateDistance(candidate);
 
         candidates.push_back(candidate);
 
@@ -130,8 +159,8 @@ bool PorDetection::detectObjectFromContours(const cv::Mat origImage, const cv::M
 
         char text[64];
         const char* label = isBuoy ? "buoy" : isGate ? "gate" : "unknown";
-        snprintf(text, sizeof(text), "%s ar=%.2f fill=%.2f ox=%.2f oy=%.2f", label, aspect, confidence, offsetX,
-                 offsetY);
+        snprintf(text, sizeof(text), "%s ar=%.2f fill=%.2f d=%.2fm ox=%.2f oy=%.2f", label, aspect, confidence,
+                 candidate.distance, offsetX, offsetY);
         cv::putText(annotated, text, cv::Point(x, std::max(y - 8, 12)), cv::FONT_HERSHEY_SIMPLEX, 0.6, color, 2);
 
         const cv::Scalar red(0, 0, 255);
