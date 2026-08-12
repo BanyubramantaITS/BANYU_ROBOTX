@@ -232,6 +232,15 @@ def generate_launch_description():
         output="screen",
     )
 
+    camera_info_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        name="camera_info_bridge",
+        arguments=["/camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo"],
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("use_sim")),
+    )
+
     return LaunchDescription(
         [
             use_sim_arg,
@@ -246,6 +255,7 @@ def generate_launch_description():
             spawn_bluerov2_heavy,
             robot_state_publisher,
             gazebo_ros_image_bridge,
+            camera_info_bridge,
             ardusub_launch,
             ardusub_sitl_launch,
             mavros_launch,

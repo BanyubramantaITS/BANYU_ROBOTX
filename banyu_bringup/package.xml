@@ -13,6 +13,7 @@
 
   <depend>banyu_simulation</depend>
   <depend>banyu_teleop</depend>
+  <depend>ros_gz_bridge</depend>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
