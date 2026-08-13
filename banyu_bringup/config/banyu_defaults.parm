@@ -1,0 +1,15 @@
+# BANYU curated ArduSub parameters for SITL.
+# Values mirror the working auto-dumped defaults in mav.parm (same names/types).
+# Applied via sim_vehicle.py --add-param-file (or --defaults on the bare binary).
+# Mission speeds (m/s).
+WP_SPD 1.0
+WP_SPD_UP 2.5
+WP_SPD_DN 1.5
+
+# Manual/teleop speeds (cm/s).
+PILOT_SPEED 200
+PILOT_SPEED_UP 100
+PILOT_SPEED_DN 0
+
+# EKF failsafe: 0 = never failsafe (keep teleop control authority).
+FS_EKF_ACTION 0

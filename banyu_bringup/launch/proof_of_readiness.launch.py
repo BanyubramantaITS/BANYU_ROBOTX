@@ -88,12 +88,19 @@ def generate_launch_description():
         parameters=[{"robot_description": bluerov2_heavy_xml}],
     )
 
+    _banyu_bringup_share = get_package_share_directory("banyu_bringup")
+    _banyu_defaults_file = os.path.join(
+        _banyu_bringup_share, "config", "banyu_defaults.parm"
+    )
+
     _ardusub_cmd = [
         "ardusub",
         "-w",
         "-M",
         "JSON",
         "-I0",
+        "--defaults",
+        _banyu_defaults_file,
     ]
     ardusub_launch = ExecuteProcess(
         cmd=_ardusub_cmd,
@@ -121,6 +128,7 @@ def generate_launch_description():
         "--out=udp:127.0.0.1:14551",
         "--console",
         "-w",
+        "--add-param-file=" + _banyu_defaults_file,
     ]
     ardusub_sitl_launch = ExecuteProcess(
         cmd=_ardusub_sitl_cmd,
@@ -135,7 +143,6 @@ def generate_launch_description():
         ),
     )
 
-    _banyu_bringup_share = get_package_share_directory("banyu_bringup")
     _mavros_config_file = os.path.join(
         _banyu_bringup_share, "config", "mavros_config.yaml"
     )
@@ -232,6 +239,29 @@ def generate_launch_description():
         output="screen",
     )
 
+    mission_manager = Node(
+        package="banyu_mission",
+        executable="banyu_mission",
+        name="banyu_mission",
+        output="screen",
+    )
+
+    detection_node = Node(
+        package="banyu_detection",
+        executable="por_detection",
+        name="por_detection",
+        output="screen",
+    )
+
+    camera_info_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        name="camera_info_bridge",
+        arguments=["/camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo"],
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("use_sim")),
+    )
+
     return LaunchDescription(
         [
             use_sim_arg,
@@ -246,8 +276,11 @@ def generate_launch_description():
             spawn_bluerov2_heavy,
             robot_state_publisher,
             gazebo_ros_image_bridge,
+            camera_info_bridge,
             ardusub_launch,
             ardusub_sitl_launch,
             mavros_launch,
+            mission_manager,
+            detection_node,
         ]
     )
