@@ -246,6 +246,13 @@ def generate_launch_description():
         output="screen",
     )
 
+    detection_node = Node(
+        package="banyu_detection",
+        executable="por_detection",
+        name="por_detection",
+        output="screen",
+    )
+
     camera_info_bridge = Node(
         package="ros_gz_bridge",
         executable="parameter_bridge",
@@ -274,5 +281,6 @@ def generate_launch_description():
             ardusub_sitl_launch,
             mavros_launch,
             mission_manager,
+            detection_node,
         ]
     )
