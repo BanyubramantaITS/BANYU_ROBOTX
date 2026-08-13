@@ -2,7 +2,7 @@
   <BehaviorTree ID="BanyuMission">
     <ReactiveFallback name="MissionSupervisor">
       <AbortedOrTeleop name="IdleOrAborted" />
-      <ReactiveSequence name="MissionFlow">
+      <Sequence name="MissionFlow">
         <MissionActive name="MissionRunning" />
         <NavToGate name="NavToGate" />
         <GateAlign name="GateAlign" />
@@ -10,8 +10,16 @@
         <SearchMarker name="SearchMarker" />
         <MarkerAlign name="MarkerAlign" />
         <MarkerOrbit name="MarkerOrbit" />
-        <ReturnToStart name="ReturnToStart" />
-      </ReactiveSequence>
+        <!-- Return leg: turn around, find the gate behind the buoy, align,
+             drive back through it, then surface at the start side. -->
+        <Sequence name="ReturnToStart">
+          <TurnAround name="TurnAround" />
+          <SearchGate name="SearchGate" />
+          <GateAlign name="ReturnGateAlign" />
+          <ReturnGatePass name="ReturnGatePass" />
+          <Surface name="Surface" />
+        </Sequence>
+      </Sequence>
     </ReactiveFallback>
   </BehaviorTree>
 </root>

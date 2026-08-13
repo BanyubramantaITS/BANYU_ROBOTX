@@ -42,11 +42,13 @@ class BanyuMission : public rclcpp::Node {
   void onDetection(const banyu_msgs::msg::Detection::SharedPtr msg);
 
   void armAndSetGuided();
+  void setAbortMode();
 
   // ROS plumbing.
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
   rclcpp::Subscription<mavros_msgs::msg::State>::SharedPtr state_sub_;
   rclcpp::Subscription<banyu_msgs::msg::Detection>::SharedPtr detection_sub_;
+  rclcpp::TimerBase::SharedPtr detection_watchdog_timer_;
   rclcpp::Publisher<mavros_msgs::msg::PositionTarget>::SharedPtr setpoint_pub_;
 
   rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr start_service_;
@@ -60,6 +62,7 @@ class BanyuMission : public rclcpp::Node {
   BT::Tree tree_;
   std::unique_ptr<BT::Groot2Publisher> groot2_publisher_;
   std::shared_ptr<MissionContext> ctx_;
+  double detection_timeout_s_{0.3};
 
   std::thread tick_thread_;
 };

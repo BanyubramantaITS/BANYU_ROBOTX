@@ -28,22 +28,97 @@ BanyuMission::~BanyuMission() {
 }
 
 void BanyuMission::declareParameters() {
+    // Offsets are NED: east/north/down.
     this->declare_parameter<double>("gate_offset_north", 0.0);
-    this->declare_parameter<double>("gate_offset_east", 3.0);
-    this->declare_parameter<double>("gate_offset_down", 0.0);
+    this->declare_parameter<double>("gate_offset_east", 0.0);
+    this->declare_parameter<double>("gate_offset_down", 1.9);
     this->declare_parameter<double>("arrival_tolerance", 0.5);
     this->declare_parameter<double>("nav_timeout", 60.0);
+    this->declare_parameter<double>("nav_kp_h", 0.5);
+    this->declare_parameter<double>("nav_kp_v", 0.5);
+    this->declare_parameter<double>("nav_max_speed_h", 0.5);
+    this->declare_parameter<double>("nav_max_speed_v", 0.3);
     this->declare_parameter<double>("return_timeout", 60.0);
-    this->declare_parameter<double>("stub_hold_time", 2.0);
+    detection_timeout_s_ = this->declare_parameter<double>("detection_timeout_s", 0.5);
+
+    // GateAlign
+    this->declare_parameter<double>("gate_align_timeout", 60.0);
+    this->declare_parameter<double>("gate_align_deadband_x", 0.08);
+    this->declare_parameter<double>("gate_align_deadband_y", 0.08);
+    this->declare_parameter<double>("gate_align_gain_x", 0.6);
+    this->declare_parameter<double>("gate_align_gain_y", 0.4);
+    this->declare_parameter<double>("gate_align_max_speed_y", 0.3);
+    this->declare_parameter<double>("gate_align_max_speed_z", 0.2);
+    this->declare_parameter<double>("gate_align_hold_time", 0.5);
+
+    // GatePass (forward) and ReturnGatePass (return leg)
+    this->declare_parameter<double>("gate_pass_speed", 0.4);
+    this->declare_parameter<double>("gate_pass_distance", 3.0);
+    this->declare_parameter<double>("gate_pass_min_distance", 1.5);
+    this->declare_parameter<double>("gate_pass_timeout", 60.0);
+
+    // SearchMarker / SearchGate
+    this->declare_parameter<double>("search_speed", 0.4);
+    this->declare_parameter<double>("search_approach_distance", 2.5);
+    this->declare_parameter<double>("search_min_distance", 1.8);
+    this->declare_parameter<double>("search_timeout", 60.0);
+
+    // MarkerAlign
+    this->declare_parameter<double>("marker_align_timeout", 60.0);
+    this->declare_parameter<double>("marker_align_deadband_x", 0.08);
+    this->declare_parameter<double>("marker_align_deadband_y", 0.08);
+    this->declare_parameter<double>("marker_align_gain_x", 0.6);
+    this->declare_parameter<double>("marker_align_gain_y", 0.4);
+    this->declare_parameter<double>("marker_align_max_speed_y", 0.3);
+    this->declare_parameter<double>("marker_align_max_speed_z", 0.2);
+    this->declare_parameter<double>("marker_align_hold_time", 0.5);
+
+    // MarkerOrbit (strafe orbit: body-y circles, body-x locks range, yaw rate
+    // keeps the buoy centered; completes after a full revolution by yaw)
+    this->declare_parameter<double>("orbit_speed", 0.3);
+    this->declare_parameter<double>("orbit_radius_m", 3.0);
+    this->declare_parameter<double>("orbit_kp_range", 0.5);
+    this->declare_parameter<double>("orbit_max_range_speed", 0.3);
+    this->declare_parameter<double>("orbit_kp_yaw", 0.6);
+    this->declare_parameter<double>("orbit_max_yaw_rate", 0.6);
+    this->declare_parameter<double>("orbit_kp_vertical", 0.4);
+    this->declare_parameter<double>("orbit_max_vertical", 0.2);
+    this->declare_parameter<double>("orbit_angle_rad", 6.28318530718);
+    this->declare_parameter<double>("orbit_timeout", 120.0);
+
+    // ReturnToStart leg: turn, search gate, align, pass through, surface
+    this->declare_parameter<double>("turn_yaw_rate", 0.3);
+    this->declare_parameter<double>("turn_capture_gain", 0.5);
+    this->declare_parameter<double>("turn_capture_deadband", 0.2);
+    this->declare_parameter<double>("turn_angle_rad", 3.14159265359);
+    this->declare_parameter<double>("turn_timeout", 30.0);
+    this->declare_parameter<double>("gate_pass_lost_distance", 4.0);
+    this->declare_parameter<double>("gate_pass_clearance_m", 0.6);
+    this->declare_parameter<double>("surface_depth", -0.4);
+    this->declare_parameter<double>("surface_tolerance", 0.2);
+    this->declare_parameter<double>("surface_timeout", 30.0);
+
     this->declare_parameter<std::string>("abort_mode", "STABILIZE");
     this->declare_parameter<int>("groot2_port", 1666);
 
     pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-        "mavros/local_position/pose", 10, std::bind(&BanyuMission::onPose, this, std::placeholders::_1));
+        "mavros/local_position/pose", rclcpp::SensorDataQoS(),
+        std::bind(&BanyuMission::onPose, this, std::placeholders::_1));
     state_sub_ = this->create_subscription<mavros_msgs::msg::State>(
         "mavros/state", 10, std::bind(&BanyuMission::onState, this, std::placeholders::_1));
     detection_sub_ = this->create_subscription<banyu_msgs::msg::Detection>(
-        "banyu/detection", 10, std::bind(&BanyuMission::onDetection, this, std::placeholders::_1));
+        "banyu/detection", rclcpp::SensorDataQoS(), std::bind(&BanyuMission::onDetection, this, std::placeholders::_1));
+
+    detection_watchdog_timer_ = this->create_wall_timer(std::chrono::milliseconds(50), [this]() {
+        std::lock_guard<std::mutex> lock(ctx_->data_mutex);
+        if (!ctx_->has_detection || ctx_->last_detection_received.nanoseconds() == 0) {
+            return;
+        }
+
+        if ((this->now() - ctx_->last_detection_received).seconds() > detection_timeout_s_) {
+            ctx_->has_detection = false;
+        }
+    });
 
     setpoint_pub_ = this->create_publisher<mavros_msgs::msg::PositionTarget>("mavros/setpoint_raw/local", 10);
 
@@ -83,7 +158,10 @@ void BanyuMission::setupBehaviorTree() {
     factory_.registerNodeType<SearchMarker>("SearchMarker", this->shared_from_this(), ctx_);
     factory_.registerNodeType<MarkerAlign>("MarkerAlign", this->shared_from_this(), ctx_);
     factory_.registerNodeType<MarkerOrbit>("MarkerOrbit", this->shared_from_this(), ctx_);
-    factory_.registerNodeType<ReturnToStart>("ReturnToStart", this->shared_from_this(), ctx_);
+    factory_.registerNodeType<TurnAround>("TurnAround", this->shared_from_this(), ctx_);
+    factory_.registerNodeType<SearchGate>("SearchGate", this->shared_from_this(), ctx_);
+    factory_.registerNodeType<ReturnGatePass>("ReturnGatePass", this->shared_from_this(), ctx_);
+    factory_.registerNodeType<Surface>("Surface", this->shared_from_this(), ctx_);
 
     const std::filesystem::path share_dir = ament_index_cpp::get_package_share_directory("banyu_mission");
     const std::filesystem::path tree_file = share_dir / "bt" / "mission_tree.xml";
@@ -122,6 +200,10 @@ void BanyuMission::startMission() {
     ctx_->mission_active.store(true);
     tick_thread_ = std::thread([this]() {
         const BT::NodeStatus status = tree_.tickWhileRunning(std::chrono::milliseconds(20));
+        if (status == BT::NodeStatus::FAILURE) {
+            ctx_->aborted.store(true);
+            setAbortMode();
+        }
         ctx_->mission_active.store(false);
         ctx_->aborted.store(false);
         if (status == BT::NodeStatus::SUCCESS) {
@@ -145,14 +227,20 @@ void BanyuMission::abortMission() {
         ctx_->setpoint_pub->publish(velocitySetpoint(0.0, 0.0, 0.0, this->now()));
     }
 
+    setAbortMode();
+
+    if (tick_thread_.joinable()) {
+        tick_thread_.join();
+    }
+}
+
+void BanyuMission::setAbortMode() {
     auto request = std::make_shared<mavros_msgs::srv::SetMode::Request>();
     request->custom_mode = this->get_parameter("abort_mode").as_string();
     if (set_mode_client_->wait_for_service(std::chrono::seconds(1))) {
         set_mode_client_->async_send_request(request);
-    }
-
-    if (tick_thread_.joinable()) {
-        tick_thread_.join();
+    } else {
+        RCLCPP_WARN(this->get_logger(), "SetMode service unavailable while handing control back");
     }
 }
 
@@ -204,6 +292,7 @@ void BanyuMission::onDetection(const banyu_msgs::msg::Detection::SharedPtr msg) 
     std::lock_guard<std::mutex> lock(ctx_->data_mutex);
     ctx_->latest_detection = *msg;
     ctx_->has_detection = true;
+    ctx_->last_detection_received = this->now();
 }
 
 }  // namespace banyu_mission
