@@ -38,7 +38,7 @@ This package provides the Gazebo simulation environment, 3D world models, and la
 Build the packages in your ROS 2 workspace:
 
 ```bash
-cd ~/Desktop/ros2_robotx_ws
+cd <WORKSPACE>
 colcon build --packages-select banyu_simulation banyu_bringup --symlink-install
 source install/setup.bash
 ```

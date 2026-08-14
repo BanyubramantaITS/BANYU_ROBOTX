@@ -28,8 +28,8 @@ cd ~/ardupilot
 
 Populate the workspace:
 ```sh
-mkdir -p ~/colcon_ws/src
-cd colcon_ws/src
+mkdir -p <WORKSPACE>/src
+cd <WORKSPACE>/src
 git clone git@github.com:BanyubramantaITS/BANYU_ROBOTX.git
 vcs import < BANYU_ROBOTX/import.repos
 ```
@@ -49,6 +49,6 @@ sudo ./install_geographiclib_datasets.sh
 
 Build the workspace:
 ```sh
-cd ~/colcon_ws
+cd <WORKSPACE>
 colcon build --symlink-install
 ```
