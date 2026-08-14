@@ -3,10 +3,21 @@
 ## Installation
 
 Install these packages:
-* [ROS2 Humble](https://docs.ros.org/en/humble/Installation.html)
+* [ROS 2 Humble](https://docs.ros.org/en/humble/Installation.html)
 * [Gazebo Harmonic](https://gazebosim.org/docs/harmonic/install)
-* [ros_gz for Humble + Harmonic (ros-humble-gzharmonic)](https://gazebosim.org/docs/latest/ros_installation/)
+* **`ros_gz` for Gazebo Harmonic (MANDATORY)**:
+  ```bash
+  sudo apt-get update
+  sudo apt-get install -y ros-humble-ros-gzharmonic
+  ```
+  > [!CAUTION]
+  > You **MUST** install `ros-humble-ros-gzharmonic`. 
+  > Using the default `ros-humble-ros-gz` will cause transport protocol incompatibility errors and break camera streaming and robot control topics.
 * [ArduSub](https://ardupilot.org/dev/docs/building-setup-linux.html)
+* BehaviorTree.CPP multiarch symlink (if required on Ubuntu 22.04):
+  ```bash
+  sudo ln -sf /opt/ros/humble/lib/x86_64-linux-gnu/libbehaviortree_cpp.so /opt/ros/humble/lib/libbehaviortree_cpp.so
+  ```
 
 Build ArduSub for SITL:
 ```sh

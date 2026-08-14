@@ -26,12 +26,19 @@ This package provides the Gazebo simulation environment, 3D world models, and la
 
 ---
 
-## 🚀 Building & Setup
+## 🚀 Prerequisites & Setup
+ 
+> [!IMPORTANT]
+> **Gazebo Harmonic Bridge Requirement**:
+> Ensure `ros-humble-ros-gzharmonic` is installed. The default ROS 2 Humble bridge package (`ros-humble-ros-gz`) targets Fortress and is incompatible with Gazebo Harmonic.
+> ```bash
+> sudo apt-get install -y ros-humble-ros-gzharmonic
+> ```
 
 Build the packages in your ROS 2 workspace:
 
 ```bash
-cd ~/Dev/ros2_ws_robotx
+cd ~/Desktop/ros2_robotx_ws
 colcon build --packages-select banyu_simulation banyu_bringup --symlink-install
 source install/setup.bash
 ```
