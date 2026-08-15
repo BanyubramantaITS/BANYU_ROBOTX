@@ -38,6 +38,13 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    use_dvl_arg = DeclareLaunchArgument(
+        name="use_dvl",
+        default_value="True",
+        description="Run the DVL->MAVLink bridge. False is the negative control: at depth SRC2 then has no source at all.",
+        choices=["True", "False"],
+    )
+
     fcu_url_arg = DeclareLaunchArgument(
         name="fcu_url",
         default_value="udp://127.0.0.1:14551@",
@@ -126,6 +133,9 @@ def generate_launch_description():
         "--model=JSON",
         "--out=udp:0.0.0.0:14550",
         "--out=udp:127.0.0.1:14551",
+        # Third endpoint for the DVL bridge. It cannot share MAVROS' 14551, and
+        # MAVROS cannot carry VISION_POSITION_DELTA anyway.
+        "--out=udp:127.0.0.1:14552",
         "--console",
         "-w",
         "--add-param-file=" + _banyu_defaults_file,
@@ -262,11 +272,45 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("use_sim")),
     )
 
+    # DVL -> ArduSub. Deliberately NOT a MAVROS plugin and not a ros_gz_bridge:
+    # MAVROS cannot emit VISION_POSITION_DELTA and ros_gz_bridge on Humble cannot
+    # carry the gz DVL message. See banyu_bringup/README.md.
+    # Must be ExecuteProcess, not Node: this is a plain process, not a ROS node,
+    # and a launch Node action injects `--ros-args -r __node:=...` which it
+    # rejects. Same reason mavros_node is an ExecuteProcess above.
+    dvl_bridge = ExecuteProcess(
+        cmd=[
+            "ros2", "run", "banyu_bringup", "dvl_mavlink_bridge.py",
+            "--mavlink", "udpin:127.0.0.1:14552",
+            "--verbose",
+        ],
+        name="dvl_mavlink_bridge",
+        output="screen",
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+                EqualsSubstitution(LaunchConfiguration("use_dvl"), "True"),
+            )
+        ),
+    )
+
+    # GPS on the surface, DVL underwater. ArduPilot has the source sets and
+    # three ways to select one, but switches on depth by itself in none of them
+    # -- this node is that decision. Not sim-conditioned: unlike the DVL bridge
+    # above, this is vehicle behaviour and runs on hardware too.
+    ekf_source_switch = Node(
+        package="banyu_bringup",
+        executable="ekf_source_switch.py",
+        name="ekf_source_switch",
+        output="screen",
+    )
+
     return LaunchDescription(
         [
             use_sim_arg,
             use_sim_time_arg,
             use_ardusub_sitl_arg,
+            use_dvl_arg,
             fcu_url_arg,
             set_use_sim_time,
             ros_gz_sim_launch,
@@ -280,6 +324,8 @@ def generate_launch_description():
             ardusub_launch,
             ardusub_sitl_launch,
             mavros_launch,
+            dvl_bridge,
+            ekf_source_switch,
             mission_manager,
             detection_node,
         ]

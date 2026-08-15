@@ -6,7 +6,7 @@ This package provides the Gazebo simulation environment, 3D world models, and la
 
 ## 📦 Package Contents
 
-- **`worlds/proof_of_readiness.world`**: Main simulation world featuring buoyancy physics, underwater environment settings, and lighting.
+- **`worlds/proof_of_readiness.world`**: Main simulation world featuring buoyancy physics, underwater environment settings, lighting, and the DVL system plugin.
 - **`models/Gate/`**: 3D underwater gate model (`model.xacro` & `model.sdf`) with PBR textures.
 - **`models/por_pool/`**: Proof of Readiness pool model (`model.xacro`).
 - **`models/yellow_buoy/`**: Yellow navigation buoy model (`model.xacro`).
@@ -23,6 +23,38 @@ This package provides the Gazebo simulation environment, 3D world models, and la
 ### Pool & Water Level
 - **Water Surface**: $Z = 0.0\text{m}$.
 - **Pool Floor**: Spawns at $Z = -2.5\text{m}$.
+
+---
+
+## 🛁 DVL System Plugin
+
+`worlds/proof_of_readiness.world` declares `gz-sim-dvl-system`, which services
+the Water Linked A50 mounted on `bluerov2_heavy` (the sensor itself lives in the
+`bluerov2_gz` repo) and publishes `gz.msgs.DVLVelocityTracking` on `/dvl/velocity`.
+
+> [!IMPORTANT]
+> The DVL plugin **must** be declared at world level. Putting it inside a model
+> is silently ignored — no error, no topic. `gz-sim-sensors-system` is the
+> opposite case: it stays in the model and must **not** also appear here, or the
+> render thread crashes with `Scene already exists with name: scene`.
+
+Check the sensor is alive and has bottom lock:
+
+```bash
+gz topic -e -t /dvl/velocity -n 1
+```
+
+`target { type: DVL_TARGET_BOTTOM }` is bottom lock; `DVL_TARGET_WATER_MASS`
+means the beams are not reaching the pool floor. In the PoR pool the slant range
+sits around 0.57–1.80 m through the whole mission, well inside the sensor's
+0.05 m minimum.
+
+The DVL is only *used* below `dive_depth` — EKF3 runs on GPS at the surface and
+switches source sets on the way down. Note that SITL's synthetic GPS is derived
+from Gazebo ground truth and keeps streaming underwater, so it is the active
+source set, not GPS availability, that decides what the filter is really using.
+Both halves are documented in
+[`banyu_bringup/README.md`](../banyu_bringup/README.md#-navigation-sources-gps-on-the-surface-dvl-underwater).
 
 ---
 
@@ -79,6 +111,7 @@ ros2 launch banyu_bringup proof_of_readiness.launch.py use_sim:=False fcu_url:=u
 | `use_sim` | `True` | Set to `True` for Gazebo + SITL simulation; set to `False` for real hardware deployment. |
 | `use_sim_time` | `True` | Enables ROS 2 simulation time (`/clock`). |
 | `use_ardusub_sitl` | `True` | Set to `True` for `sim_vehicle.py` (with UDP 14550 for QGC); `False` for bare `ardusub`. |
+| `use_dvl` | `True` | Runs the DVL→MAVLink bridge so EKF3 fuses the DVL at depth. `False` is the negative control: SRC2 then has no source at all. |
 | `fcu_url` | `udp://127.0.0.1:14550@` | MAVLink FCU endpoint URL (`udp://192.168.2.1:14550@` for real ROV tether). |
 
 ---
