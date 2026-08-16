@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
 find_package(std_srvs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(mavros_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
@@ -27,6 +28,7 @@ ament_target_dependencies(banyu_mission
   rclcpp
   behaviortree_cpp
   std_srvs
+  std_msgs
   mavros_msgs
   geometry_msgs
   ament_index_cpp

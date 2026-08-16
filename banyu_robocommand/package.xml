@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>banyu_robocommand</name>
+  <version>0.0.0</version>
+  <description>RoboCommand (RobotX 2026) MQTT/protobuf bridge for the OCS.</description>
+  <maintainer email="jalucahyoseno@gmail.com">gryd</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>mavros_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <!-- paho-mqtt and protobuf==7.35 are NOT rosdep keys here on purpose: jammy
+       ships protobuf 3.12.4, which cannot import edition-2024 generated code.
+       Install them into a venv/pip --user. See rc_proto/VENDORED.md. -->
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

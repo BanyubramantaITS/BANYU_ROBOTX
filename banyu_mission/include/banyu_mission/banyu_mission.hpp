@@ -16,6 +16,7 @@
 #include <mavros_msgs/srv/command_bool.hpp>
 #include <mavros_msgs/srv/set_mode.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/u_int8.hpp>
 #include <std_srvs/srv/set_bool.hpp>
 
 #include "banyu_mission/mission_context.hpp"
@@ -50,6 +51,10 @@ class BanyuMission : public rclcpp::Node {
   rclcpp::Subscription<banyu_msgs::msg::Detection>::SharedPtr detection_sub_;
   rclcpp::TimerBase::SharedPtr detection_watchdog_timer_;
   rclcpp::Publisher<mavros_msgs::msg::PositionTarget>::SharedPtr setpoint_pub_;
+
+  // RoboCommand Heartbeat.current_task (RxTask enum), consumed by banyu_robocommand.
+  rclcpp::Publisher<std_msgs::msg::UInt8>::SharedPtr task_pub_;
+  rclcpp::TimerBase::SharedPtr task_timer_;
 
   rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr start_service_;
   rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr abort_service_;

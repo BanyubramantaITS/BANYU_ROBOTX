@@ -122,6 +122,16 @@ void BanyuMission::declareParameters() {
 
     setpoint_pub_ = this->create_publisher<mavros_msgs::msg::PositionTarget>("mavros/setpoint_raw/local", 10);
 
+    // RoboCommand RxTask: TASK_NONE=1, TASK_INFRA_SURVEY_REPAIR=3 (Task 2, the
+    // UUV's task). RC treats the transition into a task value as the start of
+    // an attempt and TASK_NONE as standing down, so this tracks mission_active.
+    task_pub_ = this->create_publisher<std_msgs::msg::UInt8>("banyu/mission/task", 10);
+    task_timer_ = this->create_wall_timer(std::chrono::seconds(1), [this]() {
+        std_msgs::msg::UInt8 msg;
+        msg.data = ctx_->mission_active.load() ? 3 : 1;
+        task_pub_->publish(msg);
+    });
+
     start_service_ = this->create_service<std_srvs::srv::SetBool>(
         "banyu/mission/start", [this](const std::shared_ptr<std_srvs::srv::SetBool::Request> req,
                                       std::shared_ptr<std_srvs::srv::SetBool::Response> res) {
