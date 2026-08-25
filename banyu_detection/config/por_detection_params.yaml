@@ -1,0 +1,42 @@
+# BANYU Detection Parameters
+# Load with: ros2 run banyu_detection por_detection --ros-args --params-file <this_file>
+# Or in launch file: parameters=[{'params_file': '<path>'}]
+
+por_detection:
+  ros__parameters:
+    # HSV Color Thresholds (tune for your lighting conditions)
+    # H: 0-179, S: 0-255, V: 0-255
+    hMin: 25
+    hMax: 35
+    sMin: 75
+    sMax: 255
+    vMin: 50
+    vMax: 255
+
+    # Detection Filters
+    minArea: 300              # Minimum blob area (pixels)
+    kernelSize: 5             # Gaussian blur kernel size (must be odd)
+    edgeMarginPx: 5           # Reject blobs within this many pixels of image edge
+    minHeightPx: 10           # Minimum blob height (pixels)
+    minApparentSize: 0.001    # Minimum apparent size (area / image_area)
+    maxDistanceM: 20.0        # Maximum detection distance (meters, 0 = no limit)
+
+    # Aspect Ratio Thresholds (multiplied by 100 for slider)
+    # buoy: width/height <= buoyAspectMax/100
+    # gate: width/height >= gateAspectMin/100
+    buoyAspectMax: 65         # Buoy max aspect ratio (65 = 0.65)
+    gateAspectMin: 85         # Gate min aspect ratio (85 = 0.85)
+
+    # Object Reference Heights (meters) - for distance estimation
+    buoyReferenceHeightM: 1.5   # Real buoy height
+    gateReferenceHeightM: 2.0   # Real gate height
+
+    # Camera & Fallback
+    cameraInfoTopic: "/camera/camera_info"
+    fallbackFocalLengthPx: 0.0  # Used if camera_info unavailable (0 = no distance)
+
+    # Detection Priority
+    targetPriority: "largest"   # "largest", "gate", or "buoy"
+
+    # GUI (set true for interactive tuning with sliders)
+    useGui: false

@@ -15,6 +15,7 @@ PorDetection::PorDetection() : Node("por_detection") {
     minHeightPx = this->declare_parameter<int>("min_height_px", 10);
     minApparentSize = this->declare_parameter<double>("min_apparent_size", 0.001);
     maxDistanceM = this->declare_parameter<double>("max_distance_m", 20.0);
+    useGui = this->declare_parameter<bool>("use_gui", false);
 
     _frontCameraSub = this->create_subscription<sensor_msgs::msg::Image>(
         "/front_camera/image_raw", rclcpp::SensorDataQoS(),
@@ -26,7 +27,7 @@ PorDetection::PorDetection() : Node("por_detection") {
 
     _detectionPub = this->create_publisher<banyu_msgs::msg::Detection>("/banyu/detection", rclcpp::SensorDataQoS());
 
-    this->createSlider();
+    if (useGui) this->createSlider();
 
     RCLCPP_INFO(this->get_logger(), "por_detection node started");
 }
@@ -37,24 +38,32 @@ void PorDetection::frontCameraCb(sensor_msgs::msg::Image::SharedPtr msg) {
         return;
     }
 
-    this->getSliderValue();
+    if (useGui) this->getSliderValue();
 
     cv::Mat origImage = cv_bridge::toCvCopy(msg, "bgr8")->image;
-    cv::imshow("Original Frame", origImage);
+    if (useGui) {
+        cv::imshow("Original Frame", origImage);
+    }
 
     cv::Mat blurred {};
     cv::GaussianBlur(origImage, blurred, cv::Size(kernelSize, kernelSize), 0);
-    cv::imshow("Blurred Frame", blurred);
+    if (useGui) {
+        cv::imshow("Blurred Frame", blurred);
+    }
 
     cv::Mat hsvImage {};
     cv::cvtColor(blurred, hsvImage, cv::COLOR_BGR2HSV);
-    cv::imshow("HSV Frame", hsvImage);
+    if (useGui) {
+        cv::imshow("HSV Frame", hsvImage);
+    }
 
     cv::Mat lower { { hMin, sMin, vMin } };
     cv::Mat upper { { hMax, sMax, vMax } };
     cv::Mat mask {};
     cv::inRange(hsvImage, lower, upper, mask);
-    cv::imshow("Mask Image", mask);
+    if (useGui) {
+        cv::imshow("Mask Image", mask);
+    }
 
     std::vector<cv::Mat> contours {};
     cv::findContours(mask, contours, cv::RetrievalModes::RETR_EXTERNAL,
@@ -79,12 +88,16 @@ void PorDetection::frontCameraCb(sensor_msgs::msg::Image::SharedPtr msg) {
 
         _detectionPub->publish(detection);
     }
-    cv::imshow("Annotated", annotated);
+    if (useGui) {
+        cv::imshow("Annotated", annotated);
+    }
 
     cv::Mat matched {};
     cv::bitwise_and(origImage, origImage, matched, mask);
     cv::drawContours(matched, contours, -1, CV_WHITE);
-    cv::imshow("Matched Image", matched);
+    if (useGui) {
+        cv::imshow("Matched Image", matched);
+    }
 
     cv::waitKey(1);
 }
