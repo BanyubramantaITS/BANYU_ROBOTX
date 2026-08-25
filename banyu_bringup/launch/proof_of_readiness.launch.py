@@ -44,6 +44,13 @@ def generate_launch_description():
         description="FCU connection URL (udp://127.0.0.1:14551@ for SITL or udp://192.168.2.1:14550@ for real ROV). SITL keeps 14550 free for QGC.",
     )
 
+    debug_arg = DeclareLaunchArgument(
+        name="debug",
+        default_value="False",
+        description="Set the debug flag for example (Detection Windows)",
+        choices=["True", "False"],
+    )
+
     set_use_sim_time = SetUseSimTime(
         True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
@@ -147,8 +154,6 @@ def generate_launch_description():
         _banyu_bringup_share, "config", "mavros_config.yaml"
     )
 
-    # Launch mavros_node via `ros2 run` (not via mavros' apm.launch) so we can
-    # set system_id=255, which ArduSub requires to accept MAVLink MANUAL_CONTROL.
     # It MUST be via ExecuteProcess, NOT the launch Node action: launch injects
     # "-r __node:=mavros", which triggers a MAVROS bug (mavlink/mavros#1977) —
     # the remap also renames MAVROS' internal UAS node, causing an immediate
@@ -250,6 +255,13 @@ def generate_launch_description():
         package="banyu_detection",
         executable="por_detection",
         name="por_detection",
+        parameters=[
+            os.path.join(
+                get_package_share_directory("banyu_detection"),
+                "config",
+                "por_detection_params.yaml",
+            )
+        ],
         output="screen",
     )
 
@@ -270,6 +282,7 @@ def generate_launch_description():
             fcu_url_arg,
             set_use_sim_time,
             ros_gz_sim_launch,
+            debug_arg,
             spawn_por_pool,
             spawn_gate,
             spawn_buoy,
