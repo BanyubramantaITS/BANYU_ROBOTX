@@ -1,20 +1,15 @@
 import os
 
-import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
-    ExecuteProcess,
+    IncludeLaunchDescription,
 )
 from launch.conditions import IfCondition
-from launch.substitutions import (
-    AndSubstitution,
-    EqualsSubstitution,
-    LaunchConfiguration,
-    PythonExpression,
-)
-from launch_ros.actions import Node, SetUseSimTime
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import SetUseSimTime
 
 
 def generate_launch_description():
@@ -51,258 +46,49 @@ def generate_launch_description():
         description="FCU connection URL (udp://127.0.0.1:14551@ for SITL or udp://192.168.2.1:14550@ for real ROV). SITL keeps 14550 free for QGC.",
     )
 
+    debug_arg = DeclareLaunchArgument(
+        name="debug",
+        default_value="False",
+        description="Set the debug flag for example (Detection Windows)",
+        choices=["True", "False"],
+    )
+
     set_use_sim_time = SetUseSimTime(
         True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
 
-    _banyu_sim_pkg_share = get_package_share_directory("banyu_simulation")
-    _bluerov2_gz_pkg_share = get_package_share_directory("bluerov2_gz")
-
-    _world_file = os.path.join(
-        _banyu_sim_pkg_share,
-        "worlds",
-        "proof_of_readiness.world",
-    )
-
-    _bluerov2_heavy_file = os.path.join(
-        _bluerov2_gz_pkg_share, "models", "bluerov2_heavy", "model.xacro"
-    )
-
-    bluerov2_heavy_xml = xacro.process(_bluerov2_heavy_file)
-
-    spawn_bluerov2_heavy = Node(
-        executable="create",
-        package="ros_gz_sim",
-        name="spawn_bluerov2_heavy",
-        arguments=[
-            "-string",
-            bluerov2_heavy_xml,
-            "-name",
-            "bluerov2_heavy",
-            "-x",
-            "-7",
-            "-z",
-            "-2",
-        ],
-        condition=IfCondition(LaunchConfiguration("use_sim")),
-    )
-
-    robot_state_publisher = Node(
-        package="robot_state_publisher",
-        executable="robot_state_publisher",
-        name="robot_state_publisher",
-        output="both",
-        parameters=[{"robot_description": bluerov2_heavy_xml}],
-    )
-
     _banyu_bringup_share = get_package_share_directory("banyu_bringup")
-    _banyu_defaults_file = os.path.join(
-        _banyu_bringup_share, "config", "banyu_defaults.parm"
-    )
 
-    _ardusub_cmd = [
-        "ardusub",
-        "-w",
-        "-M",
-        "JSON",
-        "-I0",
-        "--defaults",
-        _banyu_defaults_file,
-    ]
-    ardusub_launch = ExecuteProcess(
-        cmd=_ardusub_cmd,
-        name="ardusub_cmd",
-        output="screen",
-        log_cmd=True,
-        condition=IfCondition(
-            AndSubstitution(
-                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
-                EqualsSubstitution(LaunchConfiguration("use_ardusub_sitl"), "False"),
-            )
+    gazebo_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(_banyu_bringup_share, "launch", "utils", "gazebo.launch.py")
         ),
+        launch_arguments={
+            "use_sim": LaunchConfiguration("use_sim"),
+            "use_sim_time": LaunchConfiguration("use_sim_time"),
+        }.items(),
     )
 
-    _ardusub_sitl_cmd = [
-        "sim_vehicle.py",
-        "-L",
-        "RATBeach",
-        "-v",
-        "ArduSub",
-        "-f",
-        "vectored_6dof",
-        "--model=JSON",
-        "--out=udp:0.0.0.0:14550",
-        "--out=udp:127.0.0.1:14551",
-        # Third endpoint for the DVL bridge. It cannot share MAVROS' 14551, and
-        # MAVROS cannot carry VISION_POSITION_DELTA anyway.
-        "--out=udp:127.0.0.1:14552",
-        "--console",
-        "-w",
-        "--add-param-file=" + _banyu_defaults_file,
-    ]
-    ardusub_sitl_launch = ExecuteProcess(
-        cmd=_ardusub_sitl_cmd,
-        name="ardusub_sitl",
-        output="screen",
-        log_cmd=True,
-        condition=IfCondition(
-            AndSubstitution(
-                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
-                EqualsSubstitution(LaunchConfiguration("use_ardusub_sitl"), "True"),
-            )
+    sitl_mavros_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(_banyu_bringup_share, "launch", "utils", "sitl_mavros.launch.py")
         ),
+        launch_arguments={
+            "use_sim": LaunchConfiguration("use_sim"),
+            "use_sim_time": LaunchConfiguration("use_sim_time"),
+            "use_ardusub_sitl": LaunchConfiguration("use_ardusub_sitl"),
+            "use_dvl": LaunchConfiguration("use_dvl"),
+            "fcu_url": LaunchConfiguration("fcu_url"),
+        }.items(),
     )
 
-    _mavros_config_file = os.path.join(
-        _banyu_bringup_share, "config", "mavros_config.yaml"
-    )
-
-    # Launch mavros_node via `ros2 run` (not via mavros' apm.launch) so we can
-    # set system_id=255, which ArduSub requires to accept MAVLink MANUAL_CONTROL.
-    # It MUST be via ExecuteProcess, NOT the launch Node action: launch injects
-    # "-r __node:=mavros", which triggers a MAVROS bug (mavlink/mavros#1977) —
-    # the remap also renames MAVROS' internal UAS node, causing an immediate
-    # "create_subscription() ... incompatible type ... CompanionProcessStatus"
-    # crash. `ros2 run` (no __node remap) avoids it.
-    mavros_launch = ExecuteProcess(
-        cmd=[
-            "ros2",
-            "run",
-            "mavros",
-            "mavros_node",
-            "--ros-args",
-            "--params-file",
-            _mavros_config_file,
-            "-p",
-            PythonExpression(
-                [
-                    "'fcu_url:=' + '",
-                    LaunchConfiguration("fcu_url"),
-                    "'",
-                ]
-            ),
-            "--log-level",
-            "mavros.param:=error",
-            "--log-level",
-            "mavros.rallypoint:=error",
-            "--log-level",
-            "mavros.geofence:=error",
-        ],
-        output="screen",
-        name="mavros",
-    )
-
-    ros_gz_sim_launch = ExecuteProcess(
-        cmd=["gz", "sim", "-v3", "-r", _world_file],
-        output="both",
-        condition=IfCondition(LaunchConfiguration("use_sim")),
-        # on_exit="shutdown",
-    )
-
-    _por_pool_file = os.path.join(
-        _banyu_sim_pkg_share, "models", "por_pool", "model.xacro"
-    )
-    _por_pool_xml = xacro.process(_por_pool_file)
-    spawn_por_pool = Node(
-        executable="create",
-        package="ros_gz_sim",
-        name="spawn_por_pool",
-        arguments=["-z", "-2.5", "-string", _por_pool_xml, "-name", "pool"],
-        condition=IfCondition(LaunchConfiguration("use_sim")),
-    )
-
-    _gate_file = os.path.join(_banyu_sim_pkg_share, "models", "Gate", "model.xacro")
-    _gate_xml = xacro.process(_gate_file)
-    spawn_gate = Node(
-        executable="create",
-        package="ros_gz_sim",
-        name="spawn_gate",
-        arguments=["-string", _gate_xml, "-name", "gate", "-x", "-4"],
-        condition=IfCondition(LaunchConfiguration("use_sim")),
-    )
-
-    _buoy_file = os.path.join(
-        _banyu_sim_pkg_share, "models", "yellow_buoy", "model.xacro"
-    )
-    _buoy_xml = xacro.process(_buoy_file)
-    spawn_buoy = Node(
-        executable="create",
-        package="ros_gz_sim",
-        name="spawn_buoy",
-        arguments=[
-            "-string",
-            _buoy_xml,
-            "-name",
-            "yellow_buoy",
-            "-x",
-            "6",
-            "-z",
-            "-2.1",
-        ],
-        condition=IfCondition(LaunchConfiguration("use_sim")),
-    )
-
-    gazebo_ros_image_bridge = Node(
-        package="ros_gz_image",
-        executable="image_bridge",
-        arguments=["/front_camera/image_raw"],
-        output="screen",
-    )
-
-    mission_manager = Node(
-        package="banyu_mission",
-        executable="banyu_mission",
-        name="banyu_mission",
-        output="screen",
-    )
-
-    detection_node = Node(
-        package="banyu_detection",
-        executable="por_detection",
-        name="por_detection",
-        output="screen",
-    )
-
-    camera_info_bridge = Node(
-        package="ros_gz_bridge",
-        executable="parameter_bridge",
-        name="camera_info_bridge",
-        arguments=["/camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo"],
-        output="screen",
-        condition=IfCondition(LaunchConfiguration("use_sim")),
-    )
-
-    # DVL -> ArduSub. Deliberately NOT a MAVROS plugin and not a ros_gz_bridge:
-    # MAVROS cannot emit VISION_POSITION_DELTA and ros_gz_bridge on Humble cannot
-    # carry the gz DVL message. See banyu_bringup/README.md.
-    # Must be ExecuteProcess, not Node: this is a plain process, not a ROS node,
-    # and a launch Node action injects `--ros-args -r __node:=...` which it
-    # rejects. Same reason mavros_node is an ExecuteProcess above.
-    dvl_bridge = ExecuteProcess(
-        cmd=[
-            "ros2", "run", "banyu_bringup", "dvl_mavlink_bridge.py",
-            "--mavlink", "udpin:127.0.0.1:14552",
-            "--verbose",
-        ],
-        name="dvl_mavlink_bridge",
-        output="screen",
-        condition=IfCondition(
-            AndSubstitution(
-                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
-                EqualsSubstitution(LaunchConfiguration("use_dvl"), "True"),
-            )
+    mission_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(_banyu_bringup_share, "launch", "utils", "mission.launch.py")
         ),
-    )
-
-    # GPS on the surface, DVL underwater. ArduPilot has the source sets and
-    # three ways to select one, but switches on depth by itself in none of them
-    # -- this node is that decision. Not sim-conditioned: unlike the DVL bridge
-    # above, this is vehicle behaviour and runs on hardware too.
-    ekf_source_switch = Node(
-        package="banyu_bringup",
-        executable="ekf_source_switch.py",
-        name="ekf_source_switch",
-        output="screen",
+        launch_arguments={
+            "use_sim_time": LaunchConfiguration("use_sim_time"),
+        }.items(),
     )
 
     return LaunchDescription(
@@ -312,21 +98,10 @@ def generate_launch_description():
             use_ardusub_sitl_arg,
             use_dvl_arg,
             fcu_url_arg,
+            debug_arg,
             set_use_sim_time,
-            ros_gz_sim_launch,
-            spawn_por_pool,
-            spawn_gate,
-            spawn_buoy,
-            spawn_bluerov2_heavy,
-            robot_state_publisher,
-            gazebo_ros_image_bridge,
-            camera_info_bridge,
-            ardusub_launch,
-            ardusub_sitl_launch,
-            mavros_launch,
-            dvl_bridge,
-            ekf_source_switch,
-            mission_manager,
-            detection_node,
+            gazebo_launch,
+            sitl_mavros_launch,
+            mission_launch,
         ]
     )

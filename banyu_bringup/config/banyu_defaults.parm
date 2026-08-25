@@ -11,6 +11,10 @@ PILOT_SPEED 200
 PILOT_SPEED_UP 100
 PILOT_SPEED_DN 0
 
+# Telemetry stream rates (5 Hz for EXTRA1: ESTIMATOR_STATUS and AHRS2 to MAVROS)
+SR0_EXTRA1 5
+SR1_EXTRA1 5
+
 # EKF failsafe: 0 = never failsafe (keep teleop control authority).
 FS_EKF_ACTION 0
 
