@@ -16,6 +16,12 @@
             name="gz::sim::systems::SceneBroadcaster">
         </plugin>
 
+        <!-- DVL plugin manages all DVL sensors. MUST be world-level: declaring
+             it inside a model is silently ignored (no error, no topic). -->
+        <plugin filename="gz-sim-dvl-system"
+            name="gz::sim::systems::DopplerVelocityLogSystem">
+        </plugin>
+
         <!-- IMU plugin manages all IMU sensors -->
         <plugin filename="libgz-sim-imu-system.so"
             name="gz::sim::systems::Imu">

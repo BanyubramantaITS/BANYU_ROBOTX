@@ -33,6 +33,13 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    use_dvl_arg = DeclareLaunchArgument(
+        name="use_dvl",
+        default_value="True",
+        description="Run the DVL->MAVLink bridge. False is the negative control: at depth SRC2 then has no source at all.",
+        choices=["True", "False"],
+    )
+
     fcu_url_arg = DeclareLaunchArgument(
         name="fcu_url",
         default_value="udp://127.0.0.1:14551@",
@@ -70,6 +77,7 @@ def generate_launch_description():
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "use_ardusub_sitl": LaunchConfiguration("use_ardusub_sitl"),
+            "use_dvl": LaunchConfiguration("use_dvl"),
             "fcu_url": LaunchConfiguration("fcu_url"),
         }.items(),
     )
@@ -88,6 +96,7 @@ def generate_launch_description():
             use_sim_arg,
             use_sim_time_arg,
             use_ardusub_sitl_arg,
+            use_dvl_arg,
             fcu_url_arg,
             debug_arg,
             set_use_sim_time,
