@@ -61,7 +61,7 @@ def generate_launch_description():
 
     gazebo_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(_banyu_bringup_share, "launch", "utils", "gazebo.launch.py")
+            os.path.join(_banyu_bringup_share, "launch", "utils", "gazebo_por.launch.py")
         ),
         launch_arguments={
             "use_sim": LaunchConfiguration("use_sim"),
@@ -88,6 +88,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             "use_sim_time": LaunchConfiguration("use_sim_time"),
+            "debug_arg": LaunchConfiguration("debug")
         }.items(),
     )
 

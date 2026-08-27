@@ -19,6 +19,13 @@ def generate_launch_description():
         True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
 
+    debug_arg = DeclareLaunchArgument(
+        name="debug",
+        default_value="False",
+        description="Set the debug flag for example (Detection Windows)",
+        choices=["True", "False"],
+    )
+
     mission_manager = Node(
         package="banyu_mission",
         executable="banyu_mission",
@@ -35,7 +42,8 @@ def generate_launch_description():
                 get_package_share_directory("banyu_detection"),
                 "config",
                 "por_detection_params.yaml",
-            )
+            ),
+            {"use_gui": LaunchConfiguration("debug_arg")},
         ],
         output="screen",
     )
@@ -43,6 +51,7 @@ def generate_launch_description():
     return LaunchDescription(
         [
             use_sim_time_arg,
+            debug_arg,
             set_use_sim_time,
             mission_manager,
             detection_node,

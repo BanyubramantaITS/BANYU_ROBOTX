@@ -7,15 +7,7 @@
 namespace por_detection {
 
 PorDetection::PorDetection() : Node("por_detection") {
-    priority = this->declare_parameter<std::string>("target_priority", "largest");
-    fallbackFocalLengthPx = this->declare_parameter<double>("fallback_focal_length_px", 0.0);
-    buoyReferenceHeightM = this->declare_parameter<double>("buoy_reference_height_m", 1.5);
-    gateReferenceHeightM = this->declare_parameter<double>("gate_reference_height_m", 2.0);
-    edgeMarginPx = this->declare_parameter<int>("edge_margin_px", 5);
-    minHeightPx = this->declare_parameter<int>("min_height_px", 10);
-    minApparentSize = this->declare_parameter<double>("min_apparent_size", 0.001);
-    maxDistanceM = this->declare_parameter<double>("max_distance_m", 20.0);
-    useGui = this->declare_parameter<bool>("use_gui", false);
+    this->declareParameters();
 
     _frontCameraSub = this->create_subscription<sensor_msgs::msg::Image>(
         "/front_camera/image_raw", rclcpp::SensorDataQoS(),
@@ -30,6 +22,18 @@ PorDetection::PorDetection() : Node("por_detection") {
     if (useGui) this->createSlider();
 
     RCLCPP_INFO(this->get_logger(), "por_detection node started");
+}
+
+void PorDetection::declareParameters() {
+    priority = this->declare_parameter<std::string>("target_priority", "largest");
+    fallbackFocalLengthPx = this->declare_parameter<double>("fallback_focal_length_px", 0.0);
+    buoyReferenceHeightM = this->declare_parameter<double>("buoy_reference_height_m", 1.5);
+    gateReferenceHeightM = this->declare_parameter<double>("gate_reference_height_m", 2.0);
+    edgeMarginPx = this->declare_parameter<int>("edge_margin_px", 5);
+    minHeightPx = this->declare_parameter<int>("min_height_px", 10);
+    minApparentSize = this->declare_parameter<double>("min_apparent_size", 0.001);
+    maxDistanceM = this->declare_parameter<double>("max_distance_m", 20.0);
+    useGui = this->declare_parameter<bool>("use_gui", false);
 }
 
 void PorDetection::frontCameraCb(sensor_msgs::msg::Image::SharedPtr msg) {
@@ -88,9 +92,7 @@ void PorDetection::frontCameraCb(sensor_msgs::msg::Image::SharedPtr msg) {
 
         _detectionPub->publish(detection);
     }
-    if (useGui) {
-        cv::imshow("Annotated", annotated);
-    }
+    cv::imshow("Annotated", annotated);
 
     cv::Mat matched {};
     cv::bitwise_and(origImage, origImage, matched, mask);
