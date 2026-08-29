@@ -26,11 +26,21 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    # Which competition behaviour to run: 'por' or 'mission'. Forwarded to the
+    # mission node so POR and main-mission behaviour can diverge later.
+    mission_mode_arg = DeclareLaunchArgument(
+        name="mission_mode",
+        default_value="por",
+        description="Which mission behaviour to run: 'por' (proof of readiness) or 'mission' (main mission).",
+        choices=["por", "mission"],
+    )
+
     mission_manager = Node(
         package="banyu_mission",
         executable="banyu_mission",
         name="banyu_mission",
         output="screen",
+        parameters=[{"mission_mode": LaunchConfiguration("mission_mode")}],
     )
 
     detection_node = Node(
@@ -52,6 +62,7 @@ def generate_launch_description():
         [
             use_sim_time_arg,
             debug_arg,
+            mission_mode_arg,
             set_use_sim_time,
             mission_manager,
             detection_node,
