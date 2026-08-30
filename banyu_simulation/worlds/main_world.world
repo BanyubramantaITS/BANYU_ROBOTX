@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<sdf version="1.11">
+    <world name="ocean">
+        <!-- Base Gazebo plugins -->
+        <plugin
+            filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics">
+        </plugin>
+        <plugin
+            filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands">
+        </plugin>
+        <plugin
+            filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster">
+        </plugin>
+
+        <!-- DVL plugin manages all DVL sensors. MUST be world-level: declaring
+             it inside a model is silently ignored (no error, no topic). -->
+        <plugin filename="gz-sim-dvl-system"
+            name="gz::sim::systems::DopplerVelocityLogSystem">
+        </plugin>
+
+        <!-- IMU plugin manages all IMU sensors -->
+        <plugin filename="libgz-sim-imu-system.so"
+            name="gz::sim::systems::Imu">
+        </plugin>
+
+        <!-- Buoyancy plugin manages buoyancy for all models -->
+        <plugin
+            filename="gz-sim-buoyancy-system"
+            name="gz::sim::systems::Buoyancy">
+            <!-- Fluid density is 1 (air) above 0 and 1000 (water) below 0 -->
+            <graded_buoyancy>
+                <default_density>1000</default_density>
+                <density_change>
+                    <above_depth>0</above_depth>
+                    <density>1</density>
+                </density_change>
+            </graded_buoyancy>
+            <!-- Enable by model name -->
+            <enable>bluerov2_heavy</enable>
+        </plugin>
+
+        <include>
+            <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Sun</uri>
+        </include>
+
+        <include>
+            <uri>model://sand_heightmap</uri>
+            <pose>0 7 -15 0 0 0 </pose>
+        </include>
+
+        <include>
+            <uri>model://pipeline_robotx</uri>
+            <pose>51.381000 13.847500 -15.000000 0 0 1.570000</pose>
+        </include>
+
+    </world>
+</sdf>

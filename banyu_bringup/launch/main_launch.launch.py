@@ -8,11 +8,24 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import (
+    EqualsSubstitution,
+    LaunchConfiguration,
+    PythonExpression,
+)
 from launch_ros.actions import SetUseSimTime
 
 
 def generate_launch_description():
+    _banyu_bringup_share = get_package_share_directory("banyu_bringup")
+
+    mode_arg = DeclareLaunchArgument(
+        name="mode",
+        default_value="por",
+        description="Which competition simulation to launch: 'por' (proof of readiness) or 'mission' (main mission).",
+        choices=["por", "mission"],
+    )
+
     use_sim_arg = DeclareLaunchArgument(
         name="use_sim",
         default_value="True",
@@ -33,13 +46,6 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
-    use_dvl_arg = DeclareLaunchArgument(
-        name="use_dvl",
-        default_value="True",
-        description="Run the DVL->MAVLink bridge. False is the negative control: at depth SRC2 then has no source at all.",
-        choices=["True", "False"],
-    )
-
     fcu_url_arg = DeclareLaunchArgument(
         name="fcu_url",
         default_value="udp://127.0.0.1:14551@",
@@ -57,11 +63,32 @@ def generate_launch_description():
         True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
 
-    _banyu_bringup_share = get_package_share_directory("banyu_bringup")
+    # DVL is part of the main-mission stack but deliberately absent for POR.
+    use_dvl = PythonExpression(
+        ["'True' if '", LaunchConfiguration("mode"), "' == 'mission' else 'False'"]
+    )
 
-    gazebo_launch = IncludeLaunchDescription(
+    gazebo_por_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(_banyu_bringup_share, "launch", "utils", "gazebo_por.launch.py")
+            os.path.join(
+                _banyu_bringup_share, "launch", "utils", "gazebo_por.launch.py"
+            )
+        ),
+        condition=IfCondition(EqualsSubstitution(LaunchConfiguration("mode"), "por")),
+        launch_arguments={
+            "use_sim": LaunchConfiguration("use_sim"),
+            "use_sim_time": LaunchConfiguration("use_sim_time"),
+        }.items(),
+    )
+
+    gazebo_main_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                _banyu_bringup_share, "launch", "utils", "gazebo_main.launch.py"
+            )
+        ),
+        condition=IfCondition(
+            EqualsSubstitution(LaunchConfiguration("mode"), "mission")
         ),
         launch_arguments={
             "use_sim": LaunchConfiguration("use_sim"),
@@ -71,13 +98,15 @@ def generate_launch_description():
 
     sitl_mavros_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(_banyu_bringup_share, "launch", "utils", "sitl_mavros.launch.py")
+            os.path.join(
+                _banyu_bringup_share, "launch", "utils", "sitl_mavros.launch.py"
+            )
         ),
         launch_arguments={
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "use_ardusub_sitl": LaunchConfiguration("use_ardusub_sitl"),
-            "use_dvl": LaunchConfiguration("use_dvl"),
+            "use_dvl": use_dvl,
             "fcu_url": LaunchConfiguration("fcu_url"),
         }.items(),
     )
@@ -88,20 +117,22 @@ def generate_launch_description():
         ),
         launch_arguments={
             "use_sim_time": LaunchConfiguration("use_sim_time"),
-            "debug_arg": LaunchConfiguration("debug")
+            "debug_arg": LaunchConfiguration("debug"),
+            "mission_mode": LaunchConfiguration("mode"),
         }.items(),
     )
 
     return LaunchDescription(
         [
+            mode_arg,
             use_sim_arg,
             use_sim_time_arg,
             use_ardusub_sitl_arg,
-            use_dvl_arg,
             fcu_url_arg,
             debug_arg,
             set_use_sim_time,
-            gazebo_launch,
+            gazebo_por_launch,
+            gazebo_main_launch,
             sitl_mavros_launch,
             mission_launch,
         ]
