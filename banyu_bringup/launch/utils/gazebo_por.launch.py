@@ -123,11 +123,29 @@ def generate_launch_description():
         output="screen",
     )
 
+    bottom_camera_image_bridge = Node(
+        package="ros_gz_image",
+        executable="image_bridge",
+        arguments=["/bottom_camera/image_raw"],
+        output="screen",
+    )
+
     camera_info_bridge = Node(
         package="ros_gz_bridge",
         executable="parameter_bridge",
         name="camera_info_bridge",
         arguments=["/camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo"],
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("use_sim")),
+    )
+
+    bottom_camera_info_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        name="bottom_camera_info_bridge",
+        arguments=[
+            "/bottom_camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo"
+        ],
         output="screen",
         condition=IfCondition(LaunchConfiguration("use_sim")),
     )
@@ -144,6 +162,8 @@ def generate_launch_description():
             spawn_bluerov2_heavy,
             robot_state_publisher,
             gazebo_ros_image_bridge,
+            bottom_camera_image_bridge,
             camera_info_bridge,
+            bottom_camera_info_bridge,
         ]
     )
