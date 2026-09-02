@@ -22,8 +22,8 @@ def generate_launch_description():
     mode_arg = DeclareLaunchArgument(
         name="mode",
         default_value="por",
-        description="Which competition simulation to launch: 'por' (proof of readiness) or 'mission' (main mission).",
-        choices=["por", "mission"],
+        description="Which competition simulation to launch: 'por' or 'task2'.",
+        choices=["por", "task2"],
     )
 
     use_sim_arg = DeclareLaunchArgument(
@@ -63,9 +63,23 @@ def generate_launch_description():
         True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
 
-    # DVL is part of the main-mission stack but deliberately absent for POR.
+    # DVL is part of the Task 2 stack and deliberately absent for POR.
     use_dvl = PythonExpression(
-        ["'True' if '", LaunchConfiguration("mode"), "' == 'mission' else 'False'"]
+        [
+            "'True' if '",
+            LaunchConfiguration("mode"),
+            "' == 'task2' else 'False'",
+        ]
+    )
+
+    task2_spawn_x = PythonExpression(
+        ["'43' if '", LaunchConfiguration("mode"), "' == 'task2' else '-7'"]
+    )
+    task2_spawn_y = PythonExpression(
+        ["'13.8475' if '", LaunchConfiguration("mode"), "' == 'task2' else '0'"]
+    )
+    task2_spawn_z = PythonExpression(
+        ["'-14.0' if '", LaunchConfiguration("mode"), "' == 'task2' else '-2'"]
     )
 
     gazebo_por_launch = IncludeLaunchDescription(
@@ -87,12 +101,13 @@ def generate_launch_description():
                 _banyu_bringup_share, "launch", "utils", "gazebo_main.launch.py"
             )
         ),
-        condition=IfCondition(
-            EqualsSubstitution(LaunchConfiguration("mode"), "mission")
-        ),
+        condition=IfCondition(EqualsSubstitution(LaunchConfiguration("mode"), "task2")),
         launch_arguments={
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
+            "spawn_x": task2_spawn_x,
+            "spawn_y": task2_spawn_y,
+            "spawn_z": task2_spawn_z,
         }.items(),
     )
 
@@ -117,6 +132,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             "use_sim_time": LaunchConfiguration("use_sim_time"),
+            "use_sim": LaunchConfiguration("use_sim"),
             "debug_arg": LaunchConfiguration("debug"),
             "mission_mode": LaunchConfiguration("mode"),
         }.items(),

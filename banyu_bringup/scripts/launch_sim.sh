@@ -4,19 +4,19 @@
 #
 # Usage:
 #   ./launch_sim.sh por      # proof-of-readiness sim (no DVL)
-#   ./launch_sim.sh mission  # main competition mission sim (DVL)
+#   ./launch_sim.sh task2    # Task 2 sim (DVL)
 #   ./launch_sim.sh          # defaults to 'por'
 #
 # Any extra arguments after the mode are passed straight through to
-# `ros2 launch` (e.g. ./launch_sim.sh mission use_sim_time:=False).
+# `ros2 launch` (e.g. ./launch_sim.sh task2 use_sim_time:=False).
 set -euo pipefail
 
 MODE="${1:-por}"
 case "$MODE" in
-  por|mission) ;;
+  por|task2) ;;
   *)
     echo "Unknown mode: $MODE" >&2
-    echo "Usage: $0 [por|mission] [extra ros2 launch args...]" >&2
+    echo "Usage: $0 [por|task2] [extra ros2 launch args...]" >&2
     exit 1
     ;;
 esac

@@ -10,8 +10,10 @@
   <depend>xacro</depend>
   <depend>ros2launch</depend>
   <depend>ament_index_python</depend>
+  <depend>nav_msgs</depend>
 
   <depend>banyu_simulation</depend>
+  <depend>banyu_msgs</depend>
   <depend>banyu_teleop</depend>
   <depend>banyu_mission</depend>
   <depend>banyu_detection</depend>

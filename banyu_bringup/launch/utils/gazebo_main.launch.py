@@ -23,6 +23,10 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    spawn_x_arg = DeclareLaunchArgument(name="spawn_x", default_value="-7")
+    spawn_y_arg = DeclareLaunchArgument(name="spawn_y", default_value="0")
+    spawn_z_arg = DeclareLaunchArgument(name="spawn_z", default_value="-2")
+
     set_use_sim_time = SetUseSimTime(
         True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
@@ -52,9 +56,11 @@ def generate_launch_description():
             "-name",
             "bluerov2_heavy",
             "-x",
-            "-7",
+            LaunchConfiguration("spawn_x"),
+            "-y",
+            LaunchConfiguration("spawn_y"),
             "-z",
-            "-2",
+            LaunchConfiguration("spawn_z"),
         ],
         condition=IfCondition(LaunchConfiguration("use_sim")),
     )
@@ -111,6 +117,9 @@ def generate_launch_description():
         [
             use_sim_arg,
             use_sim_time_arg,
+            spawn_x_arg,
+            spawn_y_arg,
+            spawn_z_arg,
             set_use_sim_time,
             ros_gz_sim_launch,
             spawn_bluerov2_heavy,

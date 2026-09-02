@@ -172,6 +172,19 @@ def generate_launch_description():
         ),
     )
 
+    dvl_health = Node(
+        package="banyu_bringup",
+        executable="dvl_health.py",
+        name="dvl_health",
+        output="screen",
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+                EqualsSubstitution(LaunchConfiguration("use_dvl"), "True"),
+            )
+        ),
+    )
+
     # GPS on the surface, DVL underwater. ArduPilot has the source sets and
     # three ways to select one, but switches on depth by itself in none of them
     # -- this node is that decision. Not sim-conditioned: unlike the DVL bridge
@@ -195,6 +208,7 @@ def generate_launch_description():
             ardusub_sitl_launch,
             mavros_launch,
             dvl_bridge,
+            dvl_health,
             ekf_source_switch,
         ]
     )
