@@ -45,3 +45,4 @@ ROS 2 Humble underwater ROV autonomy stack: ArduSub SITL + Gazebo Harmonic + MAV
 
 ## Code
 - You can give your generated code comment but dont make them too much/detailed just enough comment for people to understand what the code does as the code should be self documenting
+- use rclcpp if possible, only use rclpy if needed. the main program nodes should be written in C++
