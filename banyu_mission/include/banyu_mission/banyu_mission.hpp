@@ -86,7 +86,8 @@ class BanyuMission : public rclcpp::Node {
   std::string mission_mode_;
   double handoff_request_timeout_s_{1.0};
   double detection_timeout_s_{0.3};
-  double pose_state_timeout_s_{0.5};
+  double task2_pose_timeout_s_{1.0};
+  double task2_state_timeout_s_{3.0};
   double task2_dvl_timeout_s_{0.5};
   double hydrophone_heading_timeout_s_{0.5};
   double pipeline_ring_state_timeout_s_{0.5};

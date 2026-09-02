@@ -301,6 +301,7 @@ class FollowTask2Pipeline : public BT::StatefulActionNode {
   rclcpp::Time hold_start_time_;
   std::size_t waypoint_index_{0};
   bool holding_{false};
+  bool entry_phase_{true};
 };
 
 }  // namespace banyu_mission

@@ -131,15 +131,18 @@ bool snapshotTask2InputsLocked(
   return true;
 }
 
-bool task2VehicleReady(const MissionContext& ctx, const rclcpp::Time& now, double timeout_s,
-                       geometry_msgs::msg::PoseStamped& pose) {
-  if (!ctx.has_pose || !receiptIsFresh(now, ctx.last_pose_received, timeout_s) ||
-      !ctx.has_state || !receiptIsFresh(now, ctx.last_state_received, timeout_s) ||
+bool task2VehicleReady(const MissionContext& ctx, const rclcpp::Time& now,
+                       double pose_timeout_s, double state_timeout_s,
+                       geometry_msgs::msg::PoseStamped& pose,
+                       mavros_msgs::msg::State& state) {
+  if (!ctx.has_pose || !receiptIsFresh(now, ctx.last_pose_received, pose_timeout_s) ||
+      !ctx.has_state || !receiptIsFresh(now, ctx.last_state_received, state_timeout_s) ||
       !ctx.state.connected || !ctx.state.armed || ctx.state.mode != "GUIDED" ||
       !finitePose(ctx.current_pose)) {
     return false;
   }
   pose = ctx.current_pose;
+  state = ctx.state;
   return true;
 }
 }  // namespace
@@ -889,13 +892,16 @@ BT::NodeStatus Task2Preflight::onRunning() {
   std::array<geometry_msgs::msg::PoseStamped, kTask2WaypointCount> route;
   std::array<banyu_msgs::msg::PipelineRingState, kTask2RingCount> rings;
   geometry_msgs::msg::PoseStamped pose;
+  mavros_msgs::msg::State state;
   const bool dvl_live = dvlLiveIsFresh(
       *ctx_, now, node_->get_parameter("task2_dvl_timeout_s").as_double());
   bool ready = false;
   {
     std::lock_guard<std::mutex> lock(ctx_->data_mutex);
     ready = dvl_live && task2VehicleReady(*ctx_, now,
-                              node_->get_parameter("task2_pose_state_timeout_s").as_double(), pose) &&
+                              node_->get_parameter("task2_pose_timeout_s").as_double(),
+                              node_->get_parameter("task2_state_timeout_s").as_double(), pose,
+                              state) &&
             snapshotTask2InputsLocked(
                 *ctx_, now, node_->get_parameter("pipeline_route_timeout_s").as_double(),
                 node_->get_parameter("pipeline_ring_state_timeout_s").as_double(),
@@ -912,14 +918,8 @@ BT::NodeStatus Task2Preflight::onRunning() {
     return BT::NodeStatus::RUNNING;
   }
 
-  const auto& start = route.front().pose.position;
-  if (norm2(pose.pose.position, start) <=
-      node_->get_parameter("task2_start_capture_distance").as_double()) {
-    RCLCPP_INFO(node_->get_logger(), "Task2Preflight: ready");
-    return BT::NodeStatus::SUCCESS;
-  }
-
-  return BT::NodeStatus::RUNNING;
+  RCLCPP_INFO(node_->get_logger(), "Task2Preflight: ready");
+  return BT::NodeStatus::SUCCESS;
 }
 
 void Task2Preflight::onHalted() {
@@ -938,6 +938,7 @@ BT::NodeStatus FollowTask2Pipeline::onStart() {
   hold_start_time_ = now;
   waypoint_index_ = 0;
   holding_ = false;
+  entry_phase_ = true;
   publishZeroVelocity(ctx_, now);
 
   const double max_spacing = node_->get_parameter("task2_max_waypoint_spacing").as_double();
@@ -987,24 +988,55 @@ BT::NodeStatus FollowTask2Pipeline::onRunning() {
     return BT::NodeStatus::FAILURE;
   }
 
-  const double pose_state_timeout = node_->get_parameter("task2_pose_state_timeout_s").as_double();
+  const double pose_timeout = node_->get_parameter("task2_pose_timeout_s").as_double();
+  const double state_timeout = node_->get_parameter("task2_state_timeout_s").as_double();
   geometry_msgs::msg::PoseStamped pose;
   mavros_msgs::msg::State state;
-  if (!poseIsFresh(*ctx_, now, pose_state_timeout) || !stateIsFresh(*ctx_, now, pose_state_timeout)) {
-    publishZeroVelocity(ctx_, now);
-    RCLCPP_ERROR(node_->get_logger(), "FollowTask2Pipeline: pose or state observation stale");
-    return BT::NodeStatus::FAILURE;
-  }
+  bool vehicle_ready = false;
+  bool pose_fresh = false;
+  bool state_fresh = false;
   {
     std::lock_guard<std::mutex> lock(ctx_->data_mutex);
-    pose = ctx_->current_pose;
-    state = ctx_->state;
+    pose_fresh = ctx_->has_pose && receiptIsFresh(now, ctx_->last_pose_received, pose_timeout);
+    state_fresh = ctx_->has_state && receiptIsFresh(now, ctx_->last_state_received, state_timeout);
+    vehicle_ready = task2VehicleReady(*ctx_, now, pose_timeout, state_timeout, pose, state);
+  }
+  if (!vehicle_ready) {
+    publishZeroVelocity(ctx_, now);
+    if (!pose_fresh || !state_fresh) {
+      if (!pose_fresh && !state_fresh) {
+        RCLCPP_ERROR(node_->get_logger(),
+                     "FollowTask2Pipeline: pose and state observations stale");
+      } else if (!pose_fresh) {
+        RCLCPP_ERROR(node_->get_logger(), "FollowTask2Pipeline: pose observation stale");
+      } else {
+        RCLCPP_ERROR(node_->get_logger(), "FollowTask2Pipeline: state observation stale");
+      }
+    } else {
+      RCLCPP_ERROR(node_->get_logger(), "FollowTask2Pipeline: FCU not ready for Task 2");
+    }
+    return BT::NodeStatus::FAILURE;
   }
 
   if (!state.connected || !state.armed || state.mode != "GUIDED" || !finitePose(pose)) {
     publishZeroVelocity(ctx_, now);
     RCLCPP_ERROR(node_->get_logger(), "FollowTask2Pipeline: FCU not ready for Task 2");
     return BT::NodeStatus::FAILURE;
+  }
+
+  if (entry_phase_) {
+    const double dz = route_.front().pose.position.z - pose.pose.position.z;
+    const double vertical_tolerance =
+        node_->get_parameter("task2_waypoint_vertical_tolerance").as_double();
+    if (std::abs(dz) > vertical_tolerance) {
+      const double kp_v = node_->get_parameter("nav_kp_v").as_double();
+      const double max_v = std::max(0.0, node_->get_parameter("nav_max_speed_v").as_double());
+      ctx_->setpoint_pub->publish(
+          velocitySetpoint(0.0, 0.0, std::clamp(kp_v * dz, -max_v, max_v), now));
+      return BT::NodeStatus::RUNNING;
+    }
+    entry_phase_ = false;
+    segment_start_time_ = now;
   }
 
   if (waypoint_index_ >= kTask2WaypointCount) {

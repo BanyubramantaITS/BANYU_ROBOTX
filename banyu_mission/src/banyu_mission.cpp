@@ -127,10 +127,10 @@ void BanyuMission::declareParameters() {
         this->declare_parameter<double>("handoff_request_timeout_s", 1.0);
     this->declare_parameter<bool>("task2_fixture_mode", false);
     this->declare_parameter<double>("task2_preflight_timeout_s", 30.0);
-    pose_state_timeout_s_ = this->declare_parameter<double>("task2_pose_state_timeout_s", 0.5);
+    task2_pose_timeout_s_ = this->declare_parameter<double>("task2_pose_timeout_s", 1.0);
+    task2_state_timeout_s_ = this->declare_parameter<double>("task2_state_timeout_s", 3.0);
     task2_dvl_timeout_s_ = this->declare_parameter<double>("task2_dvl_timeout_s", 0.5);
     this->declare_parameter<double>("task2_ring_confidence_min", 0.5);
-    this->declare_parameter<double>("task2_start_capture_distance", 1.0);
     this->declare_parameter<double>("task2_waypoint_horizontal_tolerance", 0.4);
     this->declare_parameter<double>("task2_waypoint_vertical_tolerance", 0.3);
     this->declare_parameter<double>("task2_waypoint_hold_s", 0.5);
@@ -173,11 +173,11 @@ void BanyuMission::declareParameters() {
             ctx_->has_detection = false;
         }
         if (ctx_->has_pose && ctx_->last_pose_received.nanoseconds() != 0 &&
-            (now - ctx_->last_pose_received).seconds() > pose_state_timeout_s_) {
+            (now - ctx_->last_pose_received).seconds() > task2_pose_timeout_s_) {
             ctx_->has_pose = false;
         }
         if (ctx_->has_state && ctx_->last_state_received.nanoseconds() != 0 &&
-            (now - ctx_->last_state_received).seconds() > pose_state_timeout_s_) {
+            (now - ctx_->last_state_received).seconds() > task2_state_timeout_s_) {
             ctx_->has_state = false;
         }
         if (ctx_->has_hydrophone_heading &&
