@@ -2,16 +2,22 @@
 #define BANYU_MISSION_MISSION_CONTEXT_HPP_
 
 #include <atomic>
+#include <map>
 #include <mutex>
 #include <optional>
 
 #include <banyu_msgs/msg/detection.hpp>
+#include <banyu_msgs/msg/hydrophone_heading.hpp>
+#include <banyu_msgs/msg/pipeline_ring_state.hpp>
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <mavros_msgs/msg/position_target.hpp>
 #include <mavros_msgs/msg/state.hpp>
+#include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/string.hpp>
 
 namespace banyu_mission {
 
@@ -40,10 +46,31 @@ struct MissionContext {
 
   mutable std::mutex data_mutex;
   geometry_msgs::msg::PoseStamped current_pose;  // /mavros/local_position/pose (ROS ENU)
+  bool has_pose{false};
+  rclcpp::Time last_pose_received{static_cast<int64_t>(0), RCL_ROS_TIME};
   mavros_msgs::msg::State state;                 // /mavros/state
+  bool has_state{false};
+  rclcpp::Time last_state_received{static_cast<int64_t>(0), RCL_ROS_TIME};
   banyu_msgs::msg::Detection latest_detection;   // /banyu/detection
   bool has_detection{false};
   rclcpp::Time last_detection_received{static_cast<int64_t>(0), RCL_ROS_TIME};
+  banyu_msgs::msg::HydrophoneHeading latest_hydrophone_heading;
+  bool has_hydrophone_heading{false};
+  rclcpp::Time last_hydrophone_heading_received{static_cast<int64_t>(0), RCL_ROS_TIME};
+  banyu_msgs::msg::PipelineRingState latest_pipeline_ring_state;
+  bool has_pipeline_ring_state{false};
+  rclcpp::Time last_pipeline_ring_state_received{static_cast<int64_t>(0), RCL_ROS_TIME};
+  std::map<uint32_t, banyu_msgs::msg::PipelineRingState> pipeline_ring_states;
+  std::map<uint32_t, rclcpp::Time> pipeline_ring_state_receipt_times;
+  geometry_msgs::msg::PoseStamped active_buoy_pose;
+  bool has_active_buoy_pose{false};
+  rclcpp::Time last_active_buoy_pose_received{static_cast<int64_t>(0), RCL_ROS_TIME};
+  nav_msgs::msg::Path latest_pipeline_route;
+  bool has_pipeline_route{false};
+  rclcpp::Time last_pipeline_route_received{static_cast<int64_t>(0), RCL_ROS_TIME};
+  bool dvl_live{false};
+  bool has_dvl_live{false};
+  rclcpp::Time last_dvl_live_received{static_cast<int64_t>(0), RCL_ROS_TIME};
 
   // Captured at mission start (first NavToGate tick). Values are ROS ENU.
   std::optional<geometry_msgs::msg::Point> mission_origin;
@@ -51,6 +78,7 @@ struct MissionContext {
 
   // ROS plumbing injected by the node.
   rclcpp::Publisher<mavros_msgs::msg::PositionTarget>::SharedPtr setpoint_pub;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr robocommand_pub;
 };
 
 inline bool detectionIsFresh(const MissionContext& ctx, const rclcpp::Time& now,
@@ -64,6 +92,97 @@ inline bool detectionIsFresh(const MissionContext& ctx, const rclcpp::Time& now,
   }
 
   const double age_s = (now - ctx.last_detection_received).seconds();
+  return age_s >= 0.0 && age_s <= timeout_s;
+}
+
+inline bool poseIsFresh(const MissionContext& ctx, const rclcpp::Time& now, double timeout_s) {
+  std::lock_guard<std::mutex> lock(ctx.data_mutex);
+  if (!ctx.has_pose || ctx.last_pose_received.nanoseconds() == 0) {
+    return false;
+  }
+
+  const double age_s = (now - ctx.last_pose_received).seconds();
+  return age_s >= 0.0 && age_s <= timeout_s;
+}
+
+inline bool stateIsFresh(const MissionContext& ctx, const rclcpp::Time& now, double timeout_s) {
+  std::lock_guard<std::mutex> lock(ctx.data_mutex);
+  if (!ctx.has_state || ctx.last_state_received.nanoseconds() == 0) {
+    return false;
+  }
+
+  const double age_s = (now - ctx.last_state_received).seconds();
+  return age_s >= 0.0 && age_s <= timeout_s;
+}
+
+inline bool hydrophoneHeadingIsFresh(const MissionContext& ctx, const rclcpp::Time& now,
+                                     double timeout_s) {
+  std::lock_guard<std::mutex> lock(ctx.data_mutex);
+  if (!ctx.has_hydrophone_heading || ctx.last_hydrophone_heading_received.nanoseconds() == 0 ||
+      !ctx.latest_hydrophone_heading.valid) {
+    return false;
+  }
+
+  const double age_s = (now - ctx.last_hydrophone_heading_received).seconds();
+  return age_s >= 0.0 && age_s <= timeout_s;
+}
+
+inline bool pipelineRingStateIsFresh(const MissionContext& ctx, const rclcpp::Time& now,
+                                     double timeout_s) {
+  std::lock_guard<std::mutex> lock(ctx.data_mutex);
+  if (!ctx.has_pipeline_ring_state || ctx.last_pipeline_ring_state_received.nanoseconds() == 0) {
+    return false;
+  }
+
+  const double age_s = (now - ctx.last_pipeline_ring_state_received).seconds();
+  return age_s >= 0.0 && age_s <= timeout_s;
+}
+
+inline bool pipelineRingStateIsFresh(const MissionContext& ctx, const rclcpp::Time& now,
+                                     double timeout_s, uint32_t index) {
+  std::lock_guard<std::mutex> lock(ctx.data_mutex);
+  const auto state_it = ctx.pipeline_ring_states.find(index);
+  const auto receipt_it = ctx.pipeline_ring_state_receipt_times.find(index);
+  if (!ctx.has_pipeline_ring_state || state_it == ctx.pipeline_ring_states.end() ||
+      receipt_it == ctx.pipeline_ring_state_receipt_times.end() ||
+      receipt_it->second.nanoseconds() == 0) {
+    return false;
+  }
+
+  const double age_s = (now - receipt_it->second).seconds();
+  return age_s >= 0.0 && age_s <= timeout_s;
+}
+
+inline bool activeBuoyPoseIsFresh(const MissionContext& ctx, const rclcpp::Time& now,
+                                  double timeout_s) {
+  std::lock_guard<std::mutex> lock(ctx.data_mutex);
+  if (!ctx.has_active_buoy_pose || ctx.last_active_buoy_pose_received.nanoseconds() == 0) {
+    return false;
+  }
+
+  const double age_s = (now - ctx.last_active_buoy_pose_received).seconds();
+  return age_s >= 0.0 && age_s <= timeout_s;
+}
+
+inline bool pipelineRouteIsFresh(const MissionContext& ctx, const rclcpp::Time& now,
+                                 double timeout_s) {
+  std::lock_guard<std::mutex> lock(ctx.data_mutex);
+  if (!ctx.has_pipeline_route || ctx.last_pipeline_route_received.nanoseconds() == 0) {
+    return false;
+  }
+
+  const double age_s = (now - ctx.last_pipeline_route_received).seconds();
+  return age_s >= 0.0 && age_s <= timeout_s;
+}
+
+inline bool dvlLiveIsFresh(const MissionContext& ctx, const rclcpp::Time& now,
+                           double timeout_s) {
+  std::lock_guard<std::mutex> lock(ctx.data_mutex);
+  if (!ctx.has_dvl_live || !ctx.dvl_live || ctx.last_dvl_live_received.nanoseconds() == 0) {
+    return false;
+  }
+
+  const double age_s = (now - ctx.last_dvl_live_received).seconds();
   return age_s >= 0.0 && age_s <= timeout_s;
 }
 

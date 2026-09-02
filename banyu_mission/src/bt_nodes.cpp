@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <string>
 
 namespace banyu_mission {
 
@@ -37,6 +38,109 @@ void publishZeroBodyVelocity(const std::shared_ptr<MissionContext>& ctx,
   if (ctx->setpoint_pub) {
     ctx->setpoint_pub->publish(bodyVelocitySetpoint(0.0, 0.0, 0.0, stamp));
   }
+}
+constexpr std::size_t kTask2WaypointCount = 6;
+constexpr std::size_t kTask2RingCount = 5;
+
+bool finitePose(const geometry_msgs::msg::PoseStamped& pose) {
+  return std::isfinite(pose.pose.position.x) && std::isfinite(pose.pose.position.y) &&
+         std::isfinite(pose.pose.position.z) && std::isfinite(pose.pose.orientation.x) &&
+         std::isfinite(pose.pose.orientation.y) && std::isfinite(pose.pose.orientation.z) &&
+         std::isfinite(pose.pose.orientation.w);
+}
+
+bool receiptIsFresh(const rclcpp::Time& now, const rclcpp::Time& received, double timeout_s) {
+  if (received.nanoseconds() == 0) {
+    return false;
+  }
+  const double age_s = (now - received).seconds();
+  return age_s >= 0.0 && age_s <= timeout_s;
+}
+
+bool task2RingColorKnown(uint8_t color) {
+  return color == banyu_msgs::msg::PipelineRingState::COLOR_RED ||
+         color == banyu_msgs::msg::PipelineRingState::COLOR_GREEN ||
+         color == banyu_msgs::msg::PipelineRingState::COLOR_BLUE;
+}
+
+std::string task2RingColorName(uint8_t color) {
+  switch (color) {
+    case banyu_msgs::msg::PipelineRingState::COLOR_RED:
+      return "red";
+    case banyu_msgs::msg::PipelineRingState::COLOR_GREEN:
+      return "green";
+    case banyu_msgs::msg::PipelineRingState::COLOR_BLUE:
+      return "blue";
+    default:
+      return "unknown";
+  }
+}
+
+bool snapshotTask2InputsLocked(
+    const MissionContext& ctx, const rclcpp::Time& now, double route_timeout_s,
+    double ring_timeout_s, double ring_confidence_min, double route_min_z, double route_max_z,
+    double min_segment_spacing, double max_segment_spacing, double min_path_length,
+    double max_path_length, std::array<geometry_msgs::msg::PoseStamped, kTask2WaypointCount>& route,
+    std::array<banyu_msgs::msg::PipelineRingState, kTask2RingCount>& rings) {
+  if (!ctx.has_pipeline_route || !ctx.has_pipeline_ring_state ||
+      !receiptIsFresh(now, ctx.last_pipeline_route_received, route_timeout_s) ||
+      ctx.latest_pipeline_route.header.frame_id != "map" ||
+      ctx.latest_pipeline_route.poses.size() != kTask2WaypointCount) {
+    return false;
+  }
+
+  double path_length = 0.0;
+  for (std::size_t i = 0; i < kTask2WaypointCount; ++i) {
+    const auto& route_pose = ctx.latest_pipeline_route.poses[i];
+    if (route_pose.header.frame_id != "map" || !finitePose(route_pose) ||
+        route_pose.pose.position.z < route_min_z || route_pose.pose.position.z > route_max_z) {
+      return false;
+    }
+    route[i] = route_pose;
+    if (i > 0) {
+      const double segment_length = norm2(route[i - 1].pose.position, route[i].pose.position);
+      if (segment_length < min_segment_spacing || segment_length > max_segment_spacing) {
+        return false;
+      }
+      path_length += segment_length;
+    }
+  }
+  if (path_length < min_path_length || path_length > max_path_length) {
+    return false;
+  }
+
+  for (std::size_t i = 0; i < kTask2RingCount; ++i) {
+    const uint32_t index = static_cast<uint32_t>(i);
+    const auto state_it = ctx.pipeline_ring_states.find(index);
+    const auto receipt_it = ctx.pipeline_ring_state_receipt_times.find(index);
+    if (state_it == ctx.pipeline_ring_states.end() ||
+        receipt_it == ctx.pipeline_ring_state_receipt_times.end() ||
+        !receiptIsFresh(now, receipt_it->second, ring_timeout_s)) {
+      return false;
+    }
+
+    const auto& ring = state_it->second;
+    if (ring.index != index || !task2RingColorKnown(ring.color) ||
+        !std::isfinite(static_cast<double>(ring.confidence)) ||
+        ring.confidence <= ring_confidence_min) {
+      return false;
+    }
+    rings[i] = ring;
+  }
+
+  return true;
+}
+
+bool task2VehicleReady(const MissionContext& ctx, const rclcpp::Time& now, double timeout_s,
+                       geometry_msgs::msg::PoseStamped& pose) {
+  if (!ctx.has_pose || !receiptIsFresh(now, ctx.last_pose_received, timeout_s) ||
+      !ctx.has_state || !receiptIsFresh(now, ctx.last_state_received, timeout_s) ||
+      !ctx.state.connected || !ctx.state.armed || ctx.state.mode != "GUIDED" ||
+      !finitePose(ctx.current_pose)) {
+    return false;
+  }
+  pose = ctx.current_pose;
+  return true;
 }
 }  // namespace
 
@@ -746,6 +850,225 @@ BT::NodeStatus Surface::onRunning() {
 }
 
 void Surface::onHalted() {
+  publishZeroVelocity(ctx_, node_->now());
+}
+
+Task2Preflight::Task2Preflight(const std::string& name, const BT::NodeConfig& config,
+                               const rclcpp::Node::SharedPtr& node,
+                               std::shared_ptr<MissionContext> ctx)
+    : BT::StatefulActionNode(name, config), node_(node), ctx_(std::move(ctx)) {}
+
+BT::NodeStatus Task2Preflight::onStart() {
+  start_time_ = node_->now();
+  publishZeroVelocity(ctx_, start_time_);
+  if (!node_->get_parameter("task2_fixture_mode").as_bool()) {
+    RCLCPP_ERROR(node_->get_logger(), "Task2Preflight: fixture mode is disabled");
+    return BT::NodeStatus::FAILURE;
+  }
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus Task2Preflight::onRunning() {
+  const rclcpp::Time now = node_->now();
+  publishZeroVelocity(ctx_, now);
+
+  if (!ctx_->mission_active.load() || ctx_->aborted.load()) {
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  if (!node_->get_parameter("task2_fixture_mode").as_bool()) {
+    RCLCPP_ERROR(node_->get_logger(), "Task2Preflight: fixture mode is disabled");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  if ((now - start_time_).seconds() >= node_->get_parameter("task2_preflight_timeout_s").as_double()) {
+    RCLCPP_ERROR(node_->get_logger(), "Task2Preflight: timeout");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  std::array<geometry_msgs::msg::PoseStamped, kTask2WaypointCount> route;
+  std::array<banyu_msgs::msg::PipelineRingState, kTask2RingCount> rings;
+  geometry_msgs::msg::PoseStamped pose;
+  const bool dvl_live = dvlLiveIsFresh(
+      *ctx_, now, node_->get_parameter("task2_dvl_timeout_s").as_double());
+  bool ready = false;
+  {
+    std::lock_guard<std::mutex> lock(ctx_->data_mutex);
+    ready = dvl_live && task2VehicleReady(*ctx_, now,
+                              node_->get_parameter("task2_pose_state_timeout_s").as_double(), pose) &&
+            snapshotTask2InputsLocked(
+                *ctx_, now, node_->get_parameter("pipeline_route_timeout_s").as_double(),
+                node_->get_parameter("pipeline_ring_state_timeout_s").as_double(),
+                node_->get_parameter("task2_ring_confidence_min").as_double(),
+                node_->get_parameter("task2_route_min_z").as_double(),
+                node_->get_parameter("task2_route_max_z").as_double(),
+                node_->get_parameter("task2_min_segment_spacing").as_double(),
+                node_->get_parameter("task2_max_waypoint_spacing").as_double(),
+                node_->get_parameter("task2_min_path_length").as_double(),
+                node_->get_parameter("task2_max_path_length").as_double(), route, rings);
+  }
+
+  if (!ready) {
+    return BT::NodeStatus::RUNNING;
+  }
+
+  const auto& start = route.front().pose.position;
+  if (norm2(pose.pose.position, start) <=
+      node_->get_parameter("task2_start_capture_distance").as_double()) {
+    RCLCPP_INFO(node_->get_logger(), "Task2Preflight: ready");
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  return BT::NodeStatus::RUNNING;
+}
+
+void Task2Preflight::onHalted() {
+  publishZeroVelocity(ctx_, node_->now());
+}
+
+FollowTask2Pipeline::FollowTask2Pipeline(const std::string& name, const BT::NodeConfig& config,
+                                         const rclcpp::Node::SharedPtr& node,
+                                         std::shared_ptr<MissionContext> ctx)
+    : BT::StatefulActionNode(name, config), node_(node), ctx_(std::move(ctx)) {}
+
+BT::NodeStatus FollowTask2Pipeline::onStart() {
+  const rclcpp::Time now = node_->now();
+  start_time_ = now;
+  segment_start_time_ = now;
+  hold_start_time_ = now;
+  waypoint_index_ = 0;
+  holding_ = false;
+  publishZeroVelocity(ctx_, now);
+
+  const double max_spacing = node_->get_parameter("task2_max_waypoint_spacing").as_double();
+  bool valid = false;
+  {
+    std::lock_guard<std::mutex> lock(ctx_->data_mutex);
+    valid = max_spacing > 0.0 &&
+            snapshotTask2InputsLocked(
+                *ctx_, now, node_->get_parameter("pipeline_route_timeout_s").as_double(),
+                node_->get_parameter("pipeline_ring_state_timeout_s").as_double(),
+                node_->get_parameter("task2_ring_confidence_min").as_double(),
+                node_->get_parameter("task2_route_min_z").as_double(),
+                node_->get_parameter("task2_route_max_z").as_double(),
+                node_->get_parameter("task2_min_segment_spacing").as_double(), max_spacing,
+                node_->get_parameter("task2_min_path_length").as_double(),
+                node_->get_parameter("task2_max_path_length").as_double(), route_, ring_states_);
+  }
+
+  if (!valid) {
+    RCLCPP_ERROR(node_->get_logger(), "FollowTask2Pipeline: invalid route or ring snapshot");
+    publishZeroVelocity(ctx_, now);
+    return BT::NodeStatus::FAILURE;
+  }
+
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus FollowTask2Pipeline::onRunning() {
+  const rclcpp::Time now = node_->now();
+
+  if (!ctx_->mission_active.load() || ctx_->aborted.load()) {
+    publishZeroVelocity(ctx_, now);
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  if (!dvlLiveIsFresh(*ctx_, now, node_->get_parameter("task2_dvl_timeout_s").as_double())) {
+    publishZeroVelocity(ctx_, now);
+    RCLCPP_ERROR(node_->get_logger(), "FollowTask2Pipeline: DVL live pulse stale");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  if ((now - start_time_).seconds() >= node_->get_parameter("task2_total_timeout_s").as_double() ||
+      (now - segment_start_time_).seconds() >=
+          node_->get_parameter("task2_segment_timeout_s").as_double()) {
+    publishZeroVelocity(ctx_, now);
+    RCLCPP_ERROR(node_->get_logger(), "FollowTask2Pipeline: timeout");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  const double pose_state_timeout = node_->get_parameter("task2_pose_state_timeout_s").as_double();
+  geometry_msgs::msg::PoseStamped pose;
+  mavros_msgs::msg::State state;
+  if (!poseIsFresh(*ctx_, now, pose_state_timeout) || !stateIsFresh(*ctx_, now, pose_state_timeout)) {
+    publishZeroVelocity(ctx_, now);
+    RCLCPP_ERROR(node_->get_logger(), "FollowTask2Pipeline: pose or state observation stale");
+    return BT::NodeStatus::FAILURE;
+  }
+  {
+    std::lock_guard<std::mutex> lock(ctx_->data_mutex);
+    pose = ctx_->current_pose;
+    state = ctx_->state;
+  }
+
+  if (!state.connected || !state.armed || state.mode != "GUIDED" || !finitePose(pose)) {
+    publishZeroVelocity(ctx_, now);
+    RCLCPP_ERROR(node_->get_logger(), "FollowTask2Pipeline: FCU not ready for Task 2");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  if (waypoint_index_ >= kTask2WaypointCount) {
+    publishZeroVelocity(ctx_, now);
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  const auto& target = route_[waypoint_index_].pose.position;
+  const double dx = target.x - pose.pose.position.x;
+  const double dy = target.y - pose.pose.position.y;
+  const double dz = target.z - pose.pose.position.z;
+  const double horizontal_error = std::hypot(dx, dy);
+  const bool arrived = horizontal_error <=
+                           node_->get_parameter("task2_waypoint_horizontal_tolerance").as_double() &&
+                       std::abs(dz) <= node_->get_parameter("task2_waypoint_vertical_tolerance").as_double();
+
+  if (arrived) {
+    publishZeroVelocity(ctx_, now);
+    if (!holding_) {
+      holding_ = true;
+      hold_start_time_ = now;
+    }
+
+    if ((now - hold_start_time_).seconds() < node_->get_parameter("task2_waypoint_hold_s").as_double()) {
+      return BT::NodeStatus::RUNNING;
+    }
+
+    if (waypoint_index_ < kTask2RingCount) {
+      std_msgs::msg::String command;
+      command.data = "ring_index=" + std::to_string(waypoint_index_) +
+                     " color=" + task2RingColorName(ring_states_[waypoint_index_].color);
+      if (ctx_->robocommand_pub) {
+        ctx_->robocommand_pub->publish(command);
+        RCLCPP_INFO(node_->get_logger(), "Task2 ring command published: %s", command.data.c_str());
+      }
+      ++waypoint_index_;
+      holding_ = false;
+      segment_start_time_ = now;
+      return BT::NodeStatus::RUNNING;
+    }
+
+    RCLCPP_INFO(node_->get_logger(), "FollowTask2Pipeline: completed");
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  holding_ = false;
+  const double kp_h = node_->get_parameter("nav_kp_h").as_double();
+  const double kp_v = node_->get_parameter("nav_kp_v").as_double();
+  const double max_h = std::max(0.0, node_->get_parameter("nav_max_speed_h").as_double());
+  const double max_v = std::max(0.0, node_->get_parameter("nav_max_speed_v").as_double());
+  double vx = kp_h * dx;
+  double vy = kp_h * dy;
+  const double horizontal_command = std::hypot(vx, vy);
+  if (horizontal_command > max_h && horizontal_command > 0.0) {
+    const double scale = max_h / horizontal_command;
+    vx *= scale;
+    vy *= scale;
+  }
+  const double vz = std::clamp(kp_v * dz, -max_v, max_v);
+  ctx_->setpoint_pub->publish(velocitySetpoint(vx, vy, vz, now));
+  return BT::NodeStatus::RUNNING;
+}
+
+void FollowTask2Pipeline::onHalted() {
   publishZeroVelocity(ctx_, node_->now());
 }
 

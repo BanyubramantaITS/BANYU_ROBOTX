@@ -14,6 +14,8 @@ find_package(mavros_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(banyu_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 
 add_executable(banyu_mission
   src/banyu_mission.cpp
@@ -31,6 +33,8 @@ ament_target_dependencies(banyu_mission
   geometry_msgs
   ament_index_cpp
   banyu_msgs
+  nav_msgs
+  std_msgs
 )
 
 install(TARGETS banyu_mission
@@ -43,6 +47,11 @@ install(DIRECTORY include/
 
 install(DIRECTORY bt
   DESTINATION share/${PROJECT_NAME}
+)
+
+install(
+    PROGRAMS scripts/*
+    DESTINATION lib/${PROJECT_NAME}
 )
 
 if(BUILD_TESTING)

@@ -1,6 +1,7 @@
 #ifndef BANYU_MISSION_BT_NODES_HPP_
 #define BANYU_MISSION_BT_NODES_HPP_
 
+#include <array>
 #include <memory>
 #include <string>
 
@@ -260,6 +261,46 @@ class Surface : public BT::StatefulActionNode {
   rclcpp::Node::SharedPtr node_;
   std::shared_ptr<MissionContext> ctx_;
   rclcpp::Time start_time_;
+};
+
+class Task2Preflight : public BT::StatefulActionNode {
+ public:
+  Task2Preflight(const std::string& name, const BT::NodeConfig& config,
+                 const rclcpp::Node::SharedPtr& node, std::shared_ptr<MissionContext> ctx);
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
+
+  static BT::PortsList providedPorts() { return {}; }
+
+ private:
+  rclcpp::Node::SharedPtr node_;
+  std::shared_ptr<MissionContext> ctx_;
+  rclcpp::Time start_time_;
+};
+
+class FollowTask2Pipeline : public BT::StatefulActionNode {
+ public:
+  FollowTask2Pipeline(const std::string& name, const BT::NodeConfig& config,
+                      const rclcpp::Node::SharedPtr& node, std::shared_ptr<MissionContext> ctx);
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
+
+  static BT::PortsList providedPorts() { return {}; }
+
+ private:
+  rclcpp::Node::SharedPtr node_;
+  std::shared_ptr<MissionContext> ctx_;
+  std::array<geometry_msgs::msg::PoseStamped, 6> route_;
+  std::array<banyu_msgs::msg::PipelineRingState, 5> ring_states_;
+  rclcpp::Time start_time_;
+  rclcpp::Time segment_start_time_;
+  rclcpp::Time hold_start_time_;
+  std::size_t waypoint_index_{0};
+  bool holding_{false};
 };
 
 }  // namespace banyu_mission

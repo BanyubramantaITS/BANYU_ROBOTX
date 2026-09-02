@@ -1,0 +1,12 @@
+<root BTCPP_format="4" main_tree_to_execute="BanyuMission">
+  <BehaviorTree ID="BanyuMission">
+    <ReactiveFallback name="Task2Supervisor">
+      <AbortedOrTeleop name="IdleOrAborted" />
+      <Sequence name="Task2MissionFlow">
+        <MissionActive name="MissionRunning" />
+        <Task2Preflight name="Task2Preflight" />
+        <FollowTask2Pipeline name="FollowTask2Pipeline" />
+      </Sequence>
+    </ReactiveFallback>
+  </BehaviorTree>
+</root>
