@@ -56,5 +56,20 @@
             <pose>51.381000 13.847500 -15.000000 0 0 1.570000</pose>
         </include>
 
+        <include>
+            <uri>model://pipeline_led_rings</uri>
+            <pose>51.381000 13.847500 -15 0 0 1.570000</pose>
+        </include>
+
+        <include>
+            <uri>model://task2_end_buoy</uri>
+            <pose>55 13.85 0 0 0 0</pose>
+        </include>
+
+        <include>
+            <uri>model://task2_start_buoy</uri>
+            <pose>43.95 13.85 0 0 0 0</pose>
+        </include>
+
     </world>
 </sdf>

@@ -1,0 +1,78 @@
+<?xml version="1.0"?>
+<sdf version="1.11">
+  <model name="pipeline_led_rings">
+    <static>true</static>
+    <link name="rings">
+      <!-- Collars follow the measured pipe centerline. -->
+      <visual name="ring_0">
+        <pose>0 0.13 1.55 1.5708 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.06</radius>
+            <length>0.04</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <diffuse>0 1 0 1</diffuse>
+          <emissive>0 1 0 1</emissive>
+        </material>
+      </visual>
+
+      <visual name="ring_1">
+        <pose>-0.29 1.03 1.55 0 1.5708 2.331</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.06</radius>
+            <length>0.04</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <diffuse>0 1 0 1</diffuse>
+          <emissive>0 1 0 1</emissive>
+        </material>
+      </visual>
+
+      <visual name="ring_2">
+        <pose>-0.74 1.84 1.55 1.5708 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.06</radius>
+            <length>0.04</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <diffuse>0 1 0 1</diffuse>
+          <emissive>0 1 0 1</emissive>
+        </material>
+      </visual>
+
+      <visual name="ring_3">
+        <pose>-0.575 2.68 1.55 0 1.5708 0.7854</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.06</radius>
+            <length>0.04</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <diffuse>1 0 0 1</diffuse>
+          <emissive>1 0 0 1</emissive>
+        </material>
+      </visual>
+
+      <visual name="ring_4">
+        <pose>0 3.46 1.55 1.5708 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.06</radius>
+            <length>0.04</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <diffuse>0 1 0 1</diffuse>
+          <emissive>0 1 0 1</emissive>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>
