@@ -17,7 +17,20 @@ find_package(banyu_msgs REQUIRED)
 
 add_executable(banyu_mission
   src/banyu_mission.cpp
-  src/bt_nodes.cpp
+  src/bt_nodes/common.cpp
+  src/bt_nodes/aborted_or_teleop.cpp
+  src/bt_nodes/gate_align.cpp
+  src/bt_nodes/gate_pass.cpp
+  src/bt_nodes/marker_align.cpp
+  src/bt_nodes/marker_orbit.cpp
+  src/bt_nodes/mission_active.cpp
+  src/bt_nodes/nav_to_gate.cpp
+  src/bt_nodes/return_gate_pass.cpp
+  src/bt_nodes/search_gate.cpp
+  src/bt_nodes/search_marker.cpp
+  src/bt_nodes/surface.cpp
+  src/bt_nodes/turn_around.cpp
+  src/bt_nodes/visual_align.cpp
 )
 target_include_directories(banyu_mission PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
