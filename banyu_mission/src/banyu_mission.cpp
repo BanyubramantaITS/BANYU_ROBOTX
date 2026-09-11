@@ -4,7 +4,20 @@
 #include <algorithm>
 #include <filesystem>
 
-#include "banyu_mission/bt_nodes.hpp"
+#include "banyu_mission/bt_nodes/aborted_or_teleop.hpp"
+#include "banyu_mission/bt_nodes/follow_task2_pipeline.hpp"
+#include "banyu_mission/bt_nodes/gate_align.hpp"
+#include "banyu_mission/bt_nodes/gate_pass.hpp"
+#include "banyu_mission/bt_nodes/marker_align.hpp"
+#include "banyu_mission/bt_nodes/marker_orbit.hpp"
+#include "banyu_mission/bt_nodes/mission_active.hpp"
+#include "banyu_mission/bt_nodes/nav_to_gate.hpp"
+#include "banyu_mission/bt_nodes/return_gate_pass.hpp"
+#include "banyu_mission/bt_nodes/search_gate.hpp"
+#include "banyu_mission/bt_nodes/search_marker.hpp"
+#include "banyu_mission/bt_nodes/surface.hpp"
+#include "banyu_mission/bt_nodes/task2_preflight.hpp"
+#include "banyu_mission/bt_nodes/turn_around.hpp"
 
 namespace banyu_mission {
 
