@@ -18,7 +18,10 @@ ament_target_dependencies(por_detection rclcpp cv_bridge OpenCV sensor_msgs bany
 
 target_include_directories(por_detection PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-install(TARGETS por_detection
+add_executable(task2_pipeline_detector src/task2_pipeline_detector.cpp)
+ament_target_dependencies(task2_pipeline_detector rclcpp cv_bridge OpenCV sensor_msgs banyu_msgs)
+
+install(TARGETS por_detection task2_pipeline_detector
     DESTINATION lib/${PROJECT_NAME}
 )
 
