@@ -59,34 +59,52 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    task2_follow_source_arg = DeclareLaunchArgument(
+        name="task2_follow_source",
+        default_value="fixture_route",
+        description="Task 2 pipeline-following source.",
+        choices=["fixture_route", "camera"],
+    )
+
+    task2_pose_timeout_arg = DeclareLaunchArgument(
+        name="task2_pose_timeout_s",
+        default_value="3.0",
+        description="Maximum age of Task 2 vehicle pose data in seconds.",
+    )
+
+    task2_gps_receipt_pair_timeout_arg = DeclareLaunchArgument(
+        name="task2_gps_receipt_pair_timeout_s",
+        default_value="3.0",
+        description="Maximum Task 2 GPS/pose receipt-time association gap in seconds.",
+    )
+
     set_use_sim_time = SetUseSimTime(
         True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
 
-    # DVL is part of the Task 2 stack and deliberately absent for POR.
-    use_dvl = PythonExpression(
-        [
-            "'True' if '",
-            LaunchConfiguration("mode"),
-            "' == 'task2' else 'False'",
-        ]
+    use_dvl_arg = DeclareLaunchArgument(
+        name="use_dvl",
+        default_value="False",
+        description=(
+            "Enable DVL transport, source switching, and Task 2 DVL readiness "
+            "checks. False leaves the estimator on its configured source set."
+        ),
+        choices=["True", "False"],
     )
 
     task2_spawn_x = PythonExpression(
-        ["'43' if '", LaunchConfiguration("mode"), "' == 'task2' else '-7'"]
+        ["'0' if '", LaunchConfiguration("mode"), "' == 'task2' else '-7'"]
     )
     task2_spawn_y = PythonExpression(
-        ["'13.8475' if '", LaunchConfiguration("mode"), "' == 'task2' else '0'"]
+        ["'0' if '", LaunchConfiguration("mode"), "' == 'task2' else '0'"]
     )
     task2_spawn_z = PythonExpression(
-        ["'-14.0' if '", LaunchConfiguration("mode"), "' == 'task2' else '-2'"]
+        ["'-0.06' if '", LaunchConfiguration("mode"), "' == 'task2' else '-2'"]
     )
 
     gazebo_por_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(
-                _banyu_bringup_share, "launch", "utils", "gazebo_por.launch.py"
-            )
+            os.path.join(_banyu_bringup_share, "launch", "gazebo_por.launch.py")
         ),
         condition=IfCondition(EqualsSubstitution(LaunchConfiguration("mode"), "por")),
         launch_arguments={
@@ -97,9 +115,7 @@ def generate_launch_description():
 
     gazebo_main_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(
-                _banyu_bringup_share, "launch", "utils", "gazebo_main.launch.py"
-            )
+            os.path.join(_banyu_bringup_share, "launch", "gazebo_main.launch.py")
         ),
         condition=IfCondition(EqualsSubstitution(LaunchConfiguration("mode"), "task2")),
         launch_arguments={
@@ -113,28 +129,32 @@ def generate_launch_description():
 
     sitl_mavros_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(
-                _banyu_bringup_share, "launch", "utils", "sitl_mavros.launch.py"
-            )
+            os.path.join(_banyu_bringup_share, "launch", "sitl_mavros.launch.py")
         ),
         launch_arguments={
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "use_ardusub_sitl": LaunchConfiguration("use_ardusub_sitl"),
-            "use_dvl": use_dvl,
+            "use_dvl": LaunchConfiguration("use_dvl"),
             "fcu_url": LaunchConfiguration("fcu_url"),
         }.items(),
     )
 
     mission_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(_banyu_bringup_share, "launch", "utils", "mission.launch.py")
+            os.path.join(_banyu_bringup_share, "launch", "mission.launch.py")
         ),
         launch_arguments={
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "use_sim": LaunchConfiguration("use_sim"),
-            "debug_arg": LaunchConfiguration("debug"),
+            "debug": LaunchConfiguration("debug"),
             "mission_mode": LaunchConfiguration("mode"),
+            "task2_follow_source": LaunchConfiguration("task2_follow_source"),
+            "task2_pose_timeout_s": LaunchConfiguration("task2_pose_timeout_s"),
+            "task2_gps_receipt_pair_timeout_s": LaunchConfiguration(
+                "task2_gps_receipt_pair_timeout_s"
+            ),
+            "task2_use_dvl": LaunchConfiguration("use_dvl"),
         }.items(),
     )
 
@@ -146,6 +166,10 @@ def generate_launch_description():
             use_ardusub_sitl_arg,
             fcu_url_arg,
             debug_arg,
+            task2_follow_source_arg,
+            task2_pose_timeout_arg,
+            task2_gps_receipt_pair_timeout_arg,
+            use_dvl_arg,
             set_use_sim_time,
             gazebo_por_launch,
             gazebo_main_launch,

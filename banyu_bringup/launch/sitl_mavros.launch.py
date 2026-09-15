@@ -36,8 +36,11 @@ def generate_launch_description():
 
     use_dvl_arg = DeclareLaunchArgument(
         name="use_dvl",
-        default_value="True",
-        description="Run the DVL->MAVLink bridge. False is the negative control: at depth SRC2 then has no source at all.",
+        default_value="False",
+        description=(
+            "Enable DVL transport and source switching. False leaves the "
+            "estimator on its configured source set without DVL aiding."
+        ),
         choices=["True", "False"],
     )
 
@@ -187,13 +190,16 @@ def generate_launch_description():
 
     # GPS on the surface, DVL underwater. ArduPilot has the source sets and
     # three ways to select one, but switches on depth by itself in none of them
-    # -- this node is that decision. Not sim-conditioned: unlike the DVL bridge
-    # above, this is vehicle behaviour and runs on hardware too.
+    # -- this node is that decision. It is only started when DVL is enabled, so
+    # the no-DVL default cannot select the DVL source set.
     ekf_source_switch = Node(
         package="banyu_bringup",
         executable="ekf_source_switch.py",
         name="ekf_source_switch",
         output="screen",
+        condition=IfCondition(
+            EqualsSubstitution(LaunchConfiguration("use_dvl"), "True")
+        ),
     )
 
     return LaunchDescription(
