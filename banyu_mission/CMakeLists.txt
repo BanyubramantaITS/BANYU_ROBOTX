@@ -15,7 +15,9 @@ find_package(geometry_msgs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(banyu_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(unique_identifier_msgs REQUIRED)
 
 add_executable(banyu_mission
   src/banyu_mission.cpp
@@ -33,7 +35,17 @@ add_executable(banyu_mission
   src/bt_nodes/surface.cpp
   src/bt_nodes/task2_common.cpp
   src/bt_nodes/task2_preflight.cpp
+  src/bt_nodes/task2_source.cpp
+  src/bt_nodes/task2_camera_preflight.cpp
+  src/bt_nodes/acquire_task2_pipeline.cpp
   src/bt_nodes/follow_task2_pipeline.cpp
+  src/bt_nodes/follow_and_record_task2_pipeline.cpp
+  src/bt_nodes/reverse_to_red_ring.cpp
+  src/bt_nodes/repair_red_ring.cpp
+  src/bt_nodes/surface_at_red_target.cpp
+  src/bt_nodes/task2_report.cpp
+  src/bt_nodes/surface_acquire_gps_anchor.cpp
+  src/bt_nodes/home_to_start_buoy.cpp
   src/bt_nodes/turn_around.cpp
   src/bt_nodes/visual_align.cpp
 )
@@ -50,7 +62,9 @@ ament_target_dependencies(banyu_mission
   ament_index_cpp
   banyu_msgs
   nav_msgs
+  sensor_msgs
   std_msgs
+  unique_identifier_msgs
 )
 
 install(TARGETS banyu_mission

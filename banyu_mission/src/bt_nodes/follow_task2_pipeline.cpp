@@ -55,7 +55,9 @@ BT::NodeStatus FollowTask2Pipeline::onRunning() {
     return BT::NodeStatus::SUCCESS;
   }
 
-  if (!dvlLiveIsFresh(*ctx_, now, node_->get_parameter("task2_dvl_timeout_s").as_double())) {
+  if (!bt_nodes::task2_common::dvlReady(
+          *ctx_, now, node_->get_parameter("task2_use_dvl").as_bool(),
+          node_->get_parameter("task2_dvl_timeout_s").as_double())) {
     bt_nodes::common::publishZeroVelocity(ctx_, now);
     RCLCPP_ERROR(node_->get_logger(), "FollowTask2Pipeline: DVL live pulse stale");
     return BT::NodeStatus::FAILURE;

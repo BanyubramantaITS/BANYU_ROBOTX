@@ -45,12 +45,13 @@ BT::NodeStatus Task2Preflight::onRunning() {
   std::array<banyu_msgs::msg::PipelineRingState, bt_nodes::task2_common::kRingCount> rings;
   geometry_msgs::msg::PoseStamped pose;
   mavros_msgs::msg::State state;
-  const bool dvl_live = dvlLiveIsFresh(
-      *ctx_, now, node_->get_parameter("task2_dvl_timeout_s").as_double());
+  const bool dvl_required_ready = bt_nodes::task2_common::dvlReady(
+      *ctx_, now, node_->get_parameter("task2_use_dvl").as_bool(),
+      node_->get_parameter("task2_dvl_timeout_s").as_double());
   bool ready = false;
   {
     std::lock_guard<std::mutex> lock(ctx_->data_mutex);
-    ready = dvl_live && bt_nodes::task2_common::vehicleReady(*ctx_, now,
+    ready = dvl_required_ready && bt_nodes::task2_common::vehicleReady(*ctx_, now,
                               node_->get_parameter("task2_pose_timeout_s").as_double(),
                               node_->get_parameter("task2_state_timeout_s").as_double(), pose,
                               state) &&

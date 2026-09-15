@@ -19,6 +19,30 @@ bool finitePose(const geometry_msgs::msg::PoseStamped& pose) {
          std::isfinite(pose.pose.orientation.w);
 }
 
+bool validMapPose(const geometry_msgs::msg::PoseStamped& pose) {
+  if (pose.header.frame_id != "map" || !finitePose(pose) || pose.header.stamp.sec < 0 ||
+      pose.header.stamp.nanosec >= 1000000000U ||
+      (pose.header.stamp.sec == 0 && pose.header.stamp.nanosec == 0)) {
+    return false;
+  }
+  const double norm = std::sqrt(
+      pose.pose.orientation.x * pose.pose.orientation.x +
+      pose.pose.orientation.y * pose.pose.orientation.y +
+      pose.pose.orientation.z * pose.pose.orientation.z +
+      pose.pose.orientation.w * pose.pose.orientation.w);
+  return std::isfinite(norm) && std::abs(norm - 1.0) <= 1.0e-3;
+}
+
+bool poseSourceIsFresh(const geometry_msgs::msg::PoseStamped& pose, const rclcpp::Time& now,
+                       double source_timeout_s, double future_tolerance_s) {
+  if (!validMapPose(pose)) {
+    return false;
+  }
+  const rclcpp::Time source_stamp(pose.header.stamp, RCL_ROS_TIME);
+  const double age_s = (now - source_stamp).seconds();
+  return age_s >= -future_tolerance_s && age_s <= source_timeout_s;
+}
+
 bool receiptIsFresh(const rclcpp::Time& now, const rclcpp::Time& received, double timeout_s) {
   if (received.nanoseconds() == 0) {
     return false;
@@ -114,6 +138,16 @@ bool vehicleReady(const MissionContext& ctx, const rclcpp::Time& now,
   pose = ctx.current_pose;
   state = ctx.state;
   return true;
+}
+
+bool dvlReady(const MissionContext& ctx, const rclcpp::Time& now, bool use_dvl,
+              double timeout_s) {
+  return !use_dvl || dvlLiveIsFresh(ctx, now, timeout_s);
+}
+
+bool dvlReadyLocked(const MissionContext& ctx, const rclcpp::Time& now, bool use_dvl,
+                    double timeout_s) {
+  return !use_dvl || dvlLiveIsFreshLocked(ctx, now, timeout_s);
 }
 
 }  // namespace banyu_mission::bt_nodes::task2_common

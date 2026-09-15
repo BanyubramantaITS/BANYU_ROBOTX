@@ -1,13 +1,25 @@
 #!/usr/bin/env python3
-"""Provide deterministic Task 2 ROS topics without a simulator plugin."""
+"""Provide deterministic Task 2 ROS topics without a simulator plugin.
+
+The start-buoy GPS topic is a surface-only fixture matched to the active
+MAVROS datum, not a true buoy GPS receiver.
+"""
 
 import math
+import time
 
 from banyu_msgs.msg import HydrophoneHeading, PipelineRingState
 import rclpy
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
 from rclpy.node import Node
+from rclpy.qos import (
+    DurabilityPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+    qos_profile_sensor_data,
+)
+from sensor_msgs.msg import NavSatFix, NavSatStatus
 from std_msgs.msg import String
 
 
@@ -45,6 +57,8 @@ PIPELINE_WORLD_X = 51.381
 PIPELINE_WORLD_Y = 13.8475
 PIPELINE_WORLD_Z = -15.0
 PIPELINE_WORLD_YAW = 1.570
+WGS84_SEMI_MAJOR_M = 6378137.0
+WGS84_ECCENTRICITY_SQUARED = 6.6943799901413165e-3
 
 
 def wrap_angle(angle):
@@ -59,23 +73,51 @@ def yaw_from_quaternion(quaternion):
     return math.atan2(sin_yaw, cos_yaw)
 
 
+def wgs84_radii(latitude_rad):
+    """Return prime-vertical and meridional WGS84 radii at a latitude."""
+    sin_latitude = math.sin(latitude_rad)
+    denominator = math.sqrt(
+        1.0 - WGS84_ECCENTRICITY_SQUARED * sin_latitude * sin_latitude
+    )
+    radius_n = WGS84_SEMI_MAJOR_M / denominator
+    radius_m = WGS84_SEMI_MAJOR_M * (1.0 - WGS84_ECCENTRICITY_SQUARED) / (
+        denominator * denominator * denominator
+    )
+    return radius_n, radius_m
+
+
 class Task2SimProvider(Node):
     def __init__(self):
         super().__init__("task2_sim_provider")
 
+        # These are ENU map coordinates for the configured Task 2 buoy.
         self.declare_parameter("buoy_x", 51.381)
         self.declare_parameter("buoy_y", 13.8475)
+        self.declare_parameter("start_buoy_map_x", 43.95)
+        self.declare_parameter("start_buoy_map_y", 13.85)
         self.declare_parameter("buoy_z", 0.0)
         self.declare_parameter("buoy_yaw", 0.0)
         self.declare_parameter("heading_offset", 0.0)
         self.declare_parameter("publish_rate", 5.0)
         self.declare_parameter("pipeline_standoff_m", 1.0)
+        self.declare_parameter("surface_depth", -0.4)
+        self.declare_parameter("surface_tolerance", 0.5)
+        self.declare_parameter("global_pose_max_skew_s", 0.5)
+        self.declare_parameter("receipt_pair_timeout_s", 3.0)
+        self.declare_parameter("task2_pose_timeout_s", 3.0)
+        self.declare_parameter("task2_gps_fix_timeout_s", 1.0)
         self.declare_parameter(
             "ring_colors", ["green", "green", "green", "red", "green"]
         )
 
         self.buoy_x = float(self.get_parameter("buoy_x").value)
         self.buoy_y = float(self.get_parameter("buoy_y").value)
+        self.start_buoy_map_x = float(
+            self.get_parameter("start_buoy_map_x").value
+        )
+        self.start_buoy_map_y = float(
+            self.get_parameter("start_buoy_map_y").value
+        )
         self.buoy_z = float(self.get_parameter("buoy_z").value)
         self.buoy_yaw = float(self.get_parameter("buoy_yaw").value)
         self.heading_offset = float(self.get_parameter("heading_offset").value)
@@ -83,11 +125,27 @@ class Task2SimProvider(Node):
         self.pipeline_standoff_m = float(
             self.get_parameter("pipeline_standoff_m").value
         )
+        self.surface_depth = float(self.get_parameter("surface_depth").value)
+        self.surface_tolerance = float(
+            self.get_parameter("surface_tolerance").value
+        )
+        self.global_pose_max_skew_s = float(
+            self.get_parameter("global_pose_max_skew_s").value
+        )
+        self.receipt_pair_timeout_s = float(
+            self.get_parameter("receipt_pair_timeout_s").value
+        )
+        self.task2_pose_timeout_s = float(
+            self.get_parameter("task2_pose_timeout_s").value
+        )
+        self.task2_gps_fix_timeout_s = float(
+            self.get_parameter("task2_gps_fix_timeout_s").value
+        )
+        self._validate_task2_parameters()
         if publish_rate <= 0.0:
             raise ValueError("publish_rate must be greater than zero")
         if self.pipeline_standoff_m < 0.5:
             raise ValueError("pipeline_standoff_m must be at least 0.5 m")
-
         configured_colors = self.get_parameter("ring_colors").value
         if (
             not isinstance(configured_colors, (list, tuple))
@@ -120,17 +178,47 @@ class Task2SimProvider(Node):
         self.ring_state_pub = self.create_publisher(
             PipelineRingState, "/banyu/pipeline/ring_state", 10
         )
+        # Surface-only simulation fixture matching the active MAVROS datum;
+        # this is not a true buoy GPS receiver.
+        start_buoy_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.start_buoy_fix_pub = self.create_publisher(
+            NavSatFix, "/banyu/task2/start_buoy_fix", start_buoy_qos
+        )
+
+        self._latest_global_fix = None
+        self._latest_vehicle_pose = None
+        self._global_fix_received = None
+        self._vehicle_pose_received = None
+        self._last_gate_diagnostic = ""
+        self._last_gate_diagnostic_time = 0.0
+        self._source_stamp_fallback_logged = False
+        self._start_buoy_fix_published = False
 
         self.create_subscription(
             PoseStamped,
             "/mavros/local_position/pose",
             self._on_vehicle_pose,
-            10,
+            qos_profile_sensor_data,
+        )
+        self.create_subscription(
+            NavSatFix,
+            "/mavros/global_position/global",
+            self._on_global_fix,
+            qos_profile_sensor_data,
         )
         self.create_subscription(
             String, "/banyu/robocommand", self._on_robo_command, 10
         )
         self.create_timer(1.0 / publish_rate, self._publish_fixture)
+        self.get_logger().info(
+            "Task 2 sim provider active: start_buoy_fix is reliable/transient-local; "
+            f"surface={self.surface_depth:.2f}+-{self.surface_tolerance:.2f} m, "
+            f"buoy_map=({self.start_buoy_map_x:.2f}, {self.start_buoy_map_y:.2f})"
+        )
 
     def _publish_fixture(self):
         pose = PoseStamped()
@@ -175,8 +263,12 @@ class Task2SimProvider(Node):
             route_pose.pose.orientation.w = 1.0
             route.poses.append(route_pose)
         self.route_pub.publish(route)
+        self._maybe_publish_start_buoy_fix()
 
     def _on_vehicle_pose(self, msg):
+        self._latest_vehicle_pose = msg
+        self._vehicle_pose_received = self.get_clock().now()
+
         vehicle_yaw = yaw_from_quaternion(msg.pose.orientation)
         target_bearing = math.atan2(
             self.buoy_y - msg.pose.position.y,
@@ -191,6 +283,239 @@ class Task2SimProvider(Node):
         relative_heading.confidence = 1.0
         relative_heading.valid = True
         self.heading_pub.publish(relative_heading)
+
+    def _on_global_fix(self, msg):
+        self._latest_global_fix = msg
+        self._global_fix_received = self.get_clock().now()
+
+    def _maybe_publish_start_buoy_fix(self):
+        global_fix = self._latest_global_fix
+        vehicle_pose = self._latest_vehicle_pose
+        if not self._valid_global_fix(global_fix):
+            self._diagnose_gate("waiting for a valid global fix")
+            return
+        if not self._valid_vehicle_pose(vehicle_pose):
+            self._diagnose_gate("waiting for a valid map pose")
+            return
+        if self._global_fix_received is None or self._vehicle_pose_received is None:
+            self._diagnose_gate("waiting for global-fix and pose receipt times")
+            return
+        now = self.get_clock().now()
+        if not self._receipt_fresh(
+            now, self._global_fix_received, self.task2_gps_fix_timeout_s
+        ) or not self._receipt_fresh(
+            now, self._vehicle_pose_received, self.task2_pose_timeout_s
+        ):
+            self._diagnose_gate("global fix or map pose receipt is stale")
+            return
+        if (
+            abs(
+                self._global_fix_received.nanoseconds
+                - self._vehicle_pose_received.nanoseconds
+            )
+            > self._receipt_pair_limit() * 1.0e9
+        ):
+            self._diagnose_gate("global fix and map pose receipts are not synchronized")
+            return
+
+        # GPS homing is valid only while the vehicle remains in the configured
+        # surface band. Recompute the target from each synchronized pair.
+        if (
+            abs(vehicle_pose.pose.position.z - self.surface_depth)
+            > self.surface_tolerance
+        ):
+            self._diagnose_gate("vehicle is outside the configured surface band")
+            return
+
+        global_stamp = self._stamp_seconds(global_fix.header.stamp)
+        pose_stamp = self._stamp_seconds(vehicle_pose.header.stamp)
+        now_stamp = float(now.nanoseconds) * 1.0e-9
+        global_stamp_available = self._source_stamp_available(global_fix.header.stamp)
+        pose_stamp_available = self._source_stamp_available(vehicle_pose.header.stamp)
+        if global_stamp_available and (
+            now_stamp < global_stamp
+            or now_stamp - global_stamp > self.task2_gps_fix_timeout_s
+        ):
+            self._diagnose_gate("global-fix source timestamp is stale or future-dated")
+            return
+        if pose_stamp_available and (
+            now_stamp < pose_stamp or now_stamp - pose_stamp > self.task2_pose_timeout_s
+        ):
+            self._diagnose_gate("map-pose source timestamp is stale or future-dated")
+            return
+        if global_stamp_available and pose_stamp_available and (
+            abs(global_stamp - pose_stamp) > self.global_pose_max_skew_s
+        ):
+            self._diagnose_gate("global-fix and map-pose source timestamps are skewed")
+            return
+
+        east_m = self.start_buoy_map_x - vehicle_pose.pose.position.x
+        north_m = self.start_buoy_map_y - vehicle_pose.pose.position.y
+        latitude_rad = math.radians(global_fix.latitude)
+        if abs(math.cos(latitude_rad)) < 1.0e-12:
+            return
+
+        # Use the same WGS84 radii of curvature as the mission's local-tangent
+        # conversion rather than treating the earth as a sphere.
+        buoy_latitude_rad = latitude_rad
+        for _ in range(2):
+            mean_latitude = (latitude_rad + buoy_latitude_rad) * 0.5
+            radius_n, radius_m = wgs84_radii(mean_latitude)
+            buoy_latitude_rad = latitude_rad + north_m / radius_m
+        mean_latitude = (latitude_rad + buoy_latitude_rad) * 0.5
+        radius_n, _ = wgs84_radii(mean_latitude)
+        buoy_longitude_rad = math.radians(global_fix.longitude) + east_m / (
+            radius_n * math.cos(mean_latitude)
+        )
+        if not -math.pi / 2.0 <= buoy_latitude_rad <= math.pi / 2.0:
+            return
+
+        buoy_latitude = math.degrees(buoy_latitude_rad)
+        buoy_longitude = math.degrees(buoy_longitude_rad)
+        buoy_longitude = (buoy_longitude + 180.0) % 360.0 - 180.0
+        if not math.isfinite(buoy_latitude) or not math.isfinite(buoy_longitude):
+            return
+
+        buoy_fix = NavSatFix()
+        buoy_fix.header = global_fix.header
+        if not global_stamp_available or not pose_stamp_available:
+            buoy_fix.header.stamp = now.to_msg()
+            if not self._source_stamp_fallback_logged:
+                self.get_logger().warning(
+                    "Task 2 GPS input source stamp unavailable; using current ROS time "
+                    "for /banyu/task2/start_buoy_fix"
+                )
+                self._source_stamp_fallback_logged = True
+        buoy_fix.latitude = buoy_latitude
+        buoy_fix.longitude = buoy_longitude
+        buoy_fix.altitude = (
+            global_fix.altitude if math.isfinite(global_fix.altitude) else 0.0
+        )
+        buoy_fix.status = global_fix.status
+        if self._valid_covariance(global_fix):
+            buoy_fix.position_covariance = list(global_fix.position_covariance)
+            buoy_fix.position_covariance_type = global_fix.position_covariance_type
+        else:
+            buoy_fix.position_covariance = [0.0] * 9
+            buoy_fix.position_covariance[0] = 1.0
+            buoy_fix.position_covariance[4] = 1.0
+            buoy_fix.position_covariance[8] = 1.0
+            buoy_fix.position_covariance_type = NavSatFix.COVARIANCE_TYPE_DIAGONAL_KNOWN
+
+        self.start_buoy_fix_pub.publish(buoy_fix)
+        if not self._start_buoy_fix_published:
+            self.get_logger().info(
+                "Task 2 start-buoy NavSatFix publishing while vehicle is surfaced"
+            )
+            self._start_buoy_fix_published = True
+
+    def _diagnose_gate(self, reason):
+        now = time.monotonic()
+        if (
+            reason != self._last_gate_diagnostic
+            or now - self._last_gate_diagnostic_time >= 2.0
+        ):
+            self.get_logger().warning(f"Task 2 start-buoy fix waiting: {reason}")
+            self._last_gate_diagnostic = reason
+            self._last_gate_diagnostic_time = now
+
+    def _validate_task2_parameters(self):
+        parameters = {
+            "surface_depth": self.surface_depth,
+            "surface_tolerance": self.surface_tolerance,
+            "global_pose_max_skew_s": self.global_pose_max_skew_s,
+            "receipt_pair_timeout_s": self.receipt_pair_timeout_s,
+            "task2_pose_timeout_s": self.task2_pose_timeout_s,
+            "task2_gps_fix_timeout_s": self.task2_gps_fix_timeout_s,
+            "buoy_x": self.buoy_x,
+            "buoy_y": self.buoy_y,
+            "start_buoy_map_x": self.start_buoy_map_x,
+            "start_buoy_map_y": self.start_buoy_map_y,
+        }
+        if any(not math.isfinite(value) for value in parameters.values()):
+            raise ValueError("Task 2 surface, skew, and buoy map parameters must be finite")
+        if self.surface_depth > 0.0:
+            raise ValueError("surface_depth must be at or below the map surface")
+        if self.surface_tolerance < 0.0:
+            raise ValueError("surface_tolerance must not be negative")
+        if self.global_pose_max_skew_s < 0.0:
+            raise ValueError("global_pose_max_skew_s must not be negative")
+        if self.receipt_pair_timeout_s <= 0.0:
+            raise ValueError("receipt_pair_timeout_s must be greater than zero")
+        if self.task2_pose_timeout_s <= 0.0:
+            raise ValueError("task2_pose_timeout_s must be greater than zero")
+        if self.task2_gps_fix_timeout_s <= 0.0:
+            raise ValueError("task2_gps_fix_timeout_s must be greater than zero")
+
+        surface_band_min = self.surface_depth - self.surface_tolerance
+        surface_band_max = self.surface_depth + self.surface_tolerance
+        if (
+            not math.isfinite(surface_band_min)
+            or not math.isfinite(surface_band_max)
+            or surface_band_min > surface_band_max
+        ):
+            raise ValueError("surface depth band has invalid bounds")
+
+    @staticmethod
+    def _stamp_seconds(stamp):
+        return float(stamp.sec) + float(stamp.nanosec) * 1.0e-9
+
+    @staticmethod
+    def _source_stamp_available(stamp):
+        return (
+            stamp.sec >= 0
+            and stamp.nanosec < 1000000000
+            and (stamp.sec != 0 or stamp.nanosec != 0)
+        )
+
+    @staticmethod
+    def _receipt_fresh(now, received, timeout_s):
+        age_s = (now.nanoseconds - received.nanoseconds) * 1.0e-9
+        return 0.0 <= age_s <= timeout_s
+
+    def _receipt_pair_limit(self):
+        if (
+            self._latest_global_fix is not None
+            and self._latest_vehicle_pose is not None
+            and self._source_stamp_available(self._latest_global_fix.header.stamp)
+            and self._source_stamp_available(self._latest_vehicle_pose.header.stamp)
+        ):
+            return self.global_pose_max_skew_s
+        return self.receipt_pair_timeout_s
+
+    @classmethod
+    def _valid_global_fix(cls, fix):
+        if fix is None:
+            return False
+        return (
+            fix.status.status >= NavSatStatus.STATUS_FIX
+            and math.isfinite(fix.latitude)
+            and math.isfinite(fix.longitude)
+            and -90.0 <= fix.latitude <= 90.0
+            and -180.0 <= fix.longitude <= 180.0
+        )
+
+    @staticmethod
+    def _valid_vehicle_pose(pose):
+        if pose is None or pose.header.frame_id != "map":
+            return False
+        return (
+            pose.header.stamp.sec >= 0
+            and pose.header.stamp.nanosec < 1000000000
+            and math.isfinite(pose.pose.position.x)
+            and math.isfinite(pose.pose.position.y)
+            and math.isfinite(pose.pose.position.z)
+        )
+
+    @staticmethod
+    def _valid_covariance(fix):
+        if fix.position_covariance_type == NavSatFix.COVARIANCE_TYPE_UNKNOWN:
+            return False
+        return all(
+            math.isfinite(value)
+            and (index not in (0, 4, 8) or value >= 0.0)
+            for index, value in enumerate(fix.position_covariance)
+        )
 
     def _on_robo_command(self, msg):
         self.get_logger().info(f"RoboCommand sent: {msg.data}")

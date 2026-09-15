@@ -18,6 +18,9 @@ constexpr std::size_t kRingCount = 5;
 
 bool receiptIsFresh(const rclcpp::Time& now, const rclcpp::Time& received, double timeout_s);
 bool finitePose(const geometry_msgs::msg::PoseStamped& pose);
+bool validMapPose(const geometry_msgs::msg::PoseStamped& pose);
+bool poseSourceIsFresh(const geometry_msgs::msg::PoseStamped& pose, const rclcpp::Time& now,
+                       double source_timeout_s, double future_tolerance_s);
 bool task2RingColorKnown(uint8_t color);
 std::string task2RingColorName(uint8_t color);
 
@@ -31,6 +34,11 @@ bool snapshotInputsLocked(
 bool vehicleReady(const MissionContext& ctx, const rclcpp::Time& now, double pose_timeout_s,
                   double state_timeout_s, geometry_msgs::msg::PoseStamped& pose,
                   mavros_msgs::msg::State& state);
+
+bool dvlReady(const MissionContext& ctx, const rclcpp::Time& now, bool use_dvl,
+              double timeout_s);
+bool dvlReadyLocked(const MissionContext& ctx, const rclcpp::Time& now, bool use_dvl,
+                    double timeout_s);
 
 }  // namespace banyu_mission::bt_nodes::task2_common
 

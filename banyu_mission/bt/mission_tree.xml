@@ -19,6 +19,7 @@
           <ReturnGatePass name="ReturnGatePass" />
           <Surface name="Surface" />
         </Sequence>
+        <ModeStabilize name="ModeStabilize" />
       </Sequence>
     </ReactiveFallback>
   </BehaviorTree>

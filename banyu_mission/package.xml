@@ -15,7 +15,9 @@
   <depend>mavros_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>unique_identifier_msgs</depend>
   <depend>ament_index_cpp</depend>
   <depend>banyu_msgs</depend>
 

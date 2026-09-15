@@ -4,8 +4,24 @@
       <AbortedOrTeleop name="IdleOrAborted" />
       <Sequence name="Task2MissionFlow">
         <MissionActive name="MissionRunning" />
-        <Task2Preflight name="Task2Preflight" />
-        <FollowTask2Pipeline name="FollowTask2Pipeline" />
+        <SurfaceAcquireGpsAnchor name="SurfaceAcquireGpsAnchor" />
+        <HomeToStartBuoy name="HomeToStartBuoy" />
+        <IfThenElse name="Task2FollowSourceSelection">
+          <Task2CameraSourceSelected name="Task2CameraSourceSelected" />
+          <Sequence name="Task2CameraMissionFlow">
+            <Task2CameraPreflight name="Task2CameraPreflight" />
+            <AcquireTask2Pipeline name="AcquireTask2Pipeline" />
+            <FollowAndRecordTask2Pipeline name="FollowAndRecordTask2Pipeline" />
+            <ReverseToRedRing name="ReverseToRedRing" />
+            <RepairRedRing name="RepairRedRing" />
+            <SurfaceAtRedTarget name="SurfaceAtRedTarget" />
+            <Task2Report name="Task2Report" />
+          </Sequence>
+          <Sequence name="Task2FixtureMissionFlow">
+            <Task2Preflight name="Task2Preflight" />
+            <FollowTask2Pipeline name="FollowTask2Pipeline" />
+          </Sequence>
+        </IfThenElse>
       </Sequence>
     </ReactiveFallback>
   </BehaviorTree>
