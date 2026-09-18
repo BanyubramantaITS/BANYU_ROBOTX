@@ -64,74 +64,6 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
-    task2_follow_source_arg = DeclareLaunchArgument(
-        name="task2_follow_source",
-        default_value="fixture_route",
-        description="Task 2 pipeline-following source.",
-        choices=["fixture_route", "camera"],
-    )
-
-    task2_pose_timeout_arg = DeclareLaunchArgument(
-        name="task2_pose_timeout_s",
-        default_value="3.0",
-        description="Maximum age of Task 2 vehicle pose data in seconds.",
-    )
-
-    task2_gps_receipt_pair_timeout_arg = DeclareLaunchArgument(
-        name="task2_gps_receipt_pair_timeout_s",
-        default_value="3.0",
-        description="Maximum Task 2 GPS/pose receipt-time association gap in seconds.",
-    )
-
-    task2_report_action_name_arg = DeclareLaunchArgument(
-        name="task2_report_action_name",
-        default_value="/banyu/actions/send_mission_report",
-        description="Task 2 mission-report action name.",
-    )
-
-    task2_report_max_retries_arg = DeclareLaunchArgument(
-        name="task2_report_max_retries",
-        default_value="3",
-        description="Number of Task 2 UAV report retries after the initial send.",
-    )
-
-    task2_report_retry_period_arg = DeclareLaunchArgument(
-        name="task2_report_retry_period_ms",
-        default_value="1000",
-        description="Task 2 UAV report retry period in milliseconds.",
-    )
-
-    task2_enable_mavros_publish_arg = DeclareLaunchArgument(
-        name="task2_enable_mavros_publish",
-        default_value="False",
-        description="Enable live setpoint publishing to /mavros/setpoint_raw/local.",
-        choices=["True", "False"],
-    )
-
-    task2_require_lease_arg = DeclareLaunchArgument(
-        name="task2_require_lease",
-        default_value="False",
-        description="Require active ActionLease for vehicle execution goals.",
-        choices=["True", "False"],
-    )
-
-    task2_publish_rate_hz_arg = DeclareLaunchArgument(
-        name="task2_publish_rate_hz",
-        default_value="20.0",
-        description="Vehicle execution control publish rate in Hz.",
-    )
-
-    task2_require_guided_arg = DeclareLaunchArgument(
-        name="task2_require_guided",
-        default_value="True",
-        description="Require GUIDED mode and no takeover for live publishing.",
-        choices=["True", "False"],
-    )
-
-    set_use_sim_time = SetUseSimTime(
-        True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
-    )
-
     use_dvl_arg = DeclareLaunchArgument(
         name="use_dvl",
         default_value="False",
@@ -140,6 +72,18 @@ def generate_launch_description():
             "checks. False leaves the estimator on its configured source set."
         ),
         choices=["True", "False"],
+    )
+
+    task2_params_arg = DeclareLaunchArgument(
+        name="task2_params_file",
+        default_value=os.path.join(
+            _banyu_bringup_share, "config", "task2_params.yaml"
+        ),
+        description="Path to ROS 2 parameter YAML file for Task 2 nodes",
+    )
+
+    set_use_sim_time = SetUseSimTime(
+        True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
 
     task2_spawn_x = PythonExpression(
@@ -195,27 +139,11 @@ def generate_launch_description():
             os.path.join(_banyu_bringup_share, "launch", "mission.launch.py")
         ),
         launch_arguments={
-            "use_sim_time": LaunchConfiguration("use_sim_time"),
+            "mode": LaunchConfiguration("mode"),
             "use_sim": LaunchConfiguration("use_sim"),
+            "use_sim_time": LaunchConfiguration("use_sim_time"),
             "debug": LaunchConfiguration("debug"),
-            "mission_mode": LaunchConfiguration("mode"),
-            "task2_follow_source": LaunchConfiguration("task2_follow_source"),
-            "task2_pose_timeout_s": LaunchConfiguration("task2_pose_timeout_s"),
-            "task2_gps_receipt_pair_timeout_s": LaunchConfiguration(
-                "task2_gps_receipt_pair_timeout_s"
-            ),
-            "task2_use_dvl": LaunchConfiguration("use_dvl"),
-            "task2_report_action_name": LaunchConfiguration("task2_report_action_name"),
-            "task2_report_max_retries": LaunchConfiguration("task2_report_max_retries"),
-            "task2_report_retry_period_ms": LaunchConfiguration(
-                "task2_report_retry_period_ms"
-            ),
-            "task2_enable_mavros_publish": LaunchConfiguration(
-                "task2_enable_mavros_publish"
-            ),
-            "task2_require_lease": LaunchConfiguration("task2_require_lease"),
-            "task2_publish_rate_hz": LaunchConfiguration("task2_publish_rate_hz"),
-            "task2_require_guided": LaunchConfiguration("task2_require_guided"),
+            "task2_params_file": LaunchConfiguration("task2_params_file"),
         }.items(),
     )
 
@@ -227,17 +155,8 @@ def generate_launch_description():
             use_ardusub_sitl_arg,
             fcu_url_arg,
             debug_arg,
-            task2_follow_source_arg,
-            task2_pose_timeout_arg,
-            task2_gps_receipt_pair_timeout_arg,
-            task2_report_action_name_arg,
-            task2_report_max_retries_arg,
-            task2_report_retry_period_arg,
-            task2_enable_mavros_publish_arg,
-            task2_require_lease_arg,
-            task2_publish_rate_hz_arg,
-            task2_require_guided_arg,
             use_dvl_arg,
+            task2_params_arg,
             set_use_sim_time,
             gazebo_por_launch,
             gazebo_main_launch,
