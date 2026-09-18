@@ -105,10 +105,10 @@ public:
   uint64_t generation() const noexcept {return generation_counter_;}
   uint32_t zeroPublicationCount() const noexcept {return zero_cycles_;}
   uint32_t requiredZeroCycles() const noexcept {return required_zero_cycles_;}
-  std::optional<GoalHandle> activeGoal() const noexcept {return active_;}
-  std::optional<GoalHandle> pendingGoal() const noexcept {return pending_;}
-  std::optional<TerminalRecord> lastTerminal() const noexcept {return last_terminal_;}
-  std::optional<TerminalRecord> displacedActive() const noexcept {return displaced_active_;}
+  const std::optional<GoalHandle> & activeGoal() const noexcept {return active_;}
+  const std::optional<GoalHandle> & pendingGoal() const noexcept {return pending_;}
+  const std::optional<TerminalRecord> & lastTerminal() const noexcept {return last_terminal_;}
+  const std::optional<TerminalRecord> & displacedActive() const noexcept {return displaced_active_;}
   MotionIntent selectOutput(const GoalHandle & handle, const MotionIntent & requested);
 
 private:

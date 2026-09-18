@@ -41,10 +41,20 @@ GoalRequest GoalArbiter::requestGoal(
   {
     return {};
   }
-  if (state_ == GoalState::ZeroBarrier || state_ == GoalState::Active ||
-    state_ == GoalState::Completed || state_ == GoalState::Cancelled ||
-    state_ == GoalState::Faulted || state_ == GoalState::LeaseLost ||
+  if (state_ == GoalState::Completed || state_ == GoalState::Cancelled ||
     state_ == GoalState::Displaced)
+  {
+    reset();
+  }
+  if (state_ == GoalState::ZeroBarrier && !pending_) {
+    pending_ = GoalHandle{identity};
+    pending_lease_ = initial_lease;
+    highest_generation_[identity.owner] = identity.generation;
+    generation_counter_ = std::max(generation_counter_, identity.generation);
+    return {GoalAdmission::Pending, *pending_};
+  }
+  if (state_ == GoalState::ZeroBarrier || state_ == GoalState::Active ||
+    state_ == GoalState::Faulted || state_ == GoalState::LeaseLost)
   {
     if (state_ != GoalState::Active || pending_) {
       return {};
@@ -77,12 +87,19 @@ GoalRequest GoalArbiter::requestGoal(
 }
 bool GoalArbiter::establishLease(const GoalHandle & handle, const Lease & lease)
 {
-  if (!isCurrent(handle) || !validLeaseFor(handle.goal, lease)) {
+  if (!validLeaseFor(handle.goal, lease)) {
     return false;
   }
-  active_lease_ = lease;
-  zero_latched_ = false;
-  return true;
+  if (isCurrent(handle)) {
+    active_lease_ = lease;
+    zero_latched_ = false;
+    return true;
+  }
+  if (state_ == GoalState::ZeroBarrier && pending_ && *pending_ == handle) {
+    pending_lease_ = lease;
+    return true;
+  }
+  return false;
 }
 bool GoalArbiter::complete(const GoalHandle & handle)
 {
@@ -140,7 +157,7 @@ bool GoalArbiter::recordZeroPublication()
   if (zero_cycles_ < required_zero_cycles_) {
     return false;
   }
-  if (stop_reason_ == StopReason::Handoff && pending_) {
+  if (pending_) {
     if (pending_lease_ && !validLeaseFor(pending_->goal, *pending_lease_)) {
       terminalizePending(StopReason::LeaseLoss);
       return false;

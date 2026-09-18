@@ -1,6 +1,9 @@
 #include "banyu_vehicle_execution/command_encoder.hpp"
 #include "banyu_vehicle_execution/goal_arbiter.hpp"
 #include "banyu_vehicle_execution/motion_intent.hpp"
+#include "banyu_vehicle_execution/vehicle_telemetry.hpp"
+#include "banyu_vehicle_execution/action_servers.hpp"
+#include "banyu_vehicle_execution/vehicle_execution_node.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
 #include <limits>
@@ -262,4 +265,298 @@ TEST(GoalArbiter, PreservesDisplacedActiveTerminalRecordAndResetsBarrierOnFault)
   EXPECT_FALSE(arbiter.recordZeroPublication());
   EXPECT_TRUE(arbiter.recordZeroPublication());
   EXPECT_EQ(arbiter.state(), GoalState::Faulted);
+}
+
+class VehicleExecutionNodeTest : public ::testing::Test
+{
+protected:
+  static void SetUpTestSuite()
+  {
+    if (!rclcpp::ok()) {
+      rclcpp::init(0, nullptr);
+    }
+  }
+
+  static void TearDownTestSuite()
+  {
+    if (rclcpp::ok()) {
+      rclcpp::shutdown();
+    }
+  }
+};
+
+TEST(ActionServerMath, NavigationGpsCalculatesOffsetsAndBearing)
+{
+  double dx = 0.0;
+  double dy = 0.0;
+  banyu_vehicle_execution::latLonToEnuOffsets(0.0, 0.0, 0.0, 0.001, dx, dy);
+  EXPECT_GT(dx, 0.0);
+  EXPECT_NEAR(dy, 0.0, 1e-6);
+
+  banyu_vehicle_execution::latLonToEnuOffsets(0.0, 0.0, 0.001, 0.0, dx, dy);
+  EXPECT_NEAR(dx, 0.0, 1e-6);
+  EXPECT_GT(dy, 0.0);
+}
+
+TEST(ActionServerMath, AngleNormalizationWrapsCorrectly)
+{
+  EXPECT_NEAR(banyu_vehicle_execution::normalizeAngle(0.0), 0.0, 1e-9);
+  EXPECT_NEAR(banyu_vehicle_execution::normalizeAngle(M_PI), M_PI, 1e-9);
+  EXPECT_NEAR(banyu_vehicle_execution::normalizeAngle(3.0 * M_PI), M_PI, 1e-6);
+  EXPECT_NEAR(banyu_vehicle_execution::normalizeAngle(-3.0 * M_PI), -M_PI, 1e-6);
+  EXPECT_NEAR(banyu_vehicle_execution::normalizeAngle(0.5), 0.5, 1e-9);
+}
+
+TEST(ActionServerMath, QuaternionToYawAccuracy)
+{
+  EXPECT_NEAR(banyu_vehicle_execution::getYawFromQuaternion(0.0, 0.0, 0.0, 1.0), 0.0, 1e-9);
+
+  const double sin45 = std::sin(M_PI / 4.0);
+  const double cos45 = std::cos(M_PI / 4.0);
+  EXPECT_NEAR(
+    banyu_vehicle_execution::getYawFromQuaternion(
+      0.0, 0.0, sin45,
+      cos45), M_PI / 2.0, 1e-6);
+}
+
+void spinFor(const rclcpp::Node::SharedPtr & node, int cycles = 15)
+{
+  for (int i = 0; i < cycles; ++i) {
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+}
+
+TEST_F(VehicleExecutionNodeTest, NodeStartsAndDeclaresPreviewSink)
+{
+  rclcpp::NodeOptions options;
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  EXPECT_EQ(node->arbiter().state(), GoalState::Idle);
+  EXPECT_FALSE(node->telemetry().pose_valid);
+  EXPECT_FALSE(node->telemetry().status_valid);
+  EXPECT_FALSE(node->telemetry().gps_valid);
+}
+
+TEST_F(VehicleExecutionNodeTest, TelemetryUpdatesAndLeaseValidation)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", true);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+
+  const auto goal_id = identity(5, "/banyu/actions/align_heading", 1);
+  const auto req = node->requestGoal(goal_id);
+  ASSERT_EQ(req.admission, GoalAdmission::Activated);
+  EXPECT_TRUE(node->arbiter().zeroLatched());
+
+  auto lease_pub =
+    node->create_publisher<banyu_msgs::msg::ActionLease>("/banyu/execution/lease", 10);
+  spinFor(node, 5);
+
+  auto lease_msg = std::make_shared<banyu_msgs::msg::ActionLease>();
+  lease_msg->header.stamp = node->now();
+  std::copy(goal_id.uuid.begin(), goal_id.uuid.end(), lease_msg->goal_id.uuid.begin());
+  lease_msg->owner = "/banyu/actions/align_heading";
+  lease_msg->generation = 1;
+  lease_msg->active = true;
+  lease_msg->expires_at = node->now() + rclcpp::Duration::from_seconds(2.0);
+
+  for (int i = 0; i < 50 && node->arbiter().zeroLatched(); ++i) {
+    lease_pub->publish(*lease_msg);
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  EXPECT_FALSE(node->arbiter().zeroLatched());
+}
+
+TEST_F(VehicleExecutionNodeTest, OperatorTakeoverFaultsActiveGoals)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+
+  const auto goal_id = identity(7, "/banyu/actions/dive_to_depth", 1);
+  const auto req = node->requestGoal(goal_id);
+  ASSERT_EQ(req.admission, GoalAdmission::Activated);
+  EXPECT_FALSE(node->arbiter().zeroLatched());
+
+  auto status_pub = node->create_publisher<banyu_msgs::msg::VehicleStatus>(
+    "/banyu/vehicle_status",
+    10);
+  spinFor(node, 5);
+
+  banyu_msgs::msg::VehicleStatus status;
+  status.header.stamp = node->now();
+  status.fcu_connected = true;
+  status.operator_takeover = true;
+  status_pub->publish(status);
+
+  spinFor(node, 15);
+
+  EXPECT_EQ(node->arbiter().state(), GoalState::ZeroBarrier);
+  EXPECT_EQ(node->arbiter().stopReason(), StopReason::Fault);
+}
+
+TEST_F(VehicleExecutionNodeTest, FollowPipelineConsumesGuidanceWhenActive)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+
+  auto guidance_pub = node->create_publisher<banyu_guidance::msg::VelocityIntent>(
+    "/banyu/guidance/velocity_intent", 10);
+  banyu_guidance::msg::VelocityIntent intent;
+  intent.header.stamp = node->now();
+  intent.status = 4;
+  intent.surge_mps = 0.8f;
+  intent.sway_mps = -0.3f;
+  intent.yaw_rate_rad_s = 0.15f;
+  intent.yaw_control_active = true;
+  guidance_pub->publish(intent);
+
+  rclcpp::spin_some(node);
+
+  EXPECT_TRUE(node->telemetry().guidance_intent_valid);
+  EXPECT_FLOAT_EQ(node->telemetry().guidance_surge_mps, 0.8f);
+  EXPECT_FLOAT_EQ(node->telemetry().guidance_sway_mps, -0.3f);
+  EXPECT_FLOAT_EQ(node->telemetry().guidance_yaw_rate_rad_s, 0.15f);
+}
+
+TEST(GoalArbiter, SequentialGoalAdmittedDuringZeroBarrierAndPromoted)
+{
+  FakeClock clock;
+  GoalArbiter arbiter(clock, 2);
+
+  const auto goal1_id = identity(1, "nav", 1);
+  const auto goal1 = arbiter.requestGoal(goal1_id, leaseFor(goal1_id, clock));
+  ASSERT_EQ(goal1.admission, GoalAdmission::Activated);
+
+  // Goal 1 completes normally
+  EXPECT_TRUE(arbiter.complete(goal1.handle));
+  EXPECT_EQ(arbiter.state(), GoalState::ZeroBarrier);
+  EXPECT_EQ(arbiter.stopReason(), StopReason::Completed);
+
+  // Goal 2 arrives while arbiter is satisfying ZeroBarrier
+  const auto goal2_id = identity(2, "align", 1);
+  const auto goal2 = arbiter.requestGoal(goal2_id, leaseFor(goal2_id, clock));
+  EXPECT_EQ(goal2.admission, GoalAdmission::Pending);
+
+  // Publish required zero setpoints
+  EXPECT_FALSE(arbiter.recordZeroPublication());
+  EXPECT_TRUE(arbiter.recordZeroPublication());
+
+  // Goal 2 is promoted to active after zero barrier
+  EXPECT_EQ(arbiter.state(), GoalState::Active);
+  ASSERT_TRUE(arbiter.activeGoal().has_value());
+  EXPECT_EQ(arbiter.activeGoal()->goal.uuid, goal2_id.uuid);
+}
+
+TEST(GoalArbiter, SequentialGoalAdmittedAfterCompletedState)
+{
+  FakeClock clock;
+  GoalArbiter arbiter(clock, 1);
+
+  const auto goal1_id = identity(1, "dive", 1);
+  const auto goal1 = arbiter.requestGoal(goal1_id, leaseFor(goal1_id, clock));
+  ASSERT_EQ(goal1.admission, GoalAdmission::Activated);
+
+  EXPECT_TRUE(arbiter.complete(goal1.handle));
+  EXPECT_TRUE(arbiter.recordZeroPublication());
+  EXPECT_EQ(arbiter.state(), GoalState::Completed);
+
+  // Request goal 2 after completion
+  const auto goal2_id = identity(2, "surface", 1);
+  const auto goal2 = arbiter.requestGoal(goal2_id, leaseFor(goal2_id, clock));
+  EXPECT_EQ(goal2.admission, GoalAdmission::Activated);
+  EXPECT_EQ(arbiter.state(), GoalState::Active);
+}
+
+TEST(GoalArbiter, PendingGoalCanEstablishLeaseDuringZeroBarrier)
+{
+  FakeClock clock;
+  GoalArbiter arbiter(clock, 2);
+
+  const auto goal1_id = identity(1, "task", 1);
+  ASSERT_TRUE(arbiter.requestGoal(goal1_id, leaseFor(goal1_id, clock)).accepted());
+  EXPECT_TRUE(arbiter.complete(banyu_vehicle_execution::GoalHandle{goal1_id}));
+
+  // Goal 2 requested without initial lease (zero latched)
+  const auto goal2_id = identity(2, "task2", 1);
+  const auto goal2 = arbiter.requestGoal(goal2_id);
+  ASSERT_EQ(goal2.admission, GoalAdmission::Pending);
+
+  // Establish lease while pending in ZeroBarrier
+  EXPECT_TRUE(arbiter.establishLease(goal2.handle, leaseFor(goal2_id, clock)));
+
+  // Complete zero cycles
+  EXPECT_FALSE(arbiter.recordZeroPublication());
+  EXPECT_TRUE(arbiter.recordZeroPublication());
+
+  EXPECT_EQ(arbiter.state(), GoalState::Active);
+  EXPECT_FALSE(arbiter.zeroLatched());
+}
+
+TEST_F(VehicleExecutionNodeTest, StaleStatusWatchdogFaultsArbiter)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+
+  const auto goal_id = identity(8, "/banyu/actions/align_heading", 1);
+  ASSERT_EQ(node->requestGoal(goal_id).admission, GoalAdmission::Activated);
+
+  auto status_pub = node->create_publisher<banyu_msgs::msg::VehicleStatus>(
+    "/banyu/vehicle_status", 10);
+  spinFor(node, 5);
+
+  // Send status stamped 2 seconds in the past to simulate stale drop
+  banyu_msgs::msg::VehicleStatus status;
+  status.header.stamp = node->now() - rclcpp::Duration::from_seconds(2.0);
+  status.fcu_connected = true;
+  status.fcu_status_fresh = true;
+  status.operator_takeover = false;
+  status_pub->publish(status);
+
+  spinFor(node, 10);
+
+  // Watchdog should detect stale status (> 1.0s) and fault
+  EXPECT_FALSE(node->telemetry().status_valid);
+  EXPECT_EQ(node->arbiter().state(), GoalState::ZeroBarrier);
+  EXPECT_EQ(node->arbiter().stopReason(), StopReason::Fault);
+}
+
+TEST_F(VehicleExecutionNodeTest, HoldProbeContinuousResetOnRingLoss)
+{
+  rclcpp::NodeOptions options;
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+
+  auto server = std::make_shared<banyu_vehicle_execution::HoldProbeOnRingServer>(
+    node.get(), "/banyu/actions/hold_probe_on_ring_test", node.get());
+
+  banyu_vehicle_execution::VehicleTelemetry telem{};
+  telem.ring_obs_valid = true;
+  telem.ring_visible = true;
+  telem.ring_offset_x = 0.01;
+  telem.ring_offset_y = 0.01;
+
+  // With no active goal, tick returns zeroIntent
+  EXPECT_EQ(server->tick(telem, node->now(), 0.1).linear_x, 0.0);
+}
+
+TEST_F(VehicleExecutionNodeTest, ActionServersReturnZeroOnInvalidTelemetry)
+{
+  rclcpp::NodeOptions options;
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+
+  auto nav_server = std::make_shared<banyu_vehicle_execution::NavigateSurfaceGpsServer>(
+    node.get(), "/banyu/actions/nav_test", node.get());
+  auto surface_server = std::make_shared<banyu_vehicle_execution::SurfaceServer>(
+    node.get(), "/banyu/actions/surf_test", node.get());
+
+  banyu_vehicle_execution::VehicleTelemetry telem{};
+  telem.gps_valid = false;
+  telem.depth_valid = false;
+
+  EXPECT_EQ(nav_server->tick(telem, node->now(), 0.1).linear_x, 0.0);
+  EXPECT_EQ(surface_server->tick(telem, node->now(), 0.1).linear_z, 0.0);
 }
