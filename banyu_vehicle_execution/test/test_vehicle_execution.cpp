@@ -560,3 +560,119 @@ TEST_F(VehicleExecutionNodeTest, ActionServersReturnZeroOnInvalidTelemetry)
   EXPECT_EQ(nav_server->tick(telem, node->now(), 0.1).linear_x, 0.0);
   EXPECT_EQ(surface_server->tick(telem, node->now(), 0.1).linear_z, 0.0);
 }
+
+TEST_F(VehicleExecutionNodeTest, MavrosPublicationGatedByStatusAndGuidedMode)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.enable_mavros_publish", true);
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("control.require_guided", true);
+  options.append_parameter_override("topics.status", "/test_gated/status");
+  options.append_parameter_override("topics.mavros_target", "/test_gated/mavros_target");
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+
+  int mavros_count = 0;
+  mavros_msgs::msg::PositionTarget last_target;
+  auto mavros_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/test_gated/mavros_target", 10,
+    [&mavros_count, &last_target](const mavros_msgs::msg::PositionTarget::SharedPtr msg) {
+      ++mavros_count;
+      last_target = *msg;
+    });
+
+  auto status_pub = node->create_publisher<banyu_msgs::msg::VehicleStatus>(
+    "/test_gated/status", 10);
+
+  spinFor(node, 5);
+  // Without status, no publication should occur
+  EXPECT_EQ(mavros_count, 0);
+
+  // Send status with non-GUIDED mode (e.g. MANUAL)
+  banyu_msgs::msg::VehicleStatus status;
+  status.header.stamp = node->now();
+  status.fcu_connected = true;
+  status.fcu_status_fresh = true;
+  status.operator_takeover = false;
+  status.mode = "MANUAL";
+  status_pub->publish(status);
+  spinFor(node, 5);
+  EXPECT_EQ(mavros_count, 0);
+
+  // Send valid GUIDED status
+  status.header.stamp = node->now();
+  status.mode = "GUIDED";
+  status_pub->publish(status);
+  spinFor(node, 10);
+
+  EXPECT_GT(mavros_count, 0);
+  EXPECT_EQ(
+    last_target.coordinate_frame,
+    mavros_msgs::msg::PositionTarget::FRAME_LOCAL_NED);
+  EXPECT_EQ(last_target.type_mask, 0x5C7);
+  EXPECT_DOUBLE_EQ(last_target.yaw_rate, 0.0);
+  EXPECT_DOUBLE_EQ(last_target.position.x, 0.0);
+  EXPECT_DOUBLE_EQ(last_target.position.y, 0.0);
+  EXPECT_DOUBLE_EQ(last_target.position.z, 0.0);
+
+  // Simulate operator takeover: publication must cease
+  status.header.stamp = node->now();
+  status.operator_takeover = true;
+  status_pub->publish(status);
+  for (int i = 0; i < 30 && !node->telemetry().operator_takeover; ++i) {
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  ASSERT_TRUE(node->telemetry().operator_takeover);
+
+  // Allow any in-flight message published before takeover to be received
+  spinFor(node, 5);
+  const int stopped_count = mavros_count;
+
+  // Spin for multiple timer cycles (timer is 50ms, 150ms is 3 cycles)
+  spinFor(node, 15);
+  EXPECT_EQ(mavros_count, stopped_count);
+}
+
+TEST_F(VehicleExecutionNodeTest, MavrosPublicationUngatedWhenRequireGuidedFalse)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.enable_mavros_publish", true);
+  options.append_parameter_override("control.require_guided", false);
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("topics.status", "/test_ungated/status");
+  options.append_parameter_override("topics.mavros_target", "/test_ungated/mavros_target");
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+
+  int mavros_count = 0;
+  auto mavros_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/test_ungated/mavros_target", 10,
+    [&mavros_count](const mavros_msgs::msg::PositionTarget::SharedPtr) {
+      ++mavros_count;
+    });
+
+  auto status_pub = node->create_publisher<banyu_msgs::msg::VehicleStatus>(
+    "/test_ungated/status", 10);
+
+  spinFor(node, 10);
+  EXPECT_GT(mavros_count, 0);
+
+  // Even with require_guided=false, operator takeover must halt publishing
+  banyu_msgs::msg::VehicleStatus status;
+  status.header.stamp = node->now();
+  status.fcu_connected = true;
+  status.fcu_status_fresh = true;
+  status.operator_takeover = true;
+  status.mode = "MANUAL";
+  status_pub->publish(status);
+
+  for (int i = 0; i < 30 && !node->telemetry().operator_takeover; ++i) {
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  ASSERT_TRUE(node->telemetry().operator_takeover);
+
+  spinFor(node, 5);
+  const int stopped_count = mavros_count;
+  spinFor(node, 15);
+  EXPECT_EQ(mavros_count, stopped_count);
+}

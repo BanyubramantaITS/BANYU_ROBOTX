@@ -42,14 +42,19 @@ def generate_launch_description():
     use_ardusub_sitl_arg = DeclareLaunchArgument(
         name="use_ardusub_sitl",
         default_value="True",
-        description="Use sim_vehicle.py wrapper (True) or bare ardusub binary (False) for simulation",
+        description=(
+            "Use sim_vehicle.py wrapper (True) or bare ardusub binary (False) for simulation"
+        ),
         choices=["True", "False"],
     )
 
     fcu_url_arg = DeclareLaunchArgument(
         name="fcu_url",
         default_value="udp://127.0.0.1:14551@",
-        description="FCU connection URL (udp://127.0.0.1:14551@ for SITL or udp://192.168.2.1:14550@ for real ROV). SITL keeps 14550 free for QGC.",
+        description=(
+            "FCU connection URL (udp://127.0.0.1:14551@ for SITL or "
+            "udp://192.168.2.1:14550@ for real ROV). SITL keeps 14550 free for QGC."
+        ),
     )
 
     debug_arg = DeclareLaunchArgument(
@@ -94,6 +99,33 @@ def generate_launch_description():
         name="task2_report_retry_period_ms",
         default_value="1000",
         description="Task 2 UAV report retry period in milliseconds.",
+    )
+
+    task2_enable_mavros_publish_arg = DeclareLaunchArgument(
+        name="task2_enable_mavros_publish",
+        default_value="False",
+        description="Enable live setpoint publishing to /mavros/setpoint_raw/local.",
+        choices=["True", "False"],
+    )
+
+    task2_require_lease_arg = DeclareLaunchArgument(
+        name="task2_require_lease",
+        default_value="False",
+        description="Require active ActionLease for vehicle execution goals.",
+        choices=["True", "False"],
+    )
+
+    task2_publish_rate_hz_arg = DeclareLaunchArgument(
+        name="task2_publish_rate_hz",
+        default_value="20.0",
+        description="Vehicle execution control publish rate in Hz.",
+    )
+
+    task2_require_guided_arg = DeclareLaunchArgument(
+        name="task2_require_guided",
+        default_value="True",
+        description="Require GUIDED mode and no takeover for live publishing.",
+        choices=["True", "False"],
     )
 
     set_use_sim_time = SetUseSimTime(
@@ -178,6 +210,12 @@ def generate_launch_description():
             "task2_report_retry_period_ms": LaunchConfiguration(
                 "task2_report_retry_period_ms"
             ),
+            "task2_enable_mavros_publish": LaunchConfiguration(
+                "task2_enable_mavros_publish"
+            ),
+            "task2_require_lease": LaunchConfiguration("task2_require_lease"),
+            "task2_publish_rate_hz": LaunchConfiguration("task2_publish_rate_hz"),
+            "task2_require_guided": LaunchConfiguration("task2_require_guided"),
         }.items(),
     )
 
@@ -195,6 +233,10 @@ def generate_launch_description():
             task2_report_action_name_arg,
             task2_report_max_retries_arg,
             task2_report_retry_period_arg,
+            task2_enable_mavros_publish_arg,
+            task2_require_lease_arg,
+            task2_publish_rate_hz_arg,
+            task2_require_guided_arg,
             use_dvl_arg,
             set_use_sim_time,
             gazebo_por_launch,

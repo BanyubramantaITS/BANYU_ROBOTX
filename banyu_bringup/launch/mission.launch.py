@@ -360,6 +360,57 @@ def generate_launch_description():
         description="Number of Task 2 UAV report retries after the initial send.",
     )
 
+    task2_enable_mavros_publish_arg = DeclareLaunchArgument(
+        name="task2_enable_mavros_publish",
+        default_value="False",
+        description="Enable live setpoint publishing to /mavros/setpoint_raw/local.",
+        choices=["True", "False"],
+    )
+
+    task2_require_lease_arg = DeclareLaunchArgument(
+        name="task2_require_lease",
+        default_value="False",
+        description="Require active ActionLease for vehicle execution goals.",
+        choices=["True", "False"],
+    )
+
+    task2_publish_rate_hz_arg = DeclareLaunchArgument(
+        name="task2_publish_rate_hz",
+        default_value="20.0",
+        description="Vehicle execution control publish rate in Hz.",
+    )
+
+    task2_require_guided_arg = DeclareLaunchArgument(
+        name="task2_require_guided",
+        default_value="True",
+        description="Require GUIDED mode and no takeover for live publishing.",
+        choices=["True", "False"],
+    )
+
+    task2_execution_preview_topic_arg = DeclareLaunchArgument(
+        name="task2_execution_preview_topic",
+        default_value="/banyu/execution/preview_target",
+        description="Vehicle execution preview setpoint topic.",
+    )
+
+    task2_execution_mavros_topic_arg = DeclareLaunchArgument(
+        name="task2_execution_mavros_topic",
+        default_value="/mavros/setpoint_raw/local",
+        description="MAVROS live setpoint topic.",
+    )
+
+    task2_end_candidate_topic_arg = DeclareLaunchArgument(
+        name="task2_end_candidate_topic",
+        default_value="/banyu/pipeline/end_candidate",
+        description="Task 2 pipeline end candidate topic.",
+    )
+
+    task2_pipeline_end_topic_arg = DeclareLaunchArgument(
+        name="task2_pipeline_end_topic",
+        default_value="/banyu/pipeline/end",
+        description="Task 2 confirmed pipeline end topic.",
+    )
+
     task2_report_max_attempts = _task2_report_max_attempts_substitution()
 
     task2_fixture_mode = AndSubstitution(
@@ -409,6 +460,9 @@ def generate_launch_description():
                 ),
                 "task2_pipeline_ring_observation_topic": LaunchConfiguration(
                     "task2_detector_ring_observation_topic"
+                ),
+                "topics.pipeline_end": LaunchConfiguration(
+                    "task2_pipeline_end_topic"
                 ),
                 "actions.send_mission_report": LaunchConfiguration(
                     "task2_report_action_name"
@@ -651,6 +705,73 @@ def generate_launch_description():
         ),
     )
 
+    task2_vehicle_execution = Node(
+        package="banyu_vehicle_execution",
+        executable="vehicle_execution_node",
+        name="vehicle_execution_node",
+        parameters=[
+            {
+                "control.enable_mavros_publish": ParameterValue(
+                    LaunchConfiguration("task2_enable_mavros_publish"),
+                    value_type=bool,
+                ),
+                "control.require_lease": ParameterValue(
+                    LaunchConfiguration("task2_require_lease"),
+                    value_type=bool,
+                ),
+                "control.publish_rate_hz": ParameterValue(
+                    LaunchConfiguration("task2_publish_rate_hz"),
+                    value_type=float,
+                ),
+                "control.require_guided": ParameterValue(
+                    LaunchConfiguration("task2_require_guided"),
+                    value_type=bool,
+                ),
+                "topics.status": LaunchConfiguration("task2_vehicle_status_topic"),
+                "topics.pose": LaunchConfiguration("task2_ring_pose_topic"),
+                "topics.gps": LaunchConfiguration("task2_vehicle_gps_topic"),
+                "topics.pipeline_obs": LaunchConfiguration(
+                    "task2_detector_observation_topic"
+                ),
+                "topics.ring_obs": LaunchConfiguration(
+                    "task2_detector_ring_observation_topic"
+                ),
+                "topics.guidance_intent": LaunchConfiguration(
+                    "task2_guidance_output_topic"
+                ),
+                "topics.preview_target": LaunchConfiguration(
+                    "task2_execution_preview_topic"
+                ),
+                "topics.mavros_target": LaunchConfiguration(
+                    "task2_execution_mavros_topic"
+                ),
+            }
+        ],
+        output="screen",
+        condition=IfCondition(
+            EqualsSubstitution(LaunchConfiguration("mission_mode"), "task2")
+        ),
+    )
+
+    task2_pipeline_end = Node(
+        package="banyu_detection",
+        executable="pipeline_end_node",
+        name="pipeline_end_node",
+        parameters=[
+            {
+                "observation_topic": LaunchConfiguration(
+                    "task2_detector_observation_topic"
+                ),
+                "candidate_topic": LaunchConfiguration("task2_end_candidate_topic"),
+                "end_topic": LaunchConfiguration("task2_pipeline_end_topic"),
+            }
+        ],
+        output="screen",
+        condition=IfCondition(
+            EqualsSubstitution(LaunchConfiguration("mission_mode"), "task2")
+        ),
+    )
+
     return LaunchDescription(
         [
             use_sim_time_arg,
@@ -707,6 +828,14 @@ def generate_launch_description():
             task2_report_ack_topic_arg,
             task2_report_retry_period_arg,
             task2_report_max_retries_arg,
+            task2_enable_mavros_publish_arg,
+            task2_require_lease_arg,
+            task2_publish_rate_hz_arg,
+            task2_require_guided_arg,
+            task2_execution_preview_topic_arg,
+            task2_execution_mavros_topic_arg,
+            task2_end_candidate_topic_arg,
+            task2_pipeline_end_topic_arg,
             set_use_sim_time,
             mission_manager,
             detection_node,
@@ -716,5 +845,7 @@ def generate_launch_description():
             task2_ring_tracker,
             task2_pipeline_guidance,
             task2_uav_report,
+            task2_vehicle_execution,
+            task2_pipeline_end,
         ]
     )

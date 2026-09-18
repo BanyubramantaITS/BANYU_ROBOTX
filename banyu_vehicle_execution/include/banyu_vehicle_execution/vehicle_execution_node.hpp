@@ -81,6 +81,7 @@ private:
   bool require_lease_{true};
   double lease_timeout_s_{1.5};
   bool enable_mavros_publish_{false};
+  bool require_guided_{true};
   bool status_ever_received_{false};
 
   VehicleTelemetry telemetry_{};

@@ -12,6 +12,7 @@ find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(banyu_msgs REQUIRED)
 
@@ -20,6 +21,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_library(perception_state_machines
     src/pipeline_end_confirmer.cpp
+    src/pipeline_end_adapter.cpp
+    src/pipeline_end_node.cpp
     src/ring_tracker.cpp
     src/ring_tracker_adapter.cpp
 )
@@ -27,7 +30,7 @@ target_include_directories(perception_state_machines PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
-ament_target_dependencies(perception_state_machines banyu_msgs geometry_msgs)
+ament_target_dependencies(perception_state_machines rclcpp banyu_msgs geometry_msgs std_msgs)
 
 add_executable(por_detection src/por_detection.cpp)
 ament_target_dependencies(por_detection rclcpp cv_bridge OpenCV sensor_msgs banyu_msgs)
@@ -41,7 +44,11 @@ add_executable(ring_tracker_node src/ring_tracker_node.cpp)
 ament_target_dependencies(ring_tracker_node rclcpp sensor_msgs geometry_msgs banyu_msgs)
 target_link_libraries(ring_tracker_node perception_state_machines)
 
-install(TARGETS por_detection task2_pipeline_detector ring_tracker_node
+add_executable(pipeline_end_node src/pipeline_end_main.cpp)
+ament_target_dependencies(pipeline_end_node rclcpp std_msgs banyu_msgs)
+target_link_libraries(pipeline_end_node perception_state_machines)
+
+install(TARGETS por_detection task2_pipeline_detector ring_tracker_node pipeline_end_node
     DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -62,7 +69,7 @@ install(DIRECTORY include/
 )
 
 ament_export_include_directories(include)
-ament_export_dependencies(banyu_msgs geometry_msgs)
+ament_export_dependencies(rclcpp banyu_msgs geometry_msgs std_msgs)
 ament_export_targets(perception_state_machinesTargets HAS_LIBRARY_TARGET)
 
 install(DIRECTORY config
@@ -100,6 +107,16 @@ if(BUILD_TESTING)
       test/test_ring_tracker_node_qos.cpp)
   target_link_libraries(test_ring_tracker_node_qos perception_state_machines)
   ament_target_dependencies(test_ring_tracker_node_qos rclcpp geometry_msgs banyu_msgs)
+
+  ament_add_gtest(test_pipeline_end_adapter
+      test/test_pipeline_end_adapter.cpp)
+  target_link_libraries(test_pipeline_end_adapter perception_state_machines)
+  ament_target_dependencies(test_pipeline_end_adapter banyu_msgs)
+
+  ament_add_gtest(test_pipeline_end_node
+      test/test_pipeline_end_node.cpp)
+  target_link_libraries(test_pipeline_end_node perception_state_machines)
+  ament_target_dependencies(test_pipeline_end_node rclcpp std_msgs banyu_msgs)
 endif()
 
 ament_package()

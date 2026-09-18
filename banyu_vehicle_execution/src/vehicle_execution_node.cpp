@@ -31,6 +31,7 @@ void VehicleExecutionNode::initParameters()
   require_lease_ = declare_parameter<bool>("control.require_lease", true);
   lease_timeout_s_ = declare_parameter<double>("control.lease_timeout_s", 1.5);
   enable_mavros_publish_ = declare_parameter<bool>("control.enable_mavros_publish", false);
+  require_guided_ = declare_parameter<bool>("control.require_guided", true);
 
   const double max_linear = declare_parameter<double>("control.max_linear_speed", 2.0);
   const double max_yaw = declare_parameter<double>("control.max_yaw_rate", 1.0);
@@ -326,7 +327,15 @@ void VehicleExecutionNode::timerCallback()
     preview_target_pub_->publish(target);
 
     if (enable_mavros_publish_ && mavros_target_pub_) {
-      mavros_target_pub_->publish(target);
+      const bool takeover = telemetry_.status_valid && telemetry_.operator_takeover;
+      const bool status_ready = telemetry_.status_valid &&
+        telemetry_.fcu_connected &&
+        telemetry_.fcu_status_fresh &&
+        telemetry_.mode == "GUIDED";
+
+      if (!takeover && (!require_guided_ || status_ready)) {
+        mavros_target_pub_->publish(target);
+      }
     }
   } catch (const std::exception & ex) {
     RCLCPP_ERROR_THROTTLE(
