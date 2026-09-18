@@ -5,9 +5,24 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition, UnlessCondition
-from launch.substitutions import AndSubstitution, EqualsSubstitution, LaunchConfiguration
+from launch.substitutions import (
+    AndSubstitution,
+    EqualsSubstitution,
+    LaunchConfiguration,
+    PythonExpression,
+)
 from launch_ros.actions import Node, SetUseSimTime
 from launch_ros.parameter_descriptions import ParameterValue
+
+
+def _task2_report_max_attempts_substitution():
+    return PythonExpression(
+        [
+            "min(255, int('",
+            LaunchConfiguration("task2_report_max_retries"),
+            "') + 1)",
+        ]
+    )
 
 
 def generate_launch_description():
@@ -146,6 +161,207 @@ def generate_launch_description():
         description="Task 2 ring observation topic.",
     )
 
+    task2_vehicle_state_topic_arg = DeclareLaunchArgument(
+        name="task2_vehicle_state_topic",
+        default_value="/mavros/state",
+        description="Task 2 MAVROS FCU state topic.",
+    )
+
+    task2_vehicle_rc_topic_arg = DeclareLaunchArgument(
+        name="task2_vehicle_rc_topic",
+        default_value="/mavros/rc/in",
+        description="Task 2 MAVROS RC input topic.",
+    )
+
+    task2_vehicle_gps_topic_arg = DeclareLaunchArgument(
+        name="task2_vehicle_gps_topic",
+        default_value="/mavros/global_position/raw/fix",
+        description="Task 2 MAVROS GPS fix topic.",
+    )
+
+    task2_vehicle_status_topic_arg = DeclareLaunchArgument(
+        name="task2_vehicle_status_topic",
+        default_value="/banyu/vehicle_status",
+        description="Task 2 normalized vehicle-status topic.",
+    )
+
+    task2_vehicle_status_publish_rate_arg = DeclareLaunchArgument(
+        name="task2_vehicle_status_publish_rate_hz",
+        default_value="10.0",
+        description="Task 2 vehicle-status publish rate in Hz.",
+    )
+
+    task2_vehicle_fcu_timeout_arg = DeclareLaunchArgument(
+        name="task2_vehicle_fcu_timeout_s",
+        default_value="2.0",
+        description="Task 2 FCU freshness timeout in seconds.",
+    )
+
+    task2_vehicle_rc_timeout_arg = DeclareLaunchArgument(
+        name="task2_vehicle_rc_timeout_s",
+        default_value="2.0",
+        description="Task 2 RC freshness timeout in seconds.",
+    )
+
+    task2_vehicle_gps_timeout_arg = DeclareLaunchArgument(
+        name="task2_vehicle_gps_timeout_s",
+        default_value="2.0",
+        description="Task 2 GPS freshness timeout in seconds.",
+    )
+
+    task2_vehicle_rc_takeover_channel_arg = DeclareLaunchArgument(
+        name="task2_vehicle_rc_takeover_channel",
+        default_value="4",
+        description="Task 2 zero-based RC takeover channel.",
+    )
+
+    task2_vehicle_rc_takeover_threshold_arg = DeclareLaunchArgument(
+        name="task2_vehicle_rc_takeover_threshold",
+        default_value="1700",
+        description="Task 2 RC takeover threshold.",
+    )
+
+    task2_vehicle_autonomy_mode_arg = DeclareLaunchArgument(
+        name="task2_vehicle_autonomy_mode",
+        default_value="GUIDED",
+        description="Task 2 autonomy mode reported by the vehicle adapter.",
+    )
+
+    task2_ring_pose_topic_arg = DeclareLaunchArgument(
+        name="task2_ring_pose_topic",
+        default_value="/mavros/local_position/pose",
+        description="Task 2 pose topic used to correlate ring observations.",
+    )
+
+    task2_ring_state_topic_arg = DeclareLaunchArgument(
+        name="task2_ring_state_topic",
+        default_value="/banyu/pipeline/ring_state",
+        description="Task 2 tracked pipeline-ring state topic.",
+    )
+
+    task2_accepted_ring_topic_arg = DeclareLaunchArgument(
+        name="task2_accepted_ring_topic",
+        default_value="/banyu/pipeline/accepted_ring",
+        description="Task 2 accepted-ring record topic.",
+    )
+
+    task2_ring_repair_service_arg = DeclareLaunchArgument(
+        name="task2_ring_repair_service",
+        default_value="/banyu/pipeline/acknowledge_ring_repair",
+        description="Task 2 ring-repair acknowledgement service.",
+    )
+
+    task2_guidance_output_topic_arg = DeclareLaunchArgument(
+        name="task2_guidance_output_topic",
+        default_value="/banyu/guidance/velocity_intent",
+        description="Task 2 guidance velocity-intent topic.",
+    )
+
+    task2_guidance_intent_frame_arg = DeclareLaunchArgument(
+        name="task2_guidance_intent_frame",
+        default_value="base_link",
+        description="Task 2 frame used by guidance velocity intents.",
+    )
+
+    task2_guidance_publish_rate_arg = DeclareLaunchArgument(
+        name="task2_guidance_publish_rate_hz",
+        default_value="20.0",
+        description="Task 2 guidance publish rate in Hz.",
+    )
+
+    task2_guidance_surge_gain_arg = DeclareLaunchArgument(
+        name="task2_guidance_surge_gain_mps",
+        default_value="0.8",
+        description="Task 2 guidance surge gain.",
+    )
+
+    task2_guidance_max_surge_arg = DeclareLaunchArgument(
+        name="task2_guidance_max_surge_mps",
+        default_value="0.6",
+        description="Task 2 guidance maximum surge speed.",
+    )
+
+    task2_guidance_sway_gain_arg = DeclareLaunchArgument(
+        name="task2_guidance_sway_gain_mps",
+        default_value="0.8",
+        description="Task 2 guidance sway gain.",
+    )
+
+    task2_guidance_max_sway_arg = DeclareLaunchArgument(
+        name="task2_guidance_max_sway_mps",
+        default_value="0.4",
+        description="Task 2 guidance maximum sway speed.",
+    )
+
+    task2_guidance_yaw_gain_arg = DeclareLaunchArgument(
+        name="task2_guidance_yaw_gain_rad_s",
+        default_value="0.8",
+        description="Task 2 guidance yaw gain.",
+    )
+
+    task2_guidance_max_yaw_rate_arg = DeclareLaunchArgument(
+        name="task2_guidance_max_yaw_rate_rad_s",
+        default_value="0.6",
+        description="Task 2 guidance maximum yaw rate.",
+    )
+
+    task2_guidance_min_confidence_arg = DeclareLaunchArgument(
+        name="task2_guidance_min_confidence",
+        default_value="0.2",
+        description="Minimum Task 2 observation confidence for guidance.",
+    )
+
+    task2_guidance_max_observation_age_arg = DeclareLaunchArgument(
+        name="task2_guidance_max_observation_age_s",
+        default_value="1.0",
+        description="Maximum Task 2 observation age for guidance.",
+    )
+
+    task2_guidance_max_future_skew_arg = DeclareLaunchArgument(
+        name="task2_guidance_max_future_skew_s",
+        default_value="0.2",
+        description="Maximum Task 2 future observation skew for guidance.",
+    )
+
+    task2_guidance_yaw_control_arg = DeclareLaunchArgument(
+        name="task2_guidance_yaw_control_enabled",
+        default_value="True",
+        description="Enable Task 2 guidance yaw control.",
+        choices=["True", "False"],
+    )
+
+    task2_report_action_name_arg = DeclareLaunchArgument(
+        name="task2_report_action_name",
+        default_value="/banyu/actions/send_mission_report",
+        description="Task 2 mission-report action name served by the UAV report node.",
+    )
+
+    task2_report_topic_arg = DeclareLaunchArgument(
+        name="task2_report_topic",
+        default_value="/banyu/uav/mission_report",
+        description="Task 2 transport-neutral UAV mission-report topic.",
+    )
+
+    task2_report_ack_topic_arg = DeclareLaunchArgument(
+        name="task2_report_ack_topic",
+        default_value="/banyu/uav/mission_report_ack",
+        description="Task 2 transport-neutral UAV report acknowledgement topic.",
+    )
+
+    task2_report_retry_period_arg = DeclareLaunchArgument(
+        name="task2_report_retry_period_ms",
+        default_value="1000",
+        description="Task 2 UAV report retry period in milliseconds.",
+    )
+
+    task2_report_max_retries_arg = DeclareLaunchArgument(
+        name="task2_report_max_retries",
+        default_value="3",
+        description="Number of Task 2 UAV report retries after the initial send.",
+    )
+
+    task2_report_max_attempts = _task2_report_max_attempts_substitution()
+
     task2_fixture_mode = AndSubstitution(
         EqualsSubstitution(LaunchConfiguration("mission_mode"), "task2"),
         EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
@@ -193,6 +409,12 @@ def generate_launch_description():
                 ),
                 "task2_pipeline_ring_observation_topic": LaunchConfiguration(
                     "task2_detector_ring_observation_topic"
+                ),
+                "actions.send_mission_report": LaunchConfiguration(
+                    "task2_report_action_name"
+                ),
+                "mission.max_retries": ParameterValue(
+                    LaunchConfiguration("task2_report_max_retries"), value_type=int
                 ),
             }
         ],
@@ -291,6 +513,144 @@ def generate_launch_description():
         ),
     )
 
+    task2_vehicle_status = Node(
+        package="banyu_vehicle_interface",
+        executable="vehicle_status_node",
+        name="banyu_vehicle_status",
+        parameters=[
+            {
+                "state_topic": LaunchConfiguration("task2_vehicle_state_topic"),
+                "rc_topic": LaunchConfiguration("task2_vehicle_rc_topic"),
+                "gps_topic": LaunchConfiguration("task2_vehicle_gps_topic"),
+                "status_topic": LaunchConfiguration("task2_vehicle_status_topic"),
+                "publish_rate_hz": ParameterValue(
+                    LaunchConfiguration("task2_vehicle_status_publish_rate_hz"),
+                    value_type=float,
+                ),
+                "fcu_timeout_s": ParameterValue(
+                    LaunchConfiguration("task2_vehicle_fcu_timeout_s"), value_type=float
+                ),
+                "rc_timeout_s": ParameterValue(
+                    LaunchConfiguration("task2_vehicle_rc_timeout_s"), value_type=float
+                ),
+                "gps_timeout_s": ParameterValue(
+                    LaunchConfiguration("task2_vehicle_gps_timeout_s"), value_type=float
+                ),
+                "rc_takeover_channel": ParameterValue(
+                    LaunchConfiguration("task2_vehicle_rc_takeover_channel"),
+                    value_type=int,
+                ),
+                "rc_takeover_threshold": ParameterValue(
+                    LaunchConfiguration("task2_vehicle_rc_takeover_threshold"),
+                    value_type=int,
+                ),
+                "autonomy_mode": LaunchConfiguration("task2_vehicle_autonomy_mode"),
+            }
+        ],
+        output="screen",
+        condition=IfCondition(
+            EqualsSubstitution(LaunchConfiguration("mission_mode"), "task2")
+        ),
+    )
+
+    task2_ring_tracker = Node(
+        package="banyu_detection",
+        executable="ring_tracker_node",
+        name="ring_tracker",
+        parameters=[
+            {
+                "observation_topic": LaunchConfiguration(
+                    "task2_detector_ring_observation_topic"
+                ),
+                "pose_topic": LaunchConfiguration("task2_ring_pose_topic"),
+                "state_topic": LaunchConfiguration("task2_ring_state_topic"),
+                "accepted_ring_topic": LaunchConfiguration("task2_accepted_ring_topic"),
+                "repair_service": LaunchConfiguration("task2_ring_repair_service"),
+            }
+        ],
+        output="screen",
+        condition=IfCondition(
+            EqualsSubstitution(LaunchConfiguration("mission_mode"), "task2")
+        ),
+    )
+
+    task2_pipeline_guidance = Node(
+        package="banyu_guidance",
+        executable="pipeline_guidance_node",
+        name="pipeline_guidance",
+        parameters=[
+            {
+                "input_topic": LaunchConfiguration("task2_detector_observation_topic"),
+                "output_topic": LaunchConfiguration("task2_guidance_output_topic"),
+                "intent_frame": LaunchConfiguration("task2_guidance_intent_frame"),
+                "surge_gain_mps": ParameterValue(
+                    LaunchConfiguration("task2_guidance_surge_gain_mps"), value_type=float
+                ),
+                "max_surge_mps": ParameterValue(
+                    LaunchConfiguration("task2_guidance_max_surge_mps"), value_type=float
+                ),
+                "sway_gain_mps": ParameterValue(
+                    LaunchConfiguration("task2_guidance_sway_gain_mps"), value_type=float
+                ),
+                "max_sway_mps": ParameterValue(
+                    LaunchConfiguration("task2_guidance_max_sway_mps"), value_type=float
+                ),
+                "yaw_gain_rad_s": ParameterValue(
+                    LaunchConfiguration("task2_guidance_yaw_gain_rad_s"), value_type=float
+                ),
+                "max_yaw_rate_rad_s": ParameterValue(
+                    LaunchConfiguration("task2_guidance_max_yaw_rate_rad_s"),
+                    value_type=float,
+                ),
+                "min_confidence": ParameterValue(
+                    LaunchConfiguration("task2_guidance_min_confidence"), value_type=float
+                ),
+                "max_observation_age_s": ParameterValue(
+                    LaunchConfiguration("task2_guidance_max_observation_age_s"),
+                    value_type=float,
+                ),
+                "max_future_skew_s": ParameterValue(
+                    LaunchConfiguration("task2_guidance_max_future_skew_s"),
+                    value_type=float,
+                ),
+                "yaw_control_enabled": ParameterValue(
+                    LaunchConfiguration("task2_guidance_yaw_control_enabled"),
+                    value_type=bool,
+                ),
+                "publish_rate_hz": ParameterValue(
+                    LaunchConfiguration("task2_guidance_publish_rate_hz"), value_type=float
+                ),
+            }
+        ],
+        output="screen",
+        condition=IfCondition(
+            EqualsSubstitution(LaunchConfiguration("mission_mode"), "task2")
+        ),
+    )
+
+    task2_uav_report = Node(
+        package="banyu_communication",
+        executable="uav_report_node",
+        name="uav_report",
+        parameters=[
+            {
+                "action_name": LaunchConfiguration("task2_report_action_name"),
+                "report_topic": LaunchConfiguration("task2_report_topic"),
+                "ack_topic": LaunchConfiguration("task2_report_ack_topic"),
+                "max_attempts": ParameterValue(
+                    task2_report_max_attempts, value_type=int
+                ),
+                "retry_period_ms": ParameterValue(
+                    LaunchConfiguration("task2_report_retry_period_ms"), value_type=int
+                ),
+            }
+        ],
+        output="screen",
+        condition=IfCondition(
+            EqualsSubstitution(LaunchConfiguration("mission_mode"), "task2")
+        ),
+    )
+
     return LaunchDescription(
         [
             use_sim_time_arg,
@@ -314,10 +674,47 @@ def generate_launch_description():
             task2_detector_camera_info_topic_arg,
             task2_detector_observation_topic_arg,
             task2_detector_ring_observation_topic_arg,
+            task2_vehicle_state_topic_arg,
+            task2_vehicle_rc_topic_arg,
+            task2_vehicle_gps_topic_arg,
+            task2_vehicle_status_topic_arg,
+            task2_vehicle_status_publish_rate_arg,
+            task2_vehicle_fcu_timeout_arg,
+            task2_vehicle_rc_timeout_arg,
+            task2_vehicle_gps_timeout_arg,
+            task2_vehicle_rc_takeover_channel_arg,
+            task2_vehicle_rc_takeover_threshold_arg,
+            task2_vehicle_autonomy_mode_arg,
+            task2_ring_pose_topic_arg,
+            task2_ring_state_topic_arg,
+            task2_accepted_ring_topic_arg,
+            task2_ring_repair_service_arg,
+            task2_guidance_output_topic_arg,
+            task2_guidance_intent_frame_arg,
+            task2_guidance_publish_rate_arg,
+            task2_guidance_surge_gain_arg,
+            task2_guidance_max_surge_arg,
+            task2_guidance_sway_gain_arg,
+            task2_guidance_max_sway_arg,
+            task2_guidance_yaw_gain_arg,
+            task2_guidance_max_yaw_rate_arg,
+            task2_guidance_min_confidence_arg,
+            task2_guidance_max_observation_age_arg,
+            task2_guidance_max_future_skew_arg,
+            task2_guidance_yaw_control_arg,
+            task2_report_action_name_arg,
+            task2_report_topic_arg,
+            task2_report_ack_topic_arg,
+            task2_report_retry_period_arg,
+            task2_report_max_retries_arg,
             set_use_sim_time,
             mission_manager,
             detection_node,
             task2_sim_provider,
             task2_pipeline_detector,
+            task2_vehicle_status,
+            task2_ring_tracker,
+            task2_pipeline_guidance,
+            task2_uav_report,
         ]
     )

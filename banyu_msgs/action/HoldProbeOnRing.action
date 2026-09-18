@@ -1,0 +1,13 @@
+# Hold alignment continuously for the requested duration.
+float64 hold_duration_s
+float64 alignment_tolerance
+---
+bool success
+string reason
+float64 held_duration_s
+float64 maximum_alignment_error
+---
+builtin_interfaces/Time stamp
+float64 elapsed_s
+float64 alignment_error
+bool aligned

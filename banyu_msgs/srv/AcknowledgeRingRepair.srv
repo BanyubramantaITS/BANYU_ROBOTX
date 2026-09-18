@@ -1,0 +1,6 @@
+# Ring index accepted by the mission protocol.
+uint32 ring_index
+---
+bool success
+string reason
+uint32 accepted_ring_index

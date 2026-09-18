@@ -1,0 +1,15 @@
+# ring_color is a mission-defined name; image offsets are normalized [-1, 1].
+string ring_color
+float64 tolerance
+---
+bool success
+string reason
+string ring_color
+float64 final_offset_x
+float64 final_offset_y
+---
+builtin_interfaces/Time stamp
+bool ring_visible
+float64 offset_x
+float64 offset_y
+float64 alignment_error

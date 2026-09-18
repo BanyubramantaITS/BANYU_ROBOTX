@@ -1,26 +1,23 @@
 <?xml version="1.0"?>
-<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>banyu_mission</name>
-  <version>0.0.0</version>
-  <description>BANYU mission manager: BehaviorTree.CPP mission manager streaming GUIDED setpoints to ArduSub via MAVROS</description>
+  <version>0.1.0</version>
+  <description>Mission orchestration for the BANYU autonomy stack.</description>
   <maintainer email="jalucahyoseno@gmail.com">gryd</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <depend>rclcpp</depend>
-  <depend>behaviortree_cpp</depend>
-  <depend>std_srvs</depend>
-  <depend>mavros_msgs</depend>
-  <depend>geometry_msgs</depend>
-  <depend>nav_msgs</depend>
-  <depend>sensor_msgs</depend>
-  <depend>std_msgs</depend>
-  <depend>unique_identifier_msgs</depend>
-  <depend>ament_index_cpp</depend>
   <depend>banyu_msgs</depend>
+  <depend>ament_index_cpp</depend>
+  <depend>behaviortree_cpp</depend>
+  <depend>builtin_interfaces</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
 
+  <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 

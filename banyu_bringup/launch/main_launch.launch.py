@@ -78,6 +78,24 @@ def generate_launch_description():
         description="Maximum Task 2 GPS/pose receipt-time association gap in seconds.",
     )
 
+    task2_report_action_name_arg = DeclareLaunchArgument(
+        name="task2_report_action_name",
+        default_value="/banyu/actions/send_mission_report",
+        description="Task 2 mission-report action name.",
+    )
+
+    task2_report_max_retries_arg = DeclareLaunchArgument(
+        name="task2_report_max_retries",
+        default_value="3",
+        description="Number of Task 2 UAV report retries after the initial send.",
+    )
+
+    task2_report_retry_period_arg = DeclareLaunchArgument(
+        name="task2_report_retry_period_ms",
+        default_value="1000",
+        description="Task 2 UAV report retry period in milliseconds.",
+    )
+
     set_use_sim_time = SetUseSimTime(
         True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
@@ -155,6 +173,11 @@ def generate_launch_description():
                 "task2_gps_receipt_pair_timeout_s"
             ),
             "task2_use_dvl": LaunchConfiguration("use_dvl"),
+            "task2_report_action_name": LaunchConfiguration("task2_report_action_name"),
+            "task2_report_max_retries": LaunchConfiguration("task2_report_max_retries"),
+            "task2_report_retry_period_ms": LaunchConfiguration(
+                "task2_report_retry_period_ms"
+            ),
         }.items(),
     )
 
@@ -169,6 +192,9 @@ def generate_launch_description():
             task2_follow_source_arg,
             task2_pose_timeout_arg,
             task2_gps_receipt_pair_timeout_arg,
+            task2_report_action_name_arg,
+            task2_report_max_retries_arg,
+            task2_report_retry_period_arg,
             use_dvl_arg,
             set_use_sim_time,
             gazebo_por_launch,

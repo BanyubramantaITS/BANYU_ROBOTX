@@ -1,0 +1,12 @@
+# Target depth is metres positive downward; zero is the water surface.
+float64 target_depth_m
+float64 depth_tolerance_m
+---
+bool success
+string reason
+float64 final_depth_m
+float64 final_error_m
+---
+builtin_interfaces/Time stamp
+float64 current_depth_m
+float64 depth_error_m
