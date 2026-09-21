@@ -50,8 +50,14 @@ BanyuMission::BanyuMission()
     [this](const std::shared_ptr<rmw_request_id_t>,
     const std::shared_ptr<std_srvs::srv::Trigger::Request>,
     std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
-      response->success = mission_config_valid_ && state_->requestStart();
-      response->message = response->success ? "mission start accepted" : "mission cannot be started";
+      const bool config_ok = mission_config_valid_.load();
+      const bool started = state_->requestStart();
+      response->success = config_ok && started;
+      response->message = response->success ?
+      "mission start accepted" :
+      (config_ok ? "mission cannot be started (already active or succeeded)" :
+      "mission config invalid");
+      RCLCPP_INFO(get_logger(), "Mission start service: %s", response->message.c_str());
     });
   abort_service_ = create_service<std_srvs::srv::Trigger>(
     "/banyu/mission/abort",
@@ -160,10 +166,16 @@ void BanyuMission::initialize()
 
 void BanyuMission::tickLoop(int tick_period_ms)
 {
+  bool started_log = false;
   while (rclcpp::ok() && !stop_requested_.load()) {
     if (state_->lifecycle() != MissionState::Lifecycle::Active) {
+      started_log = false;
       std::this_thread::sleep_for(std::chrono::milliseconds(tick_period_ms));
       continue;
+    }
+    if (!started_log) {
+      RCLCPP_INFO(get_logger(), "Mission active: starting BehaviorTree execution");
+      started_log = true;
     }
     BT::NodeStatus status;
     {
@@ -173,6 +185,10 @@ void BanyuMission::tickLoop(int tick_period_ms)
     }
     if (status != BT::NodeStatus::RUNNING) {
       const bool interrupted = state_->autonomyInterrupted();
+      RCLCPP_INFO(
+        get_logger(),
+        "BehaviorTree execution finished: status=%s, interrupted=%s",
+        BT::toStr(status).c_str(), interrupted ? "true" : "false");
       {
         std::lock_guard<std::mutex> lock(tree_mutex_);
         tree_->haltTree();
@@ -180,7 +196,7 @@ void BanyuMission::tickLoop(int tick_period_ms)
       if (interrupted) {state_->markInterrupted();} else if (status == BT::NodeStatus::SUCCESS) {
         state_->markSucceeded();
       } else {state_->markFailed();}
-      break;
+      started_log = false;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(tick_period_ms));
   }

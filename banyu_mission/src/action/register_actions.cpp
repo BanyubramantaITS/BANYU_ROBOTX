@@ -3,6 +3,7 @@
 #include "banyu_mission/action/acknowledge_red_ring_node.hpp"
 #include "banyu_mission/action/acquire_pipeline_node.hpp"
 #include "banyu_mission/action/align_heading_node.hpp"
+#include "banyu_mission/action/arm_and_set_guided.hpp"
 #include "banyu_mission/action/center_on_ring_node.hpp"
 #include "banyu_mission/action/dive_to_depth_node.hpp"
 #include "banyu_mission/action/follow_pipeline_node.hpp"
@@ -22,6 +23,13 @@ void registerActionNodes(
   const std::shared_ptr<MissionState> & state)
 {
   factory.registerNodeType<HandleAbortOrTeleopNode>("HandleAbortOrTeleop", state);
+
+  const auto set_mode_srv = node->declare_parameter<std::string>(
+    "services.set_mode", "/mavros/set_mode");
+  const auto arming_srv = node->declare_parameter<std::string>(
+    "services.arming", "/mavros/cmd/arming");
+  factory.registerNodeType<ArmAndSetGuided>(
+    "ArmAndSetGuided", node, state, set_mode_srv, arming_srv);
 
   const auto ack_service = node->declare_parameter<std::string>(
     "services.acknowledge_ring_repair", "/banyu/pipeline/acknowledge_ring_repair");

@@ -3,24 +3,23 @@
   <BehaviorTree ID="Main">
     <ReactiveFallback name="mission_root">
       <Sequence name="interrupt_sequence">
-        <AutonomyInterrupted/>
-        <HandleAbortOrTeleop/>
+        <AutonomyInterrupted />
+        <HandleAbortOrTeleop />
       </Sequence>
       <Sequence name="mission_phases">
-        <SubTree ID="MissionPreflight"/>
-        <SubTree ID="SurfaceTransitToStart"/>
-        <SubTree ID="DiveAndAcquirePipeline"/>
-        <SubTree ID="TraversePipeline"/>
-        <SubTree ID="SurfaceAndReport"/>
+        <SubTree ID="MissionPreflight" _autoremap="true" />
+        <SubTree ID="SurfaceTransitToStart" _autoremap="true" />
+        <SubTree ID="DiveAndAcquirePipeline" _autoremap="true" />
+        <SubTree ID="TraversePipeline" _autoremap="true" />
+        <SubTree ID="SurfaceAndReport" _autoremap="true" />
       </Sequence>
     </ReactiveFallback>
   </BehaviorTree>
 
   <BehaviorTree ID="MissionPreflight">
     <Sequence>
-      <RequireVehicleReady/>
-      <RequireGpsAvailable/>
-      <RequireMissionStarted/>
+      <RequireMissionStarted />
+      <ArmAndSetGuided />
     </Sequence>
   </BehaviorTree>
 
@@ -28,60 +27,60 @@
     <Sequence>
       <NavigateSurfaceGps target_latitude="{target_latitude}" target_longitude="{target_longitude}"
         start_latitude="{start_latitude}" start_longitude="{start_longitude}"
-        tolerance="{gps_tolerance}"/>
-      <AlignHeading target_heading="{heading}" tolerance="{heading_tolerance}"/>
+        tolerance="{gps_tolerance}" />
+      <AlignHeading target_heading="{heading}" tolerance="{heading_tolerance}" />
     </Sequence>
   </BehaviorTree>
 
   <BehaviorTree ID="DiveAndAcquirePipeline">
     <Sequence>
       <DiveToDepth target_depth="{inspection_depth}" target_heading="{heading}"
-        depth_tolerance="{depth_tolerance}" heading_tolerance="{heading_tolerance}"/>
+        depth_tolerance="{depth_tolerance}" heading_tolerance="{heading_tolerance}" />
       <AcquirePipeline camera_name="{camera_name}" use_heading_prior="true"
-        heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}"/>
+        heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}" />
     </Sequence>
   </BehaviorTree>
 
   <BehaviorTree ID="TraversePipeline">
     <WhileDoElse>
-      <PipelineActive/>
+      <PipelineActive />
       <ReactiveFallback name="traverse_reactive">
         <Sequence name="repair_red_ring">
-          <RedRingPending/>
-          <SubTree ID="RepairRedRing"/>
-          <AcknowledgeRedRing/>
+          <RedRingPending />
+          <SubTree ID="RepairRedRing" _autoremap="true" />
+          <AcknowledgeRedRing />
         </Sequence>
         <Sequence name="reacquire_lost_pipeline">
-          <PipelineLost/>
-          <SubTree ID="ReacquirePipeline"/>
+          <PipelineLost />
+          <SubTree ID="ReacquirePipeline" _autoremap="true" />
         </Sequence>
-        <FollowPipeline enable="true"/>
+        <FollowPipeline enable="true" />
       </ReactiveFallback>
-      <PipelineEnded/>
+      <PipelineEnded />
     </WhileDoElse>
   </BehaviorTree>
 
   <BehaviorTree ID="RepairRedRing">
     <Sequence>
-      <CenterOnRing ring_color="red" tolerance="{ring_tolerance}"/>
-      <HoldProbeOnRing hold_duration="{hold_duration}" alignment_tolerance="{ring_tolerance}"/>
+      <CenterOnRing ring_color="red" tolerance="{ring_tolerance}" />
+      <HoldProbeOnRing hold_duration="{hold_duration}" alignment_tolerance="{ring_tolerance}" />
     </Sequence>
   </BehaviorTree>
 
   <BehaviorTree ID="ReacquirePipeline">
     <Sequence>
       <SearchPipeline camera_name="{camera_name}" use_heading_prior="true"
-        heading_prior="{heading_prior}" search_span="{search_span}" sweep_rate="{sweep_rate}"/>
+        heading_prior="{heading_prior}" search_span="{search_span}" sweep_rate="{sweep_rate}" />
       <AcquirePipeline camera_name="{camera_name}" use_heading_prior="false"
-        heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}"/>
+        heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}" />
     </Sequence>
   </BehaviorTree>
 
   <BehaviorTree ID="SurfaceAndReport">
     <Sequence>
-      <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}"/>
+      <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}" />
       <SendMissionReport mission_id="{mission_id}" ring_order="{ring_order}"
-        crc32="{crc32}" max_retries="{max_retries}"/>
+        crc32="{crc32}" max_retries="{max_retries}" />
     </Sequence>
   </BehaviorTree>
 </root>

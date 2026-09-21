@@ -9,9 +9,7 @@ RequireGpsAvailableCondition::RequireGpsAvailableCondition(
   const std::string & name,
   const BT::NodeConfig & config,
   std::shared_ptr<MissionState> state)
-: BT::ConditionNode(name, config), state_(std::move(state))
-{
-}
+: BT::ConditionNode(name, config), state_(std::move(state)) {}
 
 BT::NodeStatus RequireGpsAvailableCondition::tick()
 {

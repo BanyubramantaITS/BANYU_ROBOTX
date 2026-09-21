@@ -14,12 +14,14 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
+find_package(mavros_msgs REQUIRED)
 
 add_library(banyu_mission_core
   src/mission_state.cpp
   src/action/acknowledge_red_ring_node.cpp
   src/action/acquire_pipeline_node.cpp
   src/action/align_heading_node.cpp
+  src/action/arm_and_set_guided.cpp
   src/action/center_on_ring_node.cpp
   src/action/dive_to_depth_node.cpp
   src/action/follow_pipeline_node.cpp
@@ -46,7 +48,7 @@ target_include_directories(banyu_mission_core PUBLIC
   "$<INSTALL_INTERFACE:include>")
 ament_target_dependencies(banyu_mission_core
   ament_index_cpp banyu_msgs behaviortree_cpp builtin_interfaces
-  rclcpp rclcpp_action std_msgs std_srvs)
+  rclcpp rclcpp_action std_msgs std_srvs mavros_msgs)
 
 add_executable(banyu_mission src/main.cpp)
 target_compile_features(banyu_mission PUBLIC cxx_std_17)

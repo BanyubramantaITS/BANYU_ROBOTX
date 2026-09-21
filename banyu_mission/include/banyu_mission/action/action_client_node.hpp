@@ -116,9 +116,11 @@ public:
         result_success_ = transport_success && semantic_success;
         if (!result_success_) {
           RCLCPP_WARN(
-            node_->get_logger(), "%s action failed: transport=%s%s%s",
+            node_->get_logger(), "%s action failed: transport=%s%s%s%s%s",
             name().c_str(), transport_success ? "ok" : "failed",
-            value ? ", semantic=" : "", value ? (semantic_success ? "success" : "failure") : "");
+            value ? ", semantic=" : "", value ? (semantic_success ? "success" : "failure") : "",
+            (value && !value->reason.empty()) ? ", reason=" : "",
+            (value && !value->reason.empty()) ? value->reason.c_str() : "");
         }
         if (value) {
           reportResult(*value);

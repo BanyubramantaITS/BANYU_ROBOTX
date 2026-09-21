@@ -11,10 +11,7 @@ namespace
 {
 constexpr double kPi = 3.14159265358979323846;
 
-bool finite(double value)
-{
-  return std::isfinite(value);
-}
+bool finite(double value) {return std::isfinite(value);}
 }  // namespace
 
 MissionState::MissionState(rclcpp::Node * node, bool subscribe)
@@ -24,17 +21,22 @@ MissionState::MissionState(rclcpp::Node * node, bool subscribe)
     return;
   }
   const auto vehicle_status_topic = node_->declare_parameter<std::string>(
-    "topics.vehicle_status", "/banyu/vehicle_status");
+    "topics.vehicle_status",
+    "/banyu/vehicle_status");
   const auto tracker_state_topic = node_->declare_parameter<std::string>(
-    "topics.tracker_state", "/banyu/pipeline/ring_state");
+    "topics.tracker_state",
+    "/banyu/pipeline/ring_state");
   const bool tracker_state_transient_local = node_->declare_parameter<bool>(
     "topics.tracker_state_transient_local", false);
   const auto pipeline_topic = node_->declare_parameter<std::string>(
-    "topics.pipeline_observation", "/banyu/pipeline/observation");
+    "topics.pipeline_observation",
+    "/banyu/pipeline/observation");
   const auto ring_topic = node_->declare_parameter<std::string>(
-    "topics.ring_observation", "/banyu/pipeline/ring_observation");
+    "topics.ring_observation",
+    "/banyu/pipeline/ring_observation");
   const auto end_topic = node_->declare_parameter<std::string>(
-    "topics.pipeline_end", "/banyu/pipeline/end");
+    "topics.pipeline_end",
+    "/banyu/pipeline/end");
 
   subscriptions_.push_back(
     node_->create_subscription<banyu_msgs::msg::VehicleStatus>(
@@ -42,17 +44,17 @@ MissionState::MissionState(rclcpp::Node * node, bool subscribe)
       std::bind(&MissionState::stateCallback, this, std::placeholders::_1)));
   subscriptions_.push_back(
     node_->create_subscription<banyu_msgs::msg::PipelineObservation>(
-      pipeline_topic, rclcpp::QoS(5),
+      pipeline_topic, rclcpp::SensorDataQoS(),
       std::bind(&MissionState::pipelineCallback, this, std::placeholders::_1)));
   subscriptions_.push_back(
     node_->create_subscription<banyu_msgs::msg::PipelineRingObservation>(
-      ring_topic, rclcpp::QoS(5),
+      ring_topic, rclcpp::SensorDataQoS(),
       std::bind(&MissionState::ringCallback, this, std::placeholders::_1)));
   subscriptions_.push_back(
     node_->create_subscription<banyu_msgs::msg::PipelineRingState>(
       tracker_state_topic,
-      tracker_state_transient_local ? rclcpp::QoS(5).reliable().transient_local() :
-      rclcpp::QoS(5).reliable(),
+      tracker_state_transient_local ? rclcpp::QoS(5).reliable().transient_local() : rclcpp::QoS(5).
+      reliable(),
       std::bind(&MissionState::ringStateCallback, this, std::placeholders::_1)));
   subscriptions_.push_back(
     node_->create_subscription<std_msgs::msg::Bool>(
@@ -61,9 +63,8 @@ MissionState::MissionState(rclcpp::Node * node, bool subscribe)
 }
 
 void MissionState::configure(
-  double gps_timeout_s, double pipeline_timeout_s, double state_timeout_s,
-  int rc_interrupt_channel, int rc_interrupt_threshold,
-  std::string autonomy_mode, std::string autonomy_authority)
+  double gps_timeout_s, double pipeline_timeout_s, double state_timeout_s, int rc_interrupt_channel,
+  int rc_interrupt_threshold, std::string autonomy_mode, std::string autonomy_authority)
 {
   std::lock_guard<std::mutex> lock(mutex_);
   gps_timeout_s_ = finite(gps_timeout_s) && gps_timeout_s > 0.0 ? gps_timeout_s : 0.01;
@@ -80,16 +81,17 @@ bool MissionState::validateMissionCoordinates(
   double start_latitude, double start_longitude,
   double end_latitude, double end_longitude)
 {
-  return finite(start_latitude) && finite(start_longitude) && finite(end_latitude) &&
-         finite(end_longitude) && start_latitude >= -90.0 && start_latitude <= 90.0 &&
-         end_latitude >= -90.0 && end_latitude <= 90.0 && start_longitude >= -180.0 &&
-         start_longitude <= 180.0 && end_longitude >= -180.0 && end_longitude <= 180.0 &&
+  return finite(start_latitude) && finite(start_longitude) && finite(end_latitude) && finite(
+    end_longitude) && start_latitude >= -90.0 &&
+         start_latitude <= 90.0 && end_latitude >= -90.0 && end_latitude <= 90.0 &&
+         start_longitude >= -180.0 && start_longitude <= 180.0 &&
+         end_longitude >= -180.0 && end_longitude <= 180.0 &&
          (start_latitude != end_latitude || start_longitude != end_longitude);
 }
 
 bool MissionState::deriveEnuInitialBearing(
-  double start_latitude, double start_longitude,
-  double end_latitude, double end_longitude, double & bearing)
+  double start_latitude, double start_longitude, double end_latitude, double end_longitude,
+  double & bearing)
 {
   if (!validateMissionCoordinates(start_latitude, start_longitude, end_latitude, end_longitude)) {
     return false;
@@ -97,12 +99,18 @@ bool MissionState::deriveEnuInitialBearing(
   const double lat0 = start_latitude * kPi / 180.0;
   const double lat1 = end_latitude * kPi / 180.0;
   double dlon = (end_longitude - start_longitude) * kPi / 180.0;
-  while (dlon > kPi) {dlon -= 2.0 * kPi;}
-  while (dlon < -kPi) {dlon += 2.0 * kPi;}
+  while (dlon > kPi) {
+    dlon -= 2.0 * kPi;
+  }
+  while (dlon < -kPi) {
+    dlon += 2.0 * kPi;
+  }
   const double east = dlon * std::cos((lat0 + lat1) * 0.5);
   const double north = (lat1 - lat0);
   bearing = std::atan2(north, east);
-  if (bearing < 0.0) {bearing += 2.0 * kPi;}
+  if (bearing < 0.0) {
+    bearing += 2.0 * kPi;
+  }
   return finite(bearing);
 }
 
@@ -116,22 +124,31 @@ bool MissionState::configureMissionCoordinates(
   end_latitude_ = end_latitude;
   end_longitude_ = end_longitude;
   mission_coordinates_valid_ = deriveEnuInitialBearing(
-    start_latitude, start_longitude, end_latitude, end_longitude, mission_heading_);
+    start_latitude, start_longitude,
+    end_latitude, end_longitude,
+    mission_heading_);
   return mission_coordinates_valid_;
 }
 
 bool MissionState::resetForStart()
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (lifecycle_ != Lifecycle::Idle || !mission_coordinates_valid_) {
+  if ((lifecycle_ != Lifecycle::Idle &&
+    lifecycle_ != Lifecycle::Interrupted &&
+    lifecycle_ != Lifecycle::Failed) ||
+    !mission_coordinates_valid_)
+  {
     return false;
   }
   mission_coordinates_valid_ = deriveEnuInitialBearing(
-    start_latitude_, start_longitude_, end_latitude_, end_longitude_, mission_heading_);
+    start_latitude_, start_longitude_,
+    end_latitude_, end_longitude_,
+    mission_heading_);
   if (!mission_coordinates_valid_) {
     return false;
   }
   mission_started_ = true;
+  autonomy_engaged_ = false;
   lifecycle_ = Lifecycle::Active;
   abort_requested_ = false;
   pipeline_ended_ = false;
@@ -150,27 +167,42 @@ void MissionState::requestAbort()
   }
 }
 
-bool MissionState::requestStart()
-{
-  return resetForStart();
-}
+bool MissionState::requestStart() {return resetForStart();}
 
 void MissionState::markSucceeded()
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (lifecycle_ == Lifecycle::Active) {lifecycle_ = Lifecycle::Succeeded;}
+  if (lifecycle_ == Lifecycle::Active) {
+    lifecycle_ = Lifecycle::Succeeded;
+  }
 }
 
 void MissionState::markFailed()
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (lifecycle_ == Lifecycle::Active) {lifecycle_ = Lifecycle::Failed;}
+  if (lifecycle_ == Lifecycle::Active) {
+    lifecycle_ = Lifecycle::Failed;
+  }
 }
 
 void MissionState::markInterrupted()
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (lifecycle_ == Lifecycle::Active) {lifecycle_ = Lifecycle::Interrupted;}
+  if (lifecycle_ == Lifecycle::Active) {
+    lifecycle_ = Lifecycle::Interrupted;
+  }
+}
+
+void MissionState::markAutonomyEngaged()
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  autonomy_engaged_ = true;
+}
+
+bool MissionState::autonomyEngaged() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return autonomy_engaged_;
 }
 
 MissionState::Lifecycle MissionState::lifecycle() const
@@ -216,19 +248,35 @@ MissionState::Snapshot MissionState::snapshot() const
 bool MissionState::autonomyInterrupted() const
 {
   const auto value = snapshot();
-  if (!value.mission_started || lifecycle() != Lifecycle::Active) {return false;}
+  if (!value.mission_started || lifecycle() != Lifecycle::Active) {
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  const bool mode_ok = !autonomy_engaged_ ||
+    (value.mode == autonomy_mode_ &&
+    (autonomy_authority_.empty() || value.authority == autonomy_authority_));
   const bool ready = value.fcu_connected && value.fcu_status_fresh && value.rc_fresh &&
-    !value.operator_takeover && value.mode == autonomy_mode_ &&
-    (autonomy_authority_.empty() || value.authority == autonomy_authority_);
-  return value.abort_requested || !ready;
+    !value.operator_takeover && mode_ok;
+  if (value.abort_requested || !ready) {
+    RCLCPP_WARN(
+      node_->get_logger(),
+      "Autonomy interrupted: abort=%d, connected=%d, state_fresh=%d, rc_fresh=%d, takeover=%d, mode_ok=%d (mode=%s expected=%s)",
+      value.abort_requested, value.fcu_connected, value.fcu_status_fresh, value.rc_fresh,
+      value.operator_takeover, mode_ok, value.mode.c_str(), autonomy_mode_.c_str());
+    return true;
+  }
+  return false;
 }
 
 bool MissionState::vehicleReady() const
 {
   const auto value = snapshot();
+  std::lock_guard<std::mutex> lock(mutex_);
+  const bool mode_ok = !autonomy_engaged_ ||
+    (value.mode == autonomy_mode_ &&
+    (autonomy_authority_.empty() || value.authority == autonomy_authority_));
   return value.fcu_connected && value.fcu_status_fresh && value.rc_fresh &&
-         !value.operator_takeover && value.mode == autonomy_mode_ &&
-         (autonomy_authority_.empty() || value.authority == autonomy_authority_);
+         !value.operator_takeover && mode_ok;
 }
 
 bool MissionState::gpsAvailable() const {return snapshot().gps_available;}
@@ -240,7 +288,9 @@ uint32_t MissionState::pendingRedIndex() const {return snapshot().red_record_ind
 bool MissionState::acknowledgeRed(uint32_t index)
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (!red_pending_ || red_record_index_ != index) {return false;}
+  if (!red_pending_ || red_record_index_ != index) {
+    return false;
+  }
   red_pending_ = false;
   return true;
 }
@@ -263,9 +313,9 @@ void MissionState::pipelineCallback(const banyu_msgs::msg::PipelineObservation::
 {
   std::lock_guard<std::mutex> lock(mutex_);
   pipeline_seen_ = true;
-  pipeline_tracked_ = msg->status == banyu_msgs::msg::PipelineObservation::TRACKED &&
-    finite(msg->offset_x) && finite(msg->offset_y) && finite(msg->heading_error_rad) &&
-    finite(msg->confidence) && msg->confidence >= 0.0F;
+  pipeline_tracked_ = msg->status == banyu_msgs::msg::PipelineObservation::TRACKED && finite(
+    msg->offset_x) && finite(msg->offset_y) &&
+    finite(msg->heading_error_rad) && finite(msg->confidence) && msg->confidence >= 0.0F;
   last_pipeline_ = node_->now();
 }
 

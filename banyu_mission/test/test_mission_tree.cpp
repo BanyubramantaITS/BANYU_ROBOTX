@@ -66,7 +66,7 @@ TEST_F(MissionTest, LoadsAndRegistersAllNodes)
   for (const auto & id : {"NavigateSurfaceGps", "AlignHeading", "DiveToDepth",
       "AcquirePipeline", "SearchPipeline", "FollowPipeline",
       "CenterOnRing", "HoldProbeOnRing", "Surface",
-      "SendMissionReport", "AutonomyInterrupted", "PipelineEnded"})
+      "SendMissionReport", "AutonomyInterrupted", "PipelineEnded", "ArmAndSetGuided"})
   {
     EXPECT_NE(builders.find(id), builders.end()) << id;
   }
@@ -103,6 +103,28 @@ TEST_F(MissionTest, TerminalLifecycleIsOneShot)
   EXPECT_FALSE(state.requestStart());
   state.markFailed();
   EXPECT_EQ(state.lifecycle(), banyu_mission::MissionState::Lifecycle::Succeeded);
+}
+
+TEST_F(MissionTest, MissionCanBeRestartedAfterAbortOrFailure)
+{
+  auto node = std::make_shared<rclcpp::Node>("mission_state_restart_test");
+  banyu_mission::MissionState state(node.get(), false);
+  ASSERT_TRUE(state.configureMissionCoordinates(1.0, 2.0, 1.001, 2.001));
+
+  ASSERT_TRUE(state.requestStart());
+  EXPECT_EQ(state.lifecycle(), banyu_mission::MissionState::Lifecycle::Active);
+
+  state.markInterrupted();
+  EXPECT_EQ(state.lifecycle(), banyu_mission::MissionState::Lifecycle::Interrupted);
+
+  EXPECT_TRUE(state.requestStart());
+  EXPECT_EQ(state.lifecycle(), banyu_mission::MissionState::Lifecycle::Active);
+
+  state.markFailed();
+  EXPECT_EQ(state.lifecycle(), banyu_mission::MissionState::Lifecycle::Failed);
+
+  EXPECT_TRUE(state.requestStart());
+  EXPECT_EQ(state.lifecycle(), banyu_mission::MissionState::Lifecycle::Active);
 }
 
 TEST_F(MissionTest, BearingValidationUsesEnuAndRejectsInvalidCoordinates)
@@ -204,4 +226,49 @@ TEST_F(MissionTest, FollowPipelineRequiresExpectedEnabledResult)
   EXPECT_TRUE(Node::semanticResultSuccess(result, false));
   result.success = false;
   EXPECT_FALSE(Node::semanticResultSuccess(result, false));
+}
+
+TEST_F(MissionTest, TreeInstantiatesWithSubtreeAutoremap)
+{
+  auto node = std::make_shared<rclcpp::Node>("mission_tree_autoremap_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get(), false);
+  BT::BehaviorTreeFactory factory;
+  banyu_mission::registerMissionNodes(factory, node, state);
+
+  factory.registerBehaviorTreeFromFile(missionTreePath());
+  auto blackboard = BT::Blackboard::create();
+  blackboard->set("target_latitude", 33.81);
+  blackboard->set("target_longitude", -118.39);
+  blackboard->set("start_latitude", 33.81);
+  blackboard->set("start_longitude", -118.39);
+  blackboard->set("gps_tolerance", 1.0);
+  blackboard->set("heading", 0.0);
+  blackboard->set("heading_tolerance", 0.1);
+  blackboard->set("inspection_depth", 1.5);
+  blackboard->set("depth_tolerance", 0.2);
+  blackboard->set("camera_name", "front_camera");
+  blackboard->set("heading_prior", 0.0);
+  blackboard->set("search_span", 1.0);
+  blackboard->set("sweep_rate", 0.2);
+  blackboard->set("ring_tolerance", 0.1);
+  blackboard->set("hold_duration", 5.0);
+  blackboard->set("mission_id", std::string("test_mission"));
+  blackboard->set("crc32", static_cast<uint32_t>(12345));
+  blackboard->set("max_retries", static_cast<uint8_t>(3));
+  blackboard->set("surface_depth", 0.0);
+  blackboard->set("surface_tolerance", 0.2);
+  blackboard->set("ring_order", std::vector<uint8_t>{1});
+
+  auto tree = factory.createTree("Main", blackboard);
+  bool found_nav_node = false;
+  tree.applyVisitor(
+    [&](BT::TreeNode * tree_node) {
+      if (auto nav = dynamic_cast<banyu_mission::NavigateSurfaceGpsNode *>(tree_node)) {
+        found_nav_node = true;
+        double lat = 0.0;
+        EXPECT_TRUE(nav->getInput("target_latitude", lat));
+        EXPECT_NEAR(lat, 33.81, 1e-4);
+      }
+    });
+  EXPECT_TRUE(found_nav_node);
 }
