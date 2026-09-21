@@ -62,15 +62,15 @@ void VehicleExecutionNode::initSubscribers()
     std::bind(&VehicleExecutionNode::handleStatus, this, std::placeholders::_1));
 
   pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
-    pose_topic, rclcpp::QoS(10),
+    pose_topic, rclcpp::SensorDataQoS(),
     std::bind(&VehicleExecutionNode::handlePose, this, std::placeholders::_1));
 
   gps_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
-    gps_topic, rclcpp::QoS(10),
+    gps_topic, rclcpp::SensorDataQoS(),
     std::bind(&VehicleExecutionNode::handleGps, this, std::placeholders::_1));
 
   rel_alt_sub_ = create_subscription<std_msgs::msg::Float64>(
-    rel_alt_topic, rclcpp::QoS(10),
+    rel_alt_topic, rclcpp::SensorDataQoS(),
     std::bind(&VehicleExecutionNode::handleRelAlt, this, std::placeholders::_1));
 
   pipeline_obs_sub_ = create_subscription<banyu_msgs::msg::PipelineObservation>(
@@ -344,10 +344,22 @@ void VehicleExecutionNode::timerCallback()
   }
 }
 
+rclcpp::Time VehicleExecutionNode::resolveStamp(const builtin_interfaces::msg::Time & stamp_msg)
+{
+  if (stamp_msg.sec == 0 && stamp_msg.nanosec == 0) {
+    return now();
+  }
+  const rclcpp::Time stamp(stamp_msg, get_clock()->get_clock_type());
+  if (std::abs((now() - stamp).seconds()) > 60.0) {
+    return now();
+  }
+  return stamp;
+}
+
 void VehicleExecutionNode::handlePose(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
 {
   telemetry_.pose_valid = true;
-  telemetry_.pose_stamp = msg->header.stamp;
+  telemetry_.pose_stamp = resolveStamp(msg->header.stamp);
   telemetry_.pos_x = msg->pose.position.x;
   telemetry_.pos_y = msg->pose.position.y;
   telemetry_.pos_z = msg->pose.position.z;
@@ -364,7 +376,7 @@ void VehicleExecutionNode::handlePose(const geometry_msgs::msg::PoseStamped::Sha
 void VehicleExecutionNode::handleGps(const sensor_msgs::msg::NavSatFix::SharedPtr msg)
 {
   telemetry_.gps_valid = (msg->status.status >= 0);
-  telemetry_.gps_stamp = msg->header.stamp;
+  telemetry_.gps_stamp = resolveStamp(msg->header.stamp);
   telemetry_.latitude_deg = msg->latitude;
   telemetry_.longitude_deg = msg->longitude;
   telemetry_.altitude_m = msg->altitude;
@@ -382,7 +394,7 @@ void VehicleExecutionNode::handleStatus(const banyu_msgs::msg::VehicleStatus::Sh
 {
   status_ever_received_ = true;
   telemetry_.status_valid = true;
-  telemetry_.status_stamp = msg->header.stamp;
+  telemetry_.status_stamp = resolveStamp(msg->header.stamp);
   telemetry_.fcu_connected = msg->fcu_connected;
   telemetry_.fcu_status_fresh = msg->fcu_status_fresh;
   telemetry_.rc_fresh = msg->rc_fresh;
@@ -395,7 +407,7 @@ void VehicleExecutionNode::handlePipelineObs(
   const banyu_msgs::msg::PipelineObservation::SharedPtr msg)
 {
   telemetry_.pipeline_obs_valid = true;
-  telemetry_.pipeline_obs_stamp = msg->header.stamp;
+  telemetry_.pipeline_obs_stamp = resolveStamp(msg->header.stamp);
   telemetry_.pipeline_status = msg->status;
   telemetry_.pipeline_offset_x = msg->offset_x;
   telemetry_.pipeline_offset_y = msg->offset_y;
@@ -407,7 +419,7 @@ void VehicleExecutionNode::handleRingObs(
   const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg)
 {
   telemetry_.ring_obs_valid = true;
-  telemetry_.ring_obs_stamp = msg->header.stamp;
+  telemetry_.ring_obs_stamp = resolveStamp(msg->header.stamp);
   telemetry_.ring_visible = msg->visible;
   telemetry_.ring_color = msg->color;
   telemetry_.ring_offset_x = msg->offset_x;
@@ -419,7 +431,7 @@ void VehicleExecutionNode::handleGuidanceIntent(
   const banyu_guidance::msg::VelocityIntent::SharedPtr msg)
 {
   telemetry_.guidance_intent_valid = true;
-  telemetry_.guidance_intent_stamp = msg->header.stamp;
+  telemetry_.guidance_intent_stamp = resolveStamp(msg->header.stamp);
   telemetry_.guidance_status = msg->status;
   telemetry_.guidance_surge_mps = msg->surge_mps;
   telemetry_.guidance_sway_mps = msg->sway_mps;

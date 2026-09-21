@@ -73,6 +73,8 @@ private:
   void handleGuidanceIntent(const banyu_guidance::msg::VelocityIntent::SharedPtr msg);
   void handleLease(const banyu_msgs::msg::ActionLease::SharedPtr msg);
 
+  rclcpp::Time resolveStamp(const builtin_interfaces::msg::Time & stamp_msg);
+
   SystemSteadyClock steady_clock_;
   uint32_t required_zero_cycles_{2};
   GoalArbiter arbiter_;

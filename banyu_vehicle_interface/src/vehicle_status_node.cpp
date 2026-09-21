@@ -30,7 +30,7 @@ public:
       rc_topic, rclcpp::QoS(10),
       std::bind(&VehicleStatusNode::rcCallback, this, std::placeholders::_1));
     gps_subscription_ = create_subscription<sensor_msgs::msg::NavSatFix>(
-      gps_topic, rclcpp::QoS(10),
+      gps_topic, rclcpp::SensorDataQoS(),
       std::bind(&VehicleStatusNode::gpsCallback, this, std::placeholders::_1));
 
     const double safe_rate_hz = std::max(0.1, publish_rate_hz);

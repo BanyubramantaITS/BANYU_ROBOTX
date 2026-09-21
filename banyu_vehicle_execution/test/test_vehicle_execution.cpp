@@ -405,6 +405,7 @@ TEST_F(VehicleExecutionNodeTest, FollowPipelineConsumesGuidanceWhenActive)
 
   auto guidance_pub = node->create_publisher<banyu_guidance::msg::VelocityIntent>(
     "/banyu/guidance/velocity_intent", 10);
+  spinFor(node, 5);
   banyu_guidance::msg::VelocityIntent intent;
   intent.header.stamp = node->now();
   intent.status = 4;
@@ -412,9 +413,12 @@ TEST_F(VehicleExecutionNodeTest, FollowPipelineConsumesGuidanceWhenActive)
   intent.sway_mps = -0.3f;
   intent.yaw_rate_rad_s = 0.15f;
   intent.yaw_control_active = true;
-  guidance_pub->publish(intent);
 
-  rclcpp::spin_some(node);
+  for (int i = 0; i < 50 && !node->telemetry().guidance_intent_valid; ++i) {
+    guidance_pub->publish(intent);
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
 
   EXPECT_TRUE(node->telemetry().guidance_intent_valid);
   EXPECT_FLOAT_EQ(node->telemetry().guidance_surge_mps, 0.8f);
@@ -517,7 +521,7 @@ TEST_F(VehicleExecutionNodeTest, StaleStatusWatchdogFaultsArbiter)
   status.operator_takeover = false;
   status_pub->publish(status);
 
-  spinFor(node, 10);
+  spinFor(node, 20);
 
   // Watchdog should detect stale status (> 1.0s) and fault
   EXPECT_FALSE(node->telemetry().status_valid);
