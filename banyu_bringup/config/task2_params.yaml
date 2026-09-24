@@ -16,8 +16,21 @@ banyu_mission:
       pipeline_end: "/banyu/pipeline/end"
     actions:
       send_mission_report: "/banyu/actions/send_mission_report"
+    timing:
+      state_timeout_s: 5.0
+      gps_timeout_s: 5.0
     mission:
       max_retries: 3
+      start_latitude: 33.810313
+      start_longitude: -118.393866
+      target_latitude: 33.810438
+      target_longitude: -118.393392
+      end_latitude: 33.810438
+      end_longitude: -118.393272
+      camera_name: "bottom_camera"
+      acquire_timeout_s: 15.0
+      inspection_depth_m: 12.5
+      depth_tolerance_m: 0.3
 
 task2_sim_provider:
   ros__parameters:
@@ -35,10 +48,42 @@ task2_sim_provider:
 
 task2_pipeline_detector:
   ros__parameters:
-    image_topic: "/front_camera/image_raw"
-    camera_info_topic: "/camera/camera_info"
+    use_gui: false
+    image_topic: "/bottom_camera/image_raw"
+    camera_info_topic: "/bottom_camera/camera_info"
     observation_topic: "/banyu/pipeline/observation"
     ring_observation_topic: "/banyu/pipeline/ring_observation"
+    min_aspect_ratio: 1.5
+    min_line_length_px: 18.0
+    min_component_area_px: 20
+    min_pipeline_confidence: 0.20
+    max_heading_error_rad: 1.571
+
+    # Pipeline mask HSV and grayscale thresholds
+    gray_threshold: 170
+    hsv_h_min: 0
+    hsv_h_max: 179
+    hsv_s_min: 0
+    hsv_s_max: 255
+    hsv_v_min: 250
+    hsv_v_max: 255
+    ring_min_component_area_px: 8
+    ring_association_distance_px: 120.0
+    ring_max_aspect_ratio: 4.5
+    red_ring_h_low_min: 0
+    red_ring_h_low_max: 15
+    red_ring_h_high_min: 90
+    red_ring_h_high_max: 179
+    red_ring_s_min: 145
+    red_ring_s_max: 255
+    red_ring_v_min: 130
+    red_ring_v_max: 255
+    green_ring_h_min: 35
+    green_ring_h_max: 95
+    green_ring_s_min: 40
+    green_ring_s_max: 255
+    green_ring_v_min: 30
+    green_ring_v_max: 255
 
 banyu_vehicle_status:
   ros__parameters:
@@ -47,9 +92,9 @@ banyu_vehicle_status:
     gps_topic: "/mavros/global_position/raw/fix"
     status_topic: "/banyu/vehicle_status"
     publish_rate_hz: 10.0
-    fcu_timeout_s: 2.0
-    rc_timeout_s: 2.0
-    gps_timeout_s: 2.0
+    fcu_timeout_s: 5.0
+    rc_timeout_s: 3.0
+    gps_timeout_s: 5.0
     rc_takeover_channel: 4
     rc_takeover_threshold: 1700
     autonomy_mode: "GUIDED"
@@ -90,10 +135,13 @@ uav_report:
 vehicle_execution_node:
   ros__parameters:
     control:
-      enable_mavros_publish: false
+      enable_mavros_publish: true
       require_lease: false
       publish_rate_hz: 20.0
       require_guided: true
+      acquire_surge_speed: 0.3
+      acquire_timeout_s: 20.0
+      acquire_confirm_frames: 5
     topics:
       status: "/banyu/vehicle_status"
       pose: "/mavros/local_position/pose"
