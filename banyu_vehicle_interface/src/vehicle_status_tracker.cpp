@@ -65,7 +65,7 @@ bool VehicleStatusTracker::isFresh(
     return false;
   }
   const double age_s = (now - last_received).seconds();
-  return age_s >= 0.0 && age_s <= timeout_s;
+  return age_s >= -1.0 && age_s <= timeout_s;
 }
 
 banyu_msgs::msg::VehicleStatus VehicleStatusTracker::status(const rclcpp::Time & now) const

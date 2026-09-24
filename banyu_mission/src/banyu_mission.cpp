@@ -21,6 +21,47 @@ bool finite(double value)
 {
   return std::isfinite(value);
 }
+
+class MissionTreeLogger : public BT::StatusChangeLogger
+{
+public:
+  MissionTreeLogger(const BT::Tree & tree, rclcpp::Logger logger)
+  : BT::StatusChangeLogger(tree.rootNode()), logger_(logger)
+  {
+  }
+
+  void callback(
+    BT::Duration /*timestamp*/, const BT::TreeNode & node,
+    BT::NodeStatus prev_status, BT::NodeStatus status) override
+  {
+    if (prev_status == status) {
+      return;
+    }
+
+    const auto type = node.type();
+    if (type != BT::NodeType::ACTION && type != BT::NodeType::SUBTREE) {
+      return;
+    }
+
+    const auto & name = node.name();
+    const auto & reg_name = node.registrationName();
+    const std::string label = (name == reg_name || name.empty()) ?
+      reg_name : (name + " (" + reg_name + ")");
+
+    if (status == BT::NodeStatus::RUNNING && prev_status != BT::NodeStatus::RUNNING) {
+      RCLCPP_INFO(logger_, "[BT] Executing: %s", label.c_str());
+    } else if (status == BT::NodeStatus::SUCCESS && prev_status != BT::NodeStatus::SUCCESS) {
+      RCLCPP_INFO(logger_, "[BT] Completed: %s -> SUCCESS", label.c_str());
+    } else if (status == BT::NodeStatus::FAILURE && prev_status != BT::NodeStatus::FAILURE) {
+      RCLCPP_WARN(logger_, "[BT] Completed: %s -> FAILURE", label.c_str());
+    }
+  }
+
+  void flush() override {}
+
+private:
+  rclcpp::Logger logger_;
+};
 }  // namespace
 
 void registerMissionNodes(
@@ -36,9 +77,9 @@ BanyuMission::BanyuMission()
 : rclcpp::Node("banyu_mission"), state_(std::make_shared<MissionState>(this))
 {
   state_->configure(
-    declare_parameter<double>("timing.gps_timeout_s", 2.0),
+    declare_parameter<double>("timing.gps_timeout_s", 5.0),
     declare_parameter<double>("timing.pipeline_timeout_s", 1.0),
-    declare_parameter<double>("timing.state_timeout_s", 2.0),
+    declare_parameter<double>("timing.state_timeout_s", 5.0),
     declare_parameter<int>("rc_interrupt_channel", 4),
     declare_parameter<int>("rc_interrupt_threshold", 1700),
     declare_parameter<std::string>("autonomy_mode", "GUIDED"),
@@ -73,11 +114,13 @@ BanyuMission::BanyuMission()
 BanyuMission::~BanyuMission()
 {
   stop_requested_.store(true);
+  if (tick_thread_.joinable()) {tick_thread_.join();}
   {
     std::lock_guard<std::mutex> lock(tree_mutex_);
+    tree_logger_.reset();
+    groot_publisher_.reset();
     if (tree_) {tree_->haltTree();}
   }
-  if (tick_thread_.joinable()) {tick_thread_.join();}
 }
 
 std::string BanyuMission::xmlPath()
@@ -96,6 +139,10 @@ void BanyuMission::initialize()
   const auto target_longitude = declare_parameter<double>("mission.target_longitude", 0.0);
   const auto start_latitude = declare_parameter<double>("mission.start_latitude", 0.0);
   const auto start_longitude = declare_parameter<double>("mission.start_longitude", 0.0);
+  const auto end_latitude = declare_parameter<double>(
+    "mission.end_latitude", std::numeric_limits<double>::quiet_NaN());
+  const auto end_longitude = declare_parameter<double>(
+    "mission.end_longitude", std::numeric_limits<double>::quiet_NaN());
   mission_config_valid_ = state_->configureMissionCoordinates(
     start_latitude, start_longitude, target_latitude, target_longitude);
   const auto positive = [this](double value) {return finite(value) && value > 0.0;};
@@ -104,6 +151,9 @@ void BanyuMission::initialize()
   const auto heading_tolerance = declare_parameter<double>("mission.heading_tolerance_rad", 0.1);
   const auto inspection_depth = declare_parameter<double>("mission.inspection_depth_m", 2.0);
   const auto depth_tolerance = declare_parameter<double>("mission.depth_tolerance_m", 0.2);
+  const auto heading_rad = declare_parameter<double>(
+    "mission.heading_rad", std::numeric_limits<double>::quiet_NaN());
+  const auto acquire_timeout_s = declare_parameter<double>("mission.acquire_timeout_s", 15.0);
   const auto search_span = declare_parameter<double>("mission.search_span_rad", 2.0 * kPi);
   const auto sweep_rate = declare_parameter<double>("mission.sweep_rate_rad_s", 0.2);
   const auto ring_tolerance = declare_parameter<double>("mission.ring_tolerance", 0.08);
@@ -124,10 +174,38 @@ void BanyuMission::initialize()
   }
   mission_config_valid_ = mission_config_valid_ && positive(gps_tolerance) &&
     positive(heading_tolerance) && nonnegative(inspection_depth) && positive(depth_tolerance) &&
+    positive(acquire_timeout_s) && (std::isnan(heading_rad) || finite(heading_rad)) &&
+    (std::isnan(end_latitude) || finite(end_latitude)) &&
+    (std::isnan(end_longitude) || finite(end_longitude)) &&
     positive(search_span) && search_span <= 2.0 * kPi && positive(sweep_rate) &&
     positive(ring_tolerance) && ring_tolerance <= 1.0 && positive(hold_duration) &&
     nonnegative(surface_depth) && positive(surface_tolerance) && retries >= 0 && retries <= 255 &&
     crc >= 0 && crc <= std::numeric_limits<uint32_t>::max() && !camera.empty() && !id.empty();
+
+  double buoy_heading = 0.0;
+  bool buoy_heading_valid = false;
+  if (!std::isnan(end_latitude) && !std::isnan(end_longitude)) {
+    buoy_heading_valid = MissionState::deriveEnuInitialBearing(
+      target_latitude, target_longitude,
+      end_latitude, end_longitude,
+      buoy_heading);
+    if (buoy_heading_valid) {
+      buoy_heading = std::atan2(std::sin(buoy_heading), std::cos(buoy_heading));
+      RCLCPP_INFO(
+        get_logger(),
+        "Computed pipeline heading from start/end buoys: %.4f rad (%.1f deg)",
+        buoy_heading, buoy_heading * 180.0 / kPi);
+    }
+  }
+
+  double effective_heading = 0.0;
+  if (!std::isnan(heading_rad)) {
+    effective_heading = heading_rad;
+  } else if (buoy_heading_valid) {
+    effective_heading = buoy_heading;
+  } else {
+    effective_heading = state_->missionHeading();
+  }
 
   auto self = shared_from_this();
   factory_ = std::make_unique<BT::BehaviorTreeFactory>();
@@ -138,12 +216,13 @@ void BanyuMission::initialize()
   blackboard->set("start_latitude", start_latitude);
   blackboard->set("start_longitude", start_longitude);
   blackboard->set("gps_tolerance", gps_tolerance);
-  blackboard->set("heading", state_->missionHeading());
+  blackboard->set("heading", effective_heading);
   blackboard->set("heading_tolerance", heading_tolerance);
   blackboard->set("inspection_depth", inspection_depth);
   blackboard->set("depth_tolerance", depth_tolerance);
   blackboard->set("camera_name", camera);
-  blackboard->set("heading_prior", state_->missionHeading());
+  blackboard->set("heading_prior", effective_heading);
+  blackboard->set("acquire_timeout_ms", static_cast<unsigned>(acquire_timeout_s * 1000.0));
   blackboard->set("search_span", search_span);
   blackboard->set("sweep_rate", sweep_rate);
   blackboard->set("ring_tolerance", ring_tolerance);
@@ -156,6 +235,7 @@ void BanyuMission::initialize()
   blackboard->set("ring_order", ring_order);
   factory_->registerBehaviorTreeFromFile(xmlPath());
   tree_ = std::make_shared<BT::Tree>(factory_->createTree("Main", blackboard));
+  tree_logger_ = std::make_unique<MissionTreeLogger>(*tree_, get_logger());
   int groot_port = 1666;
   get_parameter("groot_port", groot_port);
   groot_publisher_ =

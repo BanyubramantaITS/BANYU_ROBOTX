@@ -92,6 +92,20 @@ TEST_F(MissionTest, VehicleSafetyFailsClosedAndManualBeforeStartDoesNotAbort)
   EXPECT_TRUE(state->autonomyInterrupted());
 }
 
+TEST_F(MissionTest, PreflightDoesNotInterruptAutonomyWhenNotReady)
+{
+  auto node = std::make_shared<rclcpp::Node>("preflight_no_interrupt_test");
+  banyu_mission::MissionState state(node.get(), false);
+  ASSERT_TRUE(state.configureMissionCoordinates(1.0, 2.0, 1.001, 2.001));
+  ASSERT_TRUE(state.requestStart());
+  EXPECT_FALSE(state.autonomyEngaged());
+  EXPECT_FALSE(state.autonomyInterrupted());
+
+  state.markAutonomyEngaged();
+  EXPECT_TRUE(state.autonomyEngaged());
+  EXPECT_TRUE(state.autonomyInterrupted());
+}
+
 TEST_F(MissionTest, TerminalLifecycleIsOneShot)
 {
   auto node = std::make_shared<rclcpp::Node>("mission_state_lifecycle_test");
@@ -248,6 +262,7 @@ TEST_F(MissionTest, TreeInstantiatesWithSubtreeAutoremap)
   blackboard->set("depth_tolerance", 0.2);
   blackboard->set("camera_name", "front_camera");
   blackboard->set("heading_prior", 0.0);
+  blackboard->set("acquire_timeout_ms", static_cast<unsigned>(15000));
   blackboard->set("search_span", 1.0);
   blackboard->set("sweep_rate", 0.2);
   blackboard->set("ring_tolerance", 0.1);

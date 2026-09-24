@@ -134,6 +134,9 @@ void VehicleExecutionNode::initActionServers()
   const double max_depth_rate = declare_parameter<double>("control.max_depth_rate", 0.5);
   const double ring_kp_sway = declare_parameter<double>("control.ring_kp_sway", 0.8);
   const double ring_kp_z = declare_parameter<double>("control.ring_kp_z", 0.5);
+  const double acquire_timeout_s = declare_parameter<double>("control.acquire_timeout_s", 20.0);
+  const double acquire_surge_speed = declare_parameter<double>("control.acquire_surge_speed", 0.3);
+  const int acquire_confirm_frames = declare_parameter<int>("control.acquire_confirm_frames", 5);
 
   auto nav_server = std::make_shared<NavigateSurfaceGpsServer>(
     this, nav_action, this, nav_kp, nav_max_speed, yaw_kp, max_yaw_rate);
@@ -142,7 +145,8 @@ void VehicleExecutionNode::initActionServers()
   auto dive_server = std::make_shared<DiveToDepthServer>(
     this, dive_action, this, depth_kp, max_depth_rate, yaw_kp, max_yaw_rate);
   auto acquire_server = std::make_shared<AcquirePipelineServer>(
-    this, acquire_action, this, yaw_kp, max_yaw_rate);
+    this, acquire_action, this, yaw_kp, max_yaw_rate, 0.3, acquire_timeout_s, acquire_surge_speed,
+    acquire_confirm_frames);
   auto search_server = std::make_shared<SearchPipelineServer>(
     this, search_action, this);
   auto follow_server = std::make_shared<FollowPipelineServer>(

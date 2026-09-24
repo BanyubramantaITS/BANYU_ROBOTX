@@ -20,7 +20,12 @@ public:
     ActionServerCoordinator * coordinator,
     double yaw_kp = 1.0,
     double max_yaw_rate = 0.5,
-    double min_confidence = 0.3);
+    double min_confidence = 0.3,
+    double timeout_s = 20.0,
+    double surge_speed = 0.3,
+    int confirm_frames = 5);
+
+  void onGoalStarted() override;
 
   MotionIntent tick(
     const VehicleTelemetry & telemetry, const rclcpp::Time & now,
@@ -30,6 +35,11 @@ private:
   double yaw_kp_{1.0};
   double max_yaw_rate_{0.5};
   double min_confidence_{0.3};
+  double timeout_s_{20.0};
+  double surge_speed_{0.3};
+  int confirm_frames_{5};
+  int consecutive_frames_{0};
+  rclcpp::Time start_time_{0, 0, RCL_ROS_TIME};
 };
 
 }  // namespace banyu_vehicle_execution

@@ -252,19 +252,28 @@ bool MissionState::autonomyInterrupted() const
     return false;
   }
   std::lock_guard<std::mutex> lock(mutex_);
-  const bool mode_ok = !autonomy_engaged_ ||
-    (value.mode == autonomy_mode_ &&
-    (autonomy_authority_.empty() || value.authority == autonomy_authority_));
-  const bool ready = value.fcu_connected && value.fcu_status_fresh && value.rc_fresh &&
-    !value.operator_takeover && mode_ok;
-  if (value.abort_requested || !ready) {
+  if (value.abort_requested || value.operator_takeover || value.manual_interrupt) {
     RCLCPP_WARN(
       node_->get_logger(),
-      "Autonomy interrupted: abort=%d, connected=%d, state_fresh=%d, rc_fresh=%d, takeover=%d, mode_ok=%d (mode=%s expected=%s)",
-      value.abort_requested, value.fcu_connected, value.fcu_status_fresh, value.rc_fresh,
-      value.operator_takeover, mode_ok, value.mode.c_str(), autonomy_mode_.c_str());
+      "Autonomy interrupted: abort=%d, takeover=%d, manual_interrupt=%d",
+      value.abort_requested, value.operator_takeover, value.manual_interrupt);
     return true;
   }
+
+  if (autonomy_engaged_) {
+    const bool mode_ok = (value.mode == autonomy_mode_ &&
+      (autonomy_authority_.empty() || value.authority == autonomy_authority_));
+    const bool ready = value.fcu_connected && value.fcu_status_fresh && value.rc_fresh && mode_ok;
+    if (!ready) {
+      RCLCPP_WARN(
+        node_->get_logger(),
+        "Autonomy interrupted: connected=%d, state_fresh=%d, rc_fresh=%d, mode_ok=%d (mode=%s expected=%s)",
+        value.fcu_connected, value.fcu_status_fresh, value.rc_fresh,
+        mode_ok, value.mode.c_str(), autonomy_mode_.c_str());
+      return true;
+    }
+  }
+
   return false;
 }
 

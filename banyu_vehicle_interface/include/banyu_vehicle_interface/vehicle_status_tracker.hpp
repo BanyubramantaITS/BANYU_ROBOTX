@@ -16,9 +16,9 @@ class VehicleStatusTracker
 public:
   struct Config
   {
-    double fcu_timeout_s{2.0};
-    double rc_timeout_s{1.0};
-    double gps_timeout_s{2.0};
+    double fcu_timeout_s{5.0};
+    double rc_timeout_s{3.0};
+    double gps_timeout_s{5.0};
     int rc_takeover_channel{4};
     int rc_takeover_threshold{1700};
     std::string autonomy_mode{"GUIDED"};

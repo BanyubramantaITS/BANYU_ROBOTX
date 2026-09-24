@@ -8,6 +8,7 @@
 #include <thread>
 
 #include "behaviortree_cpp/bt_factory.h"
+#include "behaviortree_cpp/loggers/abstract_logger.h"
 #include "behaviortree_cpp/loggers/groot2_publisher.h"
 #include "banyu_mission/mission_state.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -34,6 +35,7 @@ private:
 
   std::shared_ptr<MissionState> state_;
   std::shared_ptr<BT::Tree> tree_;
+  std::unique_ptr<BT::StatusChangeLogger> tree_logger_;
   std::unique_ptr<BT::Groot2Publisher> groot_publisher_;
   std::unique_ptr<BT::BehaviorTreeFactory> factory_;
   std::thread tick_thread_;

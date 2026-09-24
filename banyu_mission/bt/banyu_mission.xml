@@ -36,8 +36,10 @@
     <Sequence>
       <DiveToDepth target_depth="{inspection_depth}" target_heading="{heading}"
         depth_tolerance="{depth_tolerance}" heading_tolerance="{heading_tolerance}" />
-      <AcquirePipeline camera_name="{camera_name}" use_heading_prior="true"
-        heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}" />
+      <Timeout msec="{acquire_timeout_ms}">
+        <AcquirePipeline camera_name="{camera_name}" use_heading_prior="true"
+          heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}" />
+      </Timeout>
     </Sequence>
   </BehaviorTree>
 
@@ -71,8 +73,10 @@
     <Sequence>
       <SearchPipeline camera_name="{camera_name}" use_heading_prior="true"
         heading_prior="{heading_prior}" search_span="{search_span}" sweep_rate="{sweep_rate}" />
-      <AcquirePipeline camera_name="{camera_name}" use_heading_prior="false"
-        heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}" />
+      <Timeout msec="{acquire_timeout_ms}">
+        <AcquirePipeline camera_name="{camera_name}" use_heading_prior="false"
+          heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}" />
+      </Timeout>
     </Sequence>
   </BehaviorTree>
 

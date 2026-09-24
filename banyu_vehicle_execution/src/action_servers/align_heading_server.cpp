@@ -8,15 +8,10 @@ namespace banyu_vehicle_execution
 {
 
 AlignHeadingServer::AlignHeadingServer(
-  rclcpp::Node * node,
-  const std::string & action_name,
-  ActionServerCoordinator * coordinator,
+  rclcpp::Node * node, const std::string & action_name, ActionServerCoordinator * coordinator,
   double yaw_kp,
   double max_yaw_rate)
-: TypedActionServer(node, action_name, coordinator),
-  yaw_kp_(yaw_kp), max_yaw_rate_(max_yaw_rate)
-{
-}
+: TypedActionServer(node, action_name, coordinator), yaw_kp_(yaw_kp), max_yaw_rate_(max_yaw_rate) {}
 
 bool AlignHeadingServer::validateGoal(const Goal & goal, std::string & reason)
 {
@@ -28,7 +23,8 @@ bool AlignHeadingServer::validateGoal(const Goal & goal, std::string & reason)
 }
 
 MotionIntent AlignHeadingServer::tick(
-  const VehicleTelemetry & telemetry, const rclcpp::Time & now, double /*dt*/)
+  const VehicleTelemetry & telemetry, const rclcpp::Time & now,
+  double /*dt*/)
 {
   if (!active_handle_) {
     return zeroIntent();
@@ -57,7 +53,7 @@ MotionIntent AlignHeadingServer::tick(
     result->final_heading_rad = telemetry.yaw;
     result->final_error_rad = heading_err;
     active_handle_->succeed(result);
-    coordinator_->completeGoal(GoalHandle{active_identity_});
+    coordinator_->completeGoal(GoalHandle {active_identity_});
     active_handle_.reset();
     active_identity_ = {};
     return zeroIntent();
