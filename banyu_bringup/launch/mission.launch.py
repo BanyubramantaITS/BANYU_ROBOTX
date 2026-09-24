@@ -124,7 +124,10 @@ def generate_launch_description():
         package="banyu_detection",
         executable="task2_pipeline_detector",
         name="task2_pipeline_detector",
-        parameters=[task2_params],
+        parameters=[
+            task2_params,
+            {"use_gui": debug},
+        ],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
