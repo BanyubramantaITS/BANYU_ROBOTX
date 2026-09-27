@@ -11,7 +11,6 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
     EqualsSubstitution,
     LaunchConfiguration,
-    PythonExpression,
 )
 from launch_ros.actions import SetUseSimTime
 
@@ -63,11 +62,6 @@ def generate_launch_description():
         True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
 
-    # DVL is part of the main-mission stack but deliberately absent for POR.
-    use_dvl = PythonExpression(
-        ["'True' if '", LaunchConfiguration("mode"), "' == 'mission' else 'False'"]
-    )
-
     gazebo_por_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
@@ -106,7 +100,6 @@ def generate_launch_description():
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "use_ardusub_sitl": LaunchConfiguration("use_ardusub_sitl"),
-            "use_dvl": use_dvl,
             "fcu_url": LaunchConfiguration("fcu_url"),
         }.items(),
     )

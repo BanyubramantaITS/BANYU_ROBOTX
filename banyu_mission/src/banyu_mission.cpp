@@ -1,9 +1,12 @@
 #include "banyu_mission/banyu_mission.hpp"
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
+#include <cmath>
 #include <filesystem>
 
 #include "banyu_mission/bt_nodes.hpp"
+#include "banyu_mission/task2/nodes.hpp"
+#include "banyu_mission/task2/vehicle_io.hpp"
 
 namespace banyu_mission {
 
@@ -98,6 +101,19 @@ void BanyuMission::declareParameters() {
     this->declare_parameter<double>("surface_tolerance", 0.2);
     this->declare_parameter<double>("surface_timeout", 30.0);
 
+    // --- RobotX Task 2, Core Tier ---------------------------------------
+    // Which competition behaviour to run. This was previously passed down by
+    // the launch file and read by nobody, so 'mission' mode ran the PoR
+    // gate/marker tree.
+    this->declare_parameter<std::string>("mission_mode", "por");
+
+    // Pipeline survey (bt/pipeline_survey_tree.xml). Everything else is in the node files.
+    this->declare_parameter<double>("task2_search_altitude", 3.0);  // m above the echosounder return
+    this->declare_parameter<double>("task2_survey_altitude", 1.5);  // m above the pipe
+    // Handbook: the pipe is 1-2 m above the seafloor (sim: 1.9). Only seeds the survey depth;
+    // FollowPipe then holds survey_altitude above the pipe on the echosounder.
+    this->declare_parameter<double>("task2_pipe_height", 1.9);
+
     this->declare_parameter<std::string>("abort_mode", "STABILIZE");
     this->declare_parameter<int>("groot2_port", 1666);
 
@@ -121,6 +137,12 @@ void BanyuMission::declareParameters() {
     });
 
     setpoint_pub_ = this->create_publisher<mavros_msgs::msg::PositionTarget>("mavros/setpoint_raw/local", 10);
+
+    subscribeTask2();
+
+    report_pub_ = this->create_publisher<banyu_msgs::msg::PipelineSurveyReport>(
+        "/banyu/task2/pipeline_survey", rclcpp::QoS(10).transient_local());
+    ctx_->report_pub = report_pub_;
 
     start_service_ = this->create_service<std_srvs::srv::SetBool>(
         "banyu/mission/start", [this](const std::shared_ptr<std_srvs::srv::SetBool::Request> req,
@@ -147,6 +169,55 @@ void BanyuMission::declareParameters() {
 
     arming_client_ = this->create_client<mavros_msgs::srv::CommandBool>("mavros/cmd/arming");
     set_mode_client_ = this->create_client<mavros_msgs::srv::SetMode>("mavros/set_mode");
+    ctx_->arming_client = arming_client_;
+    ctx_->set_mode_client = set_mode_client_;
+}
+
+void BanyuMission::subscribeTask2() {
+    const auto set = [this](auto&& write) {
+        std::lock_guard<std::mutex> lock(ctx_->data_mutex);
+        write(*ctx_);
+    };
+    // Depth from the pressure sensor, never rel_alt: EKF output, garbage without horizontal aiding.
+    // ponytail: fixed surface pressure and fresh water; sample at the surface on the vehicle.
+    pressure_sub_ = this->create_subscription<sensor_msgs::msg::FluidPressure>(
+        "mavros/imu/static_pressure", rclcpp::SensorDataQoS(), [set](sensor_msgs::msg::FluidPressure::ConstSharedPtr m) {
+            set([&](MissionContext& c) {
+                c.pressure_depth = (m->fluid_pressure - 101325.0) / 9807.0;
+                c.has_pressure_depth = true;
+            });
+        });
+    imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
+        "mavros/imu/data", rclcpp::SensorDataQoS(), [set](sensor_msgs::msg::Imu::ConstSharedPtr m) {
+            const auto& q = m->orientation;
+            set([&](MissionContext& c) {
+                c.yaw = std::atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z));
+                c.has_yaw = true;
+            });
+        });
+    sonar_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
+        "/down_sonar/scan", rclcpp::SensorDataQoS(), [set](sensor_msgs::msg::LaserScan::ConstSharedPtr m) {
+            std::optional<double> first_echo;  // an echosounder reports the nearest return in its beam
+            for (const float r : m->ranges)
+                if (r >= m->range_min && r <= m->range_max && (!first_echo || r < *first_echo)) first_echo = r;
+            set([&](MissionContext& c) { c.altitude = first_echo; });
+        });
+    fix_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
+        "mavros/global_position/global", rclcpp::SensorDataQoS(),
+        [set](sensor_msgs::msg::NavSatFix::ConstSharedPtr m) { set([&](MissionContext& c) { c.fix = *m; }); });
+    pipe_sub_ = this->create_subscription<banyu_msgs::msg::PipeObservation>(
+        "/banyu/pipeline/observation", rclcpp::SensorDataQoS(), [set](banyu_msgs::msg::PipeObservation::ConstSharedPtr m) {
+            set([&](MissionContext& c) {
+                c.pipe = *m;
+                ++c.pipe_seq;
+            });
+        });
+    pinger_sub_ = this->create_subscription<banyu_msgs::msg::PingerObservation>(
+        "/banyu/pinger/observation", 10, [set](banyu_msgs::msg::PingerObservation::ConstSharedPtr m) {
+            set([&](MissionContext& c) { c.pings.push_back(*m); });
+        });
+    stick_pub_ = this->create_publisher<mavros_msgs::msg::ManualControl>("mavros/manual_control/send", 10);
+    ctx_->stick_pub = stick_pub_;
 }
 
 void BanyuMission::setupBehaviorTree() {
@@ -163,11 +234,35 @@ void BanyuMission::setupBehaviorTree() {
     factory_.registerNodeType<ReturnGatePass>("ReturnGatePass", this->shared_from_this(), ctx_);
     factory_.registerNodeType<Surface>("Surface", this->shared_from_this(), ctx_);
 
+    // RobotX Task 2 (Core Tier): pipeline survey, one node per file in task2/.
+    const auto self = this->shared_from_this();
+    factory_.registerNodeType<task2::ArmVehicle>("ArmVehicle", self, ctx_);
+    factory_.registerNodeType<task2::SetFlightMode>("SetFlightMode", self, ctx_);
+    factory_.registerNodeType<task2::SurfaceVehicle>("SurfaceVehicle", self, ctx_);
+    factory_.registerNodeType<task2::TransitToPinger>("TransitToPinger", self, ctx_);
+    factory_.registerNodeType<task2::RecordBuoyFix>("RecordBuoyFix", self, ctx_);
+    factory_.registerNodeType<task2::FindPipe>("FindPipe", self, ctx_);
+    factory_.registerNodeType<task2::SetSurveyDepth>("SetSurveyDepth", self, ctx_);
+    factory_.registerNodeType<task2::TurnOnPipe>("TurnOnPipe", self, ctx_);
+    factory_.registerNodeType<task2::PingerForwardAtLeast>("PingerForwardAtLeast", self, ctx_);
+    factory_.registerNodeType<task2::FollowPipe>("FollowPipe", self, ctx_);
+    factory_.registerNodeType<task2::SendReport>("SendReport", self, ctx_);
+
+    // mission_mode selects the behaviour, which is the whole point of the
+    // argument the launch file has always passed.
+    const std::string mission_mode = this->get_parameter("mission_mode").as_string();
+    const bool is_task2 = (mission_mode == "mission");
+    const char* tree_name = is_task2 ? "PipelineSurvey" : "BanyuMission";
+    const char* tree_xml = is_task2 ? "pipeline_survey_tree.xml" : "mission_tree.xml";
+
     const std::filesystem::path share_dir = ament_index_cpp::get_package_share_directory("banyu_mission");
-    const std::filesystem::path tree_file = share_dir / "bt" / "mission_tree.xml";
+    const std::filesystem::path tree_file = share_dir / "bt" / tree_xml;
+
+    RCLCPP_INFO(this->get_logger(), "mission_mode='%s' -> tree '%s' from %s",
+                mission_mode.c_str(), tree_name, tree_xml);
 
     factory_.registerBehaviorTreeFromFile(tree_file);
-    tree_ = factory_.createTree("BanyuMission");
+    tree_ = factory_.createTree(tree_name);
     tree_.initialize();
 
     auto blackboard = tree_.rootBlackboard();
@@ -179,7 +274,7 @@ void BanyuMission::setupBehaviorTree() {
 
     const int groot2_port = this->get_parameter("groot2_port").as_int();
     groot2_publisher_ = std::make_unique<BT::Groot2Publisher>(tree_, groot2_port);
-    RCLCPP_INFO(this->get_logger(), "BehaviorTree 'BanyuMission' loaded, Groot2 on port %d", groot2_port);
+    RCLCPP_INFO(this->get_logger(), "BehaviorTree '%s' loaded, Groot2 on port %d", tree_name, groot2_port);
 }
 
 void BanyuMission::startMission() {
@@ -195,7 +290,11 @@ void BanyuMission::startMission() {
         ctx_->gate_target.reset();
     }
 
-    armAndSetGuided();
+    // The pipeline survey arms itself and flies STABILIZE/ALT_HOLD on sticks; GUIDED needs a
+    // position estimate this vehicle doesn't have.
+    if (this->get_parameter("mission_mode").as_string() != "mission") {
+        armAndSetGuided();
+    }
 
     ctx_->mission_active.store(true);
     tick_thread_ = std::thread([this]() {
@@ -226,6 +325,7 @@ void BanyuMission::abortMission() {
     if (ctx_->setpoint_pub) {
         ctx_->setpoint_pub->publish(velocitySetpoint(0.0, 0.0, 0.0, this->now()));
     }
+    task2::sendSticks(*ctx_, 0, 0, 0);
 
     setAbortMode();
 

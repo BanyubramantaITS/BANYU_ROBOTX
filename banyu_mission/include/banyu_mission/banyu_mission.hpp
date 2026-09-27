@@ -10,12 +10,20 @@
 #include <behaviortree_cpp/loggers/groot2_publisher.h>
 
 #include <banyu_msgs/msg/detection.hpp>
+#include <banyu_msgs/msg/pinger_observation.hpp>
+#include <banyu_msgs/msg/pipe_observation.hpp>
+#include <banyu_msgs/msg/pipeline_survey_report.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <mavros_msgs/msg/manual_control.hpp>
 #include <mavros_msgs/msg/position_target.hpp>
 #include <mavros_msgs/msg/state.hpp>
 #include <mavros_msgs/srv/command_bool.hpp>
 #include <mavros_msgs/srv/set_mode.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/fluid_pressure.hpp>
+#include <sensor_msgs/msg/imu.hpp>
+#include <sensor_msgs/msg/laser_scan.hpp>
+#include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <std_srvs/srv/set_bool.hpp>
 
 #include "banyu_mission/mission_context.hpp"
@@ -33,6 +41,7 @@ class BanyuMission : public rclcpp::Node {
 
  private:
   void declareParameters();
+  void subscribeTask2();
   void setupBehaviorTree();
   void startMission();
   void abortMission();
@@ -48,8 +57,17 @@ class BanyuMission : public rclcpp::Node {
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
   rclcpp::Subscription<mavros_msgs::msg::State>::SharedPtr state_sub_;
   rclcpp::Subscription<banyu_msgs::msg::Detection>::SharedPtr detection_sub_;
+  // Task 2 sensors and sticks.
+  rclcpp::Subscription<sensor_msgs::msg::FluidPressure>::SharedPtr pressure_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr sonar_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr fix_sub_;
+  rclcpp::Subscription<banyu_msgs::msg::PipeObservation>::SharedPtr pipe_sub_;
+  rclcpp::Subscription<banyu_msgs::msg::PingerObservation>::SharedPtr pinger_sub_;
+  rclcpp::Publisher<mavros_msgs::msg::ManualControl>::SharedPtr stick_pub_;
   rclcpp::TimerBase::SharedPtr detection_watchdog_timer_;
   rclcpp::Publisher<mavros_msgs::msg::PositionTarget>::SharedPtr setpoint_pub_;
+  rclcpp::Publisher<banyu_msgs::msg::PipelineSurveyReport>::SharedPtr report_pub_;
 
   rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr start_service_;
   rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr abort_service_;

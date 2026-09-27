@@ -26,6 +26,15 @@ This package provides the Gazebo simulation environment, 3D world models, and la
 
 ---
 
+## 🧩 World Systems (`src/`)
+
+`main_world.world` gets its Task 2 props from `banyu_robotx_models` (see `import.repos`) and loads two systems built here:
+
+- **`banyu::PipelineLights`**: turns one listed light node RED and the rest GREEN. The seed comes from `<seed>`, or from `BANYU_LIGHT_SEED` (the launch arg `light_seed`) if that is set.
+- **`banyu::UnderwaterTurbidity`**: an Ogre2 post-process on the listed `<camera>` sensors. It applies range-based per-channel attenuation plus backscatter veil. Only the server-side sensor image gets it; the GUI view stays clear. The coefficients are placeholders, not measured venue water.
+
+---
+
 ## 🛁 DVL System Plugin
 
 `worlds/proof_of_readiness.world` declares `gz-sim-dvl-system`, which services
@@ -111,7 +120,6 @@ ros2 launch banyu_bringup proof_of_readiness.launch.py use_sim:=False fcu_url:=u
 | `use_sim` | `True` | Set to `True` for Gazebo + SITL simulation; set to `False` for real hardware deployment. |
 | `use_sim_time` | `True` | Enables ROS 2 simulation time (`/clock`). |
 | `use_ardusub_sitl` | `True` | Set to `True` for `sim_vehicle.py` (with UDP 14550 for QGC); `False` for bare `ardusub`. |
-| `use_dvl` | `True` | Runs the DVL→MAVLink bridge so EKF3 fuses the DVL at depth. `False` is the negative control: SRC2 then has no source at all. |
 | `fcu_url` | `udp://127.0.0.1:14550@` | MAVLink FCU endpoint URL (`udp://192.168.2.1:14550@` for real ROV tether). |
 
 ---

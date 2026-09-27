@@ -1,2 +1,6 @@
 **/__pycache__
 **/.impeccable
+
+# Separate repos, checked out by `vcs import < import.repos`
+/bluerov2_gz/
+/banyu-robotx-models/

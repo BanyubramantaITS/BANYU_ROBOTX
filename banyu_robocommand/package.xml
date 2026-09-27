@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>banyu_robocommand</name>
+  <version>0.0.1</version>
+  <description>OCS-side RoboCommand relay (MQTT + protobuf) for RobotX 2026.</description>
+  <maintainer email="dadhitthana@gmail.com">Daniel Adhitthana</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>banyu_msgs</depend>
+  <depend>libpaho-mqtt-dev</depend>
+  <depend>libpaho-mqttpp-dev</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
