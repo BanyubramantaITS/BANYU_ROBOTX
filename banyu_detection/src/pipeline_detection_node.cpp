@@ -1,5 +1,7 @@
 // Bottom camera -> banyu_msgs/PipeObservation (pipe fit ahead/behind, end of pipe, light nodes).
 
+#include <vector>
+
 #include <cv_bridge/cv_bridge.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
@@ -27,6 +29,9 @@ class PipelineDetection : public rclcpp::Node {
   PipelineDetection() : Node("pipeline_detection") {
     image_noise_ = declare_parameter<double>("image_noise", 0.0);  // DN; sim-only extra sensor noise
     const auto topic = declare_parameter<std::string>("image_topic", "/bottom_camera/image_raw");
+    // x y w h of the repair probe rod in the image; empty when no probe is fitted (Core tier).
+    const auto rect = declare_parameter<std::vector<int64_t>>("probe_rect", std::vector<int64_t>{});
+    if (rect.size() == 4) probe_rect_ = cv::Rect(rect[0], rect[1], rect[2], rect[3]);
     pub_ = create_publisher<banyu_msgs::msg::PipeObservation>("/banyu/pipeline/observation", rclcpp::SensorDataQoS());
     debug_pub_ = create_publisher<sensor_msgs::msg::Image>("/banyu/pipeline/debug", 1);
     sub_ = create_subscription<sensor_msgs::msg::Image>(
@@ -46,7 +51,7 @@ class PipelineDetection : public rclcpp::Node {
     }
 
     using namespace banyu_detection;
-    const cv::Mat mask = pipeMask(bgr);
+    const cv::Mat mask = pipeMask(bgr, probe_rect_);
     const auto ahead = fitPipe(mask, aheadBand(bgr.rows));
     const auto centroid = pipeCentroid(mask);
     const auto lights = detectLights(bgr, mask);
@@ -67,7 +72,9 @@ class PipelineDetection : public rclcpp::Node {
     obs.ends_behind = pipeEndsHere(mask, -1);
     for (const auto& l : lights) {
       banyu_msgs::msg::LightNode node;
-      node.colour = l.red ? banyu_msgs::msg::LightNode::RED : banyu_msgs::msg::LightNode::GREEN;
+      node.colour = l.colour == banyu_detection::Light::kRed    ? banyu_msgs::msg::LightNode::RED
+                    : l.colour == banyu_detection::Light::kBlue ? banyu_msgs::msg::LightNode::BLUE
+                                                                : banyu_msgs::msg::LightNode::GREEN;
       node.x = l.x;
       node.y = l.y;
       obs.lights.push_back(node);
@@ -80,6 +87,7 @@ class PipelineDetection : public rclcpp::Node {
   }
 
   double image_noise_{0.0};
+  cv::Rect probe_rect_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr sub_;
   rclcpp::Publisher<banyu_msgs::msg::PipeObservation>::SharedPtr pub_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr debug_pub_;

@@ -15,7 +15,7 @@ struct PipeFit {
 };
 
 struct Light {
-  bool red;
+  enum Colour { kGreen, kRed, kBlue } colour;  // blue only shows in the post-repair flash
   float x, y;     // px
 };
 
@@ -27,9 +27,12 @@ Band aheadBand(int height);    // moving nose first
 Band behindBand(int height);   // moving tail first
 inline int referenceRow(int height) { return height / 2; }
 
-// Pipe pixels (CV_8U 0/1): a faint ridge above the water veil. Contrast is only 5-8 DN, about
-// sensor noise, so it is thresholded on a 9x9-smoothed copy against a 51 px median background.
-cv::Mat pipeMask(const cv::Mat& bgr);
+// Pipe pixels (CV_8U 0/1). Found as pairs of parallel edges a pipe's width apart with one solid
+// body between (whichever way its contrast runs; thin frames and stand bars fail it), then grown
+// along the pipe over a faint-contrast mask (smoothed image against a wide median background),
+// keeping only the parts the edge pairs touch. `ignore` is where the repair probe rod sits in the
+// image (empty: no probe).
+cv::Mat pipeMask(const cv::Mat& bgr, const cv::Rect& ignore = {});
 
 // Line fit of the pipe inside `band`; fitting only the stretch ahead takes a zigzag one leg at
 // a time. nullopt when too little pipe is in the band.
