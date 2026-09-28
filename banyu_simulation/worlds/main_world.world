@@ -172,6 +172,12 @@
             <uri>model://robotx_color_indicator_red</uri>
             <pose relative_to="robobuoy_red::indicator_mount"/>
         </include>
+        <!-- Silent: HydrophoneArray only pings its <pinger_model> (pinger_green). -->
+        <include>
+            <name>pinger_red</name>
+            <uri>model://robotx_pinger</uri>
+            <pose relative_to="robobuoy_red::anchor_point"/>
+        </include>
 
         <plugin filename="BanyuPipelineLights" name="banyu::PipelineLights">
             <light_node>light_node_1</light_node>

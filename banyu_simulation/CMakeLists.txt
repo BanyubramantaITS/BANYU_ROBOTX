@@ -76,6 +76,10 @@ if(BUILD_TESTING)
   # a copyright and license is added to all source files
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_acoustic_shadow test/test_acoustic_shadow.cpp)
+  target_link_libraries(test_acoustic_shadow gz-math7::gz-math7)
 endif()
 
 ament_package()

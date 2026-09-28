@@ -8,13 +8,22 @@
 //     <hydrophone>0.15 0 -0.1</hydrophone>        (body frame, one per hydrophone)
 //     <ping_rate>1.0</ping_rate>                  (Hz; handbook range 0.5-2)
 //     <jitter>2e-6</jitter>                       (s, first-arrival pick noise per hydrophone)
+//     <blocker>-0.15 -0.057 0.003 0.19 0.057 0.117</blocker>  (solid hull box, body frame:
+//                                                   min xyz, max xyz; any number)
+//     <shadow_pick_delay>30e-6</shadow_pick_delay> (s, sigma of the half-normal lateness of a
+//                                                   shadowed pick)
 //     <topic>/banyu/pinger/arrivals</topic>
 //   </plugin>
 //
-// First arrival = direct path, so multipath is deliberately left out. Nothing is published
-// while any hydrophone is out of the water.
+// First arrival = direct path, or the shortest path around the hull when a <blocker> is in the
+// way (acoustic_shadow.hpp). A shadowed hydrophone also hears a weaker, diffracted wave, so its
+// threshold pick lands late: half-normal, sigma shadow_pick_delay, about one carrier cycle.
+// ponytail: shadow_pick_delay is uncalibrated; measure pick lateness behind the real hull.
+// Multipath is deliberately left out. Nothing is published while any hydrophone is out of the water.
 
+#include <cmath>
 #include <random>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -29,6 +38,8 @@
 #include <gz/sim/components/Model.hh>
 #include <gz/sim/components/Name.hh>
 #include <gz/transport/Node.hh>
+
+#include "acoustic_shadow.hpp"
 
 namespace banyu
 {
@@ -47,6 +58,18 @@ public:
     jitter_ = std::normal_distribution<double>(0.0, _sdf->Get<double>("jitter", 2e-6).first);
     for (auto e = _sdf->FindElement("hydrophone"); e; e = e->GetNextElement("hydrophone"))
       hydrophones_.push_back(e->Get<gz::math::Vector3d>());
+    std::vector<Box> boxes;
+    for (auto e = _sdf->FindElement("blocker"); e; e = e->GetNextElement("blocker")) {
+      std::istringstream in(e->Get<std::string>());
+      Box b;
+      in >> b.lo.X() >> b.lo.Y() >> b.lo.Z() >> b.hi.X() >> b.hi.Y() >> b.hi.Z();
+      if (in.fail())
+        gzerr << "[HydrophoneArray] <blocker> needs 6 numbers: min xyz, max xyz\n";
+      else
+        boxes.push_back(b);
+    }
+    shadow_ = ShadowPaths(boxes, hydrophones_);
+    shadow_pick_ = std::normal_distribution<double>(0.0, _sdf->Get<double>("shadow_pick_delay", 30e-6).first);
     pub_ = node_.Advertise<gz::msgs::Float_V>(_sdf->Get<std::string>("topic", "/banyu/pinger/arrivals").first);
     if (hydrophones_.size() < 3)
       gzerr << "[HydrophoneArray] need at least 3 <hydrophone> elements\n";
@@ -69,12 +92,17 @@ public:
     const gz::math::Pose3d vehicle = gz::sim::worldPose(vehicle_, _ecm);
     const gz::math::Vector3d source = gz::sim::worldPose(pinger_, _ecm).CoordPositionAdd(offset_);
 
+    const gz::math::Vector3d source_body = vehicle.Rot().RotateVectorReverse(source - vehicle.Pos());
+
     std::vector<double> arrivals;
-    for (const auto &h : hydrophones_) {
-      const gz::math::Vector3d p = vehicle.CoordPositionAdd(h);
-      if (p.Z() >= 0)
+    for (size_t i = 0; i < hydrophones_.size(); ++i) {
+      if (vehicle.CoordPositionAdd(hydrophones_[i]).Z() >= 0)
         return;  // a dry hydrophone hears nothing
-      arrivals.push_back(p.Distance(source) / kSoundSpeed + jitter_(rng_));
+      bool shadowed = false;
+      double t_i = shadow_.Length(source_body, i, &shadowed) / kSoundSpeed + jitter_(rng_);
+      if (shadowed)
+        t_i += std::abs(shadow_pick_(rng_));
+      arrivals.push_back(t_i);
     }
     double mean = 0;
     for (double a : arrivals) mean += a / arrivals.size();
@@ -96,6 +124,8 @@ private:
   double next_ping_s_{0.0};
   std::mt19937 rng_{std::random_device{}()};
   std::normal_distribution<double> jitter_;
+  std::normal_distribution<double> shadow_pick_;
+  ShadowPaths shadow_;
   gz::transport::Node node_;
   gz::transport::Node::Publisher pub_;
 };

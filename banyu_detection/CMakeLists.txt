@@ -19,6 +19,7 @@ ament_target_dependencies(por_detection rclcpp cv_bridge OpenCV sensor_msgs bany
 target_include_directories(por_detection PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 find_package(ros_gz_interfaces REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 # Task 2: pipeline + light nodes from the bottom camera, pinger from the hydrophones.
 add_library(banyu_task2_perception STATIC src/pipeline_vision.cpp src/acoustics.cpp)
@@ -32,7 +33,7 @@ ament_target_dependencies(pipeline_detection rclcpp cv_bridge OpenCV sensor_msgs
 
 add_executable(pinger_localization src/pinger_localization_node.cpp)
 target_link_libraries(pinger_localization banyu_task2_perception)
-ament_target_dependencies(pinger_localization rclcpp sensor_msgs ros_gz_interfaces banyu_msgs)
+ament_target_dependencies(pinger_localization rclcpp sensor_msgs ros_gz_interfaces banyu_msgs tf2_ros)
 
 install(TARGETS por_detection pipeline_detection pinger_localization
     DESTINATION lib/${PROJECT_NAME}
