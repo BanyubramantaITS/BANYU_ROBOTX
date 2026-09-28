@@ -126,6 +126,14 @@ def generate_launch_description():
         ),
     )
 
+    tier_arg = DeclareLaunchArgument(
+        name="tier",
+        default_value="advanced",
+        description="Task 2 tier. 'core' spawns the vehicle without the repair probe; it also picks the "
+                    "light's post-repair flash pattern.",
+        choices=["core", "advanced", "disruptive"],
+    )
+
     set_use_sim_time = SetUseSimTime(
         True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
@@ -143,20 +151,12 @@ def generate_launch_description():
         _bluerov2_gz_pkg_share, "models", "bluerov2_heavy", "model.xacro"
     )
 
-    bluerov2_heavy_xml = xacro.process(_bluerov2_heavy_file)
-
-    robot_state_publisher = Node(
-        package="robot_state_publisher",
-        executable="robot_state_publisher",
-        name="robot_state_publisher",
-        output="both",
-        parameters=[{"robot_description": bluerov2_heavy_xml}],
-    )
-
     # Stock GUI plus a bottom-camera Image Display (turbidity is only visible there).
     _gui_config = os.path.join(_banyu_sim_pkg_share, "worlds", "main_world.gui.config")
 
     def launch_course(context):
+        probe = "false" if LaunchConfiguration("tier").perform(context) == "core" else "true"
+        bluerov2_heavy_xml = xacro.process(_bluerov2_heavy_file, mappings={"probe": probe})
         seed_text = LaunchConfiguration("layout_seed").perform(context)
         seed = int(seed_text) if seed_text else random.randrange(1 << 31)
         layout = random_layout(seed)
@@ -167,6 +167,13 @@ def generate_launch_description():
             f.write(world)
         sx, sy, sz, syaw = layout["spawn"]
         return [
+            Node(
+                package="robot_state_publisher",
+                executable="robot_state_publisher",
+                name="robot_state_publisher",
+                output="both",
+                parameters=[{"robot_description": bluerov2_heavy_xml}],
+            ),
             LogInfo(msg=f"[layout] seed {seed}: pipeline {tuple(round(v, 2) for v in layout['pipeline'])}, "
                         f"green {tuple(round(v, 2) for v in layout['green'])}, "
                         f"red {tuple(round(v, 2) for v in layout['red'])}, "
@@ -175,7 +182,8 @@ def generate_launch_description():
                 cmd=["gz", "sim", "-v3", "-r"]
                 + (["-s"] if LaunchConfiguration("headless").perform(context) == "True" else ["--gui-config", _gui_config])
                 + [world_path],
-                additional_env={"BANYU_LIGHT_SEED": LaunchConfiguration("light_seed")},
+                additional_env={"BANYU_LIGHT_SEED": LaunchConfiguration("light_seed"),
+                                "BANYU_TIER": LaunchConfiguration("tier")},
                 output="both",
                 condition=IfCondition(LaunchConfiguration("use_sim")),
             ),
@@ -232,9 +240,9 @@ def generate_launch_description():
             headless_arg,
             layout_seed_arg,
             light_seed_arg,
+            tier_arg,
             set_use_sim_time,
             OpaqueFunction(function=launch_course),
-            robot_state_publisher,
             gazebo_ros_image_bridge,
             camera_info_bridge,
             sonar_bridge,

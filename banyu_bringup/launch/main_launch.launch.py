@@ -51,6 +51,13 @@ def generate_launch_description():
         description="FCU connection URL (udp://127.0.0.1:14551@ for SITL or udp://192.168.2.1:14550@ for real ROV). SITL keeps 14550 free for QGC.",
     )
 
+    tier_arg = DeclareLaunchArgument(
+        name="tier",
+        default_value="advanced",
+        description="RobotX Task 2 tier: 'core' (survey + report, no probe), 'advanced' (repair + resource request) "
+                    "or 'disruptive' (as advanced, and the tin colour).",
+        choices=["core", "advanced", "disruptive"],
+    )
     debug_arg = DeclareLaunchArgument(
         name="debug",
         default_value="False",
@@ -112,6 +119,7 @@ def generate_launch_description():
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "debug_arg": LaunchConfiguration("debug"),
             "mission_mode": LaunchConfiguration("mode"),
+            "tier": LaunchConfiguration("tier"),
         }.items(),
     )
 
@@ -122,6 +130,7 @@ def generate_launch_description():
             use_sim_time_arg,
             use_ardusub_sitl_arg,
             fcu_url_arg,
+            tier_arg,
             debug_arg,
             set_use_sim_time,
             gazebo_por_launch,

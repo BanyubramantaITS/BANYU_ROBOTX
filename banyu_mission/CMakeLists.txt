@@ -20,6 +20,7 @@ find_package(sensor_msgs REQUIRED)
 # Task 2 pipeline survey: one BT node per file (src/task2, include/banyu_mission/task2).
 add_library(banyu_task2 STATIC
   src/task2/led_tracker.cpp
+  src/task2/flash_decoder.cpp
   src/task2/vehicle_io.cpp
   src/task2/arm_vehicle.cpp
   src/task2/set_flight_mode.cpp
@@ -32,6 +33,10 @@ add_library(banyu_task2 STATIC
   src/task2/pinger_forward_at_least.cpp
   src/task2/follow_pipe.cpp
   src/task2/send_report.cpp
+  src/task2/probe_servo.cpp
+  src/task2/repair_light.cpp
+  src/task2/read_flash.cpp
+  src/task2/send_resource_request.cpp
 )
 target_include_directories(banyu_task2 PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -86,6 +91,8 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_led_tracker test/test_led_tracker.cpp)
   target_link_libraries(test_led_tracker banyu_task2)
+  ament_add_gtest(test_flash_decoder test/test_flash_decoder.cpp)
+  target_link_libraries(test_flash_decoder banyu_task2)
 endif()
 
 ament_package()

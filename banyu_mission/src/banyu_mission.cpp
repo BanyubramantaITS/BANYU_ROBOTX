@@ -3,6 +3,7 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <cmath>
 #include <filesystem>
+#include <stdexcept>
 
 #include "banyu_mission/bt_nodes.hpp"
 #include "banyu_mission/task2/nodes.hpp"
@@ -101,11 +102,15 @@ void BanyuMission::declareParameters() {
     this->declare_parameter<double>("surface_tolerance", 0.2);
     this->declare_parameter<double>("surface_timeout", 30.0);
 
-    // --- RobotX Task 2, Core Tier ---------------------------------------
+    // --- RobotX Task 2 ---------------------------------------------------
     // Which competition behaviour to run. This was previously passed down by
     // the launch file and read by nobody, so 'mission' mode ran the PoR
     // gate/marker tree.
     this->declare_parameter<std::string>("mission_mode", "por");
+    // Task 2 tier (handbook 3.3.3): 'core' surveys and reports; 'advanced' also repairs the RED
+    // node with the probe and requests delivery to the flashed circle; 'disruptive' reads the
+    // flashed tin colour too. The tree reads it as {tier}.
+    this->declare_parameter<std::string>("task2_tier", "advanced");
 
     // Pipeline survey (bt/pipeline_survey_tree.xml). Everything else is in the node files.
     this->declare_parameter<double>("task2_search_altitude", 3.0);  // m above the echosounder return
@@ -113,6 +118,10 @@ void BanyuMission::declareParameters() {
     // Handbook: the pipe is 1-2 m above the seafloor (sim: 1.9). Only seeds the survey depth;
     // FollowPipe then holds survey_altitude above the pipe on the echosounder.
     this->declare_parameter<double>("task2_pipe_height", 1.9);
+    // Repair probe tip from the bottom camera (bluerov2_heavy probe_tip_xyz vs the camera
+    // pose): 0.07 m ahead, 0.40 m below. ponytail: measure on the real vehicle.
+    this->declare_parameter<double>("task2_probe_forward", 0.07);
+    this->declare_parameter<double>("task2_probe_drop", 0.40);
 
     this->declare_parameter<std::string>("abort_mode", "STABILIZE");
     this->declare_parameter<int>("groot2_port", 1666);
@@ -143,6 +152,8 @@ void BanyuMission::declareParameters() {
     report_pub_ = this->create_publisher<banyu_msgs::msg::PipelineSurveyReport>(
         "/banyu/task2/pipeline_survey", rclcpp::QoS(10).transient_local());
     ctx_->report_pub = report_pub_;
+    ctx_->resource_pub = this->create_publisher<banyu_msgs::msg::ResourceDeliveryRequest>(
+        "/banyu/task2/resource_request", rclcpp::QoS(10).transient_local());
 
     start_service_ = this->create_service<std_srvs::srv::SetBool>(
         "banyu/mission/start", [this](const std::shared_ptr<std_srvs::srv::SetBool::Request> req,
@@ -234,7 +245,7 @@ void BanyuMission::setupBehaviorTree() {
     factory_.registerNodeType<ReturnGatePass>("ReturnGatePass", this->shared_from_this(), ctx_);
     factory_.registerNodeType<Surface>("Surface", this->shared_from_this(), ctx_);
 
-    // RobotX Task 2 (Core Tier): pipeline survey, one node per file in task2/.
+    // RobotX Task 2: pipeline survey and repair, one node per file in task2/.
     const auto self = this->shared_from_this();
     factory_.registerNodeType<task2::ArmVehicle>("ArmVehicle", self, ctx_);
     factory_.registerNodeType<task2::SetFlightMode>("SetFlightMode", self, ctx_);
@@ -247,6 +258,10 @@ void BanyuMission::setupBehaviorTree() {
     factory_.registerNodeType<task2::PingerForwardAtLeast>("PingerForwardAtLeast", self, ctx_);
     factory_.registerNodeType<task2::FollowPipe>("FollowPipe", self, ctx_);
     factory_.registerNodeType<task2::SendReport>("SendReport", self, ctx_);
+    // Advanced Tier: repair, read the flashed resource colour, request the delivery.
+    factory_.registerNodeType<task2::RepairLight>("RepairLight", self, ctx_);
+    factory_.registerNodeType<task2::ReadFlash>("ReadFlash", self, ctx_);
+    factory_.registerNodeType<task2::SendResourceRequest>("SendResourceRequest", self, ctx_);
 
     // mission_mode selects the behaviour, which is the whole point of the
     // argument the launch file has always passed.
@@ -266,6 +281,10 @@ void BanyuMission::setupBehaviorTree() {
     tree_.initialize();
 
     auto blackboard = tree_.rootBlackboard();
+    const std::string tier = this->get_parameter("task2_tier").as_string();
+    if (tier != "core" && tier != "advanced" && tier != "disruptive")
+        throw std::runtime_error("task2_tier must be 'core', 'advanced' or 'disruptive', got '" + tier + "'");
+    blackboard->set("tier", tier);
     blackboard->set("mission_active", false);
     blackboard->set("aborted", false);
     blackboard->set("gate_offset_north", this->get_parameter("gate_offset_north").as_double());

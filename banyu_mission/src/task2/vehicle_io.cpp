@@ -50,6 +50,23 @@ std::optional<std::pair<double, double>> pullOverPipe(const banyu_msgs::msg::Pip
                         std::clamp(0.4 * (pipe.centroid_x - half_w) / half_w, -0.1, 0.1));
 }
 
+std::optional<ProbeFix> lightUnderProbe(const banyu_msgs::msg::PipeObservation& pipe, double z, double tip_fwd,
+                                        double gate_m) {
+  // Bottom camera: 60 deg horizontal field, principal point at the image centre.
+  const double f = pipe.width / 2.0 / std::tan(M_PI / 6);
+  std::optional<ProbeFix> best;
+  double best_d = gate_m;
+  for (const auto& l : pipe.lights) {
+    const ProbeFix fix{l, (pipe.height / 2.0 - l.y) * z / f - tip_fwd, (l.x - pipe.width / 2.0) * z / f, z};
+    const double d = std::hypot(fix.fwd, fix.right);
+    if (d <= best_d) {
+      best = fix;
+      best_d = d;
+    }
+  }
+  return best;
+}
+
 namespace {
 // Waits on the future: the BT ticks on its own thread while the node spins on the main one.
 template <typename Srv, typename Ok>

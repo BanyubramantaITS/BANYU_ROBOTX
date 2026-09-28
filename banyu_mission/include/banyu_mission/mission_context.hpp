@@ -11,6 +11,7 @@
 #include <banyu_msgs/msg/pinger_observation.hpp>
 #include <banyu_msgs/msg/pipe_observation.hpp>
 #include <banyu_msgs/msg/pipeline_survey_report.hpp>
+#include <banyu_msgs/msg/resource_delivery_request.hpp>
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <mavros_msgs/msg/manual_control.hpp>
@@ -76,10 +77,13 @@ struct MissionContext {
   double buoy_latitude{std::numeric_limits<double>::quiet_NaN()};   // surface GPS fix at the buoy
   double buoy_longitude{std::numeric_limits<double>::quiet_NaN()};
   task2::LedTracker tracker;             // light nodes seen by the recording FollowPipe
+  // ResourceDeliveryRequest COLOR_*, set by ReadFlash (resource: COLOR_ANY below Disruptive).
+  std::optional<uint8_t> resource_colour, delivery_circle_colour;
 
   // ROS plumbing injected by the node.
   rclcpp::Publisher<mavros_msgs::msg::PositionTarget>::SharedPtr setpoint_pub;
   rclcpp::Publisher<banyu_msgs::msg::PipelineSurveyReport>::SharedPtr report_pub;
+  rclcpp::Publisher<banyu_msgs::msg::ResourceDeliveryRequest>::SharedPtr resource_pub;
   rclcpp::Publisher<mavros_msgs::msg::ManualControl>::SharedPtr stick_pub;
   rclcpp::Client<mavros_msgs::srv::CommandBool>::SharedPtr arming_client;
   rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr set_mode_client;

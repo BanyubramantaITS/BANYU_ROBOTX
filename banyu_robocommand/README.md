@@ -4,7 +4,9 @@ OCS-side relay from the ROS graph to RoboCommand (RobotX 2026 handbook 3.4). Run
 Operator Control Station only: vehicles never connect to RoboCommand themselves.
 
 - `report_bridge`: `/banyu/task2/pipeline_survey` (`banyu_msgs/PipelineSurveyReport`, published by
-  the surfaced UUV) -> `RxReport{pipeline_survey}` on `robocommand/robotx/<team_id>/<vehicle_id>/report`.
+  the surfaced UUV) -> `RxReport{pipeline_survey}` on `robocommand/robotx/<team_id>/<vehicle_id>/report`;
+  `/banyu/task2/resource_request` (`banyu_msgs/ResourceDeliveryRequest`, Task 2 Advanced tier) ->
+  `RxReport{resource_delivery}` on the same topic. The UAV takes its re-tasking from that ROS topic.
 - `rc_proto/`: RoboNation's generated protobuf classes, unchanged (see its README for the release).
 
 Not rebuilt yet (the old `rc_bridge` did these; its source is lost): 2 Hz heartbeats per vehicle,

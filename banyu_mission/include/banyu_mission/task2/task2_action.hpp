@@ -3,7 +3,9 @@
 #ifndef BANYU_MISSION_TASK2_TASK2_ACTION_HPP_
 #define BANYU_MISSION_TASK2_TASK2_ACTION_HPP_
 
+#include <algorithm>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include <behaviortree_cpp/action_node.h>
@@ -46,6 +48,17 @@ class Task2Action : public BT::StatefulActionNode {
   }
   const rclcpp::Logger logger() const { return node_->get_logger(); }
   double param(const std::string& name) const { return node_->get_parameter(name).as_double(); }
+
+  // The light node nearest under the repair probe tip (see lightUnderProbe). The camera's height
+  // above the switches comes from pressure depth and the pipe depth FollowPipe has been holding
+  // survey altitude over: the echosounder often ranges past the pipe to the seabed.
+  std::optional<ProbeFix> lightUnderProbe(const Snapshot& s, double gate_m) const {
+    const double drop = param("task2_probe_drop");
+    // depth_target + survey_altitude = pipe top under the echosounder (0.11 m below the pressure
+    // sensor's datum); the camera is 0.05 m below it, a switch 0.04 m above the pipe.
+    const double z = s.depth_target + param("task2_survey_altitude") + 0.11 - 0.04 - (s.depth + 0.05);
+    return task2::lightUnderProbe(s.pipe, std::max(drop, z), param("task2_probe_forward"), gate_m);
+  }
 
   rclcpp::Node::SharedPtr node_;
   std::shared_ptr<MissionContext> ctx_;

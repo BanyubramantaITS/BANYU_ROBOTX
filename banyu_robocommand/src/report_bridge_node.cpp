@@ -1,11 +1,12 @@
-// OCS-side relay: banyu_msgs/PipelineSurveyReport -> RoboCommand RxReport over MQTT.
+// OCS-side relay: banyu_msgs/PipelineSurveyReport and ResourceDeliveryRequest -> RoboCommand
+// RxReport over MQTT.
 //
 // Runs on the topside OCS, never on the vehicle. Handbook 3.4: "Only the OCS connects to
 // RoboCommand. Team vehicles must not connect directly to the RoboCommand network or MQTT
 // broker." The surfaced UUV publishes its report on the ROS graph over the team link; this node
 // alone speaks MQTT.
 //
-// ponytail: Task 2 report only. The run also needs 2 Hz heartbeats per vehicle, RxCourse and the
+// ponytail: Task 2 reports only. The run also needs 2 Hz heartbeats per vehicle, RxCourse and the
 // RunDeclaration (3.4.10/3.4.11) - the original Python rc_bridge did those. They share
 // RxReport.seq with this report, so they belong in this node when ported.
 #include <memory>
@@ -15,6 +16,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include <banyu_msgs/msg/pipeline_survey_report.hpp>
+#include <banyu_msgs/msg/resource_delivery_request.hpp>
 
 #include "banyu_robocommand/rx_report.hpp"
 
@@ -36,6 +38,13 @@ class ReportBridge : public rclcpp::Node {
     sub_ = create_subscription<banyu_msgs::msg::PipelineSurveyReport>(
         "/banyu/task2/pipeline_survey", rclcpp::QoS(10).transient_local(),
         [this](banyu_msgs::msg::PipelineSurveyReport::ConstSharedPtr msg) { onReport(*msg); });
+    // The UAV takes its re-tasking from this same topic; it reports its own echo of the request.
+    request_sub_ = create_subscription<banyu_msgs::msg::ResourceDeliveryRequest>(
+        "/banyu/task2/resource_request", rclcpp::QoS(10).transient_local(),
+        [this](banyu_msgs::msg::ResourceDeliveryRequest::ConstSharedPtr msg) {
+          publish(banyu_robocommand::encodeResourceDeliveryRequest(*msg, team_, vehicle_, ++seq_, now().nanoseconds()),
+                  "ResourceDeliveryRequest (circle colour " + std::to_string(msg->delivery_circle_color) + ")");
+        });
   }
 
   ~ReportBridge() override {
@@ -47,13 +56,15 @@ class ReportBridge : public rclcpp::Node {
 
  private:
   void onReport(const banyu_msgs::msg::PipelineSurveyReport& msg) {
+    publish(banyu_robocommand::encodePipelineSurveyReport(msg, team_, vehicle_, ++seq_, now().nanoseconds()),
+            "PipelineSurveyReport (" + std::to_string(msg.segment_states.size()) + " segments)");
+  }
+
+  void publish(const std::string& payload, const std::string& what) {
     const std::string topic = banyu_robocommand::reportTopic(team_, vehicle_);
-    const std::string payload =
-        banyu_robocommand::encodePipelineSurveyReport(msg, team_, vehicle_, ++seq_, now().nanoseconds());
     try {
       client_->publish(topic, payload.data(), payload.size(), 1, false);
-      RCLCPP_INFO(get_logger(), "PipelineSurveyReport seq %u (%zu segments) -> %s", seq_, msg.segment_states.size(),
-                  topic.c_str());
+      RCLCPP_INFO(get_logger(), "%s seq %u -> %s", what.c_str(), seq_, topic.c_str());
     } catch (const mqtt::exception& e) {
       RCLCPP_ERROR(get_logger(), "MQTT publish failed: %s", e.what());
     }
@@ -63,6 +74,7 @@ class ReportBridge : public rclcpp::Node {
   uint32_t seq_{0};
   std::unique_ptr<mqtt::async_client> client_;
   rclcpp::Subscription<banyu_msgs::msg::PipelineSurveyReport>::SharedPtr sub_;
+  rclcpp::Subscription<banyu_msgs::msg::ResourceDeliveryRequest>::SharedPtr request_sub_;
 };
 
 int main(int argc, char** argv) {

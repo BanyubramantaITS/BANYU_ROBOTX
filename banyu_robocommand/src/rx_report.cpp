@@ -12,13 +12,16 @@ constexpr uint32_t kVarint = 0, kFixed64 = 1, kLengthDelimited = 2;
 
 // Field numbers from proto/.
 namespace rx_report {
-constexpr uint32_t kTeamId = 1, kVehicleId = 2, kSeq = 3, kSentAt = 4, kPipelineSurvey = 12;
+constexpr uint32_t kTeamId = 1, kVehicleId = 2, kSeq = 3, kSentAt = 4, kPipelineSurvey = 12, kResourceDelivery = 13;
 }
 namespace timestamp {  // google.protobuf.Timestamp (proto3: zero fields are omitted)
 constexpr uint32_t kSeconds = 1, kNanos = 2;
 }
 namespace pipeline_survey {
 constexpr uint32_t kActiveBuoyPosition = 1, kSegments = 2;  // segments: repeated enum, packed
+}
+namespace resource_delivery {
+constexpr uint32_t kTask = 1, kResourceColor = 2, kDeliveryCircleColor = 3;
 }
 namespace lat_lng {
 constexpr uint32_t kLatitude = 1, kLongitude = 2;
@@ -49,6 +52,36 @@ void doubleField(std::string& out, uint32_t field, double v) {
   out.append(buf, 8);
 }
 
+void enumField(std::string& out, uint32_t field, uint64_t v) {
+  if (v == 0) return;  // proto3 implicit presence: the zero value is not sent
+  tag(out, field, kVarint);
+  varint(out, v);
+}
+
+// RxReport envelope around one body in oneof field `body_field`.
+std::string envelope(const std::string& team_id, const std::string& vehicle_id, uint32_t seq, int64_t sent_at_ns,
+                     uint32_t body_field, const std::string& body) {
+  std::string stamp;
+  const int64_t seconds = sent_at_ns / 1000000000, nanos = sent_at_ns % 1000000000;
+  if (seconds != 0) {
+    tag(stamp, timestamp::kSeconds, kVarint);
+    varint(stamp, static_cast<uint64_t>(seconds));
+  }
+  if (nanos != 0) {
+    tag(stamp, timestamp::kNanos, kVarint);
+    varint(stamp, static_cast<uint64_t>(nanos));
+  }
+
+  std::string out;
+  bytesField(out, rx_report::kTeamId, team_id);
+  bytesField(out, rx_report::kVehicleId, vehicle_id);
+  tag(out, rx_report::kSeq, kVarint);
+  varint(out, seq);
+  bytesField(out, rx_report::kSentAt, stamp);
+  bytesField(out, body_field, body);
+  return out;
+}
+
 }  // namespace
 
 std::string reportTopic(const std::string& team_id, const std::string& vehicle_id) {
@@ -70,26 +103,17 @@ std::string encodePipelineSurveyReport(const banyu_msgs::msg::PipelineSurveyRepo
       varint(packed, s == banyu_msgs::msg::PipelineSurveyReport::SEGMENT_DAMAGED ? kSegmentDamaged : kSegmentIntact);
     bytesField(body, pipeline_survey::kSegments, packed);
   }
+  return envelope(team_id, vehicle_id, seq, sent_at_ns, rx_report::kPipelineSurvey, body);
+}
 
-  std::string stamp;
-  const int64_t seconds = sent_at_ns / 1000000000, nanos = sent_at_ns % 1000000000;
-  if (seconds != 0) {
-    tag(stamp, timestamp::kSeconds, kVarint);
-    varint(stamp, static_cast<uint64_t>(seconds));
-  }
-  if (nanos != 0) {
-    tag(stamp, timestamp::kNanos, kVarint);
-    varint(stamp, static_cast<uint64_t>(nanos));
-  }
-
-  std::string out;
-  bytesField(out, rx_report::kTeamId, team_id);
-  bytesField(out, rx_report::kVehicleId, vehicle_id);
-  tag(out, rx_report::kSeq, kVarint);
-  varint(out, seq);
-  bytesField(out, rx_report::kSentAt, stamp);
-  bytesField(out, rx_report::kPipelineSurvey, body);
-  return out;
+std::string encodeResourceDeliveryRequest(const banyu_msgs::msg::ResourceDeliveryRequest& msg,
+                                          const std::string& team_id, const std::string& vehicle_id, uint32_t seq,
+                                          int64_t sent_at_ns) {
+  std::string body;
+  enumField(body, resource_delivery::kTask, msg.task);
+  enumField(body, resource_delivery::kResourceColor, msg.resource_color);
+  enumField(body, resource_delivery::kDeliveryCircleColor, msg.delivery_circle_color);
+  return envelope(team_id, vehicle_id, seq, sent_at_ns, rx_report::kResourceDelivery, body);
 }
 
 }  // namespace banyu_robocommand

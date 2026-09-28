@@ -41,6 +41,20 @@ TEST(RxReport, MatchesOfficialEncodingWithoutFix) {
             "0a044954534e1204555556311801220208056203120102");
 }
 
+// protoc 31 --encode on proto/ (edition lowered to 2023; wire format unchanged, and the same
+// route reproduces the second golden above):
+//   RxReport(team_id='ITSN', vehicle_id='UUV1', seq=3, sent_at=1790528432.5 s,
+//            resource_delivery={task=TASK_INFRA_SURVEY_REPAIR, resource_color=COLOR_ANY,
+//                               delivery_circle_color=COLOR_BLUE})
+TEST(RxReport, ResourceDeliveryRequest) {
+  banyu_msgs::msg::ResourceDeliveryRequest msg;
+  msg.task = msg.TASK_INFRA_SURVEY_REPAIR;
+  msg.resource_color = msg.COLOR_ANY;
+  msg.delivery_circle_color = msg.COLOR_BLUE;
+  EXPECT_EQ(hex(banyu_robocommand::encodeResourceDeliveryRequest(msg, "ITSN", "UUV1", 3, 1790528432500000000LL)),
+            "0a044954534e1204555556311803220c08b097e5d5061080cab5ee016a06080310041803");
+}
+
 TEST(RxReport, Topic) {
   EXPECT_EQ(banyu_robocommand::reportTopic("ITSN", "UUV1"), "robocommand/robotx/ITSN/UUV1/report");
 }

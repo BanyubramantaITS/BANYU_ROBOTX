@@ -4,7 +4,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-from launch.substitutions import EqualsSubstitution, LaunchConfiguration
+from launch.substitutions import EqualsSubstitution, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node, SetUseSimTime
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -36,12 +36,21 @@ def generate_launch_description():
         choices=["por", "mission"],
     )
 
+    tier_arg = DeclareLaunchArgument(
+        name="tier",
+        default_value="advanced",
+        description="Task 2 tier: 'core' (survey + report), 'advanced' (also repair + resource request) or "
+                    "'disruptive' (as advanced, and the tin colour).",
+        choices=["core", "advanced", "disruptive"],
+    )
+
     mission_manager = Node(
         package="banyu_mission",
         executable="banyu_mission",
         name="banyu_mission",
         output="screen",
-        parameters=[{"mission_mode": LaunchConfiguration("mission_mode")}],
+        parameters=[{"mission_mode": LaunchConfiguration("mission_mode"),
+                     "task2_tier": LaunchConfiguration("tier")}],
     )
 
     # PoR uses the single-best-object yellow detector; Task 2 its own pipeline/pinger perception
@@ -79,7 +88,13 @@ def generate_launch_description():
         condition=IfCondition(
             EqualsSubstitution(LaunchConfiguration("mission_mode"), "mission")
         ),
-        parameters=[{"image_noise": ParameterValue(LaunchConfiguration("image_noise"), value_type=float)}],
+        parameters=[{
+            "image_noise": ParameterValue(LaunchConfiguration("image_noise"), value_type=float),
+            # Repair probe rod in the bottom camera (x y w h, 320x240), measured off sim frames;
+            # all zero when Core fits no probe. ponytail: re-measure on the real camera.
+            "probe_rect": ParameterValue(PythonExpression(
+                ["[0, 0, 0, 0] if '", LaunchConfiguration("tier"), "' == 'core' else [148, 0, 24, 82]"])),
+        }],
         output="screen",
     )
 
@@ -99,6 +114,7 @@ def generate_launch_description():
             use_sim_time_arg,
             debug_arg,
             mission_mode_arg,
+            tier_arg,
             set_use_sim_time,
             mission_manager,
             detection_node,

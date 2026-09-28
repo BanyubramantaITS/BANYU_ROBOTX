@@ -18,6 +18,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/LightNode.msg"
   "msg/PipeObservation.msg"
   "msg/PingerObservation.msg"
+  "msg/ResourceDeliveryRequest.msg"
   DEPENDENCIES std_msgs geometry_msgs
 )
 
