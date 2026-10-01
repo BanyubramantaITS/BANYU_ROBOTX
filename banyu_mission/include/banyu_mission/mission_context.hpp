@@ -73,6 +73,7 @@ struct MissionContext {
   uint64_t pipe_seq{0};                  // bumped per observation, so nodes act once per frame
   std::vector<banyu_msgs::msg::PingerObservation> pings;  // unread, consumed by the nodes
 
+  std::optional<double> seabed_depth;    // m, deepest echo FindPipe saw: the pipe top is always shallower
   double depth_target{0.0};              // m, positive down; set by SetSurveyDepth, tuned by FollowPipe
   double buoy_latitude{std::numeric_limits<double>::quiet_NaN()};   // surface GPS fix at the buoy
   double buoy_longitude{std::numeric_limits<double>::quiet_NaN()};

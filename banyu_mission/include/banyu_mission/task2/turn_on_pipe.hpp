@@ -18,7 +18,10 @@ class TurnOnPipe : public Task2Action {
   BT::NodeStatus step(const Snapshot& s) override;
 
  private:
+  bool reverse_{false};
+  bool reaimed_{false};
   double heading_{0.0};
+  double on_heading_since_{-1.0};  // s, elapsed() when the heading was reached; -1 while off it
 };
 
 }  // namespace banyu_mission::task2

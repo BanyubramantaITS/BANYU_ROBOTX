@@ -12,6 +12,10 @@ constexpr double kTimeoutS = 240.0;
 BT::NodeStatus FindPipe::begin() {
   seen_frames_ = 0;
   ping_.reset();
+  {
+    std::lock_guard<std::mutex> lock(ctx_->data_mutex);
+    ctx_->seabed_depth.reset();
+  }
   return BT::NodeStatus::RUNNING;
 }
 
@@ -27,6 +31,11 @@ BT::NodeStatus FindPipe::step(const Snapshot& s) {
   if (!s.altitude) {
     sendSticks(*ctx_, 0, 0, 0.2);  // no echo yet: keep going down gently
     return BT::NodeStatus::RUNNING;
+  }
+  {
+    // The echosounder reports the nearest return: over the pipe that is the pipe top, not the seabed.
+    std::lock_guard<std::mutex> lock(ctx_->data_mutex);
+    ctx_->seabed_depth = std::max(ctx_->seabed_depth.value_or(0.0), s.depth + *s.altitude);
   }
   const double search = param("task2_search_altitude");
   const double down = std::clamp(0.5 * (*s.altitude - search), -0.5, 0.5);
