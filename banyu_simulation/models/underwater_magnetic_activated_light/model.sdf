@@ -1,0 +1,41 @@
+<?xml version="1.0" ?>
+<sdf version="1.8">
+  <model name="underwater_magnetic_activated_light">
+    <static>true</static>
+
+    <!-- RobotX Underwater Pipeline Structure (3" PVC Pipe with 3 Base Assemblies) -->
+    <include>
+      <name>pipeline_robotx</name>
+      <uri>model://pipeline_robotx</uri>
+      <pose>0.0 0.0 0.0 0 0 0</pose>
+    </include>
+
+    <!-- Node 1: Segment 1 Lead-in (X = 0.0 m, Y = -0.05 m, Z = 1.596 m, Yaw = 1.571 rad) -->
+    <include>
+      <name>light_node_1</name>
+      <uri>model://robotx_light_node</uri>
+      <pose>0.0 -0.05 1.596 0 0 1.5708</pose>
+    </include>
+
+    <!-- Node 2: Segment 2 Transition Dogleg (X = -0.62 m, Y = 1.369 m, Z = 1.596 m, Yaw = 2.356 rad) -->
+    <include>
+      <name>light_node_2</name>
+      <uri>model://robotx_light_node</uri>
+      <pose>-0.62 1.369 1.596 0 0 2.3562</pose>
+    </include>
+
+    <!-- Node 3: Segment 4 Return Dogleg (X = -0.62 m, Y = 2.645 m, Z = 1.596 m, Yaw = 0.785 rad, mirroring Node 2) -->
+    <include>
+      <name>light_node_3</name>
+      <uri>model://robotx_light_node</uri>
+      <pose>-0.62 2.645 1.596 0 0 0.7854</pose>
+    </include>
+
+    <!-- Node 4: Segment 5 Cantilever Lead-out (X = 0.0 m, Y = 4.05 m, Z = 1.596 m, Yaw = 1.571 rad) -->
+    <include>
+      <name>light_node_4</name>
+      <uri>model://robotx_light_node</uri>
+      <pose>0.0 4.05 1.596 0 0 1.5708</pose>
+    </include>
+  </model>
+</sdf>

@@ -1,5 +1,9 @@
 **/__pycache__
 **/.impeccable
+build/
+install/
+log/
+
 
 # Separate repos, checked out by `vcs import < import.repos`
 /bluerov2_gz/

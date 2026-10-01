@@ -7,9 +7,15 @@ This package provides the Gazebo simulation environment, 3D world models, and la
 ## 📦 Package Contents
 
 - **`worlds/proof_of_readiness.world`**: Main simulation world featuring buoyancy physics, underwater environment settings, lighting, and the DVL system plugin.
+- **`worlds/pipeline_lights.sdf`**: RobotX 2026 Task 2 underwater pipeline world with 4 optical light nodes, magnetometer sensor plugin, and inspection camera.
 - **`models/Gate/`**: 3D underwater gate model (`model.xacro` & `model.sdf`) with PBR textures.
 - **`models/por_pool/`**: Proof of Readiness pool model (`model.xacro`).
 - **`models/yellow_buoy/`**: Yellow navigation buoy model (`model.xacro`).
+- **`models/pipeline_robotx/`**: Schedule 40 PVC competition pipeline structure with 3 base stands (`mesh.stl`).
+- **`models/robotx_light_node/`**: Competition optical light node with 4-layer optical stack (point light, WS2812 lenses, glow halo, lid) and TLV493D 3-axis magnetometer.
+- **`models/underwater_magnetic_activated_light/`** (symlink: `underwater-magnetic-activated-light`): Composite model assembling `pipeline_robotx` with the 4 `robotx_light_node`s on the pipe crown.
+- **`models/underwater_pipeline/`**: Modular straight pipeline assembly.
+- **`scripts/`**: RobotX Task 2 Python state machine controller, API, CLI monitor, and test suites.
 
 ---
 

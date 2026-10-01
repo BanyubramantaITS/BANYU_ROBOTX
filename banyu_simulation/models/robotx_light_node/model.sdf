@@ -1,0 +1,135 @@
+<?xml version="1.0" ?>
+<sdf version="1.8">
+  <model name="robotx_light_node">
+    <static>true</static>
+    <link name="base_link">
+      <!-- Base & Screws Visual -->
+      <visual name="base_visual">
+        <geometry>
+          <mesh>
+            <uri>model://robotx_light_node/meshes/base.stl</uri>
+            <scale>0.001 0.001 0.001</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.82 0.82 0.82 1.0</ambient>
+          <diffuse>0.82 0.82 0.82 1.0</diffuse>
+          <specular>0.3 0.3 0.3 1.0</specular>
+        </material>
+      </visual>
+
+      <!-- WetLink Penetrators Visual -->
+      <visual name="penetrators_visual">
+        <geometry>
+          <mesh>
+            <uri>model://robotx_light_node/meshes/penetrators.stl</uri>
+            <scale>0.001 0.001 0.001</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.12 0.12 0.14 1.0</ambient>
+          <diffuse>0.12 0.12 0.14 1.0</diffuse>
+          <specular>0.6 0.6 0.6 1.0</specular>
+        </material>
+      </visual>
+
+      <!-- Internal Electronics & PCBs Visual -->
+      <visual name="internals_visual">
+        <geometry>
+          <mesh>
+            <uri>model://robotx_light_node/meshes/internals.stl</uri>
+            <scale>0.001 0.001 0.001</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.08 0.32 0.12 1.0</ambient>
+          <diffuse>0.08 0.32 0.12 1.0</diffuse>
+          <specular>0.25 0.25 0.25 1.0</specular>
+        </material>
+      </visual>
+
+      <!-- WS2812 LED Lenses (Emissive Camera Visual) -->
+      <visual name="led_lenses_visual">
+        <geometry>
+          <mesh>
+            <uri>model://robotx_light_node/meshes/led_lenses.stl</uri>
+            <scale>0.001 0.001 0.001</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>1.0 0.1 0.1 1.0</ambient>
+          <diffuse>1.0 0.1 0.1 1.0</diffuse>
+          <specular>1.0 1.0 1.0 1.0</specular>
+          <emissive>1.0 0.05 0.05 1.0</emissive>
+        </material>
+      </visual>
+
+      <!-- Soft Volumetric LED Glow Halo (Simulates real-life lens scatter and bloom) -->
+      <visual name="led_halo_visual">
+        <pose>0 0 0.038 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.023</radius>
+            <length>0.007</length>
+          </cylinder>
+        </geometry>
+        <transparency>0.35</transparency>
+        <material>
+          <ambient>1.0 0.1 0.1 0.65</ambient>
+          <diffuse>1.0 0.15 0.15 0.65</diffuse>
+          <specular>0.9 0.9 0.9 1.0</specular>
+          <emissive>1.0 0.05 0.05 1.0</emissive>
+        </material>
+      </visual>
+
+      <!-- Clear Polycarbonate Lid Visual (With internal scatter glow) -->
+      <visual name="lid_visual">
+        <geometry>
+          <mesh>
+            <uri>model://robotx_light_node/meshes/lid.stl</uri>
+            <scale>0.001 0.001 0.001</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.9 0.3 0.3 0.35</ambient>
+          <diffuse>0.9 0.35 0.35 0.35</diffuse>
+          <specular>0.95 0.95 1.0 0.9</specular>
+          <emissive>0.3 0.05 0.05 0.35</emissive>
+        </material>
+      </visual>
+
+      <!-- Physics Collision Box -->
+      <collision name="base_collision">
+        <pose>0 0 0.0205 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.085 0.078 0.041</size>
+          </box>
+        </geometry>
+      </collision>
+
+      <!-- High-Intensity Point Light (Vivid real-life illumination) -->
+      <light name="led_light" type="point">
+        <pose>0 0 0.045 0 0 0</pose>
+        <diffuse>1.0 0.0 0.0 1.0</diffuse>
+        <specular>1.0 0.8 0.8 1.0</specular>
+        <intensity>25.0</intensity>
+        <attenuation>
+          <range>12.0</range>
+          <constant>0.4</constant>
+          <linear>0.05</linear>
+          <quadratic>0.015</quadratic>
+        </attenuation>
+        <cast_shadows>false</cast_shadows>
+      </light>
+
+      <!-- TLV493D Magnetometer Sensor -->
+      <sensor name="magnetometer" type="magnetometer">
+        <pose>0 0 0.0364 0 0 0</pose>
+        <always_on>true</always_on>
+        <update_rate>50</update_rate>
+        <visualize>false</visualize>
+      </sensor>
+    </link>
+  </model>
+</sdf>

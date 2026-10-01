@@ -20,6 +20,11 @@
             <scale>0.001 0.001 0.001</scale>
           </mesh>
         </geometry>
+        <material>
+          <ambient>0.88 0.86 0.80 1.0</ambient>
+          <diffuse>0.88 0.86 0.80 1.0</diffuse>
+          <specular>0.3 0.3 0.3 1.0</specular>
+        </material>
       </visual>
     </link>
   </model>
