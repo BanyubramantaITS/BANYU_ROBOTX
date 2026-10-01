@@ -82,6 +82,14 @@ def generate_launch_description():
         description="Path to ROS 2 parameter YAML file for Task 2 nodes",
     )
 
+    por_params_arg = DeclareLaunchArgument(
+        name="por_params_file",
+        default_value=os.path.join(
+            _banyu_bringup_share, "config", "por_params.yaml"
+        ),
+        description="Path to ROS 2 parameter YAML file for POR nodes",
+    )
+
     set_use_sim_time = SetUseSimTime(
         True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
@@ -144,6 +152,7 @@ def generate_launch_description():
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "debug": LaunchConfiguration("debug"),
             "task2_params_file": LaunchConfiguration("task2_params_file"),
+            "por_params_file": LaunchConfiguration("por_params_file"),
         }.items(),
     )
 
@@ -157,6 +166,7 @@ def generate_launch_description():
             debug_arg,
             use_dvl_arg,
             task2_params_arg,
+            por_params_arg,
             set_use_sim_time,
             gazebo_por_launch,
             gazebo_main_launch,
