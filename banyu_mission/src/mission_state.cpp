@@ -64,7 +64,8 @@ MissionState::MissionState(rclcpp::Node * node, bool subscribe)
 
 void MissionState::configure(
   double gps_timeout_s, double pipeline_timeout_s, double state_timeout_s, int rc_interrupt_channel,
-  int rc_interrupt_threshold, std::string autonomy_mode, std::string autonomy_authority)
+  int rc_interrupt_threshold, std::string autonomy_mode, std::string autonomy_authority,
+  bool require_gps)
 {
   std::lock_guard<std::mutex> lock(mutex_);
   gps_timeout_s_ = finite(gps_timeout_s) && gps_timeout_s > 0.0 ? gps_timeout_s : 0.01;
@@ -75,6 +76,7 @@ void MissionState::configure(
   rc_interrupt_threshold_ = rc_interrupt_threshold;
   autonomy_mode_ = std::move(autonomy_mode);
   autonomy_authority_ = std::move(autonomy_authority);
+  gps_required_ = require_gps;
 }
 
 bool MissionState::validateMissionCoordinates(
@@ -116,18 +118,19 @@ bool MissionState::deriveEnuInitialBearing(
 
 bool MissionState::configureMissionCoordinates(
   double start_latitude, double start_longitude,
-  double end_latitude, double end_longitude)
+  double end_latitude, double end_longitude, bool require_coordinates)
 {
   std::lock_guard<std::mutex> lock(mutex_);
   start_latitude_ = start_latitude;
   start_longitude_ = start_longitude;
   end_latitude_ = end_latitude;
   end_longitude_ = end_longitude;
+  mission_coordinates_required_ = require_coordinates;
   mission_coordinates_valid_ = deriveEnuInitialBearing(
     start_latitude, start_longitude,
     end_latitude, end_longitude,
     mission_heading_);
-  return mission_coordinates_valid_;
+  return !mission_coordinates_required_ || mission_coordinates_valid_;
 }
 
 bool MissionState::resetForStart()
@@ -136,16 +139,20 @@ bool MissionState::resetForStart()
   if ((lifecycle_ != Lifecycle::Idle &&
     lifecycle_ != Lifecycle::Interrupted &&
     lifecycle_ != Lifecycle::Failed) ||
-    !mission_coordinates_valid_)
+    (mission_coordinates_required_ && !mission_coordinates_valid_))
   {
     return false;
   }
-  mission_coordinates_valid_ = deriveEnuInitialBearing(
-    start_latitude_, start_longitude_,
-    end_latitude_, end_longitude_,
-    mission_heading_);
-  if (!mission_coordinates_valid_) {
-    return false;
+  if (mission_coordinates_required_) {
+    mission_coordinates_valid_ = deriveEnuInitialBearing(
+      start_latitude_, start_longitude_,
+      end_latitude_, end_longitude_,
+      mission_heading_);
+    if (!mission_coordinates_valid_) {
+      return false;
+    }
+  } else {
+    mission_heading_ = 0.0;
   }
   mission_started_ = true;
   autonomy_engaged_ = false;
@@ -289,6 +296,11 @@ bool MissionState::vehicleReady() const
 }
 
 bool MissionState::gpsAvailable() const {return snapshot().gps_available;}
+bool MissionState::gpsRequired() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return gps_required_;
+}
 bool MissionState::pipelineLost() const {return snapshot().pipeline_lost;}
 bool MissionState::pipelineEnded() const {return snapshot().pipeline_ended;}
 bool MissionState::redPending() const {return snapshot().red_pending;}

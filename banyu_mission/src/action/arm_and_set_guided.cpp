@@ -29,11 +29,13 @@ BT::NodeStatus ArmAndSetGuided::onStart()
   arming_done_ = false;
   arming_success_ = false;
 
-  const bool ready = state_->vehicleReady() && state_->gpsAvailable();
+  const bool ready = state_->vehicleReady() &&
+    (!state_->gpsRequired() || state_->gpsAvailable());
   if (!ready) {
     RCLCPP_INFO(
       node_->get_logger(),
-      "Preflight: waiting for vehicle connection and GPS fix before arming...");
+      "Preflight: waiting for vehicle readiness%s before arming...",
+      state_->gpsRequired() ? " and GPS fix" : "");
     step_ = Step::WaitingForReadiness;
     return BT::NodeStatus::RUNNING;
   }
@@ -66,7 +68,9 @@ BT::NodeStatus ArmAndSetGuided::onRunning()
   }
 
   if (step_ == Step::WaitingForReadiness) {
-    if (!state_->vehicleReady() || !state_->gpsAvailable()) {
+    if (!state_->vehicleReady() ||
+      (state_->gpsRequired() && !state_->gpsAvailable()))
+    {
       return BT::NodeStatus::RUNNING;
     }
     const bool services_ready =

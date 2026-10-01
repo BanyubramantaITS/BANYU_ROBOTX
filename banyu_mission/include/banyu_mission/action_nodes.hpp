@@ -11,6 +11,7 @@
 #include "banyu_mission/action/handle_abort_or_teleop_node.hpp"
 #include "banyu_mission/action/hold_probe_on_ring_node.hpp"
 #include "banyu_mission/action/navigate_surface_gps_node.hpp"
+#include "banyu_mission/action/por_action_nodes.hpp"
 #include "banyu_mission/action/register_actions.hpp"
 #include "banyu_mission/action/search_pipeline_node.hpp"
 #include "banyu_mission/action/send_mission_report_node.hpp"

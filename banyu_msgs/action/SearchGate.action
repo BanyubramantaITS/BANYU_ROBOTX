@@ -1,0 +1,12 @@
+# Sweep forward until a fresh gate detection is found.
+float64 search_speed_mps
+# Continuous missing-prerequisite watchdog window; not a fixed action duration.
+float64 timeout_s
+---
+bool success
+string reason
+bool gate_found
+---
+builtin_interfaces/Time stamp
+bool gate_visible
+float64 detection_age_s

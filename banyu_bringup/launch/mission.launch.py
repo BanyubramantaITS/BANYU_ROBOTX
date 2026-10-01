@@ -31,6 +31,9 @@ def generate_launch_description():
     default_task2_params = os.path.join(
         banyu_bringup_share, "config", "task2_params.yaml"
     )
+    default_por_params = os.path.join(
+        banyu_bringup_share, "config", "por_params.yaml"
+    )
 
     mode_arg = DeclareLaunchArgument(
         name="mode",
@@ -65,6 +68,12 @@ def generate_launch_description():
         description="Path to ROS 2 parameter YAML file for Task 2 nodes",
     )
 
+    por_params_arg = DeclareLaunchArgument(
+        name="por_params_file",
+        default_value=default_por_params,
+        description="Path to ROS 2 parameter YAML file for POR nodes",
+    )
+
     set_use_sim_time = SetUseSimTime(
         True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
@@ -73,13 +82,28 @@ def generate_launch_description():
     use_sim = LaunchConfiguration("use_sim")
     debug = LaunchConfiguration("debug")
     task2_params = LaunchConfiguration("task2_params_file")
+    por_params = LaunchConfiguration("por_params_file")
 
     task2_fixture_mode = AndSubstitution(
         EqualsSubstitution(mode, "task2"),
         EqualsSubstitution(use_sim, "True"),
     )
 
-    mission_manager = Node(
+    por_mission_manager = Node(
+        package="banyu_mission",
+        executable="banyu_mission",
+        name="banyu_mission",
+        output="screen",
+        parameters=[
+            por_params,
+            {
+                "mission_mode": mode,
+            },
+        ],
+        condition=IfCondition(EqualsSubstitution(mode, "por")),
+    )
+
+    task2_mission_manager = Node(
         package="banyu_mission",
         executable="banyu_mission",
         name="banyu_mission",
@@ -93,6 +117,7 @@ def generate_launch_description():
                 ),
             },
         ],
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
 
     por_detection = Node(
@@ -105,10 +130,29 @@ def generate_launch_description():
                 "config",
                 "por_detection_params.yaml",
             ),
+            por_params,
             {"use_gui": debug},
         ],
         output="screen",
         condition=UnlessCondition(EqualsSubstitution(mode, "task2")),
+    )
+
+    por_vehicle_execution = Node(
+        package="banyu_vehicle_execution",
+        executable="vehicle_execution_node",
+        name="vehicle_execution_node",
+        parameters=[por_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "por")),
+    )
+
+    por_vehicle_status = Node(
+        package="banyu_vehicle_interface",
+        executable="vehicle_status_node",
+        name="banyu_vehicle_status",
+        parameters=[por_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "por")),
     )
 
     task2_sim_provider = Node(
@@ -193,9 +237,13 @@ def generate_launch_description():
             use_sim_time_arg,
             debug_arg,
             task2_params_arg,
+            por_params_arg,
             set_use_sim_time,
-            mission_manager,
+            por_mission_manager,
+            task2_mission_manager,
             por_detection,
+            por_vehicle_execution,
+            por_vehicle_status,
             task2_sim_provider,
             task2_pipeline_detector,
             task2_vehicle_status,

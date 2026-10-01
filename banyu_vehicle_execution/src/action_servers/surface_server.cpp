@@ -24,7 +24,16 @@ bool SurfaceServer::validateGoal(const Goal & goal, std::string & reason)
     reason = "depth_tolerance_m must be positive";
     return false;
   }
+  if (!std::isfinite(goal.watchdog_timeout_s) || goal.watchdog_timeout_s < 0.0) {
+    reason = "watchdog_timeout_s must be finite and non-negative";
+    return false;
+  }
   return true;
+}
+
+void SurfaceServer::onGoalStarted()
+{
+  watchdog_.reset(node_->now());
 }
 
 MotionIntent SurfaceServer::tick(
@@ -37,11 +46,23 @@ MotionIntent SurfaceServer::tick(
     cancelActive();
     return zeroIntent();
   }
-  if (!telemetry.depth_valid) {
+  const auto goal = active_handle_->get_goal();
+  const bool depth_fresh = telemetry.depth_valid && std::isfinite(telemetry.depth_m) &&
+    telemetry.depth_stamp.nanoseconds() != 0 &&
+    (now - telemetry.depth_stamp).seconds() >= 0.0 &&
+    (now - telemetry.depth_stamp).seconds() <= 0.5;
+  if (!depth_fresh) {
+    if (watchdog_.expired(now, goal->watchdog_timeout_s)) {
+      auto result = std::make_shared<Result>();
+      result->success = false;
+      result->reason = "Surface depth input timed out";
+      result->final_depth_m = telemetry.depth_m;
+      result->final_error_m = goal->target_depth_m - telemetry.depth_m;
+      abortActiveWithResult(result);
+    }
     return zeroIntent();
   }
-
-  const auto goal = active_handle_->get_goal();
+  watchdog_.reset(now);
   const double depth_err = goal->target_depth_m - telemetry.depth_m;
 
   auto feedback = std::make_shared<Feedback>();

@@ -47,10 +47,12 @@ public:
   void configure(
     double gps_timeout_s, double pipeline_timeout_s, double state_timeout_s,
     int rc_interrupt_channel, int rc_interrupt_threshold,
-    std::string autonomy_mode, std::string autonomy_authority = "");
+    std::string autonomy_mode, std::string autonomy_authority = "",
+    bool require_gps = true);
   bool configureMissionCoordinates(
     double start_latitude, double start_longitude,
-    double end_latitude, double end_longitude);
+    double end_latitude, double end_longitude,
+    bool require_coordinates = true);
   bool resetForStart();
   void requestAbort();
   bool requestStart();
@@ -66,6 +68,7 @@ public:
   bool autonomyInterrupted() const;
   bool vehicleReady() const;
   bool gpsAvailable() const;
+  bool gpsRequired() const;
   bool pipelineLost() const;
   bool pipelineEnded() const;
   bool redPending() const;
@@ -122,6 +125,8 @@ private:
   double end_longitude_ {0.0};
   double mission_heading_ {0.0};
   bool mission_coordinates_valid_ {false};
+  bool mission_coordinates_required_ {true};
+  bool gps_required_ {true};
   std::vector<rclcpp::SubscriptionBase::SharedPtr> subscriptions_;
 };
 

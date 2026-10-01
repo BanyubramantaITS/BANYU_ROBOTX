@@ -16,6 +16,7 @@
 #include "banyu_msgs/msg/vehicle_status.hpp"
 #include "banyu_msgs/msg/pipeline_observation.hpp"
 #include "banyu_msgs/msg/pipeline_ring_observation.hpp"
+#include "banyu_msgs/msg/detection.hpp"
 #include "banyu_guidance/msg/velocity_intent.hpp"
 
 #include "banyu_vehicle_execution/action_servers.hpp"
@@ -70,6 +71,7 @@ private:
   void handleStatus(const banyu_msgs::msg::VehicleStatus::SharedPtr msg);
   void handlePipelineObs(const banyu_msgs::msg::PipelineObservation::SharedPtr msg);
   void handleRingObs(const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg);
+  void handleDetection(const banyu_msgs::msg::Detection::SharedPtr msg);
   void handleGuidanceIntent(const banyu_guidance::msg::VelocityIntent::SharedPtr msg);
   void handleLease(const banyu_msgs::msg::ActionLease::SharedPtr msg);
 
@@ -98,6 +100,7 @@ private:
   rclcpp::Subscription<banyu_msgs::msg::VehicleStatus>::SharedPtr status_sub_;
   rclcpp::Subscription<banyu_msgs::msg::PipelineObservation>::SharedPtr pipeline_obs_sub_;
   rclcpp::Subscription<banyu_msgs::msg::PipelineRingObservation>::SharedPtr ring_obs_sub_;
+  rclcpp::Subscription<banyu_msgs::msg::Detection>::SharedPtr detection_sub_;
   rclcpp::Subscription<banyu_guidance::msg::VelocityIntent>::SharedPtr guidance_intent_sub_;
   rclcpp::Subscription<banyu_msgs::msg::ActionLease>::SharedPtr lease_sub_;
 

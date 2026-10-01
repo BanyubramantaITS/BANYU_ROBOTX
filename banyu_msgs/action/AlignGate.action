@@ -1,0 +1,21 @@
+# Center the gate using normalized image offsets.
+float64 deadband_x
+float64 deadband_y
+float64 gain_x
+float64 gain_y
+float64 max_speed_y
+float64 max_speed_z
+float64 hold_time_s
+# Continuous missing-prerequisite watchdog window; not a fixed action duration.
+float64 timeout_s
+---
+bool success
+string reason
+float64 final_offset_x
+float64 final_offset_y
+---
+builtin_interfaces/Time stamp
+bool gate_visible
+float64 offset_x
+float64 offset_y
+float64 detection_age_s

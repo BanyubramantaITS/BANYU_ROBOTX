@@ -223,13 +223,15 @@ bool PorDetection::detectObjectFromContours(
           12)), cv::FONT_HERSHEY_SIMPLEX, 0.6, color,
       2);
 
+    const int midX = origImage.cols / 2;
+    const int midY = origImage.rows / 2;
     const cv::Scalar red(0, 0, 255);
     cv::line(
-      annotated, {origImage.cols / 2 - 20, origImage.rows / 2},
-      {origImage.cols / 2 + 20, origImage.rows / 2}, red, 1);
+      annotated, {midX - 20, midY},
+      {midX + 20, midY}, red, 2);
     cv::line(
-      annotated, {origImage.cols / 2, origImage.rows / 2 - 20},
-      {origImage.cols / 2, origImage.rows / 2 + 20}, red, 1);
+      annotated, {midX, midY - 20},
+      {midX, midY + 20}, red, 2);
   }
 
   bool foundBest = false;

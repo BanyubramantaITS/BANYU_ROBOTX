@@ -52,6 +52,8 @@ void VehicleExecutionNode::initSubscribers()
     "topics.pipeline_obs", "/banyu/pipeline/observation");
   const auto ring_obs_topic = declare_parameter<std::string>(
     "topics.ring_obs", "/banyu/pipeline/ring_observation");
+  const auto detection_topic = declare_parameter<std::string>(
+    "topics.detection", "/banyu/detection");
   const auto guidance_intent_topic = declare_parameter<std::string>(
     "topics.guidance_intent", "/banyu/guidance/velocity_intent");
   const auto lease_topic = declare_parameter<std::string>(
@@ -80,6 +82,10 @@ void VehicleExecutionNode::initSubscribers()
   ring_obs_sub_ = create_subscription<banyu_msgs::msg::PipelineRingObservation>(
     ring_obs_topic, rclcpp::SensorDataQoS(),
     std::bind(&VehicleExecutionNode::handleRingObs, this, std::placeholders::_1));
+
+  detection_sub_ = create_subscription<banyu_msgs::msg::Detection>(
+    detection_topic, rclcpp::SensorDataQoS(),
+    std::bind(&VehicleExecutionNode::handleDetection, this, std::placeholders::_1));
 
   guidance_intent_sub_ = create_subscription<banyu_guidance::msg::VelocityIntent>(
     guidance_intent_topic, rclcpp::QoS(10),
@@ -125,6 +131,22 @@ void VehicleExecutionNode::initActionServers()
     "actions.hold_probe_on_ring", "/banyu/actions/hold_probe_on_ring");
   const auto surface_action = declare_parameter<std::string>(
     "actions.surface", "/banyu/actions/surface");
+  const auto acquire_gate_action = declare_parameter<std::string>(
+    "actions.acquire_gate", "/banyu/actions/acquire_gate");
+  const auto search_marker_action = declare_parameter<std::string>(
+    "actions.search_marker", "/banyu/actions/search_marker");
+  const auto search_gate_action = declare_parameter<std::string>(
+    "actions.search_gate", "/banyu/actions/search_gate");
+  const auto align_gate_action = declare_parameter<std::string>(
+    "actions.align_gate", "/banyu/actions/align_gate");
+  const auto align_marker_action = declare_parameter<std::string>(
+    "actions.align_marker", "/banyu/actions/align_marker");
+  const auto pass_gate_action = declare_parameter<std::string>(
+    "actions.pass_gate", "/banyu/actions/pass_gate");
+  const auto orbit_marker_action = declare_parameter<std::string>(
+    "actions.orbit_marker", "/banyu/actions/orbit_marker");
+  const auto turn_around_action = declare_parameter<std::string>(
+    "actions.turn_around", "/banyu/actions/turn_around");
 
   const double nav_kp = declare_parameter<double>("control.nav_kp", 0.5);
   const double nav_max_speed = declare_parameter<double>("control.nav_max_speed", 1.0);
@@ -157,11 +179,30 @@ void VehicleExecutionNode::initActionServers()
     this, hold_action, this);
   auto surface_server = std::make_shared<SurfaceServer>(
     this, surface_action, this, depth_kp, max_depth_rate);
+  auto acquire_gate_server = std::make_shared<AcquireGateServer>(
+    this, acquire_gate_action, this);
+  auto search_marker_server = std::make_shared<SearchMarkerServer>(
+    this, search_marker_action, this);
+  auto search_gate_server = std::make_shared<SearchGateServer>(
+    this, search_gate_action, this);
+  auto align_gate_server = std::make_shared<AlignGateServer>(
+    this, align_gate_action, this);
+  auto align_marker_server = std::make_shared<AlignMarkerServer>(
+    this, align_marker_action, this);
+  auto pass_gate_server = std::make_shared<PassGateServer>(
+    this, pass_gate_action, this);
+  auto orbit_marker_server = std::make_shared<OrbitMarkerServer>(
+    this, orbit_marker_action, this);
+  auto turn_around_server = std::make_shared<TurnAroundServer>(
+    this, turn_around_action, this);
 
   servers_ = {
     nav_server, align_server, dive_server,
     acquire_server, search_server, follow_server,
-    center_server, hold_server, surface_server
+    center_server, hold_server, surface_server,
+    acquire_gate_server, search_marker_server, search_gate_server,
+    align_gate_server, align_marker_server, pass_gate_server,
+    orbit_marker_server, turn_around_server
   };
 
   for (const auto & server : servers_) {
@@ -264,6 +305,11 @@ void VehicleExecutionNode::timerCallback()
     (current_ros_time - telemetry_.ring_obs_stamp).seconds() > kObservationTimeoutS)
   {
     telemetry_.ring_obs_valid = false;
+  }
+  if (telemetry_.detection_valid &&
+    (current_ros_time - telemetry_.detection_stamp).seconds() > kObservationTimeoutS)
+  {
+    telemetry_.detection_valid = false;
   }
 
   // Vehicle safety check
@@ -429,6 +475,13 @@ void VehicleExecutionNode::handleRingObs(
   telemetry_.ring_offset_x = msg->offset_x;
   telemetry_.ring_offset_y = msg->offset_y;
   telemetry_.ring_confidence = msg->confidence;
+}
+
+void VehicleExecutionNode::handleDetection(const banyu_msgs::msg::Detection::SharedPtr msg)
+{
+  telemetry_.detection = *msg;
+  telemetry_.detection_valid = true;
+  telemetry_.detection_stamp = resolveStamp(msg->header.stamp);
 }
 
 void VehicleExecutionNode::handleGuidanceIntent(

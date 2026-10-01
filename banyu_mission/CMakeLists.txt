@@ -18,6 +18,7 @@ find_package(mavros_msgs REQUIRED)
 
 add_library(banyu_mission_core
   src/mission_state.cpp
+  src/por_mission_config.cpp
   src/action/acknowledge_red_ring_node.cpp
   src/action/acquire_pipeline_node.cpp
   src/action/align_heading_node.cpp
@@ -28,6 +29,7 @@ add_library(banyu_mission_core
   src/action/handle_abort_or_teleop_node.cpp
   src/action/hold_probe_on_ring_node.cpp
   src/action/navigate_surface_gps_node.cpp
+  src/action/por_action_nodes.cpp
   src/action/register_actions.cpp
   src/action/search_pipeline_node.cpp
   src/action/send_mission_report_node.cpp

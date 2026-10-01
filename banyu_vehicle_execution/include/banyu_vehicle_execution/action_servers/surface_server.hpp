@@ -4,6 +4,7 @@
 #include <string>
 
 #include "banyu_msgs/action/surface.hpp"
+#include "banyu_vehicle_execution/requirement_watchdog.hpp"
 #include "banyu_vehicle_execution/action_servers/typed_action_server.hpp"
 
 namespace banyu_vehicle_execution
@@ -20,6 +21,7 @@ public:
     double depth_kp = 0.5,
     double max_depth_rate = 0.5);
 
+  void onGoalStarted() override;
   MotionIntent tick(
     const VehicleTelemetry & telemetry, const rclcpp::Time & now,
     double dt) override;
@@ -30,6 +32,7 @@ protected:
 private:
   double depth_kp_{0.5};
   double max_depth_rate_{0.5};
+  RequirementWatchdog watchdog_;
 };
 
 }  // namespace banyu_vehicle_execution

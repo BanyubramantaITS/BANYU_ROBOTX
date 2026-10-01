@@ -4,9 +4,11 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <string>
 
 #include "rclcpp/rclcpp.hpp"
+#include "banyu_msgs/msg/detection.hpp"
 
 namespace banyu_vehicle_execution
 {
@@ -71,7 +73,41 @@ struct VehicleTelemetry
   double guidance_sway_mps{0.0};
   double guidance_yaw_rate_rad_s{0.0};
   bool guidance_yaw_control_active{false};
+
+  // Best POR detection. The stamp is the receipt/header stamp used by the
+  // execution watchdog; controllers must not command from stale imagery.
+  bool detection_valid{false};
+  rclcpp::Time detection_stamp{};
+  banyu_msgs::msg::Detection detection{};
 };
+
+inline bool detectionIsFresh(
+  const VehicleTelemetry & telemetry, const rclcpp::Time & now, double timeout_s,
+  int64_t object_id, banyu_msgs::msg::Detection * result = nullptr)
+{
+  if (!telemetry.detection_valid || telemetry.detection.object_id != object_id ||
+    telemetry.detection_stamp.nanoseconds() == 0 || !std::isfinite(timeout_s) || timeout_s < 0.0)
+  {
+    return false;
+  }
+  const double age = (now - telemetry.detection_stamp).seconds();
+  if (age < 0.0 || age > timeout_s) {
+    return false;
+  }
+  if (result != nullptr) {
+    *result = telemetry.detection;
+  }
+  return true;
+}
+
+inline double detectionAge(
+  const VehicleTelemetry & telemetry, const rclcpp::Time & now)
+{
+  if (!telemetry.detection_valid || telemetry.detection_stamp.nanoseconds() == 0) {
+    return std::numeric_limits<double>::infinity();
+  }
+  return (now - telemetry.detection_stamp).seconds();
+}
 
 inline double normalizeAngle(double angle)
 {
