@@ -10,12 +10,12 @@ find_package(ament_cmake REQUIRED)
 # Build against ROS' vendored Gazebo, the one `gz sim` and ros_gz run. Without
 # these, CMake can pick up a system gz-harmonic install instead, and the plugins
 # then load a second Ogre-Next next to the running one (mesh errors, NaN asserts).
-find_package(gz_sim_vendor REQUIRED)
-find_package(gz_rendering_vendor REQUIRED)
-find_package(gz_transport_vendor REQUIRED)
-find_package(gz_msgs_vendor REQUIRED)
-find_package(gz_plugin_vendor REQUIRED)
-find_package(gz_ogre_next_vendor REQUIRED)
+find_package(gz_sim_vendor QUIET)
+find_package(gz_rendering_vendor QUIET)
+find_package(gz_transport_vendor QUIET)
+find_package(gz_msgs_vendor QUIET)
+find_package(gz_plugin_vendor QUIET)
+find_package(gz_ogre_next_vendor QUIET)
 find_package(gz-sim8 REQUIRED)
 find_package(gz-plugin2 REQUIRED COMPONENTS register)
 find_package(gz-rendering8 REQUIRED COMPONENTS ogre2)
@@ -24,7 +24,10 @@ find_package(gz-msgs10 REQUIRED)
 find_package(mavlink REQUIRED)
 # gz-rendering's ogre2 target does not export the OGRE-Next headers its own headers include.
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(OGRE2 REQUIRED IMPORTED_TARGET OGRE-Next)
+pkg_check_modules(OGRE2 IMPORTED_TARGET OGRE-Next)
+if(NOT OGRE2_FOUND)
+  pkg_check_modules(OGRE2 REQUIRED IMPORTED_TARGET OGRE-2.3)
+endif()
 
 # World systems for the RobotX course, loaded by filename from the world SDF.
 add_library(BanyuHydrophoneArray SHARED src/HydrophoneArray.cc)
@@ -54,8 +57,10 @@ set_target_properties(BanyuUnderwaterTurbidity PROPERTIES
   BUILD_RPATH "${_engine_dir}" INSTALL_RPATH "${_engine_dir}")
 target_compile_definitions(BanyuUnderwaterTurbidity PRIVATE OGRE_IGNORE_UNKNOWN_DEBUG)
 target_include_directories(BanyuUnderwaterTurbidity PRIVATE
-  ${OGRE2_INCLUDEDIR}/OGRE-Next/Hlms/Common ${OGRE2_INCLUDEDIR}/OGRE-Next/Hlms/Pbs
-  ${OGRE2_INCLUDEDIR}/OGRE-Next/Hlms/Unlit)
+  ${OGRE2_INCLUDE_DIRS}/Hlms/Common ${OGRE2_INCLUDE_DIRS}/Hlms/Pbs
+  ${OGRE2_INCLUDE_DIRS}/Hlms/Unlit
+  ${OGRE2_INCLUDE_DIRS}/OGRE-Next/Hlms/Common ${OGRE2_INCLUDE_DIRS}/OGRE-Next/Hlms/Pbs
+  ${OGRE2_INCLUDE_DIRS}/OGRE-Next/Hlms/Unlit)
 
 install(TARGETS BanyuHydrophoneArray BanyuPipelineLights BanyuDvlMavlink BanyuUnderwaterTurbidity DESTINATION lib)
 

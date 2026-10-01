@@ -195,6 +195,19 @@ def generate_launch_description():
                            "-x", str(sx), "-y", str(sy), "-z", str(sz), "-Y", str(syaw)],
                 condition=IfCondition(LaunchConfiguration("use_sim")),
             ),
+            ExecuteProcess(
+                cmd=[
+                    "python3", "-u",
+                    os.path.join(_banyu_sim_pkg_share, "scripts", "robotx_light_controller.py"),
+                    "ocean",
+                ],
+                additional_env={
+                    "BANYU_LIGHT_SEED": LaunchConfiguration("light_seed"),
+                    "BANYU_TIER": LaunchConfiguration("tier"),
+                },
+                output="screen",
+                condition=IfCondition(LaunchConfiguration("use_sim")),
+            ),
         ]
 
     gazebo_ros_image_bridge = Node(

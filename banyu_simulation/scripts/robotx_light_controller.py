@@ -53,6 +53,7 @@ import gz.msgs10.light_pb2 as light_pb2
 import gz.msgs10.visual_pb2 as visual_pb2
 import gz.msgs10.boolean_pb2 as bool_pb2
 import gz.msgs10.magnetometer_pb2 as mag_pb2
+import gz.msgs10.pose_v_pb2 as pose_v_pb2
 
 # ROS 2 Integration
 HAS_ROS2 = False
@@ -162,12 +163,26 @@ class RobotXPipelineController:
         self.running = True
 
         # Pipeline Configuration (Handbook Task 2)
-        self.tier = TIER_DISRUPTIVE
+        env_tier = os.environ.get("BANYU_TIER", os.environ.get("ROBOTX_TIER", "DISRUPTIVE")).upper().strip()
+        self.tier = env_tier if env_tier in VALID_TIERS else TIER_DISRUPTIVE
         self.damaged_node_id = 2
         self.advanced_target_color = "BLUE"
         self.disruptive_first_color = "RED"       # Tin color to retrieve (1st flash)
         self.disruptive_second_color = "BLUE"     # Target circle destination (2nd flash)
         self.challenge_active = True
+
+        env_seed = os.environ.get("BANYU_LIGHT_SEED", os.environ.get("ROBOTX_SEED", "")).strip()
+        if env_seed:
+            try:
+                seed_val = int(env_seed)
+                rng = random.Random(seed_val)
+                self.damaged_node_id = rng.randint(1, 4)
+                color_choices = ["RED", "GREEN", "BLUE"]
+                self.advanced_target_color = rng.choice(color_choices)
+                self.disruptive_first_color = rng.choice(color_choices)
+                self.disruptive_second_color = rng.choice(color_choices)
+            except ValueError:
+                pass
 
         # 4 Nodes
         self.nodes = {
@@ -228,22 +243,23 @@ class RobotXPipelineController:
 
                 found_count = 0
                 for nid, name in node_map.items():
-                    if name.startswith("light_node_"):
+                    m_node = re.search(r'(?:^|::)light_node_(\d+)$', name)
+                    if m_node:
                         try:
-                            idx = int(name.replace("light_node_", ""))
+                            idx = int(m_node.group(1))
                         except ValueError:
                             continue
                         if idx in self.nodes:
                             for link_id in children.get(nid, []):
                                 for comp_id in children.get(link_id, []):
                                     cname = node_map.get(comp_id, "")
-                                    if cname == "led_light":
+                                    if cname.endswith("led_light"):
                                         self.nodes[idx].light_id = comp_id
-                                    elif cname == "led_lenses_visual":
+                                    elif cname.endswith("led_lenses_visual"):
                                         self.nodes[idx].visual_id = comp_id
-                                    elif cname == "led_halo_visual":
+                                    elif cname.endswith("led_halo_visual"):
                                         self.nodes[idx].halo_visual_id = comp_id
-                                    elif cname == "lid_visual":
+                                    elif cname.endswith("lid_visual"):
                                         self.nodes[idx].lid_visual_id = comp_id
                             if self.nodes[idx].light_id and self.nodes[idx].visual_id:
                                 found_count += 1
@@ -290,6 +306,36 @@ class RobotXPipelineController:
                 f"/world/{self.world_name}/model/underwater-magnetic-activated-light/model/light_node_{i}/link/base_link/sensor/magnetometer/magnetometer",
                 cb,
             )
+            # Nested inside pipeline model
+            self.gz_node.subscribe(
+                mag_pb2.Magnetometer,
+                f"/world/{self.world_name}/model/pipeline/model/light_node_{i}/link/base_link/sensor/magnetometer/magnetometer",
+                cb,
+            )
+
+        # ROV proximity tracking for magnetic probe contact
+        node_positions = {}
+        def pose_cb(msg):
+            rov_pos = None
+            for p in msg.pose:
+                name = p.name
+                m = re.search(r'(?:^|::)light_node_(\d+)$', name)
+                if m:
+                    nid = int(m.group(1))
+                    node_positions[nid] = (p.position.x, p.position.y, p.position.z)
+                elif "bluerov2_heavy" in name:
+                    rov_pos = (p.position.x, p.position.y, p.position.z)
+            if rov_pos and self.damaged_node_id in node_positions:
+                target_pos = node_positions[self.damaged_node_id]
+                dist = math.dist(rov_pos, target_pos)
+                with self.lock:
+                    node = self.nodes[self.damaged_node_id]
+                    if dist < 0.40:
+                        node.raw_sensor_field_mT = 3.5
+                    elif node.injected_until <= time.time():
+                        node.raw_sensor_field_mT = 0.0
+
+        self.gz_node.subscribe(pose_v_pb2.Pose_V, f"/world/{self.world_name}/pose/info", pose_cb)
 
         # 2. Pipeline Configuration Topics
         def set_tier_cb(msg):
@@ -943,11 +989,20 @@ class RobotXPipelineController:
 
 
 def main():
-    world_name = "pipeline_lights"
-    if len(sys.argv) > 1:
+    world_name = os.environ.get("ROBOTX_WORLD_NAME", "ocean")
+    if len(sys.argv) > 1 and not sys.argv[1].startswith("-"):
         world_name = sys.argv[1]
 
     controller = RobotXPipelineController(world_name=world_name)
+
+    # CLI option overrides
+    args = sys.argv[1:]
+    for idx, arg in enumerate(args):
+        if arg == "--tier" and idx + 1 < len(args):
+            controller.set_tier(args[idx + 1])
+        elif arg == "--damaged-node" and idx + 1 < len(args):
+            controller.set_damaged_node(args[idx + 1])
+
     controller.discover_entities()
     controller.setup_subscriptions()
     controller.spin()

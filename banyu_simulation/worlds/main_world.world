@@ -26,6 +26,11 @@
             name="gz::sim::systems::Imu">
         </plugin>
 
+        <!-- Magnetometer plugin manages all magnetometer sensors -->
+        <plugin filename="gz-sim-magnetometer-system"
+            name="gz::sim::systems::Magnetometer">
+        </plugin>
+
         <!-- Buoyancy plugin manages buoyancy for all models -->
         <plugin
             filename="gz-sim-buoyancy-system"
@@ -102,44 +107,35 @@
             </link>
         </model>
 
-        <!-- RobotX 2026 Task 2 course. Models come from banyu_robotx_models.
-             The pipeline origin is the seafloor under its open start end and
-             the run goes along its +x, so yaw pi lays it along world -x from
-             x=2.3 to ~-2.3, starting at the GREEN buoy end. These are defaults:
-             gazebo_main.launch.py re-places pipeline and buoys at random. -->
+        <!-- RobotX 2026 Task 2 course.
+             Pipeline structure: 3" Schedule 40 PVC competition pipeline (pipeline_robotx).
+             Nodes 1-4: Competition optical light nodes with 4-layer optical stack and magnetometer. -->
         <include>
             <name>pipeline</name>
-            <uri>model://robotx_pipeline</uri>
+            <uri>model://pipeline_robotx</uri>
             <pose>2.3 0 -15 0 0 3.14159265</pose>
         </include>
 
-        <!-- One light node per straight section, numbered from the GREEN
-             buoy (handbook p.65 reporting order). All spawn GREEN; the
-             PipelineLights system turns one RED. The LED ring faces UP. -->
+        <!-- 4 competition light nodes placed along the pipeline segments -->
         <include>
             <name>light_node_1</name>
-            <uri>model://robotx_light_node_green</uri>
-            <pose relative_to="pipeline::light_node_1"/>
+            <uri>model://robotx_light_node</uri>
+            <pose relative_to="pipeline">-0.05 0.0 1.596 0 0 0.0</pose>
         </include>
         <include>
             <name>light_node_2</name>
-            <uri>model://robotx_light_node_green</uri>
-            <pose relative_to="pipeline::light_node_2"/>
+            <uri>model://robotx_light_node</uri>
+            <pose relative_to="pipeline">1.369 0.62 1.596 0 0 0.7854</pose>
         </include>
         <include>
             <name>light_node_3</name>
-            <uri>model://robotx_light_node_green</uri>
-            <pose relative_to="pipeline::light_node_3"/>
+            <uri>model://robotx_light_node</uri>
+            <pose relative_to="pipeline">2.645 0.62 1.596 0 0 -0.7854</pose>
         </include>
         <include>
             <name>light_node_4</name>
-            <uri>model://robotx_light_node_green</uri>
-            <pose relative_to="pipeline::light_node_4"/>
-        </include>
-        <include>
-            <name>light_node_5</name>
-            <uri>model://robotx_light_node_green</uri>
-            <pose relative_to="pipeline::light_node_5"/>
+            <uri>model://robotx_light_node</uri>
+            <pose relative_to="pipeline">4.05 0.0 1.596 0 0 0.0</pose>
         </include>
 
         <!-- "Two buoys will be placed near the ends of the pipeline" (p.64).
@@ -178,17 +174,6 @@
             <uri>model://robotx_pinger</uri>
             <pose relative_to="robobuoy_red::anchor_point"/>
         </include>
-
-        <plugin filename="BanyuPipelineLights" name="banyu::PipelineLights">
-            <light_node>light_node_1</light_node>
-            <light_node>light_node_2</light_node>
-            <light_node>light_node_3</light_node>
-            <light_node>light_node_4</light_node>
-            <light_node>light_node_5</light_node>
-            <!-- Omit for a fresh random pick each run. BANYU_LIGHT_SEED in
-                 the environment overrides this. -->
-            <!-- <seed>42</seed> -->
-        </plugin>
 
         <!-- DVL -> ArduSub SITL (VISION_POSITION_DELTA). Pairs with
              sim_vehicle.py -\-out=udp:127.0.0.1:14552 in sitl_mavros.launch.py. -->

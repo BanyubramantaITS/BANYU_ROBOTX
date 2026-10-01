@@ -5,6 +5,7 @@
     <link name="body">
       <inertial auto="true" />
       <collision name="collision">
+        <pose>0 0 0 0 0 -1.57079632679</pose>
         <density>10.0</density>
         <geometry>
           <mesh optimization="convex_decomposition">
@@ -14,6 +15,7 @@
         </geometry>
       </collision>
       <visual name="visual">
+        <pose>0 0 0 0 0 -1.57079632679</pose>
         <geometry>
           <mesh>
             <uri>model://pipeline_robotx/mesh.stl</uri>

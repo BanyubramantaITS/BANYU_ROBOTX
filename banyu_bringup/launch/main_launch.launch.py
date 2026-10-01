@@ -94,6 +94,7 @@ def generate_launch_description():
         launch_arguments={
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
+            "tier": LaunchConfiguration("tier"),
         }.items(),
     )
 
