@@ -375,21 +375,22 @@ MotionIntent AlignGateServer::tick(
     result->final_offset_y = dy; abortActiveWithResult(result); return zeroIntent();
   }
   const bool aligned = requirement_valid &&
-    std::abs(dx) <= positiveOr(goal->deadband_x, 0.08) &&
-    std::abs(dy) <= positiveOr(goal->deadband_y, 0.08);
+    std::abs(dx) <= positiveOr(goal->deadband_x, 0.03) &&
+    std::abs(dy) <= positiveOr(goal->deadband_y, 0.03);
   if (aligned) {
     if (aligned_since_.nanoseconds() == 0) {aligned_since_ = now;}
     if ((now - aligned_since_).seconds() >= positiveOr(goal->hold_time_s, 0.5)) {
       auto result = std::make_shared<Result>(); result->success = true;
       result->reason = "Gate centered"; result->final_offset_x = dx;
       result->final_offset_y = dy; succeedActive(result);
+      return zeroIntent();
     }
-    return zeroIntent();
+  } else {
+    aligned_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   }
-  aligned_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   if (!requirement_valid) {return zeroIntent();}
   const auto correction = visualCorrection(
-    dx, dy, positiveOr(goal->gain_x, 0.6), positiveOr(goal->gain_y, 0.4),
+    dx, dy, positiveOr(goal->gain_x, 1.2), positiveOr(goal->gain_y, 0.8),
     positiveOr(goal->max_speed_y, 0.3), positiveOr(goal->max_speed_z, 0.2));
   return bodyCommand(telemetry, 0.0, correction.lateral_flu_mps, correction.vertical_flu_mps);
 }
@@ -440,8 +441,8 @@ MotionIntent AlignMarkerServer::tick(
     result->reason = "Marker alignment stalled"; result->final_distance_m = distance;
     abortActiveWithResult(result); return zeroIntent();
   }
-  const bool centered = std::abs(dx) <= positiveOr(goal->deadband_x, 0.08) &&
-    std::abs(dy) <= positiveOr(goal->deadband_y, 0.08);
+  const bool centered = std::abs(dx) <= positiveOr(goal->deadband_x, 0.03) &&
+    std::abs(dy) <= positiveOr(goal->deadband_y, 0.03);
   const bool in_range = distance >= min_range && distance <= max_range;
   if (range_valid && centered && in_range) {
     if (aligned_since_.nanoseconds() == 0) {aligned_since_ = now;}
@@ -450,15 +451,16 @@ MotionIntent AlignMarkerServer::tick(
       result->reason = "Marker centered at safe standoff";
       result->final_offset_x = dx; result->final_offset_y = dy;
       result->final_distance_m = distance; succeedActive(result);
+      return zeroIntent();
     }
-    return zeroIntent();
+  } else {
+    aligned_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   }
-  aligned_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
-  if (!range_valid) {aligned_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME); return zeroIntent();}
+  if (!range_valid) {return zeroIntent();}
   const double midpoint = 0.5 * (min_range + max_range);
   const double x = clampFinite(0.35 * (distance - midpoint), -0.25, 0.25);
   const auto correction = visualCorrection(
-    dx, dy, positiveOr(goal->gain_x, 0.6), positiveOr(goal->gain_y, 0.4),
+    dx, dy, positiveOr(goal->gain_x, 1.2), positiveOr(goal->gain_y, 0.8),
     positiveOr(goal->max_speed_y, 0.3), positiveOr(goal->max_speed_z, 0.2));
   return bodyCommand(telemetry, x, correction.lateral_flu_mps, correction.vertical_flu_mps);
 }
@@ -607,7 +609,11 @@ MotionIntent OrbitMarkerServer::tick(
     detection.offset_x, detection.offset_y, 0.0, positiveOr(goal->vertical_gain, 0.4),
     0.0, positiveOr(goal->max_vertical_speed_mps, 0.2),
     positiveOr(goal->yaw_gain, 0.6), positiveOr(goal->max_yaw_rate_rad_s, 0.6));
-  return bodyCommand(telemetry, x, y, correction.vertical_flu_mps, correction.yaw_rate_rad_s);
+  const double feedforward_yaw_rate = -y / std::max(radius, 0.5);
+  const double max_yaw_rate = positiveOr(goal->max_yaw_rate_rad_s, 0.6);
+  const double commanded_yaw_rate = clampFinite(
+    feedforward_yaw_rate + correction.yaw_rate_rad_s, -max_yaw_rate, max_yaw_rate);
+  return bodyCommand(telemetry, x, y, correction.vertical_flu_mps, commanded_yaw_rate);
 }
 
 void TurnAroundServer::onGoalStarted()

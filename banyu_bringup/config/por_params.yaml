@@ -9,10 +9,10 @@ banyu_mission:
       gate_depth_m: 2.0
       gate_depth_tolerance_m: 0.3
       acquire_gate_timeout_s: 20.0
-      gate_align_deadband_x: 0.08
-      gate_align_deadband_y: 0.08
-      gate_align_gain_x: 0.8
-      gate_align_gain_y: 0.8
+      gate_align_deadband_x: 0.03
+      gate_align_deadband_y: 0.03
+      gate_align_gain_x: 1.2
+      gate_align_gain_y: 1.0
       gate_align_max_speed_y: 0.4
       gate_align_max_speed_z: 0.3
       gate_align_hold_time_s: 1.0
@@ -24,10 +24,10 @@ banyu_mission:
       gate_pass_timeout_s: 20.0
       marker_search_speed_mps: 0.6
       marker_search_timeout_s: 45.0
-      marker_align_deadband_x: 0.08
-      marker_align_deadband_y: 0.08
-      marker_align_gain_x: 0.8
-      marker_align_gain_y: 0.8
+      marker_align_deadband_x: 0.03
+      marker_align_deadband_y: 0.03
+      marker_align_gain_x: 1.2
+      marker_align_gain_y: 1.0
       marker_align_max_speed_y: 0.4
       marker_align_max_speed_z: 0.3
       marker_align_minimum_distance_m: 1.0
@@ -39,10 +39,10 @@ banyu_mission:
       orbit_radius_m: 3.0
       orbit_range_gain: 0.8
       orbit_max_range_speed_mps: 0.6
-      orbit_yaw_gain: 0.8
+      orbit_yaw_gain: 1.5
       orbit_max_yaw_rate_rad_s: 0.6
-      orbit_vertical_gain: 0.5
-      orbit_max_vertical_speed_mps: 0.3
+      orbit_vertical_gain: 1.0
+      orbit_max_vertical_speed_mps: 0.4
       orbit_angle_rad: 6.283185307
       orbit_timeout_s: 60.0
       turn_yaw_rate_rad_s: 0.6

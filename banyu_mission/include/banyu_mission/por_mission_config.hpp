@@ -16,10 +16,10 @@ struct PorMissionConfig
   // Continuous missing-prerequisite watchdog for POR Surface; not a phase duration.
   double surface_watchdog_timeout_s {5.0};
   double acquire_gate_timeout_s {20.0};
-  double gate_align_deadband_x {0.08};
-  double gate_align_deadband_y {0.08};
-  double gate_align_gain_x {0.8};
-  double gate_align_gain_y {0.8};
+  double gate_align_deadband_x {0.03};
+  double gate_align_deadband_y {0.03};
+  double gate_align_gain_x {1.2};
+  double gate_align_gain_y {1.0};
   double gate_align_max_speed_y {0.4};
   double gate_align_max_speed_z {0.3};
   double gate_align_hold_time_s {1.0};
@@ -31,10 +31,10 @@ struct PorMissionConfig
   double gate_pass_timeout_s {20.0};
   double marker_search_speed_mps {0.6};
   double marker_search_timeout_s {45.0};
-  double marker_align_deadband_x {0.08};
-  double marker_align_deadband_y {0.08};
-  double marker_align_gain_x {0.8};
-  double marker_align_gain_y {0.8};
+  double marker_align_deadband_x {0.03};
+  double marker_align_deadband_y {0.03};
+  double marker_align_gain_x {1.2};
+  double marker_align_gain_y {1.0};
   double marker_align_max_speed_y {0.4};
   double marker_align_max_speed_z {0.3};
   double marker_align_minimum_distance_m {1.0};
@@ -46,10 +46,10 @@ struct PorMissionConfig
   double orbit_radius_m {3.0};
   double orbit_range_gain {0.8};
   double orbit_max_range_speed_mps {0.6};
-  double orbit_yaw_gain {0.8};
+  double orbit_yaw_gain {1.5};
   double orbit_max_yaw_rate_rad_s {0.6};
-  double orbit_vertical_gain {0.5};
-  double orbit_max_vertical_speed_mps {0.3};
+  double orbit_vertical_gain {1.0};
+  double orbit_max_vertical_speed_mps {0.4};
   double orbit_angle_rad {6.283185307};
   double orbit_timeout_s {60.0};
   double turn_yaw_rate_rad_s {0.6};
