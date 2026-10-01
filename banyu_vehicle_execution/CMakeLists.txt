@@ -27,6 +27,7 @@ add_library(${PROJECT_NAME}
   src/action_servers/follow_pipeline_server.cpp
   src/action_servers/hold_probe_on_ring_server.cpp
   src/action_servers/navigate_surface_gps_server.cpp
+  src/action_servers/por_action_servers.cpp
   src/action_servers/search_pipeline_server.cpp
   src/action_servers/surface_server.cpp
   src/vehicle_execution_node.cpp)

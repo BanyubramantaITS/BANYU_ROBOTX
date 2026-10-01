@@ -13,5 +13,6 @@
 #include "banyu_vehicle_execution/action_servers/search_pipeline_server.hpp"
 #include "banyu_vehicle_execution/action_servers/surface_server.hpp"
 #include "banyu_vehicle_execution/action_servers/typed_action_server.hpp"
+#include "banyu_vehicle_execution/action_servers/por_action_servers.hpp"
 
 #endif  // BANYU_VEHICLE_EXECUTION__ACTION_SERVERS_HPP_

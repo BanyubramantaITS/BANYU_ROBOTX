@@ -2,6 +2,7 @@
 #define BANYU_VEHICLE_EXECUTION__ACTION_SERVERS__TYPED_ACTION_SERVER_HPP_
 
 #include <algorithm>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <utility>
@@ -107,6 +108,24 @@ protected:
   virtual void onGoalStarted() {}
   virtual bool validateGoal(const Goal & /*goal*/, std::string & /*reason*/) {return true;}
 
+  void succeedActive(const std::shared_ptr<Result> & result)
+  {
+    if (!active_handle_) {return;}
+    active_handle_->succeed(result);
+    coordinator_->completeGoal(GoalHandle{active_identity_});
+    active_handle_.reset();
+    active_identity_ = {};
+  }
+
+  void abortActiveWithResult(const std::shared_ptr<Result> & result)
+  {
+    if (!active_handle_) {return;}
+    active_handle_->abort(result);
+    coordinator_->faultGoal(GoalHandle{active_identity_});
+    active_handle_.reset();
+    active_identity_ = {};
+  }
+
   rclcpp_action::GoalResponse handleGoal(
     const rclcpp_action::GoalUUID & uuid,
     std::shared_ptr<const Goal> goal)
@@ -142,11 +161,17 @@ protected:
   {
     const auto id = goal_handle->get_goal_id();
     if (active_handle_ && active_identity_.uuid == id) {
-      coordinator_->cancelGoal(banyu_vehicle_execution::GoalHandle{active_identity_});
+      if (!coordinator_->cancelGoal(banyu_vehicle_execution::GoalHandle{active_identity_})) {
+        return rclcpp_action::CancelResponse::REJECT;
+      }
+      scheduleCancellation();
       return rclcpp_action::CancelResponse::ACCEPT;
     }
     if (pending_handle_ && pending_identity_.uuid == id) {
-      coordinator_->cancelGoal(banyu_vehicle_execution::GoalHandle{pending_identity_});
+      if (!coordinator_->cancelGoal(banyu_vehicle_execution::GoalHandle{pending_identity_})) {
+        return rclcpp_action::CancelResponse::REJECT;
+      }
+      scheduleCancellation();
       return rclcpp_action::CancelResponse::ACCEPT;
     }
     return rclcpp_action::CancelResponse::REJECT;
@@ -162,6 +187,17 @@ protected:
     }
   }
 
+  void scheduleCancellation()
+  {
+    if (cancellation_timer_) {return;}
+    cancellation_timer_ = node_->create_wall_timer(
+      std::chrono::milliseconds(1), [this]() {
+        if (active_handle_ && active_handle_->is_canceling()) {cancelActive();}
+        if (pending_handle_ && pending_handle_->is_canceling()) {cancelPending();}
+        if (cancellation_timer_) {cancellation_timer_->cancel(); cancellation_timer_.reset();}
+      });
+  }
+
   rclcpp::Node * node_{nullptr};
   std::string action_name_;
   ActionServerCoordinator * coordinator_{nullptr};
@@ -172,6 +208,7 @@ protected:
   std::shared_ptr<ServerGoalHandle> pending_handle_;
   GoalIdentity pending_identity_{};
   uint64_t generation_counter_{0};
+  rclcpp::TimerBase::SharedPtr cancellation_timer_;
 };
 
 }  // namespace banyu_vehicle_execution
