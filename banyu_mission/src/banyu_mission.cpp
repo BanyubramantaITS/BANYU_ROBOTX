@@ -67,10 +67,11 @@ private:
 void registerMissionNodes(
   BT::BehaviorTreeFactory & factory,
   const rclcpp::Node::SharedPtr & node,
-  const std::shared_ptr<MissionState> & state)
+  const std::shared_ptr<MissionState> & state,
+  std::function<void()> on_abort)
 {
   registerConditionNodes(factory, state);
-  registerActionNodes(factory, node, state);
+  registerActionNodes(factory, node, state, std::move(on_abort));
 }
 
 BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
@@ -87,6 +88,9 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
     declare_parameter<std::string>("autonomy_authority", ""),
     mission_mode != "por");
   declare_parameter<int>("groot_port", 1666);
+  fallback_mode_ = declare_parameter<std::string>("fallback_mode", "SURFACE");
+  set_mode_service_ = declare_parameter<std::string>("services.set_mode", "/mavros/set_mode");
+  set_mode_client_ = create_client<mavros_msgs::srv::SetMode>(set_mode_service_);
 
   start_service_ = create_service<std_srvs::srv::Trigger>(
     "/banyu/mission/start",
@@ -100,6 +104,7 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
         RCLCPP_INFO(get_logger(), "Mission start service: %s", response->message.c_str());
         return;
       }
+      last_fallback_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
       const bool started = state_->requestStart();
       response->success = started;
       response->message = response->success ?
@@ -109,12 +114,16 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
     });
   abort_service_ = create_service<std_srvs::srv::Trigger>(
     "/banyu/mission/abort",
-    [state = state_](const std::shared_ptr<rmw_request_id_t>,
+    [this](const std::shared_ptr<rmw_request_id_t>,
     const std::shared_ptr<std_srvs::srv::Trigger::Request>,
     std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
-      state->requestAbort();
+      state_->requestAbort();
+      fallbackToSurface();
       response->success = true;
       response->message = "mission abort accepted";
+      RCLCPP_WARN(
+        get_logger(), "Mission abort accepted; fallback to %s commanded",
+        fallback_mode_.c_str());
     });
 }
 
@@ -242,7 +251,7 @@ void BanyuMission::initialize()
 
   auto self = shared_from_this();
   factory_ = std::make_unique<BT::BehaviorTreeFactory>();
-  registerMissionNodes(*factory_, self, state_);
+  registerMissionNodes(*factory_, self, state_, [this]() {fallbackToSurface();});
   auto blackboard = BT::Blackboard::create();
   blackboard->set("target_latitude", target_latitude);
   blackboard->set("target_longitude", target_longitude);
@@ -310,13 +319,85 @@ void BanyuMission::tickLoop(int tick_period_ms)
         std::lock_guard<std::mutex> lock(tree_mutex_);
         tree_->haltTree();
       }
-      if (interrupted) {state_->markInterrupted();} else if (status == BT::NodeStatus::SUCCESS) {
+      if (interrupted) {
+        state_->markInterrupted();
+        RCLCPP_WARN(
+          get_logger(),
+          "Mission aborted/interrupted: fallback mode -> %s",
+          fallback_mode_.c_str());
+        fallbackToSurface();
+      } else if (status == BT::NodeStatus::SUCCESS) {
         state_->markSucceeded();
-      } else {state_->markFailed();}
+      } else {
+        state_->markFailed();
+        RCLCPP_ERROR(
+          get_logger(),
+          "Mission failed: fallback mode -> %s",
+          fallback_mode_.c_str());
+        fallbackToSurface();
+      }
       started_log = false;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(tick_period_ms));
   }
+}
+
+void BanyuMission::fallbackToSurface()
+{
+  const auto current_time = now();
+  if (last_fallback_time_.nanoseconds() > 0 &&
+    (current_time - last_fallback_time_).seconds() < 1.0)
+  {
+    return;
+  }
+  last_fallback_time_ = current_time;
+  setFlightMode(fallback_mode_);
+}
+
+void BanyuMission::setFlightMode(const std::string & mode)
+{
+  if (!set_mode_client_) {
+    return;
+  }
+  if (!set_mode_client_->service_is_ready()) {
+    RCLCPP_WARN(
+      get_logger(),
+      "SetMode service '%s' not ready; waiting briefly to set fallback mode %s",
+      set_mode_service_.c_str(), mode.c_str());
+    if (!set_mode_client_->wait_for_service(std::chrono::milliseconds(500))) {
+      RCLCPP_ERROR(
+        get_logger(),
+        "SetMode service '%s' unavailable; could not switch to fallback mode %s",
+        set_mode_service_.c_str(), mode.c_str());
+      return;
+    }
+  }
+
+  auto request = std::make_shared<mavros_msgs::srv::SetMode::Request>();
+  request->custom_mode = mode;
+  RCLCPP_WARN(
+    get_logger(),
+    "Commanding fallback flight mode '%s' via %s",
+    mode.c_str(), set_mode_service_.c_str());
+
+  set_mode_client_->async_send_request(
+    request,
+    [this, mode](rclcpp::Client<mavros_msgs::srv::SetMode>::SharedFuture future) {
+      try {
+        auto response = future.get();
+        if (response->mode_sent) {
+          RCLCPP_INFO(get_logger(), "Flight mode successfully switched to %s", mode.c_str());
+        } else {
+          RCLCPP_ERROR(
+            get_logger(), "Failed to switch flight mode to %s (rejected by FCU)",
+            mode.c_str());
+        }
+      } catch (const std::exception & e) {
+        RCLCPP_ERROR(
+          get_logger(), "Exception calling SetMode service for %s: %s", mode.c_str(),
+          e.what());
+      }
+    });
 }
 
 }  // namespace banyu_mission

@@ -21,14 +21,18 @@ namespace banyu_mission
 void registerActionNodes(
   BT::BehaviorTreeFactory & factory,
   const rclcpp::Node::SharedPtr & node,
-  const std::shared_ptr<MissionState> & state)
+  const std::shared_ptr<MissionState> & state,
+  std::function<void()> on_abort)
 {
-  factory.registerNodeType<HandleAbortOrTeleopNode>("HandleAbortOrTeleop", state);
+  factory.registerNodeType<HandleAbortOrTeleopNode>(
+    "HandleAbortOrTeleop", state, std::move(on_abort));
 
-  const auto set_mode_srv = node->declare_parameter<std::string>(
-    "services.set_mode", "/mavros/set_mode");
-  const auto arming_srv = node->declare_parameter<std::string>(
-    "services.arming", "/mavros/cmd/arming");
+  const auto set_mode_srv = node->has_parameter("services.set_mode") ?
+    node->get_parameter("services.set_mode").as_string() :
+    node->declare_parameter<std::string>("services.set_mode", "/mavros/set_mode");
+  const auto arming_srv = node->has_parameter("services.arming") ?
+    node->get_parameter("services.arming").as_string() :
+    node->declare_parameter<std::string>("services.arming", "/mavros/cmd/arming");
   factory.registerNodeType<ArmAndSetGuided>(
     "ArmAndSetGuided", node, state, set_mode_srv, arming_srv);
 

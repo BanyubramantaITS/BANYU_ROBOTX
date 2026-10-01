@@ -503,3 +503,65 @@ TEST_F(MissionTest, PorTreeUsesOrderedMemorySequence)
     previous = current + phase.size();
   }
 }
+
+TEST_F(MissionTest, FallbackModeParameterDefaultsToSurface)
+{
+  rclcpp::NodeOptions options;
+  options.parameter_overrides(
+  {
+    {"mission_mode", std::string("por")},
+  });
+  auto mission = std::make_shared<banyu_mission::BanyuMission>(options);
+  std::string fallback_mode;
+  EXPECT_TRUE(mission->get_parameter("fallback_mode", fallback_mode));
+  EXPECT_EQ(fallback_mode, "SURFACE");
+}
+
+TEST_F(MissionTest, HandleAbortOrTeleopInvokesAbortCallback)
+{
+  auto node = std::make_shared<rclcpp::Node>("handle_abort_cb_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get());
+  ASSERT_TRUE(state->configureMissionCoordinates(1.0, 2.0, 1.001, 2.001));
+  ASSERT_TRUE(state->requestStart());
+  bool abort_called = false;
+  banyu_mission::HandleAbortOrTeleopNode abort_node(
+    "HandleAbortOrTeleop", {}, state, [&abort_called]() {abort_called = true;});
+
+  EXPECT_EQ(abort_node.executeTick(), BT::NodeStatus::SUCCESS);
+  EXPECT_TRUE(abort_called);
+  EXPECT_TRUE(state->snapshot().abort_requested);
+}
+
+TEST_F(MissionTest, AbortServiceCommandsFallbackModeSurface)
+{
+  auto helper_node = std::make_shared<rclcpp::Node>("set_mode_helper_node");
+  std::string received_mode;
+  auto set_mode_server = helper_node->create_service<mavros_msgs::srv::SetMode>(
+    "/mavros/set_mode",
+    [&received_mode](
+      const std::shared_ptr<mavros_msgs::srv::SetMode::Request> req,
+      std::shared_ptr<mavros_msgs::srv::SetMode::Response> res) {
+      received_mode = req->custom_mode;
+      res->mode_sent = true;
+    });
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides(
+  {
+    {"mission_mode", std::string("por")},
+  });
+  auto mission = std::make_shared<banyu_mission::BanyuMission>(options);
+
+  auto abort_client = helper_node->create_client<std_srvs::srv::Trigger>("/banyu/mission/abort");
+  ASSERT_TRUE(abort_client->wait_for_service(std::chrono::seconds(1)));
+  auto future = abort_client->async_send_request(
+    std::make_shared<std_srvs::srv::Trigger::Request>());
+
+  for (int i = 0; i < 50 && received_mode.empty(); ++i) {
+    rclcpp::spin_some(mission);
+    rclcpp::spin_some(helper_node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  EXPECT_EQ(received_mode, "SURFACE");
+}

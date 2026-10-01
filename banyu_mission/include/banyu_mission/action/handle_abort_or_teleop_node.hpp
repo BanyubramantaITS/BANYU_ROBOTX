@@ -1,6 +1,7 @@
 #ifndef BANYU_MISSION__ACTION__HANDLE_ABORT_OR_TELEOP_NODE_HPP_
 #define BANYU_MISSION__ACTION__HANDLE_ABORT_OR_TELEOP_NODE_HPP_
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -16,7 +17,8 @@ public:
   HandleAbortOrTeleopNode(
     const std::string & name,
     const BT::NodeConfig & config,
-    std::shared_ptr<MissionState> state);
+    std::shared_ptr<MissionState> state,
+    std::function<void()> on_abort = nullptr);
 
   static BT::PortsList providedPorts() {return {};}
 
@@ -24,6 +26,7 @@ public:
 
 private:
   std::shared_ptr<MissionState> state_;
+  std::function<void()> on_abort_;
 };
 
 }  // namespace banyu_mission

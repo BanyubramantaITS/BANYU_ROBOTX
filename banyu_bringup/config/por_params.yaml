@@ -1,6 +1,7 @@
 banyu_mission:
   ros__parameters:
     mission_mode: "por"
+    fallback_mode: "SURFACE"
     mission:
       surface_depth_m: 0.0
       surface_tolerance_m: 0.25

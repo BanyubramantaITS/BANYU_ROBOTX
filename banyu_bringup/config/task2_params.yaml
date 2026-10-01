@@ -2,6 +2,7 @@
 
 banyu_mission:
   ros__parameters:
+    fallback_mode: "SURFACE"
     task2_follow_source: "fixture_route"
     task2_pose_timeout_s: 3.0
     task2_gps_receipt_pair_timeout_s: 3.0
