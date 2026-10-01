@@ -11,7 +11,7 @@ find_package(ament_cmake REQUIRED)
 ament_environment_hooks("${CMAKE_CURRENT_SOURCE_DIR}/hooks/gazebo_env.dsv")
 
 install(
-    DIRECTORY models worlds
+    DIRECTORY launch models scripts worlds
     DESTINATION share/${PROJECT_NAME}
 )
 

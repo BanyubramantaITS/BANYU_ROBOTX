@@ -1,2 +1,6 @@
 **/__pycache__
 **/.impeccable
+build/
+install/
+log/
+

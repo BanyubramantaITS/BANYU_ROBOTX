@@ -1,3 +1,4 @@
 prepend-non-duplicate;GZ_SIM_RESOURCE_PATH;share/banyu_simulation/worlds
 prepend-non-duplicate;GZ_SIM_RESOURCE_PATH;share/banyu_simulation/models
 prepend-non-duplicate;GZ_SIM_RESOURCE_PATH;share
+prepend-non-duplicate;SDF_PATH;share/banyu_simulation/models
