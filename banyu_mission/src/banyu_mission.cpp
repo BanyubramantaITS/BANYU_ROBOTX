@@ -73,9 +73,10 @@ void registerMissionNodes(
   registerActionNodes(factory, node, state);
 }
 
-BanyuMission::BanyuMission()
-: rclcpp::Node("banyu_mission"), state_(std::make_shared<MissionState>(this))
+BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
+: rclcpp::Node("banyu_mission", options), state_(std::make_shared<MissionState>(this))
 {
+  const auto mission_mode = declare_parameter<std::string>("mission_mode", "task2");
   state_->configure(
     declare_parameter<double>("timing.gps_timeout_s", 5.0),
     declare_parameter<double>("timing.pipeline_timeout_s", 1.0),
@@ -83,7 +84,8 @@ BanyuMission::BanyuMission()
     declare_parameter<int>("rc_interrupt_channel", 4),
     declare_parameter<int>("rc_interrupt_threshold", 1700),
     declare_parameter<std::string>("autonomy_mode", "GUIDED"),
-    declare_parameter<std::string>("autonomy_authority", ""));
+    declare_parameter<std::string>("autonomy_authority", ""),
+    mission_mode != "por");
   declare_parameter<int>("groot_port", 1666);
 
   start_service_ = create_service<std_srvs::srv::Trigger>(
@@ -92,12 +94,17 @@ BanyuMission::BanyuMission()
     const std::shared_ptr<std_srvs::srv::Trigger::Request>,
     std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
       const bool config_ok = mission_config_valid_.load();
+      if (!config_ok) {
+        response->success = false;
+        response->message = "mission config invalid";
+        RCLCPP_INFO(get_logger(), "Mission start service: %s", response->message.c_str());
+        return;
+      }
       const bool started = state_->requestStart();
-      response->success = config_ok && started;
+      response->success = started;
       response->message = response->success ?
       "mission start accepted" :
-      (config_ok ? "mission cannot be started (already active or succeeded)" :
-      "mission config invalid");
+      "mission cannot be started (already active or succeeded)";
       RCLCPP_INFO(get_logger(), "Mission start service: %s", response->message.c_str());
     });
   abort_service_ = create_service<std_srvs::srv::Trigger>(
@@ -123,11 +130,32 @@ BanyuMission::~BanyuMission()
   }
 }
 
+MissionState::Lifecycle BanyuMission::lifecycle() const
+{
+  return state_->lifecycle();
+}
+
 std::string BanyuMission::xmlPath()
 {
+  std::string mission_mode = "task2";
+  get_parameter("mission_mode", mission_mode);
+  const auto default_tree = ament_index_cpp::get_package_share_directory(
+    "banyu_mission") + "/bt/" +
+    (mission_mode == "por" ? "por_mission.xml" : "banyu_mission.xml");
   return declare_parameter<std::string>(
-    "bt_xml", ament_index_cpp::get_package_share_directory(
-      "banyu_mission") + "/bt/banyu_mission.xml");
+    "bt_xml", default_tree);
+}
+
+void BanyuMission::configurePorBlackboard(const BT::Blackboard::Ptr & blackboard)
+{
+  try {
+    const auto config = PorMissionConfig::load(*this);
+    config.validate();
+    config.apply(blackboard);
+  } catch (const std::exception & error) {
+    mission_config_valid_ = false;
+    RCLCPP_ERROR(get_logger(), "Invalid POR mission configuration: %s", error.what());
+  }
 }
 
 void BanyuMission::initialize()
@@ -135,6 +163,8 @@ void BanyuMission::initialize()
   bool expected = false;
   if (!initialized_.compare_exchange_strong(expected, true)) {return;}
 
+  std::string mission_mode = "task2";
+  get_parameter("mission_mode", mission_mode);
   const auto target_latitude = declare_parameter<double>("mission.target_latitude", 0.0);
   const auto target_longitude = declare_parameter<double>("mission.target_longitude", 0.0);
   const auto start_latitude = declare_parameter<double>("mission.start_latitude", 0.0);
@@ -144,7 +174,10 @@ void BanyuMission::initialize()
   const auto end_longitude = declare_parameter<double>(
     "mission.end_longitude", std::numeric_limits<double>::quiet_NaN());
   mission_config_valid_ = state_->configureMissionCoordinates(
-    start_latitude, start_longitude, target_latitude, target_longitude);
+    start_latitude, start_longitude, target_latitude, target_longitude, mission_mode != "por");
+  if (mission_mode == "por") {
+    mission_config_valid_ = true;
+  }
   const auto positive = [this](double value) {return finite(value) && value > 0.0;};
   const auto nonnegative = [this](double value) {return finite(value) && value >= 0.0;};
   const auto gps_tolerance = declare_parameter<double>("mission.gps_tolerance_m", 3.0);
@@ -233,6 +266,10 @@ void BanyuMission::initialize()
   blackboard->set("surface_depth", surface_depth);
   blackboard->set("surface_tolerance", surface_tolerance);
   blackboard->set("ring_order", ring_order);
+
+  if (mission_mode == "por") {
+    configurePorBlackboard(blackboard);
+  }
   factory_->registerBehaviorTreeFromFile(xmlPath());
   tree_ = std::make_shared<BT::Tree>(factory_->createTree("Main", blackboard));
   tree_logger_ = std::make_unique<MissionTreeLogger>(*tree_, get_logger());

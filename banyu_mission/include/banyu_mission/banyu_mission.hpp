@@ -11,6 +11,7 @@
 #include "behaviortree_cpp/loggers/abstract_logger.h"
 #include "behaviortree_cpp/loggers/groot2_publisher.h"
 #include "banyu_mission/mission_state.hpp"
+#include "banyu_mission/por_mission_config.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
@@ -25,13 +26,15 @@ void registerMissionNodes(
 class BanyuMission : public rclcpp::Node
 {
 public:
-  BanyuMission();
+  explicit BanyuMission(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~BanyuMission() override;
   void initialize();
+  MissionState::Lifecycle lifecycle() const;
 
 private:
   void tickLoop(int tick_period_ms);
   std::string xmlPath();
+  void configurePorBlackboard(const BT::Blackboard::Ptr & blackboard);
 
   std::shared_ptr<MissionState> state_;
   std::shared_ptr<BT::Tree> tree_;

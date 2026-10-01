@@ -2,11 +2,15 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <limits>
 #include <thread>
+#include <vector>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 #include "banyu_mission/action_nodes.hpp"
 #include "banyu_mission/banyu_mission.hpp"
+#include "banyu_mission/por_mission_config.hpp"
 #include "banyu_msgs/msg/pipeline_ring_state.hpp"
 #include "banyu_msgs/msg/vehicle_status.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -45,6 +49,54 @@ std::string missionTreePath()
 #endif
   return ament_index_cpp::get_package_share_directory("banyu_mission") +
          "/bt/banyu_mission.xml";
+}
+
+std::string porMissionTreePath()
+{
+#ifdef BANYU_MISSION_SOURCE_DIR
+  const auto source_path = std::string(BANYU_MISSION_SOURCE_DIR) + "/bt/por_mission.xml";
+  if (std::filesystem::exists(source_path)) {
+    return source_path;
+  }
+#endif
+  return ament_index_cpp::get_package_share_directory("banyu_mission") +
+         "/bt/por_mission.xml";
+}
+
+std::string porParamsPath()
+{
+  return ament_index_cpp::get_package_share_directory("banyu_bringup") +
+         "/config/por_params.yaml";
+}
+
+std::string readFile(const std::string & path)
+{
+  std::ifstream stream(path);
+  return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+}
+
+void spinUntilReady(
+  const rclcpp::Node::SharedPtr & node,
+  const rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture & future)
+{
+  for (int i = 0; i < 100 && future.wait_for(std::chrono::milliseconds(0)) !=
+    std::future_status::ready; ++i)
+  {
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+}
+
+void abortMission(const rclcpp::Node::SharedPtr & node)
+{
+  auto client = node->create_client<std_srvs::srv::Trigger>("/banyu/mission/abort");
+  ASSERT_TRUE(client->wait_for_service(std::chrono::seconds(1)));
+  auto request = client->async_send_request(
+    std::make_shared<std_srvs::srv::Trigger::Request>());
+  auto future = request.future.share();
+  spinUntilReady(node, future);
+  ASSERT_EQ(future.wait_for(std::chrono::milliseconds(0)), std::future_status::ready);
+  EXPECT_TRUE(future.get()->success);
 }
 }  // namespace
 
@@ -276,6 +328,7 @@ TEST_F(MissionTest, TreeInstantiatesWithSubtreeAutoremap)
 
   auto tree = factory.createTree("Main", blackboard);
   bool found_nav_node = false;
+  bool found_surface_node = false;
   tree.applyVisitor(
     [&](BT::TreeNode * tree_node) {
       if (auto nav = dynamic_cast<banyu_mission::NavigateSurfaceGpsNode *>(tree_node)) {
@@ -284,6 +337,169 @@ TEST_F(MissionTest, TreeInstantiatesWithSubtreeAutoremap)
         EXPECT_TRUE(nav->getInput("target_latitude", lat));
         EXPECT_NEAR(lat, 33.81, 1e-4);
       }
+      if (auto surface = dynamic_cast<banyu_mission::SurfaceNode *>(tree_node)) {
+        found_surface_node = true;
+        double watchdog_timeout_s = -1.0;
+        EXPECT_TRUE(surface->getInput("watchdog_timeout_s", watchdog_timeout_s));
+        EXPECT_DOUBLE_EQ(watchdog_timeout_s, 0.0);
+      }
     });
   EXPECT_TRUE(found_nav_node);
+  EXPECT_TRUE(found_surface_node);
+}
+
+TEST_F(MissionTest, PorTreeLoadsAndInstantiates)
+{
+  auto node = std::make_shared<rclcpp::Node>("por_mission_tree_parser_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get(), false);
+  BT::BehaviorTreeFactory factory;
+  banyu_mission::registerMissionNodes(factory, node, state);
+
+  EXPECT_NO_THROW(factory.registerBehaviorTreeFromFile(porMissionTreePath()));
+  EXPECT_NO_THROW(
+  {
+    auto tree = factory.createTree("Main", BT::Blackboard::create());
+    (void)tree;
+  });
+}
+
+TEST_F(MissionTest, PorConfigLoadsInstalledSafetyValuesIntoBlackboard)
+{
+  rclcpp::NodeOptions options;
+  options.arguments({"--ros-args", "--params-file", porParamsPath()});
+  auto node = std::make_shared<rclcpp::Node>("banyu_mission", options);
+  const auto config = banyu_mission::PorMissionConfig::load(*node);
+  EXPECT_NO_THROW(config.validate());
+
+  auto blackboard = BT::Blackboard::create();
+  config.apply(blackboard);
+  EXPECT_DOUBLE_EQ(blackboard->get<double>("gate_depth_m"), config.gate_depth_m);
+  EXPECT_DOUBLE_EQ(blackboard->get<double>("marker_align_standoff_min_m"), 2.2);
+  EXPECT_DOUBLE_EQ(blackboard->get<double>("marker_align_standoff_max_m"), 2.5);
+  EXPECT_DOUBLE_EQ(config.surface_watchdog_timeout_s, 5.0);
+  EXPECT_DOUBLE_EQ(
+    blackboard->get<double>("surface_watchdog_timeout_s"),
+    config.surface_watchdog_timeout_s);
+}
+
+TEST_F(MissionTest, PorSurfaceWatchdogPropagatesToSurfaceGoalPort)
+{
+  rclcpp::NodeOptions options;
+  options.arguments({"--ros-args", "--params-file", porParamsPath()});
+  auto node = std::make_shared<rclcpp::Node>("por_surface_watchdog_propagation_test", options);
+  const auto config = banyu_mission::PorMissionConfig::load(*node);
+  ASSERT_NO_THROW(config.validate());
+
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get(), false);
+  BT::BehaviorTreeFactory factory;
+  banyu_mission::registerMissionNodes(factory, node, state);
+  factory.registerBehaviorTreeFromFile(porMissionTreePath());
+  auto blackboard = BT::Blackboard::create();
+  config.apply(blackboard);
+  auto tree = factory.createTree("Main", blackboard);
+
+  bool found_surface_node = false;
+  tree.applyVisitor(
+    [&](BT::TreeNode * tree_node) {
+      if (auto surface = dynamic_cast<banyu_mission::SurfaceNode *>(tree_node)) {
+        found_surface_node = true;
+        double watchdog_timeout_s = 0.0;
+        EXPECT_TRUE(surface->getInput("watchdog_timeout_s", watchdog_timeout_s));
+        EXPECT_DOUBLE_EQ(watchdog_timeout_s, config.surface_watchdog_timeout_s);
+      }
+    });
+  EXPECT_TRUE(found_surface_node);
+}
+
+TEST_F(MissionTest, PorInstalledConfigBindsAcquireGateDepth)
+{
+  rclcpp::NodeOptions options;
+  options.arguments({"--ros-args", "--params-file", porParamsPath()});
+  options.parameter_overrides({rclcpp::Parameter("groot_port", 1766)});
+
+  auto config_node = std::make_shared<rclcpp::Node>("por_installed_config_test", options);
+  const auto config = banyu_mission::PorMissionConfig::load(*config_node);
+  ASSERT_NO_THROW(config.validate());
+  auto blackboard = BT::Blackboard::create();
+  config.apply(blackboard);
+  EXPECT_DOUBLE_EQ(blackboard->get<double>("gate_depth_m"), config.gate_depth_m);
+  EXPECT_NE(
+    readFile(porMissionTreePath()).find("target_depth_m=\"{gate_depth_m}\""),
+    std::string::npos);
+  config_node.reset();
+}
+
+TEST_F(MissionTest, PorTwoMeterGateDepthValidatesAndStarts)
+{
+  rclcpp::NodeOptions options;
+  options.arguments({"--ros-args", "--params-file", porParamsPath()});
+  options.parameter_overrides(
+  {
+    rclcpp::Parameter("groot_port", 2769),
+    rclcpp::Parameter("mission.gate_depth_m", 2.0)});
+  auto node = std::make_shared<rclcpp::Node>("banyu_mission", options);
+  const auto config = banyu_mission::PorMissionConfig::load(*node);
+  EXPECT_NO_THROW(config.validate());
+  auto blackboard = BT::Blackboard::create();
+  config.apply(blackboard);
+  EXPECT_DOUBLE_EQ(blackboard->get<double>("gate_depth_m"), 2.0);
+  node.reset();
+
+  auto mission = std::make_shared<banyu_mission::BanyuMission>(options);
+  mission->initialize();
+  auto client = mission->create_client<std_srvs::srv::Trigger>("/banyu/mission/start");
+  ASSERT_TRUE(client->wait_for_service(std::chrono::seconds(1)));
+  auto request = client->async_send_request(
+    std::make_shared<std_srvs::srv::Trigger::Request>());
+  auto future = request.future.share();
+  spinUntilReady(mission, future);
+  ASSERT_EQ(future.wait_for(std::chrono::milliseconds(0)), std::future_status::ready);
+  EXPECT_TRUE(future.get()->success);
+  EXPECT_EQ(
+    mission->lifecycle(), banyu_mission::MissionState::Lifecycle::Active);
+  abortMission(mission);
+  mission.reset();
+  node.reset();
+}
+
+TEST_F(MissionTest, PorInvalidGateDepthsRejectValidation)
+{
+  const std::vector<double> invalid_depths {
+    0.0, -1.0, std::numeric_limits<double>::quiet_NaN(),
+    std::numeric_limits<double>::infinity()};
+  for (const double depth : invalid_depths) {
+    banyu_mission::PorMissionConfig config;
+    config.gate_depth_m = depth;
+    EXPECT_THROW(config.validate(), std::invalid_argument);
+  }
+}
+
+TEST_F(MissionTest, Task2InvalidCoordinatesRejectMissionStart)
+{
+  auto node = std::make_shared<rclcpp::Node>("task2_coordinate_validation_test");
+  banyu_mission::MissionState state(node.get(), false);
+  state.configure(5.0, 1.0, 5.0, 4, 1700, "GUIDED", "", true);
+  EXPECT_FALSE(state.configureMissionCoordinates(0.0, 0.0, 0.0, 0.0, true));
+  EXPECT_FALSE(state.requestStart());
+  EXPECT_EQ(state.lifecycle(), banyu_mission::MissionState::Lifecycle::Idle);
+}
+
+TEST_F(MissionTest, PorTreeUsesOrderedMemorySequence)
+{
+  const auto xml = readFile(porMissionTreePath());
+  EXPECT_EQ(xml.find("<ReactiveSequence"), std::string::npos);
+  const auto sequence_start = xml.find("<Sequence name=\"por_mission_phases\">");
+  ASSERT_NE(sequence_start, std::string::npos);
+  const auto sequence_end = xml.find("</BehaviorTree>", sequence_start);
+  ASSERT_NE(sequence_end, std::string::npos);
+  const auto sequence = xml.substr(sequence_start, sequence_end - sequence_start);
+  const std::vector<std::string> phases {
+    "AcquireGate", "AlignGate", "PassGate", "SearchMarker", "AlignMarker",
+    "OrbitMarker", "TurnAround", "SearchGate", "AlignGate", "PassGate", "Surface"};
+  std::size_t previous = 0;
+  for (const auto & phase : phases) {
+    const auto current = sequence.find("<" + phase, previous);
+    ASSERT_NE(current, std::string::npos) << phase;
+    previous = current + phase.size();
+  }
 }

@@ -10,6 +10,7 @@
 #include "banyu_mission/action/handle_abort_or_teleop_node.hpp"
 #include "banyu_mission/action/hold_probe_on_ring_node.hpp"
 #include "banyu_mission/action/navigate_surface_gps_node.hpp"
+#include "banyu_mission/action/por_action_nodes.hpp"
 #include "banyu_mission/action/search_pipeline_node.hpp"
 #include "banyu_mission/action/send_mission_report_node.hpp"
 #include "banyu_mission/action/surface_node.hpp"
@@ -60,6 +61,23 @@ void registerActionNodes(
     "Surface", node, action_name("surface"));
   factory.registerNodeType<SendMissionReportNode>(
     "SendMissionReport", node, action_name("send_mission_report"));
+
+  factory.registerNodeType<AcquireGateNode>(
+    "AcquireGate", node, action_name("acquire_gate"));
+  factory.registerNodeType<SearchMarkerNode>(
+    "SearchMarker", node, action_name("search_marker"));
+  factory.registerNodeType<SearchGateNode>(
+    "SearchGate", node, action_name("search_gate"));
+  factory.registerNodeType<AlignGateNode>(
+    "AlignGate", node, action_name("align_gate"));
+  factory.registerNodeType<AlignMarkerNode>(
+    "AlignMarker", node, action_name("align_marker"));
+  factory.registerNodeType<PassGateNode>(
+    "PassGate", node, action_name("pass_gate"));
+  factory.registerNodeType<OrbitMarkerNode>(
+    "OrbitMarker", node, action_name("orbit_marker"));
+  factory.registerNodeType<TurnAroundNode>(
+    "TurnAround", node, action_name("turn_around"));
 }
 
 }  // namespace banyu_mission
