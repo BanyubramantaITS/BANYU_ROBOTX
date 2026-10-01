@@ -496,9 +496,15 @@ MotionIntent PassGateServer::tick(
   }
   if (!gate_seen_ && pose_fresh && visible) {gate_seen_ = true;}
   if (pose_fresh && gate_seen_) {watchdog_.reset(now);}
+  if (blind_mode_ && visible) {
+    blind_mode_ = false;
+  }
   if (!blind_mode_ && gate_seen_ && !visible) {
     blind_mode_ = true;
     blind_start_time_ = now;
+    RCLCPP_INFO(
+      node_->get_logger(),
+      "Executing: PassGate Detection Lost, Continue pushing through");
   }
   if (blind_mode_ && !pose_fresh) {
     auto result = std::make_shared<Result>(); result->success = false;
@@ -507,7 +513,7 @@ MotionIntent PassGateServer::tick(
     abortActiveWithResult(result); return zeroIntent();
   }
   const double target = positiveOr(goal->target_distance_m, 3.0);
-  if (pose_fresh && !goal->return_leg && !blind_mode_ && travelled >= target) {
+  if (pose_fresh && travelled >= target) {
     auto result = std::make_shared<Result>(); result->success = true;
     result->reason = "Gate pass distance reached"; result->travelled_m = travelled;
     result->minimum_observed_distance_m = std::isfinite(min_distance_) ? min_distance_ : 0.0;

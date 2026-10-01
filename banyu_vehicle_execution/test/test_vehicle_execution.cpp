@@ -864,6 +864,57 @@ TEST_F(VehicleExecutionNodeTest, PorPassGateUsesTimedBlindForwardPassAfterStaleD
   EXPECT_TRUE(result.result->success);
 }
 
+TEST_F(VehicleExecutionNodeTest, PorPassGateReturnLegSucceedsOnTargetDistanceReached)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::PassGate;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/pass_gate");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto detection_pub = node->create_publisher<banyu_msgs::msg::Detection>(
+    "/banyu/detection", rclcpp::SensorDataQoS());
+
+  Action::Goal goal;
+  goal.return_leg = true;
+  goal.speed_mps = 0.8;
+  goal.target_distance_m = 10.5;
+  goal.minimum_distance_m = 0.8;
+  goal.blind_duration_s = 14.0;
+  goal.timeout_s = 5.0;
+
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto goal_handle = send_future.get();
+  ASSERT_NE(goal_handle, nullptr);
+  auto result_future = client->async_get_result(goal_handle);
+
+  // Initially see the gate at start pose x = 5.0
+  publishPose(node, pose_pub, 5.0, 0.0);
+  publishDetection(node, detection_pub, 0, 0.0, 0.0, 9.0);
+  spinFor(node, 2);
+
+  // Now detection is lost (blind mode), but vehicle keeps pushing through
+  double current_x = 5.0;
+  for (int i = 0; i < 60 && result_future.wait_for(0ms) != std::future_status::ready; ++i) {
+    if (current_x > -6.0) {
+      current_x -= 0.5;
+    }
+    publishPose(node, pose_pub, current_x, 0.0);
+    spinFor(node, 1);
+  }
+
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  const auto result = result_future.get();
+  EXPECT_EQ(result.code, rclcpp_action::ResultCode::SUCCEEDED);
+  ASSERT_NE(result.result, nullptr);
+  EXPECT_TRUE(result.result->success);
+  EXPECT_EQ(result.result->reason, "Gate pass distance reached");
+  EXPECT_GE(result.result->travelled_m, 10.5);
+}
+
 TEST_F(VehicleExecutionNodeTest, PorSearchMarkerSucceedsOnFreshDetectionWithoutDistance)
 {
   rclcpp::NodeOptions options;
