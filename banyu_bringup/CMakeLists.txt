@@ -16,8 +16,8 @@ install(
 
 install(
     PROGRAMS
-        scripts/dvl_mavlink_bridge.py
         scripts/ekf_source_switch.py
+        scripts/launch_sim.sh
     DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -2,16 +2,27 @@
 #define BANYU_MISSION_MISSION_CONTEXT_HPP_
 
 #include <atomic>
+#include <limits>
 #include <mutex>
 #include <optional>
+#include <vector>
 
 #include <banyu_msgs/msg/detection.hpp>
+#include <banyu_msgs/msg/pinger_observation.hpp>
+#include <banyu_msgs/msg/pipe_observation.hpp>
+#include <banyu_msgs/msg/pipeline_survey_report.hpp>
+#include <banyu_msgs/msg/resource_delivery_request.hpp>
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <mavros_msgs/msg/manual_control.hpp>
 #include <mavros_msgs/msg/position_target.hpp>
 #include <mavros_msgs/msg/state.hpp>
+#include <mavros_msgs/srv/command_bool.hpp>
+#include <mavros_msgs/srv/set_mode.hpp>
 #include <rclcpp/rclcpp.hpp>
-#include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/nav_sat_fix.hpp>
+
+#include "banyu_mission/task2/led_tracker.hpp"
 
 namespace banyu_mission {
 
@@ -49,8 +60,34 @@ struct MissionContext {
   std::optional<geometry_msgs::msg::Point> mission_origin;
   std::optional<geometry_msgs::msg::Point> gate_target;
 
+  // --- RobotX Task 2: pipeline survey (camera, echosounder, hydrophones; no DVL) ------------
+  // Depth from the pressure sensor, m, positive down. NOT rel_alt (EKF output, garbage without
+  // horizontal aiding) and NOT current_pose.z (relative to the EKF origin).
+  double pressure_depth{0.0};
+  bool has_pressure_depth{false};
+  double yaw{0.0};                       // compass heading, ROS ENU rad (/mavros/imu/data)
+  bool has_yaw{false};
+  std::optional<double> altitude;        // echosounder first echo, m
+  std::optional<sensor_msgs::msg::NavSatFix> fix;
+  banyu_msgs::msg::PipeObservation pipe;  // newest bottom-camera observation
+  uint64_t pipe_seq{0};                  // bumped per observation, so nodes act once per frame
+  std::vector<banyu_msgs::msg::PingerObservation> pings;  // unread, consumed by the nodes
+
+  std::optional<double> seabed_depth;    // m, deepest echo FindPipe saw: the pipe top is always shallower
+  double depth_target{0.0};              // m, positive down; set by SetSurveyDepth, tuned by FollowPipe
+  double buoy_latitude{std::numeric_limits<double>::quiet_NaN()};   // surface GPS fix at the buoy
+  double buoy_longitude{std::numeric_limits<double>::quiet_NaN()};
+  task2::LedTracker tracker;             // light nodes seen by the recording FollowPipe
+  // ResourceDeliveryRequest COLOR_*, set by ReadFlash (resource: COLOR_ANY below Disruptive).
+  std::optional<uint8_t> resource_colour, delivery_circle_colour;
+
   // ROS plumbing injected by the node.
   rclcpp::Publisher<mavros_msgs::msg::PositionTarget>::SharedPtr setpoint_pub;
+  rclcpp::Publisher<banyu_msgs::msg::PipelineSurveyReport>::SharedPtr report_pub;
+  rclcpp::Publisher<banyu_msgs::msg::ResourceDeliveryRequest>::SharedPtr resource_pub;
+  rclcpp::Publisher<mavros_msgs::msg::ManualControl>::SharedPtr stick_pub;
+  rclcpp::Client<mavros_msgs::srv::CommandBool>::SharedPtr arming_client;
+  rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr set_mode_client;
 };
 
 inline bool detectionIsFresh(const MissionContext& ctx, const rclcpp::Time& now,
