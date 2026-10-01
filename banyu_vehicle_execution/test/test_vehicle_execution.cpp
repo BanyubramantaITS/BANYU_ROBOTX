@@ -1,0 +1,1533 @@
+#include "banyu_vehicle_execution/command_encoder.hpp"
+#include "banyu_vehicle_execution/goal_arbiter.hpp"
+#include "banyu_vehicle_execution/motion_intent.hpp"
+#include "banyu_vehicle_execution/vehicle_telemetry.hpp"
+#include "banyu_vehicle_execution/action_servers.hpp"
+#include "banyu_vehicle_execution/vehicle_execution_node.hpp"
+#include "banyu_vehicle_execution/por_visual_helpers.hpp"
+#include <gtest/gtest.h>
+#include <cmath>
+#include <limits>
+#include <stdexcept>
+#include <chrono>
+using namespace std::chrono_literals;
+using banyu_vehicle_execution::GoalAdmission;
+using banyu_vehicle_execution::GoalArbiter;
+using banyu_vehicle_execution::GoalIdentity;
+using banyu_vehicle_execution::GoalState;
+using banyu_vehicle_execution::GoalUuid;
+using banyu_vehicle_execution::IntentFrame;
+using banyu_vehicle_execution::IntentLimits;
+using banyu_vehicle_execution::IntentValidationError;
+using banyu_vehicle_execution::Lease;
+using banyu_vehicle_execution::MotionIntent;
+using banyu_vehicle_execution::SteadyTime;
+using banyu_vehicle_execution::SteadyTimeSource;
+using banyu_vehicle_execution::StopReason;
+
+class FakeClock : public SteadyTimeSource
+{
+public:
+  SteadyTime current{};
+  SteadyTime now() const override {return current;}
+  void advance(std::chrono::seconds amount) {current += amount;}
+};
+
+GoalIdentity identity(uint8_t last_byte, const std::string & owner, uint64_t generation)
+{
+  GoalUuid uuid{};
+  uuid[15] = last_byte;
+  return {uuid, owner, generation};
+}
+
+Lease leaseFor(const GoalIdentity & goal, const FakeClock & clock, bool active = true)
+{
+  return {goal, clock.now(), clock.now() + 10s, active};
+}
+
+TEST(CommandEncoder, UsesVelocityYawRateMaskFrameAndExplicitZeros)
+{
+  const auto target = banyu_vehicle_execution::encodeVelocityYawRate(
+    MotionIntent::localEnu(0.2, -0.3, 0.4, 0.7));
+  EXPECT_EQ(target.coordinate_frame, mavros_msgs::msg::PositionTarget::FRAME_LOCAL_NED);
+  EXPECT_EQ(target.type_mask, 0x5C7);
+  EXPECT_EQ(target.type_mask & mavros_msgs::msg::PositionTarget::IGNORE_YAW_RATE, 0U);
+  EXPECT_DOUBLE_EQ(target.position.x, 0.0);
+  EXPECT_DOUBLE_EQ(target.position.y, 0.0);
+  EXPECT_DOUBLE_EQ(target.position.z, 0.0);
+  EXPECT_DOUBLE_EQ(target.acceleration_or_force.x, 0.0);
+  EXPECT_DOUBLE_EQ(target.acceleration_or_force.y, 0.0);
+  EXPECT_DOUBLE_EQ(target.acceleration_or_force.z, 0.0);
+  EXPECT_DOUBLE_EQ(target.yaw, 0.0);
+  EXPECT_FLOAT_EQ(target.yaw_rate, 0.7F);
+}
+
+TEST(MotionIntent, BodyFluUsesFreshYawAndPreservesVerticalSign)
+{
+  const auto local = banyu_vehicle_execution::bodyFluToLocalEnu(
+    MotionIntent::bodyFlu(1.0, 0.0, 0.7, -0.2), M_PI / 2.0);
+  ASSERT_TRUE(local.has_value());
+  EXPECT_EQ(local->frame, IntentFrame::LocalEnu);
+  EXPECT_NEAR(local->linear_x, 0.0, 1e-12);
+  EXPECT_NEAR(local->linear_y, 1.0, 1e-12);
+  EXPECT_DOUBLE_EQ(local->linear_z, 0.7);
+  EXPECT_DOUBLE_EQ(local->yaw_rate, -0.2);
+  const auto second_yaw = banyu_vehicle_execution::bodyFluToLocalEnu(
+    MotionIntent::bodyFlu(1.0, 0.0, -0.7), 0.0);
+  ASSERT_TRUE(second_yaw.has_value());
+  EXPECT_DOUBLE_EQ(second_yaw->linear_x, 1.0);
+  EXPECT_DOUBLE_EQ(second_yaw->linear_z, -0.7);
+}
+
+TEST(MotionIntent, ClampsToPhysicalLimitsAndRejectsNonfiniteValues)
+{
+  const IntentLimits limits{1.0, 2.0, 3.0, 0.5};
+  const auto bounded = banyu_vehicle_execution::clampIntent(
+    MotionIntent::localEnu(4.0, -4.0, 2.0, -1.0), limits);
+  ASSERT_TRUE(bounded.has_value());
+  EXPECT_DOUBLE_EQ(bounded->linear_x, 1.0);
+  EXPECT_DOUBLE_EQ(bounded->linear_y, -2.0);
+  EXPECT_DOUBLE_EQ(bounded->linear_z, 2.0);
+  EXPECT_DOUBLE_EQ(bounded->yaw_rate, -0.5);
+  EXPECT_EQ(
+    banyu_vehicle_execution::validateIntent(MotionIntent::localEnu(4.0, 0.0, 0.0), limits).error,
+    IntentValidationError::OutsideLimits);
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_FALSE(
+    banyu_vehicle_execution::clampIntent(MotionIntent::localEnu(nan, 0.0, 0.0), limits));
+  EXPECT_EQ(
+    banyu_vehicle_execution::validateIntent(MotionIntent::localEnu(0.0, nan, 0.0), limits).error,
+    IntentValidationError::NonFiniteComponent);
+  EXPECT_THROW(
+    banyu_vehicle_execution::encodeVelocityYawRate(MotionIntent::localEnu(nan, 0.0, 0.0)),
+    std::invalid_argument);
+}
+
+TEST(CommandEncoder, HardLimitsKeepFloat32FieldsFinite)
+{
+  const double huge = std::numeric_limits<double>::max();
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  const auto target = banyu_vehicle_execution::encodeVelocityYawRate(
+    MotionIntent::localEnu(huge, -huge, huge, huge),
+    IntentLimits{huge, huge, huge, huge});
+  EXPECT_TRUE(std::isfinite(target.velocity.x));
+  EXPECT_TRUE(std::isfinite(target.velocity.y));
+  EXPECT_TRUE(std::isfinite(target.velocity.z));
+  EXPECT_TRUE(std::isfinite(target.yaw_rate));
+  EXPECT_LE(std::abs(target.velocity.x), banyu_vehicle_execution::kHardMaxLinearComponent);
+  EXPECT_LE(std::abs(target.yaw_rate), banyu_vehicle_execution::kHardMaxYawRate);
+  EXPECT_THROW(
+    banyu_vehicle_execution::encodeVelocityYawRate(
+      MotionIntent::localEnu(0.0, 0.0, 0.0), IntentLimits{nan, 1.0, 1.0, 1.0}),
+    std::invalid_argument);
+}
+
+TEST(GoalArbiter, RequiresExactFirstActiveLeaseForNonzeroOutput)
+{
+  FakeClock clock;
+  GoalArbiter arbiter(clock, 2);
+  const auto goal_identity = identity(1, "pilot", 10);
+  const auto goal = arbiter.requestGoal(goal_identity);
+  ASSERT_EQ(goal.admission, GoalAdmission::Activated);
+  EXPECT_DOUBLE_EQ(
+    arbiter.selectOutput(goal.handle, MotionIntent::localEnu(1, 0, 0)).linear_x, 0.0);
+  auto wrong_owner = leaseFor(goal_identity, clock);
+  wrong_owner.goal.owner = "other";
+  EXPECT_FALSE(arbiter.establishLease(goal.handle, wrong_owner));
+  auto wrong_uuid = leaseFor(goal_identity, clock);
+  wrong_uuid.goal.uuid[0] = 1;
+  EXPECT_FALSE(arbiter.establishLease(goal.handle, wrong_uuid));
+  EXPECT_TRUE(arbiter.establishLease(goal.handle, leaseFor(goal_identity, clock)));
+  EXPECT_DOUBLE_EQ(
+    arbiter.selectOutput(goal.handle, MotionIntent::localEnu(1, 0, 0)).linear_x, 1.0);
+}
+
+TEST(GoalArbiter, RejectsZeroUuidInvalidInactiveExpiredAndRegressedLeases)
+{
+  FakeClock clock;
+  GoalArbiter arbiter(clock, 1);
+  const auto zero_uuid = identity(0, "pilot", 1);
+  EXPECT_FALSE(arbiter.requestGoal(zero_uuid).accepted());
+  const auto first_identity = identity(1, "pilot", 5);
+  const auto first = arbiter.requestGoal(first_identity, leaseFor(first_identity, clock));
+  ASSERT_EQ(first.admission, GoalAdmission::Activated);
+  auto inactive = leaseFor(first_identity, clock, false);
+  EXPECT_FALSE(arbiter.establishLease(first.handle, inactive));
+  auto expired = leaseFor(first_identity, clock);
+  expired.deadline = clock.now();
+  EXPECT_FALSE(arbiter.establishLease(first.handle, expired));
+  EXPECT_TRUE(arbiter.cancel(first.handle));
+  EXPECT_TRUE(arbiter.recordZeroPublication());
+  ASSERT_TRUE(arbiter.reset());
+  EXPECT_FALSE(arbiter.requestGoal(identity(2, "pilot", 4)).accepted());
+}
+
+TEST(GoalArbiter, ExpiredActiveLeaseLatchesZeroAndTerminalizesAfterBarrier)
+{
+  FakeClock clock;
+  GoalArbiter arbiter(clock, 2);
+  const auto goal_identity = identity(1, "pilot", 1);
+  const auto goal = arbiter.requestGoal(goal_identity, leaseFor(goal_identity, clock));
+  ASSERT_TRUE(goal.accepted());
+  clock.advance(11s);
+  EXPECT_DOUBLE_EQ(
+    arbiter.selectOutput(goal.handle, MotionIntent::localEnu(1, 0, 0)).linear_x, 0.0);
+  EXPECT_EQ(arbiter.state(), GoalState::ZeroBarrier);
+  EXPECT_FALSE(arbiter.recordZeroPublication());
+  EXPECT_TRUE(arbiter.recordZeroPublication());
+  EXPECT_EQ(arbiter.state(), GoalState::LeaseLost);
+  EXPECT_EQ(arbiter.zeroPublicationCount(), 0U);
+}
+
+TEST(GoalArbiter, ActiveFaultAndLeaseLossUseTheSameZeroBarrier)
+{
+  FakeClock clock;
+  for (const auto reason : {StopReason::Fault, StopReason::LeaseLoss}) {
+    GoalArbiter arbiter(clock, 2);
+    const auto goal_identity = identity(1, "pilot", 1);
+    const auto goal = arbiter.requestGoal(goal_identity, leaseFor(goal_identity, clock));
+    ASSERT_TRUE(goal.accepted());
+    const bool stopped = reason == StopReason::Fault ? arbiter.fault(goal.handle) :
+      arbiter.leaseLost(goal.handle);
+    EXPECT_TRUE(stopped);
+    EXPECT_EQ(arbiter.state(), GoalState::ZeroBarrier);
+    EXPECT_TRUE(arbiter.zeroLatched());
+    EXPECT_FALSE(arbiter.recordZeroPublication());
+    EXPECT_TRUE(arbiter.recordZeroPublication());
+    EXPECT_EQ(arbiter.stopReason(), reason);
+    EXPECT_TRUE(arbiter.zeroLatched());
+  }
+}
+
+TEST(GoalArbiter, RequiresConsecutiveZeroPublicationsForHandoffAndTerminalRelease)
+{
+  FakeClock clock;
+  GoalArbiter arbiter(clock, 3);
+  const auto first_identity = identity(1, "pilot", 1);
+  const auto first = arbiter.requestGoal(first_identity, leaseFor(first_identity, clock));
+  const auto second_identity = identity(2, "pilot", 2);
+  const auto second = arbiter.requestGoal(second_identity, leaseFor(second_identity, clock));
+  ASSERT_EQ(second.admission, GoalAdmission::Pending);
+  EXPECT_FALSE(arbiter.recordZeroPublication());
+  EXPECT_EQ(arbiter.zeroPublicationCount(), 1U);
+  EXPECT_FALSE(arbiter.recordZeroPublication());
+  EXPECT_EQ(arbiter.zeroPublicationCount(), 2U);
+  EXPECT_TRUE(arbiter.recordZeroPublication());
+  EXPECT_TRUE(arbiter.isCurrent(second.handle));
+  EXPECT_FALSE(arbiter.isCurrent(first.handle));
+  EXPECT_TRUE(arbiter.complete(second.handle));
+  EXPECT_FALSE(arbiter.recordZeroPublication());
+  EXPECT_FALSE(arbiter.recordZeroPublication());
+  EXPECT_TRUE(arbiter.recordZeroPublication());
+  EXPECT_EQ(arbiter.state(), GoalState::Completed);
+}
+
+TEST(GoalArbiter, PendingCancelFaultAndLeaseLossNeverActivate)
+{
+  FakeClock clock;
+  for (const auto reason : {StopReason::Cancelled, StopReason::Fault, StopReason::LeaseLoss}) {
+    GoalArbiter arbiter(clock, 2);
+    const auto first_identity = identity(1, "pilot", 1);
+    ASSERT_TRUE(arbiter.requestGoal(first_identity, leaseFor(first_identity, clock)).accepted());
+    const auto pending_identity = identity(2, "pilot", 2);
+    const auto pending = arbiter.requestGoal(pending_identity);
+    ASSERT_EQ(pending.admission, GoalAdmission::Pending);
+    bool stopped = false;
+    if (reason == StopReason::Cancelled) {stopped = arbiter.cancel(pending.handle);}
+    if (reason == StopReason::Fault) {stopped = arbiter.fault(pending.handle);}
+    if (reason == StopReason::LeaseLoss) {stopped = arbiter.leaseLost(pending.handle);}
+    EXPECT_TRUE(stopped);
+    EXPECT_FALSE(arbiter.pendingGoal().has_value());
+    EXPECT_FALSE(arbiter.recordZeroPublication());
+    EXPECT_TRUE(arbiter.recordZeroPublication());
+    EXPECT_FALSE(arbiter.activeGoal().has_value());
+    EXPECT_EQ(arbiter.stopReason(), reason);
+  }
+}
+
+TEST(GoalArbiter, PreservesDisplacedActiveTerminalRecordAndResetsBarrierOnFault)
+{
+  FakeClock clock;
+  GoalArbiter arbiter(clock, 3);
+  const auto first_identity = identity(1, "pilot", 1);
+  const auto first = arbiter.requestGoal(first_identity, leaseFor(first_identity, clock));
+  const auto second = arbiter.requestGoal(identity(2, "pilot", 2));
+  ASSERT_TRUE(second.accepted());
+  ASSERT_TRUE(arbiter.displacedActive().has_value());
+  EXPECT_EQ(arbiter.displacedActive()->goal, first.handle.goal);
+  EXPECT_EQ(arbiter.displacedActive()->state, GoalState::Displaced);
+  EXPECT_EQ(arbiter.displacedActive()->reason, StopReason::Handoff);
+  EXPECT_FALSE(arbiter.recordZeroPublication());
+  EXPECT_EQ(arbiter.zeroPublicationCount(), 1U);
+  arbiter.fault();
+  EXPECT_EQ(arbiter.zeroPublicationCount(), 0U);
+  EXPECT_FALSE(arbiter.pendingGoal().has_value());
+  EXPECT_FALSE(arbiter.recordZeroPublication());
+  EXPECT_FALSE(arbiter.recordZeroPublication());
+  EXPECT_TRUE(arbiter.recordZeroPublication());
+  EXPECT_EQ(arbiter.state(), GoalState::Faulted);
+}
+
+class VehicleExecutionNodeTest : public ::testing::Test
+{
+protected:
+  static void SetUpTestSuite()
+  {
+    if (!rclcpp::ok()) {
+      rclcpp::init(0, nullptr);
+    }
+  }
+
+  static void TearDownTestSuite()
+  {
+    if (rclcpp::ok()) {
+      rclcpp::shutdown();
+    }
+  }
+};
+
+TEST(ActionServerMath, NavigationGpsCalculatesOffsetsAndBearing)
+{
+  double dx = 0.0;
+  double dy = 0.0;
+  banyu_vehicle_execution::latLonToEnuOffsets(0.0, 0.0, 0.0, 0.001, dx, dy);
+  EXPECT_GT(dx, 0.0);
+  EXPECT_NEAR(dy, 0.0, 1e-6);
+
+  banyu_vehicle_execution::latLonToEnuOffsets(0.0, 0.0, 0.001, 0.0, dx, dy);
+  EXPECT_NEAR(dx, 0.0, 1e-6);
+  EXPECT_GT(dy, 0.0);
+}
+
+TEST(ActionServerMath, AngleNormalizationWrapsCorrectly)
+{
+  EXPECT_NEAR(banyu_vehicle_execution::normalizeAngle(0.0), 0.0, 1e-9);
+  EXPECT_NEAR(banyu_vehicle_execution::normalizeAngle(M_PI), M_PI, 1e-9);
+  EXPECT_NEAR(banyu_vehicle_execution::normalizeAngle(3.0 * M_PI), M_PI, 1e-6);
+  EXPECT_NEAR(banyu_vehicle_execution::normalizeAngle(-3.0 * M_PI), -M_PI, 1e-6);
+  EXPECT_NEAR(banyu_vehicle_execution::normalizeAngle(0.5), 0.5, 1e-9);
+}
+
+TEST(ActionServerMath, QuaternionToYawAccuracy)
+{
+  EXPECT_NEAR(banyu_vehicle_execution::getYawFromQuaternion(0.0, 0.0, 0.0, 1.0), 0.0, 1e-9);
+
+  const double sin45 = std::sin(M_PI / 4.0);
+  const double cos45 = std::cos(M_PI / 4.0);
+  EXPECT_NEAR(
+    banyu_vehicle_execution::getYawFromQuaternion(
+      0.0, 0.0, sin45,
+      cos45), M_PI / 2.0, 1e-6);
+}
+
+TEST(ActionServerMath, PorDetectionFreshnessUsesObjectAndAge)
+{
+  banyu_vehicle_execution::VehicleTelemetry telemetry;
+  telemetry.detection_valid = true;
+  telemetry.detection.object_id = 1;
+  telemetry.detection.offset_x = 0.25F;
+  telemetry.detection_stamp = rclcpp::Time(10, 0, RCL_ROS_TIME);
+  const auto now = rclcpp::Time(10, 200000000, RCL_ROS_TIME);
+  banyu_msgs::msg::Detection copy;
+  EXPECT_TRUE(banyu_vehicle_execution::detectionIsFresh(telemetry, now, 0.5, 1, &copy));
+  EXPECT_FLOAT_EQ(copy.offset_x, 0.25F);
+  EXPECT_FALSE(banyu_vehicle_execution::detectionIsFresh(telemetry, now, 0.5, 0));
+  EXPECT_FALSE(banyu_vehicle_execution::detectionIsFresh(telemetry, now, 0.1, 1));
+}
+
+TEST(ActionServerMath, PorVisualCorrectionUsesLocalEnuRightAndYawSigns)
+{
+  const auto right = banyu_vehicle_execution::visualCorrection(
+    0.5, 0.0, 1.0, 0.0,
+    1.0, 1.0, 1.0, 1.0);
+  const auto left = banyu_vehicle_execution::visualCorrection(
+    -0.5, 0.0, 1.0, 0.0,
+    1.0, 1.0, 1.0, 1.0);
+  EXPECT_LT(right.lateral_flu_mps, 0.0);
+  EXPECT_LT(right.yaw_rate_rad_s, 0.0);
+  EXPECT_GT(left.lateral_flu_mps, 0.0);
+  EXPECT_GT(left.yaw_rate_rad_s, 0.0);
+
+  const auto local = banyu_vehicle_execution::bodyFluToLocalEnu(
+    banyu_vehicle_execution::MotionIntent::bodyFlu(
+      0.0, right.lateral_flu_mps, 0.0, right.yaw_rate_rad_s), 0.0);
+  ASSERT_TRUE(local.has_value());
+  EXPECT_LT(local->linear_y, 0.0);
+  EXPECT_LT(local->yaw_rate, 0.0);
+}
+
+TEST_F(VehicleExecutionNodeTest, PorActionServersHaveSafeNoGoalOutput)
+{
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>();
+  banyu_vehicle_execution::VehicleTelemetry telemetry;
+  telemetry.pose_valid = true;
+  const auto now = node->now();
+  auto check_zero = [&telemetry, &now](const auto & server) {
+      const auto intent = server->tick(telemetry, now, 0.05);
+      EXPECT_EQ(intent.frame, banyu_vehicle_execution::IntentFrame::LocalEnu);
+      EXPECT_DOUBLE_EQ(intent.linear_x, 0.0);
+      EXPECT_DOUBLE_EQ(intent.linear_y, 0.0);
+      EXPECT_DOUBLE_EQ(intent.linear_z, 0.0);
+      EXPECT_DOUBLE_EQ(intent.yaw_rate, 0.0);
+    };
+  check_zero(
+    std::make_shared<banyu_vehicle_execution::AcquireGateServer>(
+      node.get(), "/test/por/acquire_gate", node.get()));
+  check_zero(
+    std::make_shared<banyu_vehicle_execution::AlignMarkerServer>(
+      node.get(), "/test/por/align_marker", node.get()));
+  check_zero(
+    std::make_shared<banyu_vehicle_execution::OrbitMarkerServer>(
+      node.get(), "/test/por/orbit_marker", node.get()));
+  check_zero(
+    std::make_shared<banyu_vehicle_execution::TurnAroundServer>(
+      node.get(), "/test/por/turn_around", node.get()));
+}
+
+void spinFor(const rclcpp::Node::SharedPtr & node, int cycles = 15)
+{
+  for (int i = 0; i < cycles; ++i) {
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+}
+
+template<typename FutureT>
+bool waitForFuture(const rclcpp::Node::SharedPtr & node, FutureT & future, int cycles = 150)
+{
+  for (int i = 0; i < cycles; ++i) {
+    rclcpp::spin_some(node);
+    if (future.wait_for(0ms) == std::future_status::ready) {
+      return true;
+    }
+    std::this_thread::sleep_for(10ms);
+  }
+  return false;
+}
+
+void publishPose(
+  const rclcpp::Node::SharedPtr & node,
+  const rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr & publisher,
+  double x, double yaw = 0.0)
+{
+  geometry_msgs::msg::PoseStamped pose;
+  pose.header.stamp = node->now();
+  pose.pose.position.x = x;
+  pose.pose.orientation.z = std::sin(yaw * 0.5);
+  pose.pose.orientation.w = std::cos(yaw * 0.5);
+  publisher->publish(pose);
+}
+
+void publishDetection(
+  const rclcpp::Node::SharedPtr & node,
+  const rclcpp::Publisher<banyu_msgs::msg::Detection>::SharedPtr & publisher,
+  int64_t object_id, double offset_x, double offset_y, double distance)
+{
+  banyu_msgs::msg::Detection detection;
+  detection.header.stamp = node->now();
+  detection.object_id = object_id;
+  detection.offset_x = static_cast<float>(offset_x);
+  detection.offset_y = static_cast<float>(offset_y);
+  detection.distance = static_cast<float>(distance);
+  publisher->publish(detection);
+}
+
+void publishDepth(
+  const std::shared_ptr<rclcpp::Node> & node,
+  const rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr & publisher,
+  double depth)
+{
+  (void)node;
+  std_msgs::msg::Float64 message;
+  message.data = -depth;
+  publisher->publish(message);
+}
+
+TEST_F(VehicleExecutionNodeTest, PorAlignMarkerHoldsInsideConfiguredStandoff)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::AlignMarker;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/align_marker");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto detection_pub = node->create_publisher<banyu_msgs::msg::Detection>(
+    "/banyu/detection", rclcpp::SensorDataQoS());
+  Action::Goal goal;
+  goal.deadband_x = 0.05; goal.deadband_y = 0.05;
+  goal.minimum_distance_m = 1.8; goal.standoff_min_m = 2.2; goal.standoff_max_m = 2.5;
+  goal.hold_time_s = 0.05; goal.timeout_s = 1.0;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto goal_handle = send_future.get();
+  ASSERT_NE(goal_handle, nullptr);
+  auto result_future = client->async_get_result(goal_handle);
+  for (int i = 0; i < 40 && result_future.wait_for(0ms) != std::future_status::ready; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    publishDetection(node, detection_pub, 1, 0.0, 0.0, 2.35);
+    spinFor(node, 1);
+  }
+  ASSERT_TRUE(result_future.wait_for(0ms) == std::future_status::ready);
+  const auto result = result_future.get();
+  EXPECT_EQ(result.code, rclcpp_action::ResultCode::SUCCEEDED);
+  ASSERT_NE(result.result, nullptr);
+  EXPECT_TRUE(result.result->success);
+  EXPECT_GE(result.result->final_distance_m, 2.2);
+  EXPECT_LE(result.result->final_distance_m, 2.5);
+}
+
+TEST_F(VehicleExecutionNodeTest, PorAlignMarkerFreshRequirementsKeepWatchdogAlive)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::AlignMarker;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/align_marker");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto detection_pub = node->create_publisher<banyu_msgs::msg::Detection>(
+    "/banyu/detection", rclcpp::SensorDataQoS());
+  Action::Goal goal;
+  goal.deadband_x = 0.05; goal.deadband_y = 0.05;
+  goal.minimum_distance_m = 1.8; goal.standoff_min_m = 2.2; goal.standoff_max_m = 2.5;
+  goal.hold_time_s = 0.5; goal.timeout_s = 0.15;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  for (int i = 0; i < 25; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    publishDetection(node, detection_pub, 1, 0.0, 0.0, 8.0 - 0.15 * i);
+    spinFor(node, 2);
+  }
+  EXPECT_TRUE(result_future.wait_for(0ms) != std::future_status::ready);
+  auto cancel_future = client->async_cancel_goal(handle);
+  ASSERT_TRUE(waitForFuture(node, cancel_future));
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::CANCELED);
+}
+
+TEST_F(VehicleExecutionNodeTest, PorAlignMarkerMissingDetectionTimesOut)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::AlignMarker;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/align_marker");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  Action::Goal goal;
+  goal.deadband_x = 0.05; goal.deadband_y = 0.05;
+  goal.minimum_distance_m = 1.8; goal.standoff_min_m = 2.2; goal.standoff_max_m = 2.5;
+  goal.hold_time_s = 0.5; goal.timeout_s = 0.15;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  for (int i = 0; i < 25; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    spinFor(node, 2);
+  }
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::ABORTED);
+}
+
+TEST_F(VehicleExecutionNodeTest, PorAcquireGatePoseLossTimesOutAndRecoveryResetsWatchdog)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::AcquireGate;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/acquire_gate");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto depth_pub = node->create_publisher<std_msgs::msg::Float64>(
+    "/mavros/global_position/rel_alt", rclcpp::SensorDataQoS());
+  auto detection_pub = node->create_publisher<banyu_msgs::msg::Detection>(
+    "/banyu/detection", rclcpp::SensorDataQoS());
+  Action::Goal goal;
+  goal.target_depth_m = 2.5; goal.depth_tolerance_m = 0.1; goal.timeout_s = 0.15;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  publishDepth(node, depth_pub, 2.5);
+  publishDetection(node, detection_pub, 0, 0.0, 0.0, 3.0);
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::ABORTED);
+
+  send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  result_future = client->async_get_result(handle);
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  for (int i = 0; i < 25; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    publishDepth(node, depth_pub, 3.0);
+    publishDetection(node, detection_pub, 0, 0.0, 0.0, 3.0);
+    spinFor(node, 2);
+  }
+  EXPECT_TRUE(result_future.wait_for(0ms) != std::future_status::ready);
+  publishPose(node, pose_pub, 0.0);
+  publishDepth(node, depth_pub, 2.5);
+  publishDetection(node, detection_pub, 0, 0.0, 0.0, 3.0);
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::SUCCEEDED);
+}
+
+TEST_F(VehicleExecutionNodeTest, PorAlignGatePoseLossTimesOutAndRecoveryResetsWatchdog)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("actions.align_gate", "/test/align_gate_pose_watchdog");
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::AlignGate;
+  auto client = rclcpp_action::create_client<Action>(node, "/test/align_gate_pose_watchdog");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto detection_pub = node->create_publisher<banyu_msgs::msg::Detection>(
+    "/banyu/detection", rclcpp::SensorDataQoS());
+  Action::Goal goal;
+  goal.deadband_x = 0.05; goal.deadband_y = 0.05; goal.hold_time_s = 0.05; goal.timeout_s = 0.15;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  publishDetection(node, detection_pub, 0, 0.0, 0.0, 3.0);
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::ABORTED);
+
+  send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  result_future = client->async_get_result(handle);
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  for (int i = 0; i < 25; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    publishDetection(node, detection_pub, 0, 0.0, 0.0, 3.0);
+    spinFor(node, 2);
+  }
+  publishPose(node, pose_pub, 0.0);
+  publishDetection(node, detection_pub, 0, 0.0, 0.0, 3.0);
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::SUCCEEDED);
+}
+
+TEST_F(VehicleExecutionNodeTest, PorAlignMarkerPoseLossTimesOutAndRecoveryResetsWatchdog)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("actions.align_marker", "/test/align_marker_pose_watchdog");
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::AlignMarker;
+  auto client = rclcpp_action::create_client<Action>(node, "/test/align_marker_pose_watchdog");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto detection_pub = node->create_publisher<banyu_msgs::msg::Detection>(
+    "/banyu/detection", rclcpp::SensorDataQoS());
+  Action::Goal goal;
+  goal.deadband_x = 0.05; goal.deadband_y = 0.05;
+  goal.minimum_distance_m = 1.8; goal.standoff_min_m = 2.2; goal.standoff_max_m = 2.5;
+  goal.hold_time_s = 0.05; goal.timeout_s = 0.15;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  publishDetection(node, detection_pub, 1, 0.0, 0.0, 2.35);
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::ABORTED);
+
+  send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  result_future = client->async_get_result(handle);
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  for (int i = 0; i < 25; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    publishDetection(node, detection_pub, 1, 0.0, 0.0, 2.35);
+    spinFor(node, 2);
+  }
+  publishPose(node, pose_pub, 0.0);
+  publishDetection(node, detection_pub, 1, 0.0, 0.0, 2.35);
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::SUCCEEDED);
+}
+
+TEST_F(VehicleExecutionNodeTest, PorPassGateWithoutFreshGateTimesOutBeforeBlindMode)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::PassGate;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/pass_gate");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  Action::Goal goal;
+  goal.return_leg = true; goal.speed_mps = 0.3; goal.blind_duration_s = 0.1; goal.timeout_s = 0.15;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  for (int i = 0; i < 25; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    spinFor(node, 2);
+  }
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::ABORTED);
+}
+
+TEST_F(VehicleExecutionNodeTest, PorPassGatePoseLossDuringBlindAborts)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("actions.pass_gate", "/test/pass_gate_pose_watchdog");
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::PassGate;
+  auto client = rclcpp_action::create_client<Action>(node, "/test/pass_gate_pose_watchdog");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto detection_pub = node->create_publisher<banyu_msgs::msg::Detection>(
+    "/banyu/detection", rclcpp::SensorDataQoS());
+  Action::Goal goal;
+  goal.return_leg = true; goal.speed_mps = 0.3; goal.blind_duration_s = 2.0; goal.timeout_s = 4.0;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  for (int i = 0; i < 10; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    publishDetection(node, detection_pub, 0, 0.0, 0.0, 3.0);
+    spinFor(node, 2);
+  }
+  for (int i = 0; i < 35; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    spinFor(node, 2);
+  }
+  EXPECT_TRUE(result_future.wait_for(0ms) != std::future_status::ready);
+  for (int i = 0; i < 35; ++i) {
+    spinFor(node, 2);
+  }
+  ASSERT_TRUE(waitForFuture(node, result_future, 20));
+  const auto result = result_future.get();
+  EXPECT_EQ(result.code, rclcpp_action::ResultCode::ABORTED);
+  ASSERT_NE(result.result, nullptr);
+  EXPECT_FALSE(result.result->success);
+  EXPECT_EQ(result.result->reason, "Pose lost during blind gate pass");
+}
+
+TEST_F(VehicleExecutionNodeTest, PorRejectsUnsafeAndNonorderedGoals)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Orbit = banyu_msgs::action::OrbitMarker;
+  auto orbit_client = rclcpp_action::create_client<Orbit>(node, "/banyu/actions/orbit_marker");
+  ASSERT_TRUE(orbit_client->wait_for_action_server(1s));
+  Orbit::Goal orbit_goal; orbit_goal.radius_m = 2.19;
+  auto orbit_future = orbit_client->async_send_goal(orbit_goal);
+  ASSERT_TRUE(waitForFuture(node, orbit_future));
+  EXPECT_EQ(orbit_future.get(), nullptr);
+
+  using Align = banyu_msgs::action::AlignMarker;
+  auto align_client = rclcpp_action::create_client<Align>(node, "/banyu/actions/align_marker");
+  ASSERT_TRUE(align_client->wait_for_action_server(1s));
+  Align::Goal align_goal; align_goal.standoff_min_m = 2.5; align_goal.standoff_max_m = 2.2;
+  auto align_future = align_client->async_send_goal(align_goal);
+  ASSERT_TRUE(waitForFuture(node, align_future));
+  EXPECT_EQ(align_future.get(), nullptr);
+
+  Align::Goal minimum_goal;
+  minimum_goal.minimum_distance_m = 2.3;
+  minimum_goal.standoff_min_m = 2.2;
+  minimum_goal.standoff_max_m = 2.5;
+  align_future = align_client->async_send_goal(minimum_goal);
+  ASSERT_TRUE(waitForFuture(node, align_future));
+  EXPECT_EQ(align_future.get(), nullptr);
+
+  using Search = banyu_msgs::action::SearchMarker;
+  auto search_client = rclcpp_action::create_client<Search>(node, "/banyu/actions/search_marker");
+  ASSERT_TRUE(search_client->wait_for_action_server(1s));
+  Search::Goal search_goal;
+  search_goal.search_speed_mps = -0.1;
+  auto search_future = search_client->async_send_goal(search_goal);
+  ASSERT_TRUE(waitForFuture(node, search_future));
+  EXPECT_EQ(search_future.get(), nullptr);
+}
+
+TEST_F(VehicleExecutionNodeTest, PorOrbitBelowSafeRangeNeverSurgesTowardMarker)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::OrbitMarker;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/orbit_marker");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto detection_pub = node->create_publisher<banyu_msgs::msg::Detection>(
+    "/banyu/detection", rclcpp::SensorDataQoS());
+  double maximum_surge = -std::numeric_limits<double>::infinity();
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&maximum_surge](const mavros_msgs::msg::PositionTarget::SharedPtr message) {
+      maximum_surge = std::max(maximum_surge, static_cast<double>(message->velocity.x));
+    });
+  Action::Goal goal;
+  goal.orbit_speed_mps = 0.2; goal.radius_m = 2.2; goal.range_gain = 0.5;
+  goal.max_range_speed_mps = 0.3; goal.timeout_s = 0.5;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  for (int i = 0; i < 15; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    publishDetection(node, detection_pub, 1, 0.0, 0.0, 2.0);
+    spinFor(node, 1);
+  }
+  EXPECT_LE(maximum_surge, 0.0);
+  auto cancel_future = client->async_cancel_goal(handle);
+  ASSERT_TRUE(waitForFuture(node, cancel_future));
+  ASSERT_TRUE(waitForFuture(node, result_future));
+}
+
+TEST_F(VehicleExecutionNodeTest, PorPassGateUsesTimedBlindForwardPassAfterStaleDetection)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::PassGate;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/pass_gate");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto detection_pub = node->create_publisher<banyu_msgs::msg::Detection>(
+    "/banyu/detection", rclcpp::SensorDataQoS());
+  double latest_forward = 0.0;
+  double latest_lateral = 0.0;
+  double latest_yaw_rate = 0.0;
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&latest_forward, &latest_lateral, &latest_yaw_rate](
+      const mavros_msgs::msg::PositionTarget::SharedPtr message) {
+      latest_forward = message->velocity.x;
+      latest_lateral = message->velocity.y;
+      latest_yaw_rate = message->yaw_rate;
+    });
+  Action::Goal goal;
+  goal.return_leg = true; goal.speed_mps = 0.4; goal.target_distance_m = 3.0;
+  goal.minimum_distance_m = 0.8; goal.blind_duration_s = 0.3; goal.timeout_s = 2.0;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto goal_handle = send_future.get();
+  ASSERT_NE(goal_handle, nullptr);
+  auto result_future = client->async_get_result(goal_handle);
+  for (int i = 0; i < 10; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    publishDetection(node, detection_pub, 0, 0.0, 0.0, 0.0);
+    spinFor(node, 1);
+  }
+  EXPECT_TRUE(result_future.wait_for(0ms) != std::future_status::ready);
+  for (int i = 0; i < 55; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    spinFor(node, 1);
+  }
+  EXPECT_GT(latest_forward, 0.0);
+  EXPECT_DOUBLE_EQ(latest_lateral, 0.0);
+  EXPECT_DOUBLE_EQ(latest_yaw_rate, 0.0);
+  EXPECT_TRUE(result_future.wait_for(0ms) != std::future_status::ready);
+  spinFor(node, 10);
+  for (int i = 0; i < 50 && result_future.wait_for(0ms) != std::future_status::ready; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    spinFor(node, 1);
+  }
+  ASSERT_TRUE(result_future.wait_for(0ms) == std::future_status::ready);
+  const auto result = result_future.get();
+  EXPECT_EQ(result.code, rclcpp_action::ResultCode::SUCCEEDED);
+  ASSERT_NE(result.result, nullptr);
+  EXPECT_TRUE(result.result->success);
+}
+
+TEST_F(VehicleExecutionNodeTest, PorPassGateReturnLegSucceedsOnTargetDistanceReached)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::PassGate;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/pass_gate");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto detection_pub = node->create_publisher<banyu_msgs::msg::Detection>(
+    "/banyu/detection", rclcpp::SensorDataQoS());
+
+  Action::Goal goal;
+  goal.return_leg = true;
+  goal.speed_mps = 0.8;
+  goal.target_distance_m = 10.5;
+  goal.minimum_distance_m = 0.8;
+  goal.blind_duration_s = 14.0;
+  goal.timeout_s = 5.0;
+
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto goal_handle = send_future.get();
+  ASSERT_NE(goal_handle, nullptr);
+  auto result_future = client->async_get_result(goal_handle);
+
+  // Initially see the gate at start pose x = 5.0
+  publishPose(node, pose_pub, 5.0, 0.0);
+  publishDetection(node, detection_pub, 0, 0.0, 0.0, 9.0);
+  spinFor(node, 2);
+
+  // Now detection is lost (blind mode), but vehicle keeps pushing through
+  double current_x = 5.0;
+  for (int i = 0; i < 60 && result_future.wait_for(0ms) != std::future_status::ready; ++i) {
+    if (current_x > -6.0) {
+      current_x -= 0.5;
+    }
+    publishPose(node, pose_pub, current_x, 0.0);
+    spinFor(node, 1);
+  }
+
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  const auto result = result_future.get();
+  EXPECT_EQ(result.code, rclcpp_action::ResultCode::SUCCEEDED);
+  ASSERT_NE(result.result, nullptr);
+  EXPECT_TRUE(result.result->success);
+  EXPECT_EQ(result.result->reason, "Gate pass distance reached");
+  EXPECT_GE(result.result->travelled_m, 10.5);
+}
+
+TEST_F(VehicleExecutionNodeTest, PorSearchMarkerSucceedsOnFreshDetectionWithoutDistance)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::SearchMarker;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/search_marker");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  Action::Goal goal;
+  goal.search_speed_mps = 0.1; goal.timeout_s = 0.5;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto goal_handle = send_future.get();
+  ASSERT_NE(goal_handle, nullptr);
+  auto result_future = client->async_get_result(goal_handle);
+  auto detection_pub = node->create_publisher<banyu_msgs::msg::Detection>(
+    "/banyu/detection", rclcpp::SensorDataQoS());
+  publishDetection(node, detection_pub, 1, 0.0, 0.0, 0.0);
+  spinFor(node, 4);
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  auto result = result_future.get();
+  EXPECT_EQ(result.code, rclcpp_action::ResultCode::SUCCEEDED);
+  ASSERT_NE(result.result, nullptr);
+  EXPECT_TRUE(result.result->success);
+
+  goal.timeout_s = 0.5;
+  send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto unavailable_handle = send_future.get();
+  ASSERT_NE(unavailable_handle, nullptr);
+  auto unavailable_result = client->async_get_result(unavailable_handle);
+  publishDetection(
+    node, detection_pub, 1, 0.0, 0.0,
+    std::numeric_limits<float>::quiet_NaN());
+  spinFor(node, 4);
+  ASSERT_TRUE(waitForFuture(node, unavailable_result));
+  result = unavailable_result.get();
+  EXPECT_EQ(result.code, rclcpp_action::ResultCode::SUCCEEDED);
+  ASSERT_NE(result.result, nullptr);
+  EXPECT_TRUE(result.result->success);
+}
+
+TEST_F(VehicleExecutionNodeTest, PorSearchMarkerTimesOutWithoutDetection)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::SearchMarker;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/search_marker");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  Action::Goal goal; goal.search_speed_mps = 0.1; goal.timeout_s = 0.15;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::ABORTED);
+}
+
+TEST_F(VehicleExecutionNodeTest, TypedPorCancellationEntersBarrierAndAllowsReuse)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::SearchGate;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/search_gate");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  Action::Goal goal; goal.search_speed_mps = 0.1; goal.timeout_s = 5.0;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto cancel_future = client->async_cancel_goal(handle);
+  ASSERT_TRUE(waitForFuture(node, cancel_future));
+  auto result_future = client->async_get_result(handle);
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::CANCELED);
+  spinFor(node, 8);
+
+  goal.timeout_s = 0.1;
+  send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto reused_handle = send_future.get();
+  ASSERT_NE(reused_handle, nullptr);
+  auto reused_result = client->async_get_result(reused_handle);
+  ASSERT_TRUE(waitForFuture(node, reused_result));
+  EXPECT_EQ(reused_result.get().code, rclcpp_action::ResultCode::ABORTED);
+}
+
+TEST_F(VehicleExecutionNodeTest, PorAcquireGateDoesNotCommandWithoutFreshDepth)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::AcquireGate;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/acquire_gate");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  int nonzero_z = 0;
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&nonzero_z](const mavros_msgs::msg::PositionTarget::SharedPtr message) {
+      if (std::abs(message->velocity.z) > 1e-6) {++nonzero_z;}
+    });
+  Action::Goal goal; goal.target_depth_m = 2.5; goal.depth_tolerance_m = 0.1;
+  goal.timeout_s = 0.2;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::ABORTED);
+  EXPECT_EQ(nonzero_z, 0);
+}
+
+TEST_F(VehicleExecutionNodeTest, PorTurnCapturesGateAndReportsOnlyARealCapture)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::TurnAround;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/turn_around");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto detection_pub = node->create_publisher<banyu_msgs::msg::Detection>(
+    "/banyu/detection", rclcpp::SensorDataQoS());
+  Action::Goal goal; goal.turn_yaw_rate_rad_s = 0.3; goal.capture_gain = 0.5;
+  goal.capture_deadband = 0.1; goal.max_angle_rad = M_PI; goal.timeout_s = 1.0;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  for (int i = 0; i < 8; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    publishDetection(node, detection_pub, 0, 0.5, 0.0, 3.0);
+    spinFor(node, 1);
+  }
+  EXPECT_TRUE(result_future.wait_for(0ms) != std::future_status::ready);
+  for (int i = 0; i < 20 && result_future.wait_for(0ms) != std::future_status::ready; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    publishDetection(node, detection_pub, 0, 0.05, 0.0, 3.0);
+    spinFor(node, 1);
+  }
+  ASSERT_TRUE(result_future.wait_for(0ms) == std::future_status::ready);
+  const auto result = result_future.get();
+  EXPECT_EQ(result.code, rclcpp_action::ResultCode::SUCCEEDED);
+  ASSERT_NE(result.result, nullptr);
+  EXPECT_TRUE(result.result->gate_captured);
+}
+
+TEST_F(VehicleExecutionNodeTest, PorOrbitCompletesAfterIntegratedYawWrap)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::OrbitMarker;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/orbit_marker");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto detection_pub = node->create_publisher<banyu_msgs::msg::Detection>(
+    "/banyu/detection", rclcpp::SensorDataQoS());
+  Action::Goal goal; goal.orbit_speed_mps = 0.2; goal.radius_m = 3.0;
+  goal.angle_rad = 0.0; goal.timeout_s = 3.0;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  for (double unwrapped = 0.0; unwrapped <= 6.4 &&
+    result_future.wait_for(0ms) != std::future_status::ready; unwrapped += 0.8)
+  {
+    publishPose(node, pose_pub, 0.0, banyu_vehicle_execution::normalizeAngle(unwrapped));
+    publishDetection(node, detection_pub, 1, 0.0, 0.0, 3.0);
+    spinFor(node, 8);
+  }
+  ASSERT_TRUE(result_future.wait_for(0ms) == std::future_status::ready);
+  const auto result = result_future.get();
+  EXPECT_EQ(result.code, rclcpp_action::ResultCode::SUCCEEDED);
+  ASSERT_NE(result.result, nullptr);
+  EXPECT_GE(std::abs(result.result->accumulated_yaw_rad), 2.0 * M_PI);
+  EXPECT_DOUBLE_EQ(result.result->final_distance_m, 3.0);
+}
+
+TEST_F(VehicleExecutionNodeTest, NodeStartsAndDeclaresPreviewSink)
+{
+  rclcpp::NodeOptions options;
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  EXPECT_EQ(node->arbiter().state(), GoalState::Idle);
+  EXPECT_FALSE(node->telemetry().pose_valid);
+  EXPECT_FALSE(node->telemetry().status_valid);
+  EXPECT_FALSE(node->telemetry().gps_valid);
+}
+
+TEST_F(VehicleExecutionNodeTest, TelemetryUpdatesAndLeaseValidation)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", true);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+
+  const auto goal_id = identity(5, "/banyu/actions/align_heading", 1);
+  const auto req = node->requestGoal(goal_id);
+  ASSERT_EQ(req.admission, GoalAdmission::Activated);
+  EXPECT_TRUE(node->arbiter().zeroLatched());
+
+  auto lease_pub =
+    node->create_publisher<banyu_msgs::msg::ActionLease>("/banyu/execution/lease", 10);
+  spinFor(node, 5);
+
+  auto lease_msg = std::make_shared<banyu_msgs::msg::ActionLease>();
+  lease_msg->header.stamp = node->now();
+  std::copy(goal_id.uuid.begin(), goal_id.uuid.end(), lease_msg->goal_id.uuid.begin());
+  lease_msg->owner = "/banyu/actions/align_heading";
+  lease_msg->generation = 1;
+  lease_msg->active = true;
+  lease_msg->expires_at = node->now() + rclcpp::Duration::from_seconds(2.0);
+
+  for (int i = 0; i < 50 && node->arbiter().zeroLatched(); ++i) {
+    lease_pub->publish(*lease_msg);
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  EXPECT_FALSE(node->arbiter().zeroLatched());
+}
+
+TEST_F(VehicleExecutionNodeTest, OperatorTakeoverFaultsActiveGoals)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+
+  const auto goal_id = identity(7, "/banyu/actions/dive_to_depth", 1);
+  const auto req = node->requestGoal(goal_id);
+  ASSERT_EQ(req.admission, GoalAdmission::Activated);
+  EXPECT_FALSE(node->arbiter().zeroLatched());
+
+  auto status_pub = node->create_publisher<banyu_msgs::msg::VehicleStatus>(
+    "/banyu/vehicle_status",
+    10);
+  spinFor(node, 5);
+
+  banyu_msgs::msg::VehicleStatus status;
+  status.header.stamp = node->now();
+  status.fcu_connected = true;
+  status.operator_takeover = true;
+  status_pub->publish(status);
+
+  spinFor(node, 15);
+
+  EXPECT_EQ(node->arbiter().state(), GoalState::ZeroBarrier);
+  EXPECT_EQ(node->arbiter().stopReason(), StopReason::Fault);
+}
+
+TEST_F(VehicleExecutionNodeTest, FollowPipelineConsumesGuidanceWhenActive)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+
+  auto guidance_pub = node->create_publisher<banyu_guidance::msg::VelocityIntent>(
+    "/banyu/guidance/velocity_intent", 10);
+  spinFor(node, 5);
+  banyu_guidance::msg::VelocityIntent intent;
+  intent.header.stamp = node->now();
+  intent.status = 4;
+  intent.surge_mps = 0.8f;
+  intent.sway_mps = -0.3f;
+  intent.yaw_rate_rad_s = 0.15f;
+  intent.yaw_control_active = true;
+
+  for (int i = 0; i < 50 && !node->telemetry().guidance_intent_valid; ++i) {
+    guidance_pub->publish(intent);
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  EXPECT_TRUE(node->telemetry().guidance_intent_valid);
+  EXPECT_FLOAT_EQ(node->telemetry().guidance_surge_mps, 0.8f);
+  EXPECT_FLOAT_EQ(node->telemetry().guidance_sway_mps, -0.3f);
+  EXPECT_FLOAT_EQ(node->telemetry().guidance_yaw_rate_rad_s, 0.15f);
+}
+
+TEST(GoalArbiter, SequentialGoalAdmittedDuringZeroBarrierAndPromoted)
+{
+  FakeClock clock;
+  GoalArbiter arbiter(clock, 2);
+
+  const auto goal1_id = identity(1, "nav", 1);
+  const auto goal1 = arbiter.requestGoal(goal1_id, leaseFor(goal1_id, clock));
+  ASSERT_EQ(goal1.admission, GoalAdmission::Activated);
+
+  // Goal 1 completes normally
+  EXPECT_TRUE(arbiter.complete(goal1.handle));
+  EXPECT_EQ(arbiter.state(), GoalState::ZeroBarrier);
+  EXPECT_EQ(arbiter.stopReason(), StopReason::Completed);
+
+  // Goal 2 arrives while arbiter is satisfying ZeroBarrier
+  const auto goal2_id = identity(2, "align", 1);
+  const auto goal2 = arbiter.requestGoal(goal2_id, leaseFor(goal2_id, clock));
+  EXPECT_EQ(goal2.admission, GoalAdmission::Pending);
+
+  // Publish required zero setpoints
+  EXPECT_FALSE(arbiter.recordZeroPublication());
+  EXPECT_TRUE(arbiter.recordZeroPublication());
+
+  // Goal 2 is promoted to active after zero barrier
+  EXPECT_EQ(arbiter.state(), GoalState::Active);
+  ASSERT_TRUE(arbiter.activeGoal().has_value());
+  EXPECT_EQ(arbiter.activeGoal()->goal.uuid, goal2_id.uuid);
+}
+
+TEST(GoalArbiter, SequentialGoalAdmittedAfterCompletedState)
+{
+  FakeClock clock;
+  GoalArbiter arbiter(clock, 1);
+
+  const auto goal1_id = identity(1, "dive", 1);
+  const auto goal1 = arbiter.requestGoal(goal1_id, leaseFor(goal1_id, clock));
+  ASSERT_EQ(goal1.admission, GoalAdmission::Activated);
+
+  EXPECT_TRUE(arbiter.complete(goal1.handle));
+  EXPECT_TRUE(arbiter.recordZeroPublication());
+  EXPECT_EQ(arbiter.state(), GoalState::Completed);
+
+  // Request goal 2 after completion
+  const auto goal2_id = identity(2, "surface", 1);
+  const auto goal2 = arbiter.requestGoal(goal2_id, leaseFor(goal2_id, clock));
+  EXPECT_EQ(goal2.admission, GoalAdmission::Activated);
+  EXPECT_EQ(arbiter.state(), GoalState::Active);
+}
+
+TEST(GoalArbiter, PendingGoalCanEstablishLeaseDuringZeroBarrier)
+{
+  FakeClock clock;
+  GoalArbiter arbiter(clock, 2);
+
+  const auto goal1_id = identity(1, "task", 1);
+  ASSERT_TRUE(arbiter.requestGoal(goal1_id, leaseFor(goal1_id, clock)).accepted());
+  EXPECT_TRUE(arbiter.complete(banyu_vehicle_execution::GoalHandle{goal1_id}));
+
+  // Goal 2 requested without initial lease (zero latched)
+  const auto goal2_id = identity(2, "task2", 1);
+  const auto goal2 = arbiter.requestGoal(goal2_id);
+  ASSERT_EQ(goal2.admission, GoalAdmission::Pending);
+
+  // Establish lease while pending in ZeroBarrier
+  EXPECT_TRUE(arbiter.establishLease(goal2.handle, leaseFor(goal2_id, clock)));
+
+  // Complete zero cycles
+  EXPECT_FALSE(arbiter.recordZeroPublication());
+  EXPECT_TRUE(arbiter.recordZeroPublication());
+
+  EXPECT_EQ(arbiter.state(), GoalState::Active);
+  EXPECT_FALSE(arbiter.zeroLatched());
+}
+
+TEST_F(VehicleExecutionNodeTest, StaleStatusWatchdogFaultsArbiter)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+
+  const auto goal_id = identity(8, "/banyu/actions/align_heading", 1);
+  ASSERT_EQ(node->requestGoal(goal_id).admission, GoalAdmission::Activated);
+
+  auto status_pub = node->create_publisher<banyu_msgs::msg::VehicleStatus>(
+    "/banyu/vehicle_status", 10);
+  spinFor(node, 5);
+
+  // Send status stamped 2 seconds in the past to simulate stale drop
+  banyu_msgs::msg::VehicleStatus status;
+  status.header.stamp = node->now() - rclcpp::Duration::from_seconds(2.0);
+  status.fcu_connected = true;
+  status.fcu_status_fresh = true;
+  status.operator_takeover = false;
+  status_pub->publish(status);
+
+  spinFor(node, 20);
+
+  // Watchdog should detect stale status (> 1.0s) and fault
+  EXPECT_FALSE(node->telemetry().status_valid);
+  EXPECT_EQ(node->arbiter().state(), GoalState::ZeroBarrier);
+  EXPECT_EQ(node->arbiter().stopReason(), StopReason::Fault);
+}
+
+TEST_F(VehicleExecutionNodeTest, HoldProbeContinuousResetOnRingLoss)
+{
+  rclcpp::NodeOptions options;
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+
+  auto server = std::make_shared<banyu_vehicle_execution::HoldProbeOnRingServer>(
+    node.get(), "/banyu/actions/hold_probe_on_ring_test", node.get());
+
+  banyu_vehicle_execution::VehicleTelemetry telem{};
+  telem.ring_obs_valid = true;
+  telem.ring_visible = true;
+  telem.ring_offset_x = 0.01;
+  telem.ring_offset_y = 0.01;
+
+  // With no active goal, tick returns zeroIntent
+  EXPECT_EQ(server->tick(telem, node->now(), 0.1).linear_x, 0.0);
+}
+
+TEST_F(VehicleExecutionNodeTest, ActionServersReturnZeroOnInvalidTelemetry)
+{
+  rclcpp::NodeOptions options;
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+
+  auto nav_server = std::make_shared<banyu_vehicle_execution::NavigateSurfaceGpsServer>(
+    node.get(), "/banyu/actions/nav_test", node.get());
+  auto surface_server = std::make_shared<banyu_vehicle_execution::SurfaceServer>(
+    node.get(), "/banyu/actions/surf_test", node.get());
+
+  banyu_vehicle_execution::VehicleTelemetry telem{};
+  telem.gps_valid = false;
+  telem.depth_valid = false;
+
+  EXPECT_EQ(nav_server->tick(telem, node->now(), 0.1).linear_x, 0.0);
+  EXPECT_EQ(surface_server->tick(telem, node->now(), 0.1).linear_z, 0.0);
+}
+
+TEST_F(VehicleExecutionNodeTest, SurfaceWatchdogIsOptInAndResetsAfterDepthRecovery)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::Surface;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/surface");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  Action::Goal goal;
+  goal.target_depth_m = 2.0; goal.depth_tolerance_m = 0.1; goal.watchdog_timeout_s = 0.15;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  spinFor(node, 8);
+  EXPECT_TRUE(result_future.wait_for(0ms) != std::future_status::ready);
+
+  auto depth_pub = node->create_publisher<std_msgs::msg::Float64>(
+    "/mavros/global_position/rel_alt", rclcpp::SensorDataQoS());
+  std_msgs::msg::Float64 depth;
+  depth.data = -1.0;
+  depth_pub->publish(depth);
+  spinFor(node, 3);
+  spinFor(node, 8);
+  EXPECT_TRUE(result_future.wait_for(0ms) != std::future_status::ready);
+
+  depth.data = -2.0;
+  depth_pub->publish(depth);
+  spinFor(node, 5);
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::SUCCEEDED);
+}
+
+TEST_F(VehicleExecutionNodeTest, SurfaceWatchdogTimesOutWhenEnabledAndDepthIsMissing)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::Surface;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/surface");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  Action::Goal goal;
+  goal.target_depth_m = 2.0; goal.depth_tolerance_m = 0.1; goal.watchdog_timeout_s = 0.15;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::ABORTED);
+}
+
+TEST_F(VehicleExecutionNodeTest, SurfaceWatchdogZeroDisablesMissingDepthTimeout)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::Surface;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/surface");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  Action::Goal goal;
+  goal.target_depth_m = 2.0; goal.depth_tolerance_m = 0.1; goal.watchdog_timeout_s = 0.0;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  spinFor(node, 25);
+  EXPECT_TRUE(result_future.wait_for(0ms) != std::future_status::ready);
+  auto cancel_future = client->async_cancel_goal(handle);
+  ASSERT_TRUE(waitForFuture(node, cancel_future));
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::CANCELED);
+}
+
+TEST_F(VehicleExecutionNodeTest, MavrosPublicationGatedByStatusAndGuidedMode)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.enable_mavros_publish", true);
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("control.require_guided", true);
+  options.append_parameter_override("topics.status", "/test_gated/status");
+  options.append_parameter_override("topics.mavros_target", "/test_gated/mavros_target");
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+
+  int mavros_count = 0;
+  mavros_msgs::msg::PositionTarget last_target;
+  auto mavros_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/test_gated/mavros_target", 10,
+    [&mavros_count, &last_target](const mavros_msgs::msg::PositionTarget::SharedPtr msg) {
+      ++mavros_count;
+      last_target = *msg;
+    });
+
+  auto status_pub = node->create_publisher<banyu_msgs::msg::VehicleStatus>(
+    "/test_gated/status", 10);
+
+  spinFor(node, 5);
+  // Without status, no publication should occur
+  EXPECT_EQ(mavros_count, 0);
+
+  // Send status with non-GUIDED mode (e.g. MANUAL)
+  banyu_msgs::msg::VehicleStatus status;
+  status.header.stamp = node->now();
+  status.fcu_connected = true;
+  status.fcu_status_fresh = true;
+  status.operator_takeover = false;
+  status.mode = "MANUAL";
+  status_pub->publish(status);
+  spinFor(node, 5);
+  EXPECT_EQ(mavros_count, 0);
+
+  // Send valid GUIDED status
+  status.header.stamp = node->now();
+  status.mode = "GUIDED";
+  status_pub->publish(status);
+  spinFor(node, 10);
+
+  EXPECT_GT(mavros_count, 0);
+  EXPECT_EQ(
+    last_target.coordinate_frame,
+    mavros_msgs::msg::PositionTarget::FRAME_LOCAL_NED);
+  EXPECT_EQ(last_target.type_mask, 0x5C7);
+  EXPECT_DOUBLE_EQ(last_target.yaw_rate, 0.0);
+  EXPECT_DOUBLE_EQ(last_target.position.x, 0.0);
+  EXPECT_DOUBLE_EQ(last_target.position.y, 0.0);
+  EXPECT_DOUBLE_EQ(last_target.position.z, 0.0);
+
+  // Simulate operator takeover: publication must cease
+  status.header.stamp = node->now();
+  status.operator_takeover = true;
+  status_pub->publish(status);
+  for (int i = 0; i < 30 && !node->telemetry().operator_takeover; ++i) {
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  ASSERT_TRUE(node->telemetry().operator_takeover);
+
+  // Allow any in-flight message published before takeover to be received
+  spinFor(node, 5);
+  const int stopped_count = mavros_count;
+
+  // Spin for multiple timer cycles (timer is 50ms, 150ms is 3 cycles)
+  spinFor(node, 15);
+  EXPECT_EQ(mavros_count, stopped_count);
+}
+
+TEST_F(VehicleExecutionNodeTest, MavrosPublicationUngatedWhenRequireGuidedFalse)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.enable_mavros_publish", true);
+  options.append_parameter_override("control.require_guided", false);
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("topics.status", "/test_ungated/status");
+  options.append_parameter_override("topics.mavros_target", "/test_ungated/mavros_target");
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+
+  int mavros_count = 0;
+  auto mavros_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/test_ungated/mavros_target", 10,
+    [&mavros_count](const mavros_msgs::msg::PositionTarget::SharedPtr) {
+      ++mavros_count;
+    });
+
+  auto status_pub = node->create_publisher<banyu_msgs::msg::VehicleStatus>(
+    "/test_ungated/status", 10);
+
+  spinFor(node, 10);
+  EXPECT_GT(mavros_count, 0);
+
+  // Even with require_guided=false, operator takeover must halt publishing
+  banyu_msgs::msg::VehicleStatus status;
+  status.header.stamp = node->now();
+  status.fcu_connected = true;
+  status.fcu_status_fresh = true;
+  status.operator_takeover = true;
+  status.mode = "MANUAL";
+  status_pub->publish(status);
+
+  for (int i = 0; i < 30 && !node->telemetry().operator_takeover; ++i) {
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  ASSERT_TRUE(node->telemetry().operator_takeover);
+
+  spinFor(node, 5);
+  const int stopped_count = mavros_count;
+  spinFor(node, 15);
+  EXPECT_EQ(mavros_count, stopped_count);
+}

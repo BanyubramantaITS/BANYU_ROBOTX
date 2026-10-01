@@ -1,138 +1,65 @@
-#ifndef BANYU_MISSION_BANYU_MISSION_HPP_
-#define BANYU_MISSION_BANYU_MISSION_HPP_
+#ifndef BANYU_MISSION__BANYU_MISSION_HPP_
+#define BANYU_MISSION__BANYU_MISSION_HPP_
 
 #include <atomic>
-#include <chrono>
-#include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 
-#include <behaviortree_cpp/behavior_tree.h>
-#include <behaviortree_cpp/bt_factory.h>
-#include <behaviortree_cpp/loggers/groot2_publisher.h>
+#include <functional>
 
-#include <banyu_msgs/msg/detection.hpp>
-#include <banyu_msgs/msg/hydrophone_heading.hpp>
-#include <banyu_msgs/msg/pipeline_observation.hpp>
-#include <banyu_msgs/msg/pipeline_ring_observation.hpp>
-#include <banyu_msgs/msg/pipeline_ring_state.hpp>
-#include <banyu_msgs/msg/task2_report.hpp>
-#include <geometry_msgs/msg/pose_stamped.hpp>
-#include <mavros_msgs/msg/position_target.hpp>
-#include <mavros_msgs/msg/state.hpp>
-#include <mavros_msgs/srv/command_bool.hpp>
-#include <mavros_msgs/srv/set_mode.hpp>
-#include <nav_msgs/msg/path.hpp>
-#include <rclcpp/rclcpp.hpp>
-#include <sensor_msgs/msg/nav_sat_fix.hpp>
-#include <std_msgs/msg/bool.hpp>
-#include <std_msgs/msg/string.hpp>
-#include <std_srvs/srv/set_bool.hpp>
-#include <unique_identifier_msgs/msg/uuid.hpp>
+#include "behaviortree_cpp/bt_factory.h"
+#include "behaviortree_cpp/loggers/abstract_logger.h"
+#include "behaviortree_cpp/loggers/groot2_publisher.h"
+#include "banyu_mission/mission_state.hpp"
+#include "banyu_mission/por_mission_config.hpp"
+#include "mavros_msgs/srv/set_mode.hpp"
+#include "rclcpp/rclcpp.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
-#include "banyu_mission/mission_context.hpp"
+namespace banyu_mission
+{
 
-namespace banyu_mission {
+void registerMissionNodes(
+  BT::BehaviorTreeFactory & factory,
+  const rclcpp::Node::SharedPtr & node,
+  const std::shared_ptr<MissionState> & state,
+  std::function<void()> on_abort = nullptr);
 
-class BanyuMission : public rclcpp::Node {
- public:
-  explicit BanyuMission(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
+class BanyuMission : public rclcpp::Node
+{
+public:
+  explicit BanyuMission(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~BanyuMission() override;
-
-  // Two-phase init: shared_from_this() is only valid once the node is owned
-  // by a shared_ptr, so the BehaviorTree setup runs here, not in the ctor.
   void initialize();
+  MissionState::Lifecycle lifecycle() const;
 
- private:
-  void declareParameters();
-  void setupBehaviorTree();
-  bool startMission(std::string& failure_message);
-  void abortMission();
-  void beginHandoff();
-  void onHandoffTimer();
+private:
+  void tickLoop(int tick_period_ms);
+  std::string xmlPath();
+  void configurePorBlackboard(const BT::Blackboard::Ptr & blackboard);
+  void setFlightMode(const std::string & mode);
+  void fallbackToSurface();
 
-  void onPose(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
-  void onState(const mavros_msgs::msg::State::SharedPtr msg);
-  void onDetection(const banyu_msgs::msg::Detection::SharedPtr msg);
-  void onHydrophoneHeading(const banyu_msgs::msg::HydrophoneHeading::SharedPtr msg);
-  void onPipelineObservation(const banyu_msgs::msg::PipelineObservation::SharedPtr msg);
-  void onPipelineRingObservation(const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg);
-  void onPipelineRingState(const banyu_msgs::msg::PipelineRingState::SharedPtr msg);
-  void onActiveBuoyPose(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
-  void onPipelineRoute(const nav_msgs::msg::Path::SharedPtr msg);
-  void onDvlLive(const std_msgs::msg::Bool::SharedPtr msg);
-  void onAuvGlobalFix(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
-  void onStartBuoyFix(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
-  void clearTask2GpsAnchor();
-  void validateTask2GpsParameters() const;
-  void validateTask2FollowParameters() const;
-
-  void armAndSetGuided();
-
-  // ROS plumbing.
-  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
-  rclcpp::Subscription<mavros_msgs::msg::State>::SharedPtr state_sub_;
-  rclcpp::Subscription<banyu_msgs::msg::Detection>::SharedPtr detection_sub_;
-  rclcpp::Subscription<banyu_msgs::msg::HydrophoneHeading>::SharedPtr hydrophone_heading_sub_;
-  rclcpp::Subscription<banyu_msgs::msg::PipelineObservation>::SharedPtr pipeline_observation_sub_;
-  rclcpp::Subscription<banyu_msgs::msg::PipelineRingObservation>::SharedPtr pipeline_ring_observation_sub_;
-  rclcpp::Subscription<banyu_msgs::msg::PipelineRingState>::SharedPtr pipeline_ring_state_sub_;
-  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr active_buoy_pose_sub_;
-  rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr pipeline_route_sub_;
-  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr dvl_live_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr auv_global_fix_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr start_buoy_fix_sub_;
-  rclcpp::TimerBase::SharedPtr detection_watchdog_timer_;
-  rclcpp::Publisher<mavros_msgs::msg::PositionTarget>::SharedPtr setpoint_pub_;
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr robocommand_pub_;
-  rclcpp::Publisher<banyu_msgs::msg::Task2Report>::SharedPtr task2_report_pub_;
-
-  rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr start_service_;
-  rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr abort_service_;
-
-  rclcpp::Client<mavros_msgs::srv::CommandBool>::SharedPtr arming_client_;
-  rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr set_mode_client_;
-  rclcpp::TimerBase::SharedPtr handoff_timer_;
-
-  // BehaviorTree.CPP plumbing.
-  BT::BehaviorTreeFactory factory_;
-  BT::Tree tree_;
-  std::unique_ptr<BT::Groot2Publisher> groot2_publisher_;
-  std::shared_ptr<MissionContext> ctx_;
-  std::string mission_mode_;
-  double handoff_request_timeout_s_{1.0};
-  double detection_timeout_s_{0.3};
-  double task2_pose_timeout_s_{3.0};
-  double task2_state_timeout_s_{3.0};
-  double task2_dvl_timeout_s_{0.5};
-  bool task2_use_dvl_{false};
-  double hydrophone_heading_timeout_s_{0.5};
-  double pipeline_ring_state_timeout_s_{0.5};
-  double active_buoy_pose_timeout_s_{0.5};
-  double pipeline_route_timeout_s_{0.5};
-  std::string task2_follow_source_;
-  std::string task2_camera_expected_frame_id_;
-  double task2_camera_source_timeout_s_{0.5};
-  double task2_camera_receipt_timeout_s_{0.5};
-  double task2_camera_future_tolerance_s_{0.1};
-  std::size_t task2_pose_history_max_samples_{500};
-  double task2_pose_history_duration_s_{10.0};
-  std::size_t task2_camera_ring_cache_max_frames_{32};
-
-  std::atomic<bool> shutting_down_{false};
-  std::atomic<bool> handoff_active_{false};
-  std::atomic<bool> handoff_request_in_flight_{false};
-  std::mutex lifecycle_mutex_;
-  std::mutex handoff_mutex_;
-  std::chrono::steady_clock::time_point handoff_request_deadline_{};
-  uint64_t handoff_request_generation_{0};
-
+  std::shared_ptr<MissionState> state_;
+  std::shared_ptr<BT::Tree> tree_;
+  std::unique_ptr<BT::StatusChangeLogger> tree_logger_;
+  std::unique_ptr<BT::Groot2Publisher> groot_publisher_;
+  std::unique_ptr<BT::BehaviorTreeFactory> factory_;
   std::thread tick_thread_;
+  std::atomic_bool initialized_{false};
+  std::atomic_bool stop_requested_{false};
+  std::mutex tree_mutex_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr start_service_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr abort_service_;
+  std::atomic_bool mission_config_valid_{false};
+  std::string fallback_mode_{"SURFACE"};
+  std::string set_mode_service_{"/mavros/set_mode"};
+  rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr set_mode_client_;
+  rclcpp::Time last_fallback_time_{0, 0, RCL_ROS_TIME};
 };
 
 }  // namespace banyu_mission
 
-#endif  // BANYU_MISSION_BANYU_MISSION_HPP_
+#endif  // BANYU_MISSION__BANYU_MISSION_HPP_

@@ -1,0 +1,123 @@
+banyu_mission:
+  ros__parameters:
+    mission_mode: "por"
+    fallback_mode: "SURFACE"
+    mission:
+      surface_depth_m: 0.0
+      surface_tolerance_m: 0.25
+      # Continuous missing-prerequisite watchdog; not a fixed surface phase duration.
+      surface_watchdog_timeout_s: 5.0
+      gate_depth_m: 2.0
+      gate_depth_tolerance_m: 0.3
+      acquire_gate_timeout_s: 20.0
+      gate_align_deadband_x: 0.03
+      gate_align_deadband_y: 0.03
+      gate_align_gain_x: 1.2
+      gate_align_gain_y: 1.0
+      gate_align_max_speed_y: 0.4
+      gate_align_max_speed_z: 0.3
+      gate_align_hold_time_s: 1.0
+      gate_align_timeout_s: 20.0
+      gate_pass_speed_mps: 0.8
+      gate_pass_target_distance_m: 4.0
+      gate_pass_minimum_distance_m: 0.8
+      gate_pass_blind_duration_s: 6.0
+      gate_pass_timeout_s: 20.0
+      marker_search_speed_mps: 0.6
+      marker_search_timeout_s: 45.0
+      marker_align_deadband_x: 0.03
+      marker_align_deadband_y: 0.03
+      marker_align_gain_x: 1.2
+      marker_align_gain_y: 1.0
+      marker_align_max_speed_y: 0.4
+      marker_align_max_speed_z: 0.3
+      marker_align_minimum_distance_m: 1.0
+      marker_align_standoff_min_m: 2.2
+      marker_align_standoff_max_m: 2.5
+      marker_align_hold_time_s: 1.0
+      marker_align_timeout_s: 20.0
+      orbit_speed_mps: 0.5
+      orbit_radius_m: 3.0
+      orbit_range_gain: 0.8
+      orbit_max_range_speed_mps: 0.6
+      orbit_yaw_gain: 1.5
+      orbit_max_yaw_rate_rad_s: 0.6
+      orbit_vertical_gain: 1.0
+      orbit_max_vertical_speed_mps: 0.4
+      orbit_angle_rad: 6.283185307
+      orbit_timeout_s: 60.0
+      turn_yaw_rate_rad_s: 0.6
+      turn_capture_gain: 0.8
+      turn_capture_deadband: 0.08
+      turn_max_angle_rad: 3.141592653
+      turn_timeout_s: 30.0
+      gate_search_speed_mps: 0.6
+      gate_search_timeout_s: 30.0
+      return_gate_pass_speed_mps: 0.8
+      return_gate_pass_target_distance_m: 10.5
+      return_gate_pass_minimum_distance_m: 0.8
+      return_gate_pass_blind_duration_s: 14.0
+      return_gate_pass_timeout_s: 35.0
+    actions:
+      acquire_gate: "/banyu/actions/acquire_gate"
+      search_marker: "/banyu/actions/search_marker"
+      search_gate: "/banyu/actions/search_gate"
+      align_gate: "/banyu/actions/align_gate"
+      align_marker: "/banyu/actions/align_marker"
+      pass_gate: "/banyu/actions/pass_gate"
+      orbit_marker: "/banyu/actions/orbit_marker"
+      turn_around: "/banyu/actions/turn_around"
+      surface: "/banyu/actions/surface"
+
+por_detection:
+  ros__parameters:
+    target_priority: "largest"
+    fallback_focal_length_px: 500.0
+    buoy_reference_height_m: 1.5
+    gate_reference_height_m: 2.0
+    camera_info_topic: "/camera/camera_info"
+    max_distance_m: 20.0
+    use_gui: false
+
+vehicle_execution_node:
+  ros__parameters:
+    control:
+      enable_mavros_publish: true
+      require_lease: true
+      lease_timeout_s: 1.5
+      publish_rate_hz: 20.0
+      require_guided: true
+      max_linear_speed: 1.2
+      max_yaw_rate: 0.8
+    topics:
+      status: "/banyu/vehicle_status"
+      pose: "/mavros/local_position/pose"
+      gps: "/mavros/global_position/raw/fix"
+      detection: "/banyu/detection"
+      lease: "/banyu/execution/lease"
+      preview_target: "/banyu/execution/preview_target"
+      mavros_target: "/mavros/setpoint_raw/local"
+    actions:
+      surface: "/banyu/actions/surface"
+      acquire_gate: "/banyu/actions/acquire_gate"
+      search_marker: "/banyu/actions/search_marker"
+      search_gate: "/banyu/actions/search_gate"
+      align_gate: "/banyu/actions/align_gate"
+      align_marker: "/banyu/actions/align_marker"
+      pass_gate: "/banyu/actions/pass_gate"
+      orbit_marker: "/banyu/actions/orbit_marker"
+      turn_around: "/banyu/actions/turn_around"
+
+banyu_vehicle_status:
+  ros__parameters:
+    state_topic: "/mavros/state"
+    rc_topic: "/mavros/rc/in"
+    gps_topic: "/mavros/global_position/raw/fix"
+    status_topic: "/banyu/vehicle_status"
+    publish_rate_hz: 10.0
+    fcu_timeout_s: 5.0
+    rc_timeout_s: 3.0
+    gps_timeout_s: 5.0
+    rc_takeover_channel: 4
+    rc_takeover_threshold: 1700
+    autonomy_mode: "GUIDED"

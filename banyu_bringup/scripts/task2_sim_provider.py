@@ -6,7 +6,6 @@ MAVROS datum, not a true buoy GPS receiver.
 """
 
 import math
-import time
 
 from banyu_msgs.msg import HydrophoneHeading, PipelineRingState
 import rclpy
@@ -169,14 +168,16 @@ class Task2SimProvider(Node):
             self.ring_colors.append(color)
 
         self.pose_pub = self.create_publisher(
-            PoseStamped, "/banyu/active_buoy_pose", 10
+            PoseStamped, "/banyu/debug/task2/active_buoy_pose", 10
         )
-        self.route_pub = self.create_publisher(Path, "/banyu/pipeline/route", 10)
+        self.route_pub = self.create_publisher(
+            Path, "/banyu/debug/task2/route", 10
+        )
         self.heading_pub = self.create_publisher(
             HydrophoneHeading, "/banyu/hydrophone/relative_heading", 10
         )
         self.ring_state_pub = self.create_publisher(
-            PipelineRingState, "/banyu/pipeline/ring_state", 10
+            PipelineRingState, "/banyu/debug/task2/ring_state", 10
         )
         # Surface-only simulation fixture matching the active MAVROS datum;
         # this is not a true buoy GPS receiver.
@@ -403,6 +404,7 @@ class Task2SimProvider(Node):
             buoy_fix.position_covariance_type = NavSatFix.COVARIANCE_TYPE_DIAGONAL_KNOWN
 
         self.start_buoy_fix_pub.publish(buoy_fix)
+        self._last_gate_diagnostic = ""
         if not self._start_buoy_fix_published:
             self.get_logger().info(
                 "Task 2 start-buoy NavSatFix publishing while vehicle is surfaced"
@@ -410,14 +412,9 @@ class Task2SimProvider(Node):
             self._start_buoy_fix_published = True
 
     def _diagnose_gate(self, reason):
-        now = time.monotonic()
-        if (
-            reason != self._last_gate_diagnostic
-            or now - self._last_gate_diagnostic_time >= 2.0
-        ):
+        if reason != self._last_gate_diagnostic:
             self.get_logger().warning(f"Task 2 start-buoy fix waiting: {reason}")
             self._last_gate_diagnostic = reason
-            self._last_gate_diagnostic_time = now
 
     def _validate_task2_parameters(self):
         parameters = {

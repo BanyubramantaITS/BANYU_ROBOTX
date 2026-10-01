@@ -1,30 +1,58 @@
 import os
-from typing import List
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition, UnlessCondition
-from launch.substitutions import AndSubstitution, EqualsSubstitution, LaunchConfiguration
+from launch.substitutions import (
+    AndSubstitution,
+    EqualsSubstitution,
+    LaunchConfiguration,
+    PythonExpression,
+)
 from launch_ros.actions import Node, SetUseSimTime
 from launch_ros.parameter_descriptions import ParameterValue
 
 
+def _task2_report_max_attempts_substitution():
+    return PythonExpression(
+        [
+            "min(255, int('",
+            LaunchConfiguration("task2_report_max_retries"),
+            "') + 1)",
+        ]
+    )
+
+
 def generate_launch_description():
-    use_sim_time_arg = DeclareLaunchArgument(
-        name="use_sim_time",
-        default_value="True",
-        choices=["True", "False"],
+    banyu_bringup_share = get_package_share_directory("banyu_bringup")
+    banyu_detection_share = get_package_share_directory("banyu_detection")
+
+    default_task2_params = os.path.join(
+        banyu_bringup_share, "config", "task2_params.yaml"
+    )
+    default_por_params = os.path.join(
+        banyu_bringup_share, "config", "por_params.yaml"
+    )
+
+    mode_arg = DeclareLaunchArgument(
+        name="mode",
+        default_value="por",
+        description="Which competition simulation to launch: 'por' or 'task2'.",
+        choices=["por", "task2"],
     )
 
     use_sim_arg = DeclareLaunchArgument(
         name="use_sim",
         default_value="True",
+        description="Whether to run in simulation mode (Gazebo + SITL) or real ROV hardware mode",
         choices=["True", "False"],
     )
 
-    set_use_sim_time = SetUseSimTime(
-        True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
+    use_sim_time_arg = DeclareLaunchArgument(
+        name="use_sim_time",
+        default_value="True",
+        choices=["True", "False"],
     )
 
     debug_arg = DeclareLaunchArgument(
@@ -34,237 +62,106 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
-    # Which competition behaviour to run: POR or Task 2.
-    mission_mode_arg = DeclareLaunchArgument(
-        name="mission_mode",
-        default_value="por",
-        description="Which behaviour to run: 'por' or 'task2'.",
-        choices=["por", "task2"],
+    task2_params_arg = DeclareLaunchArgument(
+        name="task2_params_file",
+        default_value=default_task2_params,
+        description="Path to ROS 2 parameter YAML file for Task 2 nodes",
     )
 
-    task2_follow_source_arg = DeclareLaunchArgument(
-        name="task2_follow_source",
-        default_value="fixture_route",
-        description="Task 2 pipeline-following source.",
-        choices=["fixture_route", "camera"],
+    por_params_arg = DeclareLaunchArgument(
+        name="por_params_file",
+        default_value=default_por_params,
+        description="Path to ROS 2 parameter YAML file for POR nodes",
     )
 
-    ring_colors_arg = DeclareLaunchArgument(
-        name="ring_colors",
-        default_value="['green', 'green', 'green', 'red', 'green']",
-        description="Ordered Task 2 pipeline ring colors.",
+    set_use_sim_time = SetUseSimTime(
+        True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
 
-    publish_rate_arg = DeclareLaunchArgument(
-        name="publish_rate",
-        default_value="5.0",
-        description="Task 2 simulation fixture publish rate in Hz.",
-    )
-
-    pipeline_standoff_m_arg = DeclareLaunchArgument(
-        name="pipeline_standoff_m",
-        default_value="1.0",
-        description="Vertical vehicle-center offset above the pipeline mesh.",
-    )
-
-    task2_gps_surface_depth_arg = DeclareLaunchArgument(
-        name="task2_gps_surface_depth",
-        default_value="-0.4",
-        description="Task 2 GPS acquisition surface depth in map ENU meters.",
-    )
-
-    task2_gps_surface_tolerance_arg = DeclareLaunchArgument(
-        name="task2_gps_surface_tolerance",
-        default_value="0.5",
-        description="Task 2 GPS acquisition surface depth tolerance in meters.",
-    )
-
-    task2_pose_timeout_arg = DeclareLaunchArgument(
-        name="task2_pose_timeout_s",
-        default_value="3.0",
-        description="Maximum age of Task 2 vehicle pose data in seconds.",
-    )
-
-    task2_gps_receipt_pair_timeout_arg = DeclareLaunchArgument(
-        name="task2_gps_receipt_pair_timeout_s",
-        default_value="3.0",
-        description="Maximum Task 2 GPS/pose receipt-time association gap in seconds.",
-    )
-
-    task2_use_dvl_arg = DeclareLaunchArgument(
-        name="task2_use_dvl",
-        default_value="False",
-        description="Enable DVL freshness/readiness requirements for Task 2.",
-        choices=["True", "False"],
-    )
-
-    task2_gps_fix_timeout_arg = DeclareLaunchArgument(
-        name="task2_gps_fix_timeout_s",
-        default_value="1.0",
-        description="Maximum age of Task 2 GPS fix data in seconds.",
-    )
-
-    task2_start_buoy_map_x_arg = DeclareLaunchArgument(
-        name="task2_start_buoy_map_x",
-        default_value="43.95",
-        description="Task 2 start-buoy ENU map X coordinate.",
-    )
-
-    task2_start_buoy_map_y_arg = DeclareLaunchArgument(
-        name="task2_start_buoy_map_y",
-        default_value="13.85",
-        description="Task 2 start-buoy ENU map Y coordinate.",
-    )
-
-    task2_gps_max_fix_pose_skew_arg = DeclareLaunchArgument(
-        name="task2_gps_max_fix_pose_skew_s",
-        default_value="0.5",
-        description="Maximum Task 2 GPS-fix/map-pose timestamp skew in seconds.",
-    )
-
-    task2_detector_image_topic_arg = DeclareLaunchArgument(
-        name="task2_detector_image_topic",
-        default_value="/front_camera/image_raw",
-        description="Task 2 detector image topic.",
-    )
-
-    task2_detector_camera_info_topic_arg = DeclareLaunchArgument(
-        name="task2_detector_camera_info_topic",
-        default_value="/camera/camera_info",
-        description="Task 2 detector camera-info topic.",
-    )
-
-    task2_detector_observation_topic_arg = DeclareLaunchArgument(
-        name="task2_detector_observation_topic",
-        default_value="/banyu/pipeline/observation",
-        description="Task 2 pipeline observation topic.",
-    )
-
-    task2_detector_ring_observation_topic_arg = DeclareLaunchArgument(
-        name="task2_detector_ring_observation_topic",
-        default_value="/banyu/pipeline/ring_observation",
-        description="Task 2 ring observation topic.",
-    )
+    mode = LaunchConfiguration("mode")
+    use_sim = LaunchConfiguration("use_sim")
+    debug = LaunchConfiguration("debug")
+    task2_params = LaunchConfiguration("task2_params_file")
+    por_params = LaunchConfiguration("por_params_file")
 
     task2_fixture_mode = AndSubstitution(
-        EqualsSubstitution(LaunchConfiguration("mission_mode"), "task2"),
-        EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+        EqualsSubstitution(mode, "task2"),
+        EqualsSubstitution(use_sim, "True"),
     )
 
-    mission_manager = Node(
+    por_mission_manager = Node(
         package="banyu_mission",
         executable="banyu_mission",
         name="banyu_mission",
         output="screen",
         parameters=[
+            por_params,
             {
-                "mission_mode": LaunchConfiguration("mission_mode"),
-                "task2_follow_source": LaunchConfiguration("task2_follow_source"),
+                "mission_mode": mode,
+            },
+        ],
+        condition=IfCondition(EqualsSubstitution(mode, "por")),
+    )
+
+    task2_mission_manager = Node(
+        package="banyu_mission",
+        executable="banyu_mission",
+        name="banyu_mission",
+        output="screen",
+        parameters=[
+            task2_params,
+            {
+                "mission_mode": mode,
                 "task2_fixture_mode": ParameterValue(
                     task2_fixture_mode, value_type=bool
                 ),
-                "task2_pose_timeout_s": ParameterValue(
-                    LaunchConfiguration("task2_pose_timeout_s"), value_type=float
-                ),
-                "task2_gps_receipt_pair_timeout_s": ParameterValue(
-                    LaunchConfiguration("task2_gps_receipt_pair_timeout_s"),
-                    value_type=float,
-                ),
-                "task2_use_dvl": ParameterValue(
-                    LaunchConfiguration("task2_use_dvl"), value_type=bool
-                ),
-                "task2_gps_fix_timeout_s": ParameterValue(
-                    LaunchConfiguration("task2_gps_fix_timeout_s"), value_type=float
-                ),
-                "task2_gps_surface_depth": ParameterValue(
-                    LaunchConfiguration("task2_gps_surface_depth"),
-                    value_type=float,
-                ),
-                "task2_gps_surface_tolerance": ParameterValue(
-                    LaunchConfiguration("task2_gps_surface_tolerance"),
-                    value_type=float,
-                ),
-                "task2_gps_max_fix_pose_skew_s": ParameterValue(
-                    LaunchConfiguration("task2_gps_max_fix_pose_skew_s"),
-                    value_type=float,
-                ),
-                "task2_pipeline_observation_topic": LaunchConfiguration(
-                    "task2_detector_observation_topic"
-                ),
-                "task2_pipeline_ring_observation_topic": LaunchConfiguration(
-                    "task2_detector_ring_observation_topic"
-                ),
-            }
+            },
         ],
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
 
-    detection_node = Node(
+    por_detection = Node(
         package="banyu_detection",
         executable="por_detection",
         name="por_detection",
         parameters=[
             os.path.join(
-                get_package_share_directory("banyu_detection"),
+                banyu_detection_share,
                 "config",
                 "por_detection_params.yaml",
             ),
-            {"use_gui": LaunchConfiguration("debug")},
+            por_params,
+            {"use_gui": debug},
         ],
         output="screen",
-        condition=UnlessCondition(
-            EqualsSubstitution(LaunchConfiguration("mission_mode"), "task2")
-        ),
+        condition=UnlessCondition(EqualsSubstitution(mode, "task2")),
+    )
+
+    por_vehicle_execution = Node(
+        package="banyu_vehicle_execution",
+        executable="vehicle_execution_node",
+        name="vehicle_execution_node",
+        parameters=[por_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "por")),
+    )
+
+    por_vehicle_status = Node(
+        package="banyu_vehicle_interface",
+        executable="vehicle_status_node",
+        name="banyu_vehicle_status",
+        parameters=[por_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "por")),
     )
 
     task2_sim_provider = Node(
         package="banyu_bringup",
         executable="task2_sim_provider.py",
         name="task2_sim_provider",
-        parameters=[
-            {
-                "ring_colors": ParameterValue(
-                    LaunchConfiguration("ring_colors"), value_type=List[str]
-                ),
-                "publish_rate": ParameterValue(
-                    LaunchConfiguration("publish_rate"), value_type=float
-                ),
-                "pipeline_standoff_m": ParameterValue(
-                    LaunchConfiguration("pipeline_standoff_m"), value_type=float
-                ),
-                "surface_depth": ParameterValue(
-                    LaunchConfiguration("task2_gps_surface_depth"),
-                    value_type=float,
-                ),
-                "surface_tolerance": ParameterValue(
-                    LaunchConfiguration("task2_gps_surface_tolerance"),
-                    value_type=float,
-                ),
-                "global_pose_max_skew_s": ParameterValue(
-                    LaunchConfiguration("task2_gps_max_fix_pose_skew_s"),
-                    value_type=float,
-                ),
-                "receipt_pair_timeout_s": ParameterValue(
-                    LaunchConfiguration("task2_gps_receipt_pair_timeout_s"),
-                    value_type=float,
-                ),
-                "task2_pose_timeout_s": ParameterValue(
-                    LaunchConfiguration("task2_pose_timeout_s"), value_type=float
-                ),
-                "task2_gps_fix_timeout_s": ParameterValue(
-                    LaunchConfiguration("task2_gps_fix_timeout_s"), value_type=float
-                ),
-                "start_buoy_map_x": ParameterValue(
-                    LaunchConfiguration("task2_start_buoy_map_x"), value_type=float
-                ),
-                "start_buoy_map_y": ParameterValue(
-                    LaunchConfiguration("task2_start_buoy_map_y"), value_type=float
-                ),
-            }
-        ],
+        parameters=[task2_params],
         output="screen",
-        condition=IfCondition(
-            task2_fixture_mode
-        ),
+        condition=IfCondition(task2_fixture_mode),
     )
 
     task2_pipeline_detector = Node(
@@ -272,52 +169,88 @@ def generate_launch_description():
         executable="task2_pipeline_detector",
         name="task2_pipeline_detector",
         parameters=[
-            {
-                "image_topic": LaunchConfiguration("task2_detector_image_topic"),
-                "camera_info_topic": LaunchConfiguration(
-                    "task2_detector_camera_info_topic"
-                ),
-                "observation_topic": LaunchConfiguration(
-                    "task2_detector_observation_topic"
-                ),
-                "ring_observation_topic": LaunchConfiguration(
-                    "task2_detector_ring_observation_topic"
-                ),
-            }
+            task2_params,
+            {"use_gui": debug},
         ],
         output="screen",
-        condition=IfCondition(
-            EqualsSubstitution(LaunchConfiguration("mission_mode"), "task2")
-        ),
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+    )
+
+    task2_vehicle_status = Node(
+        package="banyu_vehicle_interface",
+        executable="vehicle_status_node",
+        name="banyu_vehicle_status",
+        parameters=[task2_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+    )
+
+    task2_ring_tracker = Node(
+        package="banyu_detection",
+        executable="ring_tracker_node",
+        name="ring_tracker",
+        parameters=[task2_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+    )
+
+    task2_pipeline_guidance = Node(
+        package="banyu_guidance",
+        executable="pipeline_guidance_node",
+        name="pipeline_guidance",
+        parameters=[task2_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+    )
+
+    task2_uav_report = Node(
+        package="banyu_communication",
+        executable="uav_report_node",
+        name="uav_report",
+        parameters=[task2_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+    )
+
+    task2_vehicle_execution = Node(
+        package="banyu_vehicle_execution",
+        executable="vehicle_execution_node",
+        name="vehicle_execution_node",
+        parameters=[task2_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+    )
+
+    task2_pipeline_end = Node(
+        package="banyu_detection",
+        executable="pipeline_end_node",
+        name="pipeline_end_node",
+        parameters=[task2_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
 
     return LaunchDescription(
         [
-            use_sim_time_arg,
+            mode_arg,
             use_sim_arg,
+            use_sim_time_arg,
             debug_arg,
-            mission_mode_arg,
-            task2_follow_source_arg,
-            ring_colors_arg,
-            publish_rate_arg,
-            pipeline_standoff_m_arg,
-            task2_gps_surface_depth_arg,
-            task2_gps_surface_tolerance_arg,
-            task2_pose_timeout_arg,
-            task2_gps_receipt_pair_timeout_arg,
-            task2_use_dvl_arg,
-            task2_gps_fix_timeout_arg,
-            task2_start_buoy_map_x_arg,
-            task2_start_buoy_map_y_arg,
-            task2_gps_max_fix_pose_skew_arg,
-            task2_detector_image_topic_arg,
-            task2_detector_camera_info_topic_arg,
-            task2_detector_observation_topic_arg,
-            task2_detector_ring_observation_topic_arg,
+            task2_params_arg,
+            por_params_arg,
             set_use_sim_time,
-            mission_manager,
-            detection_node,
+            por_mission_manager,
+            task2_mission_manager,
+            por_detection,
+            por_vehicle_execution,
+            por_vehicle_status,
             task2_sim_provider,
             task2_pipeline_detector,
+            task2_vehicle_status,
+            task2_ring_tracker,
+            task2_pipeline_guidance,
+            task2_uav_report,
+            task2_vehicle_execution,
+            task2_pipeline_end,
         ]
     )

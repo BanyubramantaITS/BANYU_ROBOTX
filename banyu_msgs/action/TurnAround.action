@@ -1,0 +1,17 @@
+# Turn until the gate is visually captured, capped by the requested angle.
+float64 turn_yaw_rate_rad_s
+float64 capture_gain
+float64 capture_deadband
+float64 max_angle_rad
+# Continuous missing-prerequisite watchdog window; not a fixed action duration.
+float64 timeout_s
+---
+bool success
+string reason
+float64 accumulated_yaw_rad
+bool gate_captured
+---
+builtin_interfaces/Time stamp
+bool gate_visible
+float64 offset_x
+float64 accumulated_yaw_rad

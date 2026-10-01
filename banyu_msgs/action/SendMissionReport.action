@@ -1,0 +1,17 @@
+# ring_order contains mission ring identifiers in traversal order; max_retries excludes the initial publication.
+string mission_id
+uint8[] ring_order
+uint32 crc32
+uint8 max_retries
+builtin_interfaces/Time report_time
+---
+bool success
+string reason
+bool acknowledged
+uint8 attempts
+uint32 acknowledged_crc32
+---
+builtin_interfaces/Time stamp
+uint8 attempt
+bool acknowledged
+string status

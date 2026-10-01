@@ -42,14 +42,19 @@ def generate_launch_description():
     use_ardusub_sitl_arg = DeclareLaunchArgument(
         name="use_ardusub_sitl",
         default_value="True",
-        description="Use sim_vehicle.py wrapper (True) or bare ardusub binary (False) for simulation",
+        description=(
+            "Use sim_vehicle.py wrapper (True) or bare ardusub binary (False) for simulation"
+        ),
         choices=["True", "False"],
     )
 
     fcu_url_arg = DeclareLaunchArgument(
         name="fcu_url",
         default_value="udp://127.0.0.1:14551@",
-        description="FCU connection URL (udp://127.0.0.1:14551@ for SITL or udp://192.168.2.1:14550@ for real ROV). SITL keeps 14550 free for QGC.",
+        description=(
+            "FCU connection URL (udp://127.0.0.1:14551@ for SITL or "
+            "udp://192.168.2.1:14550@ for real ROV). SITL keeps 14550 free for QGC."
+        ),
     )
 
     debug_arg = DeclareLaunchArgument(
@@ -57,29 +62,6 @@ def generate_launch_description():
         default_value="False",
         description="Set the debug flag for example (Detection Windows)",
         choices=["True", "False"],
-    )
-
-    task2_follow_source_arg = DeclareLaunchArgument(
-        name="task2_follow_source",
-        default_value="fixture_route",
-        description="Task 2 pipeline-following source.",
-        choices=["fixture_route", "camera"],
-    )
-
-    task2_pose_timeout_arg = DeclareLaunchArgument(
-        name="task2_pose_timeout_s",
-        default_value="3.0",
-        description="Maximum age of Task 2 vehicle pose data in seconds.",
-    )
-
-    task2_gps_receipt_pair_timeout_arg = DeclareLaunchArgument(
-        name="task2_gps_receipt_pair_timeout_s",
-        default_value="3.0",
-        description="Maximum Task 2 GPS/pose receipt-time association gap in seconds.",
-    )
-
-    set_use_sim_time = SetUseSimTime(
-        True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
 
     use_dvl_arg = DeclareLaunchArgument(
@@ -90,6 +72,26 @@ def generate_launch_description():
             "checks. False leaves the estimator on its configured source set."
         ),
         choices=["True", "False"],
+    )
+
+    task2_params_arg = DeclareLaunchArgument(
+        name="task2_params_file",
+        default_value=os.path.join(
+            _banyu_bringup_share, "config", "task2_params.yaml"
+        ),
+        description="Path to ROS 2 parameter YAML file for Task 2 nodes",
+    )
+
+    por_params_arg = DeclareLaunchArgument(
+        name="por_params_file",
+        default_value=os.path.join(
+            _banyu_bringup_share, "config", "por_params.yaml"
+        ),
+        description="Path to ROS 2 parameter YAML file for POR nodes",
+    )
+
+    set_use_sim_time = SetUseSimTime(
+        True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
 
     task2_spawn_x = PythonExpression(
@@ -145,16 +147,12 @@ def generate_launch_description():
             os.path.join(_banyu_bringup_share, "launch", "mission.launch.py")
         ),
         launch_arguments={
-            "use_sim_time": LaunchConfiguration("use_sim_time"),
+            "mode": LaunchConfiguration("mode"),
             "use_sim": LaunchConfiguration("use_sim"),
+            "use_sim_time": LaunchConfiguration("use_sim_time"),
             "debug": LaunchConfiguration("debug"),
-            "mission_mode": LaunchConfiguration("mode"),
-            "task2_follow_source": LaunchConfiguration("task2_follow_source"),
-            "task2_pose_timeout_s": LaunchConfiguration("task2_pose_timeout_s"),
-            "task2_gps_receipt_pair_timeout_s": LaunchConfiguration(
-                "task2_gps_receipt_pair_timeout_s"
-            ),
-            "task2_use_dvl": LaunchConfiguration("use_dvl"),
+            "task2_params_file": LaunchConfiguration("task2_params_file"),
+            "por_params_file": LaunchConfiguration("por_params_file"),
         }.items(),
     )
 
@@ -166,10 +164,9 @@ def generate_launch_description():
             use_ardusub_sitl_arg,
             fcu_url_arg,
             debug_arg,
-            task2_follow_source_arg,
-            task2_pose_timeout_arg,
-            task2_gps_receipt_pair_timeout_arg,
             use_dvl_arg,
+            task2_params_arg,
+            por_params_arg,
             set_use_sim_time,
             gazebo_por_launch,
             gazebo_main_launch,

@@ -25,7 +25,7 @@ por_detection:
 
     # Object Reference Heights (meters) - for distance estimation
     buoy_reference_height_m: 1.5 # Real buoy height [active]
-    gate_reference_height_m: 2.0 # Real gate height [active]
+    gate_reference_height_m: 1.57 # Empirically calibrated gate height [active]
 
     # Camera & Fallback
     camera_info_topic: "/camera/camera_info" # [active]

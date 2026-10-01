@@ -1,0 +1,160 @@
+# Task 2 parameter configurations for ROS 2 nodes
+
+banyu_mission:
+  ros__parameters:
+    fallback_mode: "SURFACE"
+    task2_follow_source: "fixture_route"
+    task2_pose_timeout_s: 3.0
+    task2_gps_receipt_pair_timeout_s: 3.0
+    task2_use_dvl: false
+    task2_gps_fix_timeout_s: 1.0
+    task2_gps_surface_depth: -0.4
+    task2_gps_surface_tolerance: 0.5
+    task2_gps_max_fix_pose_skew_s: 0.5
+    task2_pipeline_observation_topic: "/banyu/pipeline/observation"
+    task2_pipeline_ring_observation_topic: "/banyu/pipeline/ring_observation"
+    topics:
+      pipeline_end: "/banyu/pipeline/end"
+    actions:
+      send_mission_report: "/banyu/actions/send_mission_report"
+    timing:
+      state_timeout_s: 5.0
+      gps_timeout_s: 5.0
+    mission:
+      max_retries: 3
+      start_latitude: 33.810313
+      start_longitude: -118.393866
+      target_latitude: 33.810438
+      target_longitude: -118.393392
+      end_latitude: 33.810438
+      end_longitude: -118.393272
+      camera_name: "bottom_camera"
+      acquire_timeout_s: 15.0
+      inspection_depth_m: 12.5
+      depth_tolerance_m: 0.3
+
+task2_sim_provider:
+  ros__parameters:
+    ring_colors: ["green", "green", "green", "red", "green"]
+    publish_rate: 5.0
+    pipeline_standoff_m: 1.0
+    surface_depth: -0.4
+    surface_tolerance: 0.5
+    global_pose_max_skew_s: 0.5
+    receipt_pair_timeout_s: 3.0
+    task2_pose_timeout_s: 3.0
+    task2_gps_fix_timeout_s: 1.0
+    start_buoy_map_x: 43.95
+    start_buoy_map_y: 13.85
+
+task2_pipeline_detector:
+  ros__parameters:
+    use_gui: false
+    image_topic: "/bottom_camera/image_raw"
+    camera_info_topic: "/bottom_camera/camera_info"
+    observation_topic: "/banyu/pipeline/observation"
+    ring_observation_topic: "/banyu/pipeline/ring_observation"
+    min_aspect_ratio: 1.5
+    min_line_length_px: 18.0
+    min_component_area_px: 20
+    min_pipeline_confidence: 0.20
+    max_heading_error_rad: 1.571
+
+    # Pipeline mask HSV and grayscale thresholds
+    gray_threshold: 170
+    hsv_h_min: 0
+    hsv_h_max: 179
+    hsv_s_min: 0
+    hsv_s_max: 255
+    hsv_v_min: 250
+    hsv_v_max: 255
+    ring_min_component_area_px: 8
+    ring_association_distance_px: 120.0
+    ring_max_aspect_ratio: 4.5
+    red_ring_h_low_min: 0
+    red_ring_h_low_max: 15
+    red_ring_h_high_min: 90
+    red_ring_h_high_max: 179
+    red_ring_s_min: 145
+    red_ring_s_max: 255
+    red_ring_v_min: 130
+    red_ring_v_max: 255
+    green_ring_h_min: 35
+    green_ring_h_max: 95
+    green_ring_s_min: 40
+    green_ring_s_max: 255
+    green_ring_v_min: 30
+    green_ring_v_max: 255
+
+banyu_vehicle_status:
+  ros__parameters:
+    state_topic: "/mavros/state"
+    rc_topic: "/mavros/rc/in"
+    gps_topic: "/mavros/global_position/raw/fix"
+    status_topic: "/banyu/vehicle_status"
+    publish_rate_hz: 10.0
+    fcu_timeout_s: 5.0
+    rc_timeout_s: 3.0
+    gps_timeout_s: 5.0
+    rc_takeover_channel: 4
+    rc_takeover_threshold: 1700
+    autonomy_mode: "GUIDED"
+
+ring_tracker:
+  ros__parameters:
+    observation_topic: "/banyu/pipeline/ring_observation"
+    pose_topic: "/mavros/local_position/pose"
+    state_topic: "/banyu/pipeline/ring_state"
+    accepted_ring_topic: "/banyu/pipeline/accepted_ring"
+    repair_service: "/banyu/pipeline/acknowledge_ring_repair"
+
+pipeline_guidance:
+  ros__parameters:
+    input_topic: "/banyu/pipeline/observation"
+    output_topic: "/banyu/guidance/velocity_intent"
+    intent_frame: "base_link"
+    surge_gain_mps: 0.8
+    max_surge_mps: 0.6
+    sway_gain_mps: 0.8
+    max_sway_mps: 0.4
+    yaw_gain_rad_s: 0.8
+    max_yaw_rate_rad_s: 0.6
+    min_confidence: 0.2
+    max_observation_age_s: 1.0
+    max_future_skew_s: 0.2
+    yaw_control_enabled: true
+    publish_rate_hz: 20.0
+
+uav_report:
+  ros__parameters:
+    action_name: "/banyu/actions/send_mission_report"
+    report_topic: "/banyu/uav/mission_report"
+    ack_topic: "/banyu/uav/mission_report_ack"
+    max_attempts: 4
+    retry_period_ms: 1000
+
+vehicle_execution_node:
+  ros__parameters:
+    control:
+      enable_mavros_publish: true
+      require_lease: false
+      publish_rate_hz: 20.0
+      require_guided: true
+      acquire_surge_speed: 0.3
+      acquire_timeout_s: 20.0
+      acquire_confirm_frames: 5
+    topics:
+      status: "/banyu/vehicle_status"
+      pose: "/mavros/local_position/pose"
+      gps: "/mavros/global_position/raw/fix"
+      pipeline_obs: "/banyu/pipeline/observation"
+      ring_obs: "/banyu/pipeline/ring_observation"
+      guidance_intent: "/banyu/guidance/velocity_intent"
+      preview_target: "/banyu/execution/preview_target"
+      mavros_target: "/mavros/setpoint_raw/local"
+
+pipeline_end_node:
+  ros__parameters:
+    observation_topic: "/banyu/pipeline/observation"
+    candidate_topic: "/banyu/pipeline/end_candidate"
+    end_topic: "/banyu/pipeline/end"
