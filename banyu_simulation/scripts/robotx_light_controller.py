@@ -611,12 +611,19 @@ class RobotXPipelineController:
         r, g, b = rgb
         is_off = (r == 0.0 and g == 0.0 and b == 0.0)
 
-        # 1. Update Physical Point Light (High intensity 25.0)
+        # 1. Update Physical Upward Spot Light (Directed strictly +Z, zero floor projection)
         if node.light_id:
             light_msg = light_pb2.Light()
             light_msg.id = node.light_id
+            light_msg.type = light_pb2.Light.LightType.SPOT
+            light_msg.direction.x = 0.0
+            light_msg.direction.y = 0.0
+            light_msg.direction.z = 1.0
+            light_msg.spot_inner_angle = 0.25
+            light_msg.spot_outer_angle = 0.5
+            light_msg.spot_falloff = 1.0
             light_msg.is_light_off = is_off
-            light_msg.intensity = 0.0 if is_off else 1.0
+            light_msg.intensity = 0.0 if is_off else 0.5
             light_msg.diffuse.r = r
             light_msg.diffuse.g = g
             light_msg.diffuse.b = b
@@ -625,10 +632,10 @@ class RobotXPipelineController:
             light_msg.specular.g = min(1.0, g * 1.2)
             light_msg.specular.b = min(1.0, b * 1.2)
             light_msg.specular.a = 1.0
-            light_msg.range = 12.0
-            light_msg.attenuation_constant = 0.4
-            light_msg.attenuation_linear = 0.05
-            light_msg.attenuation_quadratic = 0.015
+            light_msg.range = 1.5
+            light_msg.attenuation_constant = 0.8
+            light_msg.attenuation_linear = 0.2
+            light_msg.attenuation_quadratic = 0.1
             self.gz_node.request(
                 f"/world/{self.world_name}/light_config",
                 light_msg, light_pb2.Light, bool_pb2.Boolean, 100

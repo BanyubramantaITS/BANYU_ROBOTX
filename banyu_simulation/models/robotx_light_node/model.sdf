@@ -64,13 +64,13 @@
         </material>
       </visual>
 
-      <!-- Soft Volumetric LED Glow Halo (Simulates real-life lens scatter and bloom) -->
+      <!-- Soft Volumetric LED Glow Halo (Recessed inside casing cavity) -->
       <visual name="led_halo_visual">
-        <pose>0 0 0.038 0 0 0</pose>
+        <pose>0 0 0.036 0 0 0</pose>
         <geometry>
           <cylinder>
-            <radius>0.023</radius>
-            <length>0.007</length>
+            <radius>0.018</radius>
+            <length>0.004</length>
           </cylinder>
         </geometry>
         <transparency>0.35</transparency>
@@ -108,18 +108,24 @@
         </geometry>
       </collision>
 
-      <!-- High-Intensity Point Light (Vivid real-life illumination) -->
-      <light name="led_light" type="point">
-        <pose>0 0 0.045 0 0 0</pose>
+      <!-- Upward-facing spot light: directed strictly upward (+Z) with zero downward floor illumination -->
+      <light name="led_light" type="spot">
+        <pose>0 0 0.038 0 0 0</pose>
+        <direction>0 0 1</direction>
         <diffuse>1.0 0.0 0.0 1.0</diffuse>
         <specular>1.0 0.8 0.8 1.0</specular>
-        <intensity>25.0</intensity>
+        <intensity>0.5</intensity>
         <attenuation>
-          <range>12.0</range>
-          <constant>0.4</constant>
-          <linear>0.05</linear>
-          <quadratic>0.015</quadratic>
+          <range>1.5</range>
+          <constant>0.8</constant>
+          <linear>0.2</linear>
+          <quadratic>0.1</quadratic>
         </attenuation>
+        <spot>
+          <inner_angle>0.25</inner_angle>
+          <outer_angle>0.5</outer_angle>
+          <falloff>1.0</falloff>
+        </spot>
         <cast_shadows>false</cast_shadows>
       </light>
 
