@@ -315,24 +315,48 @@ class RobotXPipelineController:
 
         # ROV proximity tracking for magnetic probe contact
         node_positions = {}
+        last_in_range_time = 0.0
         def pose_cb(msg):
+            nonlocal last_in_range_time
+            tip_pos = None
             rov_pos = None
+            rov_q = None
             for p in msg.pose:
                 name = p.name
-                m = re.search(r'(?:^|::)light_node_(\d+)$', name)
+                m = re.search(r'(?:^|::)light_node_(\d+)(?:::|$)', name)
                 if m:
                     nid = int(m.group(1))
                     node_positions[nid] = (p.position.x, p.position.y, p.position.z)
-                elif "bluerov2_heavy" in name:
+                elif "probe_tip" in name:
+                    tip_pos = (p.position.x, p.position.y, p.position.z)
+                elif name == "bluerov2_heavy" or name.endswith("::base_link"):
                     rov_pos = (p.position.x, p.position.y, p.position.z)
-            if rov_pos and self.damaged_node_id in node_positions:
+                    rov_q = (p.orientation.w, p.orientation.x, p.orientation.y, p.orientation.z)
+
+            # If no direct probe_tip link pose, compute tip world position from vehicle body pose + quaternion
+            if tip_pos is None and rov_pos is not None and rov_q is not None:
+                qw, qx, qy, qz = rov_q
+                bx, by, bz = 0.27, 0.0, -0.26
+                tx = 2.0 * (qy * bz - qz * by)
+                ty = 2.0 * (qz * bx - qx * bz)
+                tz = 2.0 * (qx * by - qy * bx)
+                rot_x = bx + qw * tx + (qy * tz - qz * ty)
+                rot_y = by + qw * ty + (qz * tx - qx * tz)
+                rot_z = bz + qw * tz + (qx * ty - qy * tx)
+                tip_pos = (rov_pos[0] + rot_x, rov_pos[1] + rot_y, rov_pos[2] + rot_z)
+
+            if tip_pos and self.damaged_node_id in node_positions:
                 target_pos = node_positions[self.damaged_node_id]
-                dist = math.dist(rov_pos, target_pos)
+                # Magnetic switch is at the top of the node lid (z + 0.0414)
+                switch_pos = (target_pos[0], target_pos[1], target_pos[2] + 0.0414)
+                dist = math.dist(tip_pos, switch_pos)
+                now = time.time()
                 with self.lock:
                     node = self.nodes[self.damaged_node_id]
-                    if dist < 0.40:
+                    if dist < 0.15:
+                        last_in_range_time = now
                         node.raw_sensor_field_mT = 3.5
-                    elif node.injected_until <= time.time():
+                    elif now - last_in_range_time > 0.40 and node.injected_until <= now:
                         node.raw_sensor_field_mT = 0.0
 
         self.gz_node.subscribe(pose_v_pb2.Pose_V, f"/world/{self.world_name}/pose/info", pose_cb)

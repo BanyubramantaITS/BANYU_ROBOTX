@@ -32,6 +32,9 @@ BT::NodeStatus RepairLight::begin() {
   aligned_z_ = 0;
   green_frames_ = 0;
   servo_.reset();
+  if (!repair_pub_) {
+    repair_pub_ = node_->create_publisher<std_msgs::msg::String>("/robotx/pipeline/repair_damaged", 10);
+  }
   return BT::NodeStatus::RUNNING;
 }
 
@@ -49,6 +52,11 @@ BT::NodeStatus RepairLight::step(const Snapshot& s) {
     const double off = std::hypot(fix->fwd, fix->right);
     if (newFrame(s)) {
       const bool on_switch = off < kOnSwitchM && fix->z < drop + kOnSwitchAboveM;
+      if (on_switch && repair_pub_) {
+        std_msgs::msg::String msg;
+        msg.data = "2.5";
+        repair_pub_->publish(msg);
+      }
       green_frames_ = on_switch && fix->light.colour == banyu_msgs::msg::LightNode::GREEN ? green_frames_ + 1 : 0;
       if (green_frames_ >= kGreenFrames) {
         RCLCPP_INFO(logger(), "repair: light is GREEN after %.0f s", elapsed());

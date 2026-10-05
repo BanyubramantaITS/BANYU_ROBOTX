@@ -102,6 +102,13 @@
       <child link="probe_link" />
       <origin xyz="0.27 0 0.14" rpy="0 0 0" />
     </joint>
+    <!-- Probe tip datum link (magnetic contact point at bottom of 0.40m rod) -->
+    <link name="probe_tip" />
+    <joint name="probe_tip_joint" type="fixed">
+      <parent link="probe_link" />
+      <child link="probe_tip" />
+      <origin xyz="0 0 -0.40" rpy="0 0 0" />
+    </joint>
   </xacro:if>
 
   <!-- HydrophoneArray plugin: listens to pinger_green, computes TDOA and publishes arrivals -->

@@ -8,6 +8,8 @@
 #include "banyu_mission/task2/probe_servo.hpp"
 #include "banyu_mission/task2/task2_action.hpp"
 
+#include <std_msgs/msg/string.hpp>
+
 namespace banyu_mission::task2 {
 
 class RepairLight : public Task2Action {
@@ -25,6 +27,7 @@ class RepairLight : public Task2Action {
   double aligned_z_{0};
   int green_frames_{0};
   ProbeServo servo_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr repair_pub_;
 };
 
 }  // namespace banyu_mission::task2
