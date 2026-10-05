@@ -148,7 +148,7 @@ def generate_launch_description():
     )
 
     _bluerov2_heavy_file = os.path.join(
-        _bluerov2_gz_pkg_share, "models", "bluerov2_heavy", "model.xacro"
+        _banyu_sim_pkg_share, "models", "bluerov2_task2", "model.xacro"
     )
 
     # Stock GUI plus a bottom-camera Image Display (turbidity is only visible there).

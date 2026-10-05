@@ -31,6 +31,15 @@
             name="gz::sim::systems::Magnetometer">
         </plugin>
 
+        <!-- Spherical coordinates for Earth magnetic field reference (ArduSub SITL datum) -->
+        <spherical_coordinates>
+            <surface_model>EARTH_WGS84</surface_model>
+            <latitude_deg>-35.363262</latitude_deg>
+            <longitude_deg>149.165237</longitude_deg>
+            <elevation>0.0</elevation>
+            <heading_deg>0.0</heading_deg>
+        </spherical_coordinates>
+
         <!-- Buoyancy plugin manages buoyancy for all models -->
         <plugin
             filename="gz-sim-buoyancy-system"
