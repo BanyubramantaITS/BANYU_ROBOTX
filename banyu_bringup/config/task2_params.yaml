@@ -35,7 +35,7 @@ banyu_mission:
 
 task2_sim_provider:
   ros__parameters:
-    ring_colors: ["green", "green", "green", "red", "green"]
+    ring_colors: ["green", "green", "green", "red"]
     publish_rate: 5.0
     pipeline_standoff_m: 1.0
     surface_depth: -0.4

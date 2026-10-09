@@ -106,7 +106,7 @@ class Task2SimProvider(Node):
         self.declare_parameter("task2_pose_timeout_s", 3.0)
         self.declare_parameter("task2_gps_fix_timeout_s", 1.0)
         self.declare_parameter(
-            "ring_colors", ["green", "green", "green", "red", "green"]
+            "ring_colors", ["green", "green", "green", "red"]
         )
 
         self.buoy_x = float(self.get_parameter("buoy_x").value)
@@ -148,13 +148,13 @@ class Task2SimProvider(Node):
         configured_colors = self.get_parameter("ring_colors").value
         if (
             not isinstance(configured_colors, (list, tuple))
-            or len(configured_colors) != 5
+            or len(configured_colors) != 4
         ):
             self.get_logger().fatal(
-                "Task 2 ring_colors must contain exactly five entries: "
+                "Task 2 ring_colors must contain exactly four entries: "
                 "red or green"
             )
-            raise ValueError("ring_colors must contain exactly five entries")
+            raise ValueError("ring_colors must contain exactly four entries")
 
         self.ring_colors = []
         for configured_color in configured_colors:

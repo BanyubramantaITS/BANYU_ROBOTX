@@ -304,7 +304,6 @@ class TeamGcsMock(Node):
         expected_segments = [PipelineSegmentStatus.PIPELINE_SEGMENT_DAMAGED,
                              PipelineSegmentStatus.PIPELINE_SEGMENT_INTACT,
                              PipelineSegmentStatus.PIPELINE_SEGMENT_UNKNOWN,
-                             PipelineSegmentStatus.PIPELINE_SEGMENT_UNKNOWN,
                              PipelineSegmentStatus.PIPELINE_SEGMENT_UNKNOWN]
         has_survey_run = 'run_id' in PipelineSurvey.get_fields_and_field_types()
         self.wait_report(
@@ -323,7 +322,7 @@ class TeamGcsMock(Node):
                 'survey publication status carrying the active run ID')
             log.warning('PipelineSurvey has no run_id; checked run ID on survey MissionStatus')
         log.info(
-            'Step 4/6 PASS: Survey received with buoy=(33.1, -118.1), segments=[2, 1, 0, 0, 0]')
+            'Step 4/6 PASS: Survey received with buoy=(33.1, -118.1), segments=[2, 1, 0, 0]')
 
         log.info('Step 5/6: Send CMD_TASK4_ASSISTANCE and verify acknowledgement and readiness')
         self.reports['ack'].clear()

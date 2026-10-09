@@ -665,7 +665,7 @@ TEST_F(UuvCommNodeTest, SurveyServicePublishesDefaultSegmentsAndMissionStatus)
   EXPECT_EQ(statuses_.back().current_task, RxTask::TASK_INFRA_SURVEY_REPAIR);
   requestSurvey();
   ASSERT_FALSE(surveys_.empty());
-  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{1, 1, 1, 2, 1}));
+  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{1, 1, 1, 2}));
   EXPECT_DOUBLE_EQ(surveys_.back().active_buoy_position.latitude, 33.1);
   EXPECT_DOUBLE_EQ(surveys_.back().active_buoy_position.longitude, -118.1);
   EXPECT_EQ(surveys_.back().header.frame_id, "uuv");
@@ -699,7 +699,7 @@ TEST_F(UuvCommNodeTest, SurveyOrdersAndDeduplicatesRingObservationsAndResetsForN
   spinFor(100ms);
   requestSurvey();
   ASSERT_FALSE(surveys_.empty());
-  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{1, 2, 1, 0, 0}));
+  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{1, 2, 1, 0}));
 
   Command command;
   command.target_vehicle = VehicleType::TYPE_UUV;
@@ -710,7 +710,7 @@ TEST_F(UuvCommNodeTest, SurveyOrdersAndDeduplicatesRingObservationsAndResetsForN
       return start_requests_ == 1 && statuses_.back().message == "Mission started: accepted";
     }));
   requestSurvey();
-  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{1, 1, 1, 2, 1}));
+  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{1, 1, 1, 2}));
   ASSERT_TRUE(spinUntil([this]() {
       return statuses_.back().run_id == 9 &&
              statuses_.back().message == "Pipeline survey published";
@@ -718,12 +718,12 @@ TEST_F(UuvCommNodeTest, SurveyOrdersAndDeduplicatesRingObservationsAndResetsForN
   EXPECT_EQ(statuses_.back().current_task, RxTask::TASK_NONE);
 }
 
-TEST_F(UuvCommNodeTest, SurveyPadsSparseIndicesAndPreservesIndicesBeyondFiveSections)
+TEST_F(UuvCommNodeTest, SurveyPadsSparseIndicesAndPreservesIndicesBeyondFourSections)
 {
   using banyu_msgs::msg::PipelineRingState;
   auto ring_pub = publisher<PipelineRingState>("/banyu/pipeline/ring_state");
   PipelineRingState ring;
-  ring.index = 4;
+  ring.index = 3;
   ring.color = PipelineRingState::COLOR_BLUE;
   ring_pub->publish(ring);
   ring.index = 0;
@@ -732,13 +732,13 @@ TEST_F(UuvCommNodeTest, SurveyPadsSparseIndicesAndPreservesIndicesBeyondFiveSect
   spinFor(100ms);
   requestSurvey();
   ASSERT_FALSE(surveys_.empty());
-  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{2, 0, 0, 0, 1}));
+  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{2, 0, 0, 1}));
 
-  ring.index = 6;
+  ring.index = 5;
   ring_pub->publish(ring);
   spinFor(100ms);
   requestSurvey();
-  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{2, 0, 0, 0, 1, 0, 2}));
+  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{2, 0, 0, 1, 0, 2}));
 
   ring.index = 19;
   ring_pub->publish(ring);
@@ -762,7 +762,7 @@ TEST_F(UuvCommNodeTest, SurveyRejectsOutOfRangeRingIndicesWithoutExpandingSegmen
   spinFor(100ms);
   requestSurvey();
   ASSERT_FALSE(surveys_.empty());
-  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{1, 1, 1, 2, 1}));
+  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{1, 1, 1, 2}));
 
   ring.index = 0;
   ring.color = PipelineRingState::COLOR_BLUE;
@@ -771,7 +771,7 @@ TEST_F(UuvCommNodeTest, SurveyRejectsOutOfRangeRingIndicesWithoutExpandingSegmen
   ring_pub->publish(ring);
   spinFor(100ms);
   requestSurvey();
-  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{1, 0, 0, 0, 0}));
+  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{1, 0, 0, 0}));
 }
 
 TEST_F(UuvCommNodeTest, LateSurveySubscriberReceivesRetainedReport)
@@ -783,5 +783,5 @@ TEST_F(UuvCommNodeTest, LateSurveySubscriberReceivesRetainedReport)
     "/system/vehicle/uuv/task2/pipeline_survey", rclcpp::QoS(10).transient_local(),
     [this](rx_msgs::msg::PipelineSurvey::SharedPtr msg) {surveys_.push_back(*msg);});
   ASSERT_TRUE(spinUntil([this]() {return !surveys_.empty();}));
-  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{1, 1, 1, 2, 1}));
+  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{1, 1, 1, 2}));
 }

@@ -36,6 +36,7 @@ public:
 private:
   using TriggerPipelineSurvey = banyu_msgs::srv::TriggerPipelineSurvey;
   static constexpr uint32_t kMaxRingIndex = 20;
+  static constexpr size_t kDefaultPipelineSegments = 4;
 
   void publishHeartbeat();
   void publishMissionStatus(

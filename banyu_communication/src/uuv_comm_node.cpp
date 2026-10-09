@@ -348,12 +348,13 @@ void UuvCommNode::surveyCallback(
   {
     std::lock_guard<std::mutex> lock(mutex_);
     survey.active_buoy_position = active_buoy_position_;
-    std::vector<uint8_t> segments(5, rx_msgs::msg::PipelineSegmentStatus::PIPELINE_SEGMENT_UNKNOWN);
+    std::vector<uint8_t> segments(
+      kDefaultPipelineSegments, rx_msgs::msg::PipelineSegmentStatus::PIPELINE_SEGMENT_UNKNOWN);
     if (segments_by_index_.empty()) {
-      segments = {1, 1, 1, 2, 1};
+      segments = {1, 1, 1, 2};
     } else {
       for (const auto & ring : segments_by_index_) {
-        if (ring.first < 5) {
+        if (ring.first < kDefaultPipelineSegments) {
           segments[ring.first] = ring.second;
         } else if (ring.first < kMaxRingIndex) {
           if (ring.first >= segments.size()) {
