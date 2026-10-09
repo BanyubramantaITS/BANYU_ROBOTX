@@ -99,6 +99,7 @@ UuvCommNode::UuvCommNode(const rclcpp::NodeOptions & options)
     "/banyu/pipeline/ring_state", 10,
     std::bind(&UuvCommNode::ringStateCallback, this, _1));
   mission_start_client_ = create_client<std_srvs::srv::Trigger>("/banyu/mission/start");
+  mission_abort_client_ = create_client<std_srvs::srv::Trigger>("/banyu/mission/abort");
   survey_service_ = create_service<TriggerPipelineSurvey>(
     "/banyu/communication/trigger_pipeline_survey",
     std::bind(&UuvCommNode::surveyCallback, this, _1, _2));
@@ -130,8 +131,9 @@ uint8_t UuvCommNode::robotStateLocked() const
 
 void UuvCommNode::publishHeartbeat()
 {
+  const auto heartbeat_time = now();
   rx_msgs::msg::Heartbeat heartbeat;
-  heartbeat.header.stamp = now();
+  heartbeat.header.stamp = heartbeat_time;
   heartbeat.header.frame_id = "uuv";
   heartbeat.vehicle_type = rx_msgs::msg::VehicleType::TYPE_UUV;
   {
@@ -139,7 +141,7 @@ void UuvCommNode::publishHeartbeat()
     heartbeat.state = robotStateLocked();
     heartbeat.current_task = current_task_;
     const bool gps_valid = gps_received_ &&
-      (now() - last_gps_time_).seconds() <= 3.0 &&
+      (heartbeat_time - last_gps_time_).seconds() <= 3.0 &&
       gps_.status.status >= sensor_msgs::msg::NavSatStatus::STATUS_FIX &&
       validPosition(gps_.latitude, gps_.longitude);
     heartbeat.position = anchor_;
@@ -151,13 +153,15 @@ void UuvCommNode::publishHeartbeat()
         heartbeat.altitude_hae_m = static_cast<float>(gps_.altitude);
       }
     }
-    heartbeat.spd_mps = static_cast<float>(speed_mps_);
-    if (std::isfinite(pose_.pose.position.z)) {
+    heartbeat.spd_mps = (heartbeat_time - last_velocity_time_).seconds() > 3.0 ?
+      0.0F : static_cast<float>(speed_mps_);
+    const bool pose_fresh = (heartbeat_time - last_pose_time_).seconds() <= 3.0;
+    if (pose_fresh && std::isfinite(pose_.pose.position.z)) {
       heartbeat.depth_m = static_cast<float>(std::max(0.0, -pose_.pose.position.z));
     }
     const auto & q = pose_.pose.orientation;
     const double norm = std::hypot(std::hypot(q.x, q.y), std::hypot(q.z, q.w));
-    if (std::isfinite(norm) && norm > 0.0) {
+    if (pose_fresh && std::isfinite(norm) && norm > 0.0) {
       const double x = q.x / norm;
       const double y = q.y / norm;
       const double z = q.z / norm;
@@ -246,6 +250,12 @@ void UuvCommNode::commandCallback(const rx_msgs::msg::Command::SharedPtr msg)
       ++mission_start_generation_;
       current_task_ = rx_msgs::msg::RxTask::TASK_NONE;
     }
+    if (mission_abort_client_->service_is_ready()) {
+      mission_abort_client_->async_send_request(
+        std::make_shared<std_srvs::srv::Trigger::Request>());
+    } else {
+      RCLCPP_WARN(get_logger(), "Mission abort service unavailable");
+    }
     publishMissionStatus("Mission stopped");
   } else if (msg->command_type == Command::CMD_TASK4_ASSISTANCE ||
     msg->command_type == Command::CMD_TASK4_KEEP_OUT_ZONE ||
@@ -290,6 +300,7 @@ void UuvCommNode::poseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr 
 {
   std::lock_guard<std::mutex> lock(mutex_);
   pose_ = *msg;
+  last_pose_time_ = now();
 }
 
 void UuvCommNode::velocityCallback(const geometry_msgs::msg::TwistStamped::SharedPtr msg)
@@ -298,6 +309,7 @@ void UuvCommNode::velocityCallback(const geometry_msgs::msg::TwistStamped::Share
   const double speed = std::hypot(velocity.x, velocity.y, velocity.z);
   std::lock_guard<std::mutex> lock(mutex_);
   speed_mps_ = std::isfinite(speed) ? speed : 0.0;
+  last_velocity_time_ = now();
 }
 
 void UuvCommNode::vehicleStatusCallback(const banyu_msgs::msg::VehicleStatus::SharedPtr msg)
@@ -311,6 +323,10 @@ void UuvCommNode::ringStateCallback(const banyu_msgs::msg::PipelineRingState::Sh
 {
   using banyu_msgs::msg::PipelineRingState;
   using rx_msgs::msg::PipelineSegmentStatus;
+  if (msg->index >= kMaxRingIndex) {
+    RCLCPP_WARN(get_logger(), "Ignoring out-of-range pipeline ring index %u", msg->index);
+    return;
+  }
   if (msg->color != PipelineRingState::COLOR_RED &&
     msg->color != PipelineRingState::COLOR_GREEN && msg->color != PipelineRingState::COLOR_BLUE)
   {
@@ -337,12 +353,16 @@ void UuvCommNode::surveyCallback(
       segments = {1, 1, 1, 2, 1};
     } else {
       for (const auto & ring : segments_by_index_) {
-        if (ring.first >= segments.size()) {
-          segments.resize(
-            static_cast<size_t>(ring.first) + 1,
-            rx_msgs::msg::PipelineSegmentStatus::PIPELINE_SEGMENT_UNKNOWN);
+        if (ring.first < 5) {
+          segments[ring.first] = ring.second;
+        } else if (ring.first < kMaxRingIndex) {
+          if (ring.first >= segments.size()) {
+            segments.resize(
+              static_cast<size_t>(ring.first) + 1,
+              rx_msgs::msg::PipelineSegmentStatus::PIPELINE_SEGMENT_UNKNOWN);
+          }
+          segments[ring.first] = ring.second;
         }
-        segments[ring.first] = ring.second;
       }
     }
     survey.segments = segments;

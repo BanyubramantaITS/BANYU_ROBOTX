@@ -44,6 +44,7 @@ from std_srvs.srv import Trigger
 
 RUN_ID = 'run-sos-e2e'
 MISSION_START_SERVICE = '/banyu/mission/start'
+MISSION_ABORT_SERVICE = '/banyu/mission/abort'
 SURVEY_SERVICE = '/banyu/communication/trigger_pipeline_survey'
 BRIDGE_COMMAND = [
     'ros2', 'run', 'banyu_communication', 'uuv_comm_node', '--ros-args',
@@ -68,6 +69,7 @@ class TeamGcsMock(Node):
         self.timeout = timeout
         self.bridge_process = None
         self.start_requests = 0
+        self.abort_requests = 0
         self.telemetry_enabled = False
         self.rings = []
         self.reports = {}
@@ -105,6 +107,8 @@ class TeamGcsMock(Node):
         )
         self.start_server = self.create_service(
             Trigger, MISSION_START_SERVICE, self.start_mission)
+        self.abort_server = self.create_service(
+            Trigger, MISSION_ABORT_SERVICE, self.abort_mission)
         self.survey_client = self.create_client(TriggerPipelineSurvey, SURVEY_SERVICE)
         self.telemetry_timer = self.create_timer(0.1, self.publish_telemetry)
 
@@ -125,6 +129,14 @@ class TeamGcsMock(Node):
         response.success = True
         response.message = 'mock mission started'
         self.get_logger().info('/banyu/mission/start called: mock mission started')
+        return response
+
+    def abort_mission(self, request, response):
+        """Acknowledge the vehicle's mission-abort request."""
+        self.abort_requests += 1
+        response.success = True
+        response.message = 'mock mission aborted'
+        self.get_logger().info('/banyu/mission/abort called: mock mission aborted')
         return response
 
     def check_running(self):
@@ -220,19 +232,19 @@ class TeamGcsMock(Node):
         self.command_pub.publish(command)
 
     def run_verification(self):
-        """Execute the five communication checks in order."""
+        """Execute the six communication checks in order."""
         log = self.get_logger()
         if self.wire_run_id != RUN_ID:
             log.warning(f'rx_msgs uses uint32 run_id: {RUN_ID} maps to {self.wire_run_id}')
         if self.task_field == 'current_task':
             log.info('MissionStatus uses current_task and RobotState.STATE_AUTO for running')
 
-        log.info('Step 1/5: Verify reception of a UUV heartbeat')
+        log.info('Step 1/6: Verify reception of a UUV heartbeat')
         self.wait_report('heartbeat', lambda msg: msg.vehicle_type == VehicleType.TYPE_UUV,
                          'heartbeat with vehicle_type == TYPE_UUV')
-        log.info('Step 1/5 PASS: UUV heartbeat received')
+        log.info('Step 1/6 PASS: UUV heartbeat received')
 
-        log.info('Step 2/5: Publish telemetry and verify depth=2.0m, GPS=(34.0, -119.0)')
+        log.info('Step 2/6: Publish telemetry and verify depth=2.0m, GPS=(34.0, -119.0)')
         self.wait_until(
             lambda: all(pub.get_subscription_count() > 0 for pub in self.input_publishers)
             and all(sub.get_publisher_count() > 0 for sub in self.report_subscriptions),
@@ -249,9 +261,9 @@ class TeamGcsMock(Node):
             and math.isclose(msg.heading_deg, 90.0, abs_tol=1e-3)
             and msg.state == RobotState.STATE_AUTO,
             'heartbeat reflecting simulated depth, coordinates, and automatic control')
-        log.info('Step 2/5 PASS: Heartbeat reflects simulated vehicle telemetry')
+        log.info('Step 2/6 PASS: Heartbeat reflects simulated vehicle telemetry')
 
-        log.info(f'Step 3/5: Send CMD_RUN_START for {RUN_ID} and verify mission start')
+        log.info(f'Step 3/6: Send CMD_RUN_START for {RUN_ID} and verify mission start')
         self.wait_until(
             lambda: self.count_clients(MISSION_START_SERVICE) > 0,
             'bridge mission-start client discovery')
@@ -267,9 +279,9 @@ class TeamGcsMock(Node):
             and msg.state == self.running_state
             and msg.message == 'Mission started: mock mission started',
             'running infrastructure survey mission status after successful mission start')
-        log.info('Step 3/5 PASS: Mission service called and running status received')
+        log.info('Step 3/6 PASS: Mission service called and running status received')
 
-        log.info('Step 4/5: Publish ring inspections and trigger the pipeline survey')
+        log.info('Step 4/6: Publish ring inspections and trigger the pipeline survey')
         for index, color in ((0, PipelineRingState.COLOR_RED), (1, PipelineRingState.COLOR_BLUE)):
             ring = PipelineRingState()
             ring.header.frame_id = 'map'
@@ -311,9 +323,9 @@ class TeamGcsMock(Node):
                 'survey publication status carrying the active run ID')
             log.warning('PipelineSurvey has no run_id; checked run ID on survey MissionStatus')
         log.info(
-            'Step 4/5 PASS: Survey received with buoy=(33.1, -118.1), segments=[2, 1, 0, 0, 0]')
+            'Step 4/6 PASS: Survey received with buoy=(33.1, -118.1), segments=[2, 1, 0, 0, 0]')
 
-        log.info('Step 5/5: Send CMD_TASK4_ASSISTANCE and verify acknowledgement and readiness')
+        log.info('Step 5/6: Send CMD_TASK4_ASSISTANCE and verify acknowledgement and readiness')
         self.reports['ack'].clear()
         self.reports['readiness'].clear()
         sequence = 2
@@ -331,7 +343,46 @@ class TeamGcsMock(Node):
             log.warning(
                 'ReadinessReport has no readiness_status; matched on-station report sequence')
         log.info(
-            'Step 5/5 PASS: Incident acknowledgement and readiness match the assistance command')
+            'Step 5/6 PASS: Incident acknowledgement and readiness match the assistance command')
+
+        log.info('Step 6/6: Verify stop commands trigger mission abort and clear the active task')
+        self.wait_until(
+            lambda: self.count_clients(MISSION_ABORT_SERVICE) > 0,
+            'bridge mission-abort client discovery')
+        stop_commands = [('CMD_MISSION_DONE', Command.CMD_MISSION_DONE)]
+        if hasattr(Command, 'CMD_RUN_STOP'):
+            stop_commands.insert(0, ('CMD_RUN_STOP', Command.CMD_RUN_STOP))
+        else:
+            log.warning('CMD_RUN_STOP is absent from rx_msgs; checking CMD_MISSION_DONE abort')
+        for command_name, command_type in stop_commands:
+            sequence += 1
+            self.reports['status'].clear()
+            self.send_command(Command.CMD_RUN_START, sequence)
+            self.wait_report(
+                'status',
+                lambda msg: msg.run_id == self.wire_run_id
+                and getattr(msg, self.task_field) == RxTask.TASK_INFRA_SURVEY_REPAIR
+                and msg.message == 'Mission started: mock mission started',
+                f'active mission before {command_name}')
+
+            sequence += 1
+            initial_aborts = self.abort_requests
+            self.reports['status'].clear()
+            self.reports['heartbeat'].clear()
+            self.send_command(command_type, sequence)
+            self.wait_until(lambda: self.abort_requests == initial_aborts + 1,
+                            f'/banyu/mission/abort invocation after {command_name}')
+            self.wait_report(
+                'status',
+                lambda msg: msg.run_id == self.wire_run_id
+                and getattr(msg, self.task_field) == RxTask.TASK_NONE
+                and msg.message == 'Mission stopped',
+                f'stopped mission status after {command_name}')
+            self.wait_report(
+                'heartbeat', lambda msg: getattr(msg, self.task_field) == RxTask.TASK_NONE,
+                f'heartbeat with no active task after {command_name}')
+            log.info(f'{command_name} PASS: Abort service called and active task cleared')
+        log.info('Step 6/6 PASS: Supported stop commands trigger mission abort')
 
 
 def stop_bridge(process):
@@ -383,7 +434,7 @@ def main(argv=None):
                 BRIDGE_COMMAND, env=os.environ.copy(), start_new_session=True)
             node.bridge_process = process
         node.run_verification()
-        node.get_logger().info('All five Team GCS communication checks passed')
+        node.get_logger().info('All six Team GCS communication checks passed')
         return 0
     except (KeyboardInterrupt, ExternalShutdownException):
         print('FAIL: Communication verification interrupted', file=sys.stderr)

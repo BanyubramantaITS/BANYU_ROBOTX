@@ -275,6 +275,67 @@ TEST_F(MissionTest, PublishPipelineSurveyWaitsForDelayedServiceDiscovery)
   EXPECT_EQ(requests, 1u);
 }
 
+TEST_F(MissionTest, PublishPipelineSurveyFailsAfterFiveSecondsWithoutServiceResponse)
+{
+  using Survey = banyu_msgs::srv::TriggerPipelineSurvey;
+  auto node = std::make_shared<rclcpp::Node>(
+    "survey_service_timeout_test",
+    rclcpp::NodeOptions().parameter_overrides({rclcpp::Parameter("use_sim_time", true)}));
+  auto server_node = std::make_shared<rclcpp::Node>("unresponsive_survey_service_test");
+  std::vector<std::shared_ptr<rmw_request_id_t>> requests;
+  auto server = server_node->create_service<Survey>(
+    "/test/unresponsive_pipeline_survey",
+    [&](const std::shared_ptr<rmw_request_id_t> header,
+    const std::shared_ptr<Survey::Request>) {
+      requests.push_back(header);
+    });
+  banyu_mission::PublishPipelineSurveyNode action(
+    "PublishPipelineSurvey", BT::NodeConfig{}, node, "/test/unresponsive_pipeline_survey");
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(server_node);
+
+  const auto started = std::chrono::steady_clock::now();
+  ASSERT_EQ(action.onStart(), BT::NodeStatus::RUNNING);
+  EXPECT_EQ(action.onRunning(), BT::NodeStatus::RUNNING);
+  auto status = BT::NodeStatus::RUNNING;
+  while (status == BT::NodeStatus::RUNNING &&
+    std::chrono::steady_clock::now() - started < std::chrono::seconds(7))
+  {
+    executor.spin_some();
+    status = action.onRunning();
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  ASSERT_EQ(status, BT::NodeStatus::FAILURE);
+  EXPECT_GE(std::chrono::steady_clock::now() - started, std::chrono::seconds(5));
+  EXPECT_EQ(node->now().nanoseconds(), 0);
+  ASSERT_EQ(requests.size(), 1u);
+
+  // A late successful reply must not change the timed-out result.
+  Survey::Response response;
+  response.success = true;
+  server->send_response(*requests.front(), response);
+  executor.spin_some();
+  EXPECT_EQ(action.onRunning(), BT::NodeStatus::FAILURE);
+
+  ASSERT_EQ(action.onStart(), BT::NodeStatus::RUNNING);
+  const auto retry_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (requests.size() < 2 && std::chrono::steady_clock::now() < retry_deadline) {
+    executor.spin_some();
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  ASSERT_EQ(requests.size(), 2u);
+  EXPECT_EQ(action.onRunning(), BT::NodeStatus::RUNNING);
+  server->send_response(*requests.back(), response);
+  while (action.onRunning() == BT::NodeStatus::RUNNING &&
+    std::chrono::steady_clock::now() < retry_deadline)
+  {
+    executor.spin_some();
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  EXPECT_EQ(action.onRunning(), BT::NodeStatus::SUCCESS);
+}
+
 TEST_F(MissionTest, AcquirePipelineRequiresAcquiredResult)
 {
   using Node = banyu_mission::AcquirePipelineNode;

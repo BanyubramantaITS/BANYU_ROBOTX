@@ -83,7 +83,9 @@
   <BehaviorTree ID="SurfaceAndReport">
     <Sequence>
       <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}" />
-      <PublishPipelineSurvey />
+      <Timeout msec="5000">
+        <PublishPipelineSurvey />
+      </Timeout>
     </Sequence>
   </BehaviorTree>
 </root>

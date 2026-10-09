@@ -1,6 +1,7 @@
 #ifndef BANYU_MISSION__ACTION__PUBLISH_PIPELINE_SURVEY_NODE_HPP_
 #define BANYU_MISSION__ACTION__PUBLISH_PIPELINE_SURVEY_NODE_HPP_
 
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -31,6 +32,7 @@ private:
   rclcpp::Client<banyu_msgs::srv::TriggerPipelineSurvey>::SharedPtr client_;
   std::mutex mutex_;
   uint64_t generation_{0};
+  std::chrono::steady_clock::time_point start_time_;
   bool done_{false};
   bool success_{false};
 };

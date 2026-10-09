@@ -35,6 +35,7 @@ public:
 
 private:
   using TriggerPipelineSurvey = banyu_msgs::srv::TriggerPipelineSurvey;
+  static constexpr uint32_t kMaxRingIndex = 20;
 
   void publishHeartbeat();
   void publishMissionStatus(
@@ -60,6 +61,8 @@ private:
   mavros_msgs::msg::State state_;
   sensor_msgs::msg::NavSatFix gps_;
   rclcpp::Time last_gps_time_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time last_pose_time_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time last_velocity_time_{0, 0, RCL_ROS_TIME};
   geometry_msgs::msg::PoseStamped pose_;
   banyu_msgs::msg::VehicleStatus vehicle_status_;
   bool gps_received_{false};
@@ -86,6 +89,7 @@ private:
   rclcpp::Subscription<banyu_msgs::msg::VehicleStatus>::SharedPtr vehicle_status_sub_;
   rclcpp::Subscription<banyu_msgs::msg::PipelineRingState>::SharedPtr ring_state_sub_;
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr mission_start_client_;
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr mission_abort_client_;
   rclcpp::Service<TriggerPipelineSurvey>::SharedPtr survey_service_;
   rclcpp::TimerBase::SharedPtr heartbeat_timer_;
 };
