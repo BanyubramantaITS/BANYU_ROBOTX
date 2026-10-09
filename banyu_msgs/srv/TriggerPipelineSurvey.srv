@@ -1,0 +1,4 @@
+# Trigger service for store-and-forward Task 2 pipeline survey reporting upon surfacing
+---
+bool success
+string message

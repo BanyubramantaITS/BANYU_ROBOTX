@@ -24,8 +24,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Task2Report.msg"
   "msg/VehicleStatus.msg"
   "msg/ActionLease.msg"
-  "msg/MissionReport.msg"
-  "msg/MissionReportAck.msg"
   "action/NavigateSurfaceGps.action"
   "action/AlignHeading.action"
   "action/DiveToDepth.action"
@@ -43,8 +41,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/CenterOnRing.action"
   "action/HoldProbeOnRing.action"
   "action/Surface.action"
-  "action/SendMissionReport.action"
   "srv/AcknowledgeRingRepair.srv"
+  "srv/TriggerPipelineSurvey.srv"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs unique_identifier_msgs
 )
 

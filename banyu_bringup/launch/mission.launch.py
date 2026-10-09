@@ -14,15 +14,6 @@ from launch_ros.actions import Node, SetUseSimTime
 from launch_ros.parameter_descriptions import ParameterValue
 
 
-def _task2_report_max_attempts_substitution():
-    return PythonExpression(
-        [
-            "min(255, int('",
-            LaunchConfiguration("task2_report_max_retries"),
-            "') + 1)",
-        ]
-    )
-
 
 def generate_launch_description():
     banyu_bringup_share = get_package_share_directory("banyu_bringup")
@@ -203,10 +194,10 @@ def generate_launch_description():
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
 
-    task2_uav_report = Node(
+    task2_uuv_comm = Node(
         package="banyu_communication",
-        executable="uav_report_node",
-        name="uav_report",
+        executable="uuv_comm_node",
+        name="uuv_comm_node",
         parameters=[task2_params],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
@@ -249,7 +240,7 @@ def generate_launch_description():
             task2_vehicle_status,
             task2_ring_tracker,
             task2_pipeline_guidance,
-            task2_uav_report,
+            task2_uuv_comm,
             task2_vehicle_execution,
             task2_pipeline_end,
         ]

@@ -15,8 +15,8 @@ banyu_mission:
     task2_pipeline_ring_observation_topic: "/banyu/pipeline/ring_observation"
     topics:
       pipeline_end: "/banyu/pipeline/end"
-    actions:
-      send_mission_report: "/banyu/actions/send_mission_report"
+    services:
+      trigger_pipeline_survey: "/banyu/communication/trigger_pipeline_survey"
     timing:
       state_timeout_s: 5.0
       gps_timeout_s: 5.0
@@ -125,13 +125,14 @@ pipeline_guidance:
     yaw_control_enabled: true
     publish_rate_hz: 20.0
 
-uav_report:
+uuv_comm_node:
   ros__parameters:
-    action_name: "/banyu/actions/send_mission_report"
-    report_topic: "/banyu/uav/mission_report"
-    ack_topic: "/banyu/uav/mission_report_ack"
-    max_attempts: 4
-    retry_period_ms: 1000
+    heartbeat_rate_hz: 2.0
+    anchor_latitude: 33.810313
+    anchor_longitude: -118.393866
+    anchor_altitude_hae_m: 0.0
+    active_buoy_latitude: 33.810313
+    active_buoy_longitude: -118.393866
 
 vehicle_execution_node:
   ros__parameters:

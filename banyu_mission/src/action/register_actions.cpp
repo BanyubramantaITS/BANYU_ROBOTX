@@ -12,7 +12,7 @@
 #include "banyu_mission/action/navigate_surface_gps_node.hpp"
 #include "banyu_mission/action/por_action_nodes.hpp"
 #include "banyu_mission/action/search_pipeline_node.hpp"
-#include "banyu_mission/action/send_mission_report_node.hpp"
+#include "banyu_mission/action/publish_pipeline_survey_node.hpp"
 #include "banyu_mission/action/surface_node.hpp"
 
 namespace banyu_mission
@@ -63,8 +63,12 @@ void registerActionNodes(
     "HoldProbeOnRing", node, action_name("hold_probe_on_ring"));
   factory.registerNodeType<SurfaceNode>(
     "Surface", node, action_name("surface"));
-  factory.registerNodeType<SendMissionReportNode>(
-    "SendMissionReport", node, action_name("send_mission_report"));
+  const std::string survey_service = node->has_parameter("services.trigger_pipeline_survey") ?
+    node->get_parameter("services.trigger_pipeline_survey").as_string() :
+    node->declare_parameter<std::string>(
+      "services.trigger_pipeline_survey", "/banyu/communication/trigger_pipeline_survey");
+  factory.registerNodeType<PublishPipelineSurveyNode>(
+    "PublishPipelineSurvey", node, survey_service);
 
   factory.registerNodeType<AcquireGateNode>(
     "AcquireGate", node, action_name("acquire_gate"));

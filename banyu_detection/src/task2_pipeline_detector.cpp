@@ -1,4 +1,4 @@
-#include <cv_bridge/cv_bridge.h>
+#include <cv_bridge/cv_bridge.hpp>
 
 #include <algorithm>
 #include <banyu_msgs/msg/pipeline_observation.hpp>

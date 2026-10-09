@@ -9,7 +9,7 @@ namespace banyu_mission
   ClassName::ClassName( \
     const std::string & name, const BT::NodeConfig & config, \
     rclcpp::Node::SharedPtr node, const std::string & action) \
-  : ActionClientNode<ActionType>(name, config, std::move(node), action) {}
+    : ActionClientNode<ActionType>(name, config, std::move(node), action) {}
 
 #define BANYU_POR_PORTS(ClassName, ...) \
   BT::PortsList ClassName::providedPorts() {return {__VA_ARGS__};}

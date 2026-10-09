@@ -83,8 +83,7 @@
   <BehaviorTree ID="SurfaceAndReport">
     <Sequence>
       <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}" />
-      <SendMissionReport mission_id="{mission_id}" ring_order="{ring_order}"
-        crc32="{crc32}" max_retries="{max_retries}" />
+      <PublishPipelineSurvey />
     </Sequence>
   </BehaviorTree>
 </root>

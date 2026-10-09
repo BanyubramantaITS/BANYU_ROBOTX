@@ -118,7 +118,7 @@ TEST_F(MissionTest, LoadsAndRegistersAllNodes)
   for (const auto & id : {"NavigateSurfaceGps", "AlignHeading", "DiveToDepth",
       "AcquirePipeline", "SearchPipeline", "FollowPipeline",
       "CenterOnRing", "HoldProbeOnRing", "Surface",
-      "SendMissionReport", "AutonomyInterrupted", "PipelineEnded", "ArmAndSetGuided"})
+      "PublishPipelineSurvey", "AutonomyInterrupted", "PipelineEnded", "ArmAndSetGuided"})
   {
     EXPECT_NE(builders.find(id), builders.end()) << id;
   }
@@ -233,23 +233,9 @@ TEST_F(MissionTest, ActionResultSemanticFailureIsNotTransportSuccess)
       SuccessfulResult{}));
 }
 
-TEST_F(MissionTest, SendMissionReportRequiresAcknowledgedMatchingCrc)
+TEST_F(MissionTest, PublishPipelineSurveyNodeProvidedPortsIsEmpty)
 {
-  using Result = banyu_msgs::action::SendMissionReport::Result;
-  constexpr uint32_t expected_crc = 0x12345678U;
-  Result result;
-  result.success = true;
-  result.acknowledged = true;
-  result.acknowledged_crc32 = expected_crc;
-  EXPECT_TRUE(banyu_mission::SendMissionReportNode::semanticResultSuccess(result, expected_crc));
-  result.acknowledged = false;
-  EXPECT_FALSE(banyu_mission::SendMissionReportNode::semanticResultSuccess(result, expected_crc));
-  result.acknowledged = true;
-  result.acknowledged_crc32 = expected_crc + 1U;
-  EXPECT_FALSE(banyu_mission::SendMissionReportNode::semanticResultSuccess(result, expected_crc));
-  result.success = false;
-  result.acknowledged_crc32 = expected_crc;
-  EXPECT_FALSE(banyu_mission::SendMissionReportNode::semanticResultSuccess(result, expected_crc));
+  EXPECT_TRUE(banyu_mission::PublishPipelineSurveyNode::providedPorts().empty());
 }
 
 TEST_F(MissionTest, AcquirePipelineRequiresAcquiredResult)

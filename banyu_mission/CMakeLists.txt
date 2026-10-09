@@ -15,6 +15,7 @@ find_package(rclcpp_action REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(mavros_msgs REQUIRED)
+find_package(rx_msgs REQUIRED)
 
 add_library(banyu_mission_core
   src/mission_state.cpp
@@ -30,9 +31,9 @@ add_library(banyu_mission_core
   src/action/hold_probe_on_ring_node.cpp
   src/action/navigate_surface_gps_node.cpp
   src/action/por_action_nodes.cpp
+  src/action/publish_pipeline_survey_node.cpp
   src/action/register_actions.cpp
   src/action/search_pipeline_node.cpp
-  src/action/send_mission_report_node.cpp
   src/action/surface_node.cpp
   src/condition/autonomy_interrupted_condition.cpp
   src/condition/pipeline_active_condition.cpp
@@ -50,7 +51,7 @@ target_include_directories(banyu_mission_core PUBLIC
   "$<INSTALL_INTERFACE:include>")
 ament_target_dependencies(banyu_mission_core
   ament_index_cpp banyu_msgs behaviortree_cpp builtin_interfaces
-  rclcpp rclcpp_action std_msgs std_srvs mavros_msgs)
+  rclcpp rclcpp_action std_msgs std_srvs mavros_msgs rx_msgs)
 
 add_executable(banyu_mission src/main.cpp)
 target_compile_features(banyu_mission PUBLIC cxx_std_17)
