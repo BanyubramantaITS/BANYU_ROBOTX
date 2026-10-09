@@ -19,6 +19,7 @@ SurveyEvidenceNode::SurveyEvidenceNode(const rclcpp::NodeOptions & options)
   pinger_freq_hz_ = static_cast<uint32_t>(
     declare_parameter<int64_t>("default_pinger_freq_hz", 25000));
   tier_ = static_cast<uint8_t>(declare_parameter<int64_t>("tier", 2));
+  start_buoy_trust_raw_fix_ = declare_parameter<bool>("start_buoy_trust_raw_fix", false);
 
   const auto accepted_ring_topic = declare_parameter<std::string>(
     "topics.accepted_ring", "/banyu/pipeline/accepted_ring");
@@ -162,7 +163,7 @@ void SurveyEvidenceNode::handleStartBuoyFix(const sensor_msgs::msg::NavSatFix::S
   active_buoy_.endpoint_id = low_progress_endpoint_id_;
   active_buoy_.fix = *msg;
   active_buoy_.uncertainty_m = 1.0;
-  active_buoy_.green_confirmed = true;
+  active_buoy_.green_confirmed = start_buoy_trust_raw_fix_;
   active_buoy_.pinger_confirmed = false;
   active_buoy_.pinger_freq_hz = pinger_freq_hz_;
   buoy_received_ = true;

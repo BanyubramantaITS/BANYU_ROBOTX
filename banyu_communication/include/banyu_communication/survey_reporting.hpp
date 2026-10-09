@@ -84,6 +84,7 @@ private:
   int64_t last_source_ns_{0};
   int64_t last_received_ns_{0};
   int64_t hold_started_ns_{0};
+  uint32_t hold_sample_count_{0};
   bool near_surface_{false};
   bool sample_received_{false};
   std::string calibration_id_;

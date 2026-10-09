@@ -556,3 +556,72 @@ TEST(SurveyLedger, MixedValidInvalidSnapshotPreservesOriginalRed)
   const auto report = ledger.build("mixed-preserved-red");
   EXPECT_EQ(report.original_conditions[0], 2u);
 }
+
+TEST(SurveyLedger, OriginalGreenMustRemainIntactAfterLaterRedFlash)
+{
+  SurveyLedger ledger(ledgerConfig());
+  initialize(ledger);
+  auto value = evidence();
+  ASSERT_TRUE(ledger.ingest(value, 11 * kSecond).empty());
+  ASSERT_EQ(ledger.build("audit-green").original_conditions[0], 1u);
+
+  value.revision++;
+  value.rings[0].color = 1;
+  ASSERT_TRUE(ledger.ingest(value, 11 * kSecond).empty());
+  EXPECT_EQ(ledger.build("audit-green").original_conditions[0], 1u);
+}
+
+TEST(SurveyLedger, OriginalRedMustSurviveUnknownNodeEarlierInSnapshot)
+{
+  SurveyLedger ledger(ledgerConfig());
+  initialize(ledger);
+  auto value = evidence();
+  value.rings[0].color = 0;
+  EXPECT_FALSE(ledger.ingest(value, 11 * kSecond).empty());
+
+  value = evidence();
+  value.revision = 2;
+  value.rings[2].color = 2;
+  ASSERT_TRUE(ledger.ingest(value, 11 * kSecond).empty());
+  EXPECT_EQ(ledger.build("audit-mixed").original_conditions[2], 2u);
+}
+
+TEST(SurveyLedger, ReorderedSnapshotAndRevisitsPreserveOriginalSurveyConditions)
+{
+  SurveyLedger ledger(ledgerConfig());
+  initialize(ledger);
+  auto value = evidence();
+  std::reverse(value.rings.begin(), value.rings.end());
+  ASSERT_TRUE(ledger.ingest(value, 11 * kSecond).empty());
+  EXPECT_TRUE(ledger.complete());
+
+  auto initial_report = ledger.build("run-13-reordered");
+  EXPECT_EQ(initial_report.original_conditions[2], 2u);
+  EXPECT_EQ(initial_report.original_conditions[0], 1u);
+  EXPECT_EQ(initial_report.original_conditions[1], 1u);
+  EXPECT_EQ(initial_report.original_conditions[3], 1u);
+
+  value.revision++;
+  for (auto & ring : value.rings) {
+    if (ring.node_id == 102) {
+      ring.color = 2;
+    } else if (ring.node_id == 100) {
+      ring.color = 3;
+    }
+  }
+  ASSERT_TRUE(ledger.ingest(value, 11 * kSecond).empty());
+  auto revisit_report = ledger.build("run-13-revisit");
+  EXPECT_EQ(revisit_report.original_conditions[2], 2u);
+  EXPECT_EQ(revisit_report.original_conditions[0], 1u);
+}
+
+TEST(SurfaceGuard, SingleSampleMustNotVerifyContinuousSurfacing)
+{
+  auto config = guardConfig();
+  config.hold_s = 0.15;
+  config.ttl_s = 0.2;
+  SurfaceGuard guard(config);
+  guard.beginRun(13, 1);
+  guard.observe(depth(10 * kSecond), 10 * kSecond, kSecond);
+  EXPECT_FALSE(guard.ready(10 * kSecond + 160000000LL, kSecond + 160000000LL));
+}

@@ -40,9 +40,12 @@ private:
 
   uint32_t run_id_{0};
   uint64_t epoch_{0};
+  uint8_t current_phase_{banyu_msgs::msg::RunLifecycle::IDLE};
   double last_rel_alt_{0.0};
   rclcpp::Time last_rel_alt_time_{0, 0, RCL_ROS_TIME};
   bool rel_alt_received_{false};
+
+  bool isNearSurface(double alt) const;
 
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr rel_alt_sub_;
   rclcpp::Subscription<banyu_msgs::msg::RunLifecycle>::SharedPtr lifecycle_sub_;

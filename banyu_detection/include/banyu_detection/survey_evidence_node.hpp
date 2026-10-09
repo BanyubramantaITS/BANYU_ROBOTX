@@ -59,6 +59,7 @@ private:
   bool resource_code_complete_{false};
   uint8_t resource_color_{0};
   uint8_t delivery_circle_color_{0};
+  bool start_buoy_trust_raw_fix_{false};
 
   banyu_msgs::msg::ActiveBuoyFix active_buoy_;
   std::map<uint32_t, banyu_msgs::msg::Task2RingRecord> rings_;

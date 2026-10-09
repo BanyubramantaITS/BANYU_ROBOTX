@@ -600,17 +600,11 @@ void UuvCommNode::requestSeal(const std::shared_ptr<PendingSurvey> & pending, bo
             return;
           }
           using Lifecycle = banyu_msgs::msg::RunLifecycle;
-          if (pending->survey.run_id != run_id_ || pending->survey.epoch != lifecycle_.epoch ||
+          const bool lifecycle_transitioned =
+          pending->survey.run_id != run_id_ || pending->survey.epoch != lifecycle_.epoch ||
           !lifecycleFreshLocked() ||
-          (lifecycle_.phase != Lifecycle::SURFACED && lifecycle_.phase != Lifecycle::SUCCEEDED))
-          {
-            survey_outbox_->unstage(report_id);
-            if (!pending->completed) {
-              finishSurvey(pending, false, TriggerPipelineSurvey::Response::RUN_NOT_ACTIVE,
-                "RUN_NOT_ACTIVE: mission state changed before authorization completed");
-            }
-            return;
-          }
+          (lifecycle_.phase != Lifecycle::SURFACED && lifecycle_.phase != Lifecycle::SUCCEEDED);
+
           const auto result = survey_outbox_->authorize(report_id,
             response->authorization_revision);
           if (!result.success || !result.entry) {
@@ -621,6 +615,14 @@ void UuvCommNode::requestSeal(const std::shared_ptr<PendingSurvey> & pending, bo
             return;
           }
           publishSubmission(result.entry->submission);
+
+          if (lifecycle_transitioned) {
+            if (!pending->completed) {
+              finishSurvey(pending, false, TriggerPipelineSurvey::Response::RUN_NOT_ACTIVE,
+                "RUN_NOT_ACTIVE: mission state changed after seal completed; report preserved in outbox");
+            }
+            return;
+          }
           if (!delivery && pending->delivery) {
             requestSeal(pending, true);
           } else if (!pending->completed) {

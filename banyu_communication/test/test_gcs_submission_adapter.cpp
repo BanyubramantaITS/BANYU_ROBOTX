@@ -155,3 +155,27 @@ TEST_F(GcsSubmissionAdapterTest, RejectsInvalidSubmission)
   EXPECT_EQ(adapter_node_->acceptedCount(), 0u);
   EXPECT_TRUE(received_surveys_.empty());
 }
+
+TEST_F(GcsSubmissionAdapterTest, UnsealedSubmissionMustNotBeForwarded)
+{
+  spinFor(100ms);
+  banyu_msgs::msg::Task2Submission sub;
+  sub.header.stamp = test_node_->now();
+  sub.schema_version = 1;
+  sub.run_id = 15;
+  sub.epoch = 2;
+  sub.report_id = "unsealed-audit";
+  sub.kind = banyu_msgs::msg::Task2Submission::SURVEY;
+  sub.course_id = "course-1";
+  sub.tier = 2;
+  sub.buoy_latitude = 33.810;
+  sub.buoy_longitude = -118.393;
+  sub.original_conditions = {1, 2, 1, 1};
+  sub.authorization_revision = 0;
+
+  submission_pub_->publish(sub);
+  spinFor(50ms);
+
+  EXPECT_EQ(adapter_node_->acceptedCount(), 0u);
+  EXPECT_TRUE(received_surveys_.empty());
+}

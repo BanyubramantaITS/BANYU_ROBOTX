@@ -202,16 +202,28 @@ std::string SurveyLedger::ingest(
   if (value.rings.size() > 4) {
     return fail("SURVEY_INCOMPLETE observed=" + std::to_string(value.rings.size()) + " expected=4");
   }
-  auto original = originals_;
   std::set<uint32_t> identities;
   std::vector<double> current_progress;
+  std::string snapshot_failure;
+
   for (const auto & ring : value.rings) {
     if (ring.run_id != run_id_ || ring.epoch != epoch_ || !identities.insert(ring.node_id).second) {
-      return fail("NODE_IDENTITY_AMBIGUOUS");
+      if (snapshot_failure.empty()) {
+        snapshot_failure = "NODE_IDENTITY_AMBIGUOUS";
+      }
+      continue;
     }
-    if (!ring.physical_identity_verified) {return fail("NODE_IDENTITY_UNVERIFIED");}
+    if (!ring.physical_identity_verified) {
+      if (snapshot_failure.empty()) {
+        snapshot_failure = "NODE_IDENTITY_UNVERIFIED";
+      }
+      continue;
+    }
     if (!ring.ordering_verified || !std::isfinite(ring.pipeline_progress_m)) {
-      return fail("ORDER_UNVERIFIED");
+      if (snapshot_failure.empty()) {
+        snapshot_failure = "ORDER_UNVERIFIED";
+      }
+      continue;
     }
     current_progress.push_back(ring.pipeline_progress_m);
     if (ring.frame_sequence == 0 || !std::isfinite(ring.confidence) ||
@@ -219,34 +231,52 @@ std::string SurveyLedger::ingest(
       ring.vehicle_pose_map.header.frame_id != "map" ||
       !historicalStamp(stampNs(ring.vehicle_pose_map.header.stamp), source_start_ns_,
         source_now_ns))
-    {return fail("OBSERVATION_PROVENANCE_INVALID");}
+    {
+      if (snapshot_failure.empty()) {
+        snapshot_failure = "OBSERVATION_PROVENANCE_INVALID";
+      }
+      continue;
+    }
     const auto & position = ring.vehicle_pose_map.pose.position;
     if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z)) {
-      return fail("OBSERVATION_PROVENANCE_INVALID");
-    }
-    if (original.count(ring.node_id) == 0) {
-      if (ring.color != 1 && ring.color != 2) {return fail("ORIGINAL_CONDITION_UNKNOWN");}
-      original.emplace(ring.node_id, ring);
-    } else if (original.at(ring.node_id).color != 1 && ring.color == 1) {
-      original[ring.node_id] = ring;
-    } else if (original.at(ring.node_id).pipeline_progress_m != ring.pipeline_progress_m) {
-      return fail("ORDER_UNVERIFIED: original progression changed");
+      if (snapshot_failure.empty()) {
+        snapshot_failure = "OBSERVATION_PROVENANCE_INVALID";
+      }
+      continue;
     }
     if (originals_.count(ring.node_id) == 0) {
+      if (ring.color != 1 && ring.color != 2) {
+        if (snapshot_failure.empty()) {
+          snapshot_failure = "ORIGINAL_CONDITION_UNKNOWN";
+        }
+        continue;
+      }
       originals_.emplace(ring.node_id, ring);
-    } else if (originals_.at(ring.node_id).color != 1 && ring.color == 1) {
-      originals_[ring.node_id] = ring;
+    } else {
+      if (originals_.at(ring.node_id).pipeline_progress_m != ring.pipeline_progress_m) {
+        if (snapshot_failure.empty()) {
+          snapshot_failure = "ORDER_UNVERIFIED: original progression changed";
+        }
+        continue;
+      }
+      // Qualified node already recorded: freeze first qualified condition.
     }
   }
-  if (original.size() > 4) {return fail("NODE_IDENTITY_AMBIGUOUS: first-pass identity changed");}
+
+  if (originals_.size() > 4) {return fail("NODE_IDENTITY_AMBIGUOUS: first-pass identity changed");}
+
   std::sort(current_progress.begin(), current_progress.end());
   for (std::size_t i = 1; i < current_progress.size(); ++i) {
     if (current_progress[i] - current_progress[i - 1] <= config_.minimum_progress_separation_m) {
-      return fail("ORDER_UNVERIFIED: coincident or ambiguous progression");
+      if (snapshot_failure.empty()) {
+        snapshot_failure = "ORDER_UNVERIFIED: coincident or ambiguous progression";
+      }
+      break;
     }
   }
+
   std::vector<double> progress;
-  for (const auto & ring : original) {
+  for (const auto & ring : originals_) {
     progress.push_back(ring.second.pipeline_progress_m);
   }
   std::sort(progress.begin(), progress.end());
@@ -255,9 +285,14 @@ std::string SurveyLedger::ingest(
       return fail("ORDER_UNVERIFIED: coincident or ambiguous progression");
     }
   }
-  originals_ = std::move(original);
+
   evidence_ = value;
   buoy_pinned_ = buoy_pinned_ || !originals_.empty();
+
+  if (!snapshot_failure.empty()) {
+    return fail(snapshot_failure);
+  }
+
   if (value.rings.size() != 4 || originals_.size() != 4) {
     return fail("SURVEY_INCOMPLETE observed=" + std::to_string(value.rings.size()) + " expected=4");
   }
@@ -328,6 +363,8 @@ void SurfaceGuard::beginRun(uint32_t run_id, uint64_t epoch)
   epoch_ = epoch;
   last_source_ns_ = 0;
   last_received_ns_ = 0;
+  hold_started_ns_ = 0;
+  hold_sample_count_ = 0;
   sample_received_ = false;
   calibration_id_.clear();
   source_id_.clear();
@@ -338,6 +375,7 @@ void SurfaceGuard::invalidate(const std::string & reason)
 {
   near_surface_ = false;
   hold_started_ns_ = 0;
+  hold_sample_count_ = 0;
   reason_ = reason;
 }
 
@@ -370,7 +408,12 @@ void SurfaceGuard::observe(
     invalidate("NOT_SURFACED");
     return;
   }
-  if (!near_surface_) {hold_started_ns_ = steady_now_ns;}
+  if (!near_surface_) {
+    hold_started_ns_ = steady_now_ns;
+    hold_sample_count_ = 1;
+  } else {
+    hold_sample_count_++;
+  }
   near_surface_ = true;
   reason_ = "SURFACE_HOLD_INCOMPLETE";
 }
@@ -382,9 +425,13 @@ bool SurfaceGuard::ready(int64_t source_now_ns, int64_t steady_now_ns)
     (steady_now_ns - last_received_ns_) * 1.0e-9 > config_.ttl_s ||
     (source_now_ns - last_source_ns_) * 1.0e-9 > config_.ttl_s)
   {invalidate("SURFACE_TELEMETRY_STALE"); return false;}
-  if ((steady_now_ns - hold_started_ns_) * 1.0e-9 < config_.hold_s) {
-    reason_ = "SURFACE_HOLD_INCOMPLETE";
-    return false;
+  if (config_.hold_s > 0.0) {
+    if (hold_sample_count_ < 2 ||
+      (last_received_ns_ - hold_started_ns_) * 1.0e-9 < config_.hold_s)
+    {
+      reason_ = "SURFACE_HOLD_INCOMPLETE";
+      return false;
+    }
   }
   reason_.clear();
   return true;

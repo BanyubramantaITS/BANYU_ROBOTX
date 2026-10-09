@@ -38,6 +38,8 @@ protected:
       "topics.run_lifecycle", "/test_evidence/lifecycle");
     options.append_parameter_override(
       "topics.survey_evidence", "/test_evidence/evidence");
+    options.append_parameter_override(
+      "start_buoy_trust_raw_fix", true);
 
     evidence_node_ = std::make_shared<banyu_detection::SurveyEvidenceNode>(options);
     test_node_ = std::make_shared<rclcpp::Node>("survey_evidence_test_peer");

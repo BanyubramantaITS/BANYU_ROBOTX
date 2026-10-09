@@ -18,7 +18,7 @@ CalibratedDepthNode::CalibratedDepthNode(const rclcpp::NodeOptions & options)
     "auto_calibrate_surface_at_start", true);
   max_rel_alt_age_s_ = declare_parameter<double>("max_rel_alt_age_s", 1.0);
   const bool manually_calibrated = declare_parameter<bool>("manually_calibrated", false);
-  calibrated_ = manually_calibrated || !auto_calibrate_at_start_;
+  calibrated_ = manually_calibrated;
 
   const auto rel_alt_topic = declare_parameter<std::string>(
     "topics.rel_alt", "/mavros/global_position/rel_alt");
@@ -79,6 +79,11 @@ void CalibratedDepthNode::calibrateDatum(double surface_rel_alt)
     surface_datum_offset_);
 }
 
+bool CalibratedDepthNode::isNearSurface(double alt) const
+{
+  return std::isfinite(alt) && alt >= -0.3 && alt <= 0.5;
+}
+
 void CalibratedDepthNode::handleLifecycle(const banyu_msgs::msg::RunLifecycle::SharedPtr msg)
 {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -88,18 +93,14 @@ void CalibratedDepthNode::handleLifecycle(const banyu_msgs::msg::RunLifecycle::S
   const bool new_run = (msg->run_id != run_id_ || msg->epoch != epoch_);
   run_id_ = msg->run_id;
   epoch_ = msg->epoch;
-
-  using Lifecycle = banyu_msgs::msg::RunLifecycle;
+  current_phase_ = msg->phase;
   if (new_run && auto_calibrate_at_start_) {
     calibrated_ = false;
   }
 
   if (auto_calibrate_at_start_ && !calibrated_ && rel_alt_received_) {
     const double age = (now() - last_rel_alt_time_).seconds();
-    if (age >= 0.0 && age <= max_rel_alt_age_s_ &&
-      (msg->phase == Lifecycle::PREPARING || msg->phase == Lifecycle::READY ||
-      msg->phase == Lifecycle::ACTIVE))
-    {
+    if (age >= 0.0 && age <= max_rel_alt_age_s_ && isNearSurface(last_rel_alt_)) {
       surface_datum_offset_ = last_rel_alt_;
       calibrated_ = true;
       RCLCPP_INFO(
@@ -134,13 +135,15 @@ void CalibratedDepthNode::handleRelAlt(const std_msgs::msg::Float64::SharedPtr m
   last_rel_alt_time_ = current_stamp;
   rel_alt_received_ = true;
 
-  if (auto_calibrate_at_start_ && !calibrated_) {
-    surface_datum_offset_ = last_rel_alt_;
-    calibrated_ = true;
-    RCLCPP_INFO(
-      get_logger(),
-      "Initial surface datum auto-calibrated to %.3f m",
-      surface_datum_offset_);
+  if (auto_calibrate_at_start_ && !calibrated_ && isNearSurface(last_rel_alt_)) {
+    if (current_phase_ != banyu_msgs::msg::RunLifecycle::ACTIVE) {
+      surface_datum_offset_ = last_rel_alt_;
+      calibrated_ = true;
+      RCLCPP_INFO(
+        get_logger(),
+        "Initial surface datum auto-calibrated to %.3f m",
+        surface_datum_offset_);
+    }
   }
 
   const double depth_m = surface_datum_offset_ - last_rel_alt_;

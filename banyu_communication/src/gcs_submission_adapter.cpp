@@ -85,32 +85,44 @@ void GcsSubmissionAdapter::handleSubmission(const banyu_msgs::msg::Task2Submissi
   }
 
   if (msg->run_id == 0 || msg->epoch == 0 || msg->report_id.empty() ||
+    msg->authorization_revision == 0 ||
     !banyu_msgs::task2::validSubmission(*msg))
   {
     ++rejected_count_;
     RCLCPP_WARN(
       get_logger(),
-      "Rejected invalid Task2Submission (run_id=%u, epoch=%lu, report_id='%s')",
-      msg->run_id, msg->epoch, msg->report_id.c_str());
+      "Rejected invalid Task2Submission (run_id=%u, epoch=%lu, report_id='%s', auth_rev=%lu)",
+      msg->run_id, msg->epoch, msg->report_id.c_str(), msg->authorization_revision);
     return;
   }
 
+  const std::string payload = banyu_msgs::task2::canonicalPayload(*msg);
   if (accepted_report_ids_.find(msg->report_id) != accepted_report_ids_.end()) {
-    ++duplicate_count_;
-    RCLCPP_INFO(
-      get_logger(),
-      "Deduplicated retransmitted Task2Submission (report_id='%s')",
-      msg->report_id.c_str());
+    if (accepted_payloads_.at(msg->report_id) == payload) {
+      ++duplicate_count_;
+      RCLCPP_INFO(
+        get_logger(),
+        "Deduplicated retransmitted Task2Submission (report_id='%s')",
+        msg->report_id.c_str());
+    } else {
+      ++rejected_count_;
+      RCLCPP_WARN(
+        get_logger(),
+        "Rejected conflicting Task2Submission for existing report_id='%s'",
+        msg->report_id.c_str());
+    }
     return;
   }
 
   accepted_report_ids_.insert(msg->report_id);
+  accepted_payloads_[msg->report_id] = payload;
   ++accepted_count_;
 
   RCLCPP_INFO(
     get_logger(),
-    "Accepted Task2Submission: report_id='%s', run_id=%u, epoch=%lu, kind=%u, tier=%u",
-    msg->report_id.c_str(), msg->run_id, msg->epoch, msg->kind, msg->tier);
+    "Accepted Task2Submission: report_id='%s', run_id=%u, epoch=%lu, kind=%u, tier=%u, auth_rev=%lu",
+    msg->report_id.c_str(), msg->run_id, msg->epoch, msg->kind, msg->tier,
+      msg->authorization_revision);
 
   if (!forward_to_rx_topics_) {
     return;

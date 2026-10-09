@@ -237,6 +237,15 @@ def generate_launch_description():
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
 
+    task2_gcs_submission_adapter = Node(
+        package="banyu_communication",
+        executable="gcs_submission_adapter",
+        name="gcs_submission_adapter",
+        parameters=[task2_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+    )
+
     return LaunchDescription(
         [
             mode_arg,
@@ -261,5 +270,6 @@ def generate_launch_description():
             task2_pipeline_end,
             task2_calibrated_depth,
             task2_survey_evidence,
+            task2_gcs_submission_adapter,
         ]
     )

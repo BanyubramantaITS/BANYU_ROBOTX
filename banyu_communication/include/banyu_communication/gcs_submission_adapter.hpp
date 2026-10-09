@@ -1,6 +1,7 @@
 #ifndef BANYU_COMMUNICATION__GCS_SUBMISSION_ADAPTER_HPP_
 #define BANYU_COMMUNICATION__GCS_SUBMISSION_ADAPTER_HPP_
 
+#include <map>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -34,6 +35,7 @@ private:
   mutable std::mutex mutex_;
   bool forward_to_rx_topics_{true};
   std::set<std::string> accepted_report_ids_;
+  std::map<std::string, std::string> accepted_payloads_;
   std::size_t accepted_count_{0};
   std::size_t duplicate_count_{0};
   std::size_t rejected_count_{0};

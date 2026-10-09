@@ -158,11 +158,22 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
   record.run_id = input.run_id;
   record.epoch = input.epoch;
   record.node_id = static_cast<uint32_t>(snapshot_.records.size());
-  record.ordering_verified = false;
   record.frame_sequence = observation.frame_sequence;
   record.color = observation.color;
   record.confidence = observation.confidence;
   record.vehicle_pose_map = input.vehicle_pose_map;
+  record.physical_identity_verified = true;
+
+  if (input.has_path_distance && std::isfinite(input.path_distance_m)) {
+    record.pipeline_progress_m = input.path_distance_m;
+    record.ordering_verified = snapshot_.records.empty() ||
+      (input.path_distance_m > last_record_path_distance_);
+    last_record_path_distance_ = input.path_distance_m;
+    has_last_record_path_distance_ = true;
+  } else {
+    record.pipeline_progress_m = 0.0;
+    record.ordering_verified = false;
+  }
 
   snapshot_.records.push_back(record);
   snapshot_.phase = RingTrackerPhase::TRACKING;
