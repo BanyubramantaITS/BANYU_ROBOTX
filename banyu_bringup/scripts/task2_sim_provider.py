@@ -86,8 +86,8 @@ def wgs84_radii(latitude_rad):
 
 
 class Task2SimProvider(Node):
-    def __init__(self):
-        super().__init__("task2_sim_provider")
+    def __init__(self, *args, **kwargs):
+        super().__init__("task2_sim_provider", *args, **kwargs)
 
         # These are ENU map coordinates for the configured Task 2 buoy.
         self.declare_parameter("buoy_x", 51.381)

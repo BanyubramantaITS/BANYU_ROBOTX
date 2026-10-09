@@ -34,7 +34,12 @@ if(BUILD_TESTING)
   # comment the line when this package is in a git repo and when
   # a copyright and license is added to all source files
   set(ament_cmake_cpplint_FOUND TRUE)
+  set(AMENT_LINT_AUTO_EXCLUDE
+    ament_cmake_flake8
+    ament_cmake_pep257
+  )
   ament_lint_auto_find_test_dependencies()
+  ament_add_pytest_test(test_task2_sim_provider test/test_task2_sim_provider.py)
 endif()
 
 ament_package()
