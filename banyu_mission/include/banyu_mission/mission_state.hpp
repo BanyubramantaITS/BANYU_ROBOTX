@@ -72,6 +72,8 @@ public:
   Snapshot snapshot() const;
   Lifecycle lifecycle() const;
   double missionHeading() const;
+  uint32_t currentRunId() const;
+  uint64_t currentRunEpoch() const;
 
   bool autonomyInterrupted() const;
   bool vehicleReady() const;

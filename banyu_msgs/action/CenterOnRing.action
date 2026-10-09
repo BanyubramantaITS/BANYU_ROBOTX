@@ -1,4 +1,6 @@
 # ring_color is a mission-defined name; image offsets are normalized [-1, 1].
+uint32 run_id
+uint64 epoch
 string ring_color
 float64 tolerance
 ---

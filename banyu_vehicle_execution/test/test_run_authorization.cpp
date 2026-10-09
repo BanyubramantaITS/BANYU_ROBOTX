@@ -149,9 +149,11 @@ protected:
     executor_.spin_some();
   }
 
-  ClientGoalHandle::SharedPtr sendSearch()
+  ClientGoalHandle::SharedPtr sendSearch(uint32_t run_id = 0, uint64_t epoch = 0)
   {
     Search::Goal goal;
+    goal.run_id = (run_id == 0) ? run_id_ : run_id;
+    goal.epoch = (epoch == 0) ? epoch_ : epoch;
     goal.search_span_rad = 100.0;
     goal.sweep_rate_rad_s = 0.2;
     auto future = client_->async_send_goal(goal);
@@ -425,11 +427,15 @@ protected:
   using Surface = banyu_msgs::action::Surface;
   using SurfaceHandle = rclcpp_action::ClientGoalHandle<Surface>;
 
-  SurfaceHandle::SharedPtr sendSurface(double tolerance = 0.2, double watchdog = 2.0)
+  SurfaceHandle::SharedPtr sendSurface(
+    double tolerance = 0.2, double watchdog = 2.0,
+    uint32_t run_id = 0, uint64_t epoch = 0)
   {
     surface_client_ = rclcpp_action::create_client<Surface>(peer_, "/authorization/surface");
     EXPECT_TRUE(surface_client_->wait_for_action_server(1s));
     Surface::Goal goal;
+    goal.run_id = (run_id == 0) ? run_id_ : run_id;
+    goal.epoch = (epoch == 0) ? epoch_ : epoch;
     goal.target_depth_m = 0.0;
     goal.depth_tolerance_m = tolerance;
     goal.watchdog_timeout_s = watchdog;
@@ -594,6 +600,55 @@ TEST_F(SurfaceVerificationTest, FrozenSourceClockExpiresDepthAndSteadyWatchdog)
   EXPECT_EQ(finished.code, rclcpp_action::ResultCode::ABORTED);
   ASSERT_NE(finished.result, nullptr);
   EXPECT_NE(finished.result->reason.find("water-depth"), std::string::npos);
+}
+
+TEST_F(RunAuthorizationTest, MismatchedRunIdOrEpochGoalIsRejected)
+{
+  authorize();
+  // Valid goal succeeds
+  auto handle = sendSearch(run_id_, epoch_);
+  ASSERT_NE(handle, nullptr);
+
+  // Mismatched run_id is rejected
+  EXPECT_EQ(sendSearch(run_id_ + 1, epoch_), nullptr);
+
+  // Mismatched epoch is rejected
+  EXPECT_EQ(sendSearch(run_id_, epoch_ + 1), nullptr);
+
+  // Zero run context is rejected
+  EXPECT_EQ(sendSearch(0, 0), nullptr);
+}
+
+TEST_F(SurfaceVerificationTest, SubmergedDipBetweenTicksImmediatelyResetsHold)
+{
+  authorize();
+  auto handle = sendSurface();
+  ASSERT_NE(handle, nullptr);
+  auto result = surface_client_->async_get_result(handle);
+
+  // Surface water depth stream for 700 ms (hold requires 1000 ms)
+  water_stream_ = true;
+  water_depth_m_ = 0.0;
+  pump(700ms);
+  EXPECT_NE(result.wait_for(0ms), std::future_status::ready);
+  water_stream_ = false;
+
+  // Intermediate sample exceeds surface tolerance (0.35m > 0.2m)
+  auto dip = makeWaterDepth();
+  dip.depth_m = 0.35;
+  water_depth_pub_->publish(dip);
+  pump(20ms);
+
+  // Resume surface stream; because of dip, the hold was reset
+  water_stream_ = true;
+  water_depth_m_ = 0.0;
+  pump(500ms);
+  EXPECT_NE(result.wait_for(0ms), std::future_status::ready);
+
+  // Full hold completion
+  pump(700ms);
+  ASSERT_EQ(result.wait_for(0ms), std::future_status::ready);
+  EXPECT_EQ(result.get().code, rclcpp_action::ResultCode::SUCCEEDED);
 }
 
 }  // namespace

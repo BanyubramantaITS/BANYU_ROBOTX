@@ -414,6 +414,15 @@ void UuvCommNode::lifecycleCallback(const banyu_msgs::msg::RunLifecycle::SharedP
     if (current_task_ == rx_msgs::msg::RxTask::TASK_UNKNOWN) {
       current_task_ = rx_msgs::msg::RxTask::TASK_NONE;
     }
+    if (msg->phase == Lifecycle::INTERRUPTED || msg->phase == Lifecycle::FAILED) {
+      for (const auto & item : pending_surveys_) {
+        survey_outbox_->unstage(item.second->survey.report_id);
+        if (item.second->delivery) {
+          survey_outbox_->unstage(item.second->delivery->report_id);
+        }
+      }
+      pending_surveys_.clear();
+    }
   }
   if (notify) {
     publishMissionStatus(msg->reason.empty() ? "Mission lifecycle updated" : msg->reason,
@@ -580,37 +589,50 @@ void UuvCommNode::requestSeal(const std::shared_ptr<PendingSurvey> & pending, bo
       [this, pending, delivery, report_id](
         rclcpp::Client<banyu_msgs::srv::SealTask2Report>::SharedFuture future) {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (pending->completed) {return;}
         try {
           const auto response = future.get();
           if (!response->success || response->authorization_revision == 0) {
-            finishSurvey(pending, false, TriggerPipelineSurvey::Response::AUTHORIZATION_REJECTED,
-            "MISSION_SEAL_REJECTED: " + response->message);
+            survey_outbox_->unstage(report_id);
+            if (!pending->completed) {
+              finishSurvey(pending, false, TriggerPipelineSurvey::Response::AUTHORIZATION_REJECTED,
+                "MISSION_SEAL_REJECTED: " + response->message);
+            }
             return;
           }
           using Lifecycle = banyu_msgs::msg::RunLifecycle;
           if (pending->survey.run_id != run_id_ || pending->survey.epoch != lifecycle_.epoch ||
-          !lifecycleFreshLocked() || lifecycle_.phase != Lifecycle::SURFACED)
+          !lifecycleFreshLocked() ||
+          (lifecycle_.phase != Lifecycle::SURFACED && lifecycle_.phase != Lifecycle::SUCCEEDED))
           {
-            finishSurvey(pending, false, TriggerPipelineSurvey::Response::RUN_NOT_ACTIVE,
-            "RUN_NOT_ACTIVE: mission state changed before authorization completed");
+            survey_outbox_->unstage(report_id);
+            if (!pending->completed) {
+              finishSurvey(pending, false, TriggerPipelineSurvey::Response::RUN_NOT_ACTIVE,
+                "RUN_NOT_ACTIVE: mission state changed before authorization completed");
+            }
             return;
           }
           const auto result = survey_outbox_->authorize(report_id,
-          response->authorization_revision);
+            response->authorization_revision);
           if (!result.success || !result.entry) {
-            finishSurvey(pending, false, TriggerPipelineSurvey::Response::OUTBOX_UNAVAILABLE,
-            result.message);
+            if (!pending->completed) {
+              finishSurvey(pending, false, TriggerPipelineSurvey::Response::OUTBOX_UNAVAILABLE,
+                result.message);
+            }
             return;
           }
-          if (!result.duplicate) {publishSubmission(result.entry->submission);}
-          if (!delivery && pending->delivery) {requestSeal(pending, true);} else {
+          publishSubmission(result.entry->submission);
+          if (!delivery && pending->delivery) {
+            requestSeal(pending, true);
+          } else if (!pending->completed) {
             finishSurvey(pending, true, TriggerPipelineSurvey::Response::ACCEPTED,
-            "Accepted into durable local outbox; GCS forwarding unconfirmed");
+              "Accepted into durable local outbox; GCS forwarding unconfirmed");
           }
         } catch (const std::exception & error) {
-          finishSurvey(pending, false, TriggerPipelineSurvey::Response::AUTHORIZATION_REJECTED,
-          "MISSION_SEAL_FAILED: " + std::string(error.what()));
+          survey_outbox_->unstage(report_id);
+          if (!pending->completed) {
+            finishSurvey(pending, false, TriggerPipelineSurvey::Response::AUTHORIZATION_REJECTED,
+              "MISSION_SEAL_FAILED: " + std::string(error.what()));
+          }
         }
     });
   pending->seal_request_id = future.request_id;

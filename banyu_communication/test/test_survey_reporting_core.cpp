@@ -512,3 +512,47 @@ TEST_F(OutboxFixture, CorruptRecoveryFailsClosedRatherThanPublishingDefaultPaylo
   EXPECT_FALSE(recovered.stage(submission()).success);
   EXPECT_FALSE(recovered.authorize(submission().report_id, 5).success);
 }
+
+TEST_F(OutboxFixture, UnstageRemovesStagedFileAndRejectsAuthorizedUnstage)
+{
+  SurveyOutbox outbox(directory_);
+  const auto value = submission();
+  ASSERT_TRUE(outbox.stage(value).success);
+  EXPECT_EQ(outbox.entries().size(), 1u);
+
+  const auto unstage_res = outbox.unstage(value.report_id);
+  EXPECT_TRUE(unstage_res.success);
+  EXPECT_EQ(outbox.entries().size(), 0u);
+  EXPECT_FALSE(outbox.find(value.run_id, value.epoch, value.kind).has_value());
+
+  ASSERT_TRUE(outbox.stage(value).success);
+  ASSERT_TRUE(outbox.authorize(value.report_id, 1).success);
+
+  const auto auth_unstage = outbox.unstage(value.report_id);
+  EXPECT_FALSE(auth_unstage.success);
+  EXPECT_EQ(auth_unstage.message, "CANNOT_UNSTAGE_AUTHORIZED_REPORT");
+  EXPECT_EQ(outbox.entries().size(), 1u);
+}
+
+TEST(SurveyLedger, MixedValidInvalidSnapshotPreservesOriginalRed)
+{
+  SurveyLedger ledger(ledgerConfig());
+  initialize(ledger);
+  auto mixed = evidence();
+  mixed.rings[0].color = 1;
+  mixed.rings[1].confidence = 2.0F;
+
+  EXPECT_FALSE(ledger.ingest(mixed, 11 * kSecond).empty());
+  EXPECT_FALSE(ledger.complete());
+
+  auto clean = evidence();
+  clean.revision = 2;
+  for (auto & ring : clean.rings) {
+    ring.color = 2;
+  }
+  ASSERT_TRUE(ledger.ingest(clean, 11 * kSecond).empty());
+  EXPECT_TRUE(ledger.complete());
+
+  const auto report = ledger.build("mixed-preserved-red");
+  EXPECT_EQ(report.original_conditions[0], 2u);
+}

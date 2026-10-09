@@ -261,6 +261,18 @@ double MissionState::missionHeading() const
   return mission_heading_;
 }
 
+uint32_t MissionState::currentRunId() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return run_id_;
+}
+
+uint64_t MissionState::currentRunEpoch() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return epoch_;
+}
+
 MissionState::Snapshot MissionState::snapshot() const
 {
   std::lock_guard<std::mutex> lock(mutex_);

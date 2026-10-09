@@ -112,6 +112,7 @@ public:
   ~SurveyOutbox();
   Result stage(const banyu_msgs::msg::Task2Submission & submission);
   Result authorize(const std::string & report_id, uint64_t authorization_revision);
+  Result unstage(const std::string & report_id);
   std::optional<Entry> find(uint32_t run_id, uint64_t epoch, uint8_t kind) const;
   std::vector<Entry> entries() const;
   static std::string canonicalPayload(const banyu_msgs::msg::Task2Submission & submission);

@@ -227,8 +227,15 @@ std::string SurveyLedger::ingest(
     if (original.count(ring.node_id) == 0) {
       if (ring.color != 1 && ring.color != 2) {return fail("ORIGINAL_CONDITION_UNKNOWN");}
       original.emplace(ring.node_id, ring);
+    } else if (original.at(ring.node_id).color != 1 && ring.color == 1) {
+      original[ring.node_id] = ring;
     } else if (original.at(ring.node_id).pipeline_progress_m != ring.pipeline_progress_m) {
       return fail("ORDER_UNVERIFIED: original progression changed");
+    }
+    if (originals_.count(ring.node_id) == 0) {
+      originals_.emplace(ring.node_id, ring);
+    } else if (originals_.at(ring.node_id).color != 1 && ring.color == 1) {
+      originals_[ring.node_id] = ring;
     }
   }
   if (original.size() > 4) {return fail("NODE_IDENTITY_AMBIGUOUS: first-pass identity changed");}
@@ -474,6 +481,24 @@ SurveyOutbox::Result SurveyOutbox::authorize(
     }
     value.second = entry;
     return {true, false, "REPORT_AUTHORIZED_LOCAL_ACCEPTANCE", entry};
+  }
+  return {false, false, "REPORT_NOT_STAGED", std::nullopt};
+}
+
+SurveyOutbox::Result SurveyOutbox::unstage(const std::string & report_id)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!error_.empty()) {return {false, false, "OUTBOX_UNAVAILABLE: " + error_, std::nullopt};}
+  for (auto it = entries_.begin(); it != entries_.end(); ++it) {
+    if (it->second.submission.report_id != report_id) {continue;}
+    if (it->second.authorized) {
+      return {false, false, "CANNOT_UNSTAGE_AUTHORIZED_REPORT", it->second};
+    }
+    const auto path = fileName(it->second.submission);
+    ::unlink(path.c_str());
+    const auto removed = it->second;
+    entries_.erase(it);
+    return {true, false, "REPORT_UNSTAGED", removed};
   }
   return {false, false, "REPORT_NOT_STAGED", std::nullopt};
 }

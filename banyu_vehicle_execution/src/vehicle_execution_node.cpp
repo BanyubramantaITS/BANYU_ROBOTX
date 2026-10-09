@@ -253,6 +253,18 @@ GoalRequest VehicleExecutionNode::requestGoal(const GoalIdentity & identity)
   {
     return {};
   }
+  if (require_run_authorization_) {
+    if (identity.run_id == 0 || identity.epoch == 0 ||
+      identity.run_id != run_lifecycle_.run_id || identity.epoch != run_lifecycle_.epoch)
+    {
+      RCLCPP_WARN(
+        get_logger(),
+        "Goal %s rejected: originating run (%u, %lu) does not match active run (%u, %lu)",
+        identity.owner.c_str(), identity.run_id, identity.epoch,
+        run_lifecycle_.run_id, run_lifecycle_.epoch);
+      return {};
+    }
+  }
   std::optional<Lease> initial_lease = std::nullopt;
   if (!require_lease_) {
     const auto now = steady_clock_.now();
@@ -423,6 +435,8 @@ void VehicleExecutionNode::timerCallback()
     } else {
       intent = zeroIntent();
     }
+    telemetry_.water_depth.samples_since_last_tick.clear();
+    telemetry_.depth_samples_since_last_tick.clear();
   } else if (readinessHoldAuthorized() && !safety_fault) {
     intent = readinessHoldIntent();
     readiness_output_selected = hold_pose_captured_ && telemetry_.pose_valid;
@@ -524,6 +538,8 @@ void VehicleExecutionNode::handleGps(const sensor_msgs::msg::NavSatFix::SharedPt
 void VehicleExecutionNode::handleRelAlt(const std_msgs::msg::Float64::SharedPtr msg)
 {
   const auto receipt = steady_clock_.now();
+  const double current_depth = std::isfinite(msg->data) ? -msg->data : 0.0;
+  telemetry_.depth_samples_since_last_tick.push_back(current_depth);
   if (!telemetry_.depth_valid || !std::isfinite(msg->data) ||
     (telemetry_.depth_receipt_valid &&
     std::chrono::duration<double>(receipt - telemetry_.depth_receipt_time).count() >
@@ -565,6 +581,19 @@ void VehicleExecutionNode::handleWaterDepth(const banyu_msgs::msg::WaterDepth::S
     msg->datum == "water_surface" && !msg->calibration_id.empty();
   const auto receipt = steady_clock_.now();
   auto & water = telemetry_.water_depth;
+  WaterDepthSample sample;
+  sample.depth_m = msg->depth_m;
+  sample.stamp = stamp;
+  sample.receipt_time = receipt;
+  sample.valid = valid;
+  sample.calibrated = valid;
+  sample.run_id = msg->run_id;
+  sample.epoch = msg->epoch;
+  sample.datum = msg->datum;
+  sample.source_id = msg->source_id;
+  sample.calibration_id = msg->calibration_id;
+  water.samples_since_last_tick.push_back(sample);
+
   if (!water.valid || !valid ||
     std::chrono::duration<double>(receipt - water.receipt_time).count() >
     surface_depth_timeout_s_ ||
@@ -836,10 +865,17 @@ void VehicleExecutionNode::handleGuidanceIntent(
 
 void VehicleExecutionNode::handleLease(const banyu_msgs::msg::ActionLease::SharedPtr msg)
 {
+  if (require_run_authorization_ && (msg->run_id != run_lifecycle_.run_id ||
+    msg->epoch != run_lifecycle_.epoch))
+  {
+    return;
+  }
   GoalIdentity identity;
   std::copy(msg->goal_id.uuid.begin(), msg->goal_id.uuid.end(), identity.uuid.begin());
   identity.owner = msg->owner;
   identity.generation = msg->generation;
+  identity.run_id = msg->run_id;
+  identity.epoch = msg->epoch;
 
   const auto now = steady_clock_.now();
   double timeout_s = lease_timeout_s_;

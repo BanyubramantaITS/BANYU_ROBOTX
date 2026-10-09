@@ -15,6 +15,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(banyu_msgs REQUIRED)
+find_package(rx_msgs REQUIRED)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -49,7 +50,11 @@ add_executable(pipeline_end_node src/pipeline_end_main.cpp)
 ament_target_dependencies(pipeline_end_node rclcpp std_msgs banyu_msgs)
 target_link_libraries(pipeline_end_node perception_state_machines)
 
-install(TARGETS por_detection task2_pipeline_detector ring_tracker_node pipeline_end_node
+add_executable(survey_evidence_node src/survey_evidence_node.cpp)
+ament_target_dependencies(survey_evidence_node rclcpp sensor_msgs banyu_msgs rx_msgs)
+target_include_directories(survey_evidence_node PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+install(TARGETS por_detection task2_pipeline_detector ring_tracker_node pipeline_end_node survey_evidence_node
     DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -125,6 +130,12 @@ if(BUILD_TESTING)
       test/test_pipeline_end_node.cpp)
   target_link_libraries(test_pipeline_end_node perception_state_machines)
   ament_target_dependencies(test_pipeline_end_node rclcpp std_msgs banyu_msgs)
+
+  ament_add_gtest(test_survey_evidence_node
+      test/test_survey_evidence_node.cpp src/survey_evidence_node.cpp)
+  target_compile_definitions(test_survey_evidence_node PRIVATE BANYU_DETECTION_NO_MAIN)
+  target_include_directories(test_survey_evidence_node PRIVATE include)
+  ament_target_dependencies(test_survey_evidence_node rclcpp sensor_msgs banyu_msgs rx_msgs)
 endif()
 
 ament_package()

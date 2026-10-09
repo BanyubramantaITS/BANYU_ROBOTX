@@ -214,3 +214,34 @@ pipeline_end_node:
     observation_topic: "/banyu/pipeline/observation"
     candidate_topic: "/banyu/pipeline/end_candidate"
     end_topic: "/banyu/pipeline/end"
+
+calibrated_depth_node:
+  ros__parameters:
+    source_id: "pressure_depth"
+    datum: "water_surface"
+    calibration_id: "surface_rel_alt_datum"
+    auto_calibrate_surface_at_start: true
+    surface_datum_offset: 0.0
+    topics:
+      rel_alt: "/mavros/global_position/rel_alt"
+      water_depth: "/banyu/vehicle/water_depth"
+      run_lifecycle: "/banyu/mission/run_lifecycle"
+
+survey_evidence_node:
+  ros__parameters:
+    source_id: "pipeline_topology"
+    low_progress_endpoint_id: "start_buoy"
+    high_progress_endpoint_id: "end_buoy"
+    buoy_source_id: "uuv_buoy_localizer"
+    default_course_id: "course-a"
+    default_pinger_freq_hz: 25000
+    tier: 2
+    topics:
+      accepted_ring: "/banyu/pipeline/accepted_ring"
+      end_state: "/banyu/pipeline/end_state"
+      start_buoy_fix: "/banyu/task2/start_buoy_fix"
+      active_buoy_fix: "/banyu/task2/active_buoy_fix"
+      course: "/system/mission/course"
+      run_lifecycle: "/banyu/mission/run_lifecycle"
+      survey_evidence: "/banyu/pipeline/survey_evidence"
+

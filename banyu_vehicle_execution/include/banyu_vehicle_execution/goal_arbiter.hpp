@@ -22,11 +22,14 @@ struct GoalIdentity
   GoalUuid uuid{};
   std::string owner{};
   uint64_t generation{0};
+  uint32_t run_id{0};
+  uint64_t epoch{0};
   bool valid() const noexcept;
   friend bool operator==(const GoalIdentity & lhs, const GoalIdentity & rhs) noexcept
   {
     return lhs.uuid == rhs.uuid && lhs.owner == rhs.owner &&
-           lhs.generation == rhs.generation;
+           lhs.generation == rhs.generation &&
+           lhs.run_id == rhs.run_id && lhs.epoch == rhs.epoch;
   }
 };
 struct Lease

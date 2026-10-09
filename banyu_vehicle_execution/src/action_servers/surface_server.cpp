@@ -121,6 +121,23 @@ MotionIntent SurfaceServer::tick(
   if (hold_active_ && continuity != hold_depth_generation_) {
     hold_active_ = false;
   }
+  if (hold_active_) {
+    if (require_calibrated_depth_) {
+      for (const auto & sample : water.samples_since_last_tick) {
+        if (!sample.valid || std::abs(goal->target_depth_m - sample.depth_m) > tolerance) {
+          hold_active_ = false;
+          break;
+        }
+      }
+    } else {
+      for (double intermediate_depth : telemetry.depth_samples_since_last_tick) {
+        if (std::abs(goal->target_depth_m - intermediate_depth) > tolerance) {
+          hold_active_ = false;
+          break;
+        }
+      }
+    }
+  }
   if (!near_surface) {
     hold_active_ = false;
   } else if (!hold_active_) {

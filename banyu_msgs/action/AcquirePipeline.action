@@ -1,4 +1,6 @@
 # camera_name identifies the image source; heading prior is ENU radians.
+uint32 run_id
+uint64 epoch
 string camera_name
 bool use_heading_prior
 float64 heading_prior_rad

@@ -12,11 +12,35 @@
 #include "behaviortree_cpp/action_node.h"
 #include "behaviortree_cpp/basic_types.h"
 #include "banyu_msgs/msg/action_lease.hpp"
+#include "banyu_msgs/msg/run_lifecycle.hpp"
+#include "banyu_mission/mission_state.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action/rclcpp_action.hpp"
 
 namespace banyu_mission
 {
+
+namespace detail
+{
+template<typename G>
+auto setGoalRunContextImpl(G & g, uint32_t run_id, uint64_t epoch, int)
+-> decltype(g.run_id = run_id, g.epoch = epoch, void())
+{
+  g.run_id = run_id;
+  g.epoch = epoch;
+}
+
+template<typename G>
+void setGoalRunContextImpl(G &, uint32_t, uint64_t, ...)
+{
+}
+
+template<typename G>
+void setGoalRunContext(G & g, uint32_t run_id, uint64_t epoch)
+{
+  setGoalRunContextImpl(g, run_id, epoch, 0);
+}
+}  // namespace detail
 
 template<typename ActionT>
 class ActionClientNode : public BT::StatefulActionNode
@@ -29,10 +53,12 @@ public:
 
   ActionClientNode(
     const std::string & name, const BT::NodeConfig & config,
-    rclcpp::Node::SharedPtr node, std::string action_name)
+    rclcpp::Node::SharedPtr node, std::string action_name,
+    std::shared_ptr<MissionState> state = nullptr)
   : BT::StatefulActionNode(name, config), node_(std::move(node)),
     action_name_(std::move(action_name)),
-    client_(rclcpp_action::create_client<ActionT>(node_, action_name_))
+    client_(rclcpp_action::create_client<ActionT>(node_, action_name_)),
+    state_(std::move(state))
   {
     std::string lease_topic = "/banyu/execution/lease";
     if (node_->has_parameter("topics.lease")) {
@@ -46,6 +72,13 @@ public:
       }
     }
     lease_pub_ = node_->create_publisher<banyu_msgs::msg::ActionLease>(lease_topic, rclcpp::QoS(1));
+
+    lifecycle_sub_ = node_->create_subscription<banyu_msgs::msg::RunLifecycle>(
+      "/banyu/mission/lifecycle", rclcpp::QoS(1).transient_local(),
+      [this](const banyu_msgs::msg::RunLifecycle::SharedPtr msg) {
+        current_run_id_.store(msg->run_id);
+        current_epoch_.store(msg->epoch);
+      });
   }
 
   BT::NodeStatus onStart() override
@@ -60,6 +93,10 @@ public:
       return BT::NodeStatus::FAILURE;
     }
 
+    uint32_t run_id = state_ ? state_->currentRunId() : current_run_id_.load();
+    uint64_t epoch = state_ ? state_->currentRunEpoch() : current_epoch_.load();
+    detail::setGoalRunContext(goal, run_id, epoch);
+
     if (!client_->wait_for_action_server(std::chrono::milliseconds(0))) {
       RCLCPP_DEBUG(node_->get_logger(), "%s action server is unavailable", name().c_str());
       return BT::NodeStatus::FAILURE;
@@ -70,6 +107,8 @@ public:
       std::lock_guard<std::mutex> lock(mutex_);
       generation = ++s_action_generation_;
       generation_ = generation;
+      goal_run_id_ = run_id;
+      goal_epoch_ = epoch;
       goal_handle_.reset();
       result_done_ = false;
       result_success_ = false;
@@ -153,6 +192,8 @@ public:
       lease.owner = action_name_;
       lease.active = true;
       lease.generation = generation_;
+      lease.run_id = goal_run_id_;
+      lease.epoch = goal_epoch_;
       lease.expires_at = node_->now() + rclcpp::Duration::from_seconds(1.5);
       lease_pub_->publish(lease);
     }
@@ -166,11 +207,15 @@ public:
   {
     typename GoalHandle::SharedPtr handle;
     uint64_t gen = 0;
+    uint32_t run_id = 0;
+    uint64_t epoch = 0;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       cancel_requested_.store(true);
       cancel_generation_.store(generation_);
       gen = generation_;
+      run_id = goal_run_id_;
+      epoch = goal_epoch_;
       handle = goal_handle_;
     }
     if (lease_pub_ && handle) {
@@ -182,6 +227,8 @@ public:
       lease.owner = action_name_;
       lease.active = false;
       lease.generation = gen;
+      lease.run_id = run_id;
+      lease.epoch = epoch;
       lease.expires_at = node_->now();
       lease_pub_->publish(lease);
     }
@@ -272,6 +319,12 @@ private:
   uint64_t generation_{0};
   bool result_done_{false};
   bool result_success_{false};
+  std::shared_ptr<MissionState> state_;
+  rclcpp::Subscription<banyu_msgs::msg::RunLifecycle>::SharedPtr lifecycle_sub_;
+  std::atomic<uint32_t> current_run_id_{0};
+  std::atomic<uint64_t> current_epoch_{0};
+  uint32_t goal_run_id_{0};
+  uint64_t goal_epoch_{0};
 };
 
 }  // namespace banyu_mission
