@@ -243,18 +243,23 @@ TEST_F(MissionTest, PublishPipelineSurveyWaitsForDelayedServiceDiscovery)
   using Survey = banyu_msgs::srv::TriggerPipelineSurvey;
   auto node = std::make_shared<rclcpp::Node>("survey_service_discovery_test");
   auto server_node = std::make_shared<rclcpp::Node>("delayed_survey_service_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get(), false);
+  ASSERT_TRUE(state->configureMissionCoordinates(0.0, 0.0, 0.0, 0.0, false));
+  ASSERT_TRUE(state->acceptRun(1u, 1u));
   banyu_mission::PublishPipelineSurveyNode action(
-    "PublishPipelineSurvey", BT::NodeConfig{}, node, "/test/delayed_pipeline_survey");
+    "PublishPipelineSurvey", BT::NodeConfig{}, node, state, "/test/delayed_pipeline_survey");
   rclcpp::Service<Survey>::SharedPtr server;
   size_t requests = 0;
   std::thread advertise_service([&]() {
       std::this_thread::sleep_for(std::chrono::milliseconds(150));
       server = server_node->create_service<Survey>(
         "/test/delayed_pipeline_survey",
-        [&](const std::shared_ptr<Survey::Request>,
+        [&](const std::shared_ptr<Survey::Request> request,
         std::shared_ptr<Survey::Response> response) {
           ++requests;
           response->success = true;
+          response->report_id = request->report_id;
+          response->result_code = Survey::Response::ACCEPTED;
         });
     });
   const auto start_status = action.onStart();
@@ -282,6 +287,9 @@ TEST_F(MissionTest, PublishPipelineSurveyFailsAfterFiveSecondsWithoutServiceResp
     "survey_service_timeout_test",
     rclcpp::NodeOptions().parameter_overrides({rclcpp::Parameter("use_sim_time", true)}));
   auto server_node = std::make_shared<rclcpp::Node>("unresponsive_survey_service_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get(), false);
+  ASSERT_TRUE(state->configureMissionCoordinates(0.0, 0.0, 0.0, 0.0, false));
+  ASSERT_TRUE(state->acceptRun(1u, 1u));
   std::vector<std::shared_ptr<rmw_request_id_t>> requests;
   auto server = server_node->create_service<Survey>(
     "/test/unresponsive_pipeline_survey",
@@ -290,7 +298,7 @@ TEST_F(MissionTest, PublishPipelineSurveyFailsAfterFiveSecondsWithoutServiceResp
       requests.push_back(header);
     });
   banyu_mission::PublishPipelineSurveyNode action(
-    "PublishPipelineSurvey", BT::NodeConfig{}, node, "/test/unresponsive_pipeline_survey");
+    "PublishPipelineSurvey", BT::NodeConfig{}, node, state, "/test/unresponsive_pipeline_survey");
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(node);
   executor.add_node(server_node);
@@ -314,6 +322,8 @@ TEST_F(MissionTest, PublishPipelineSurveyFailsAfterFiveSecondsWithoutServiceResp
   // A late successful reply must not change the timed-out result.
   Survey::Response response;
   response.success = true;
+  response.report_id = "task2-survey-1-1";
+  response.result_code = Survey::Response::ACCEPTED;
   server->send_response(*requests.front(), response);
   executor.spin_some();
   EXPECT_EQ(action.onRunning(), BT::NodeStatus::FAILURE);

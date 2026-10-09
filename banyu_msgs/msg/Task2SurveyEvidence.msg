@@ -1,0 +1,15 @@
+std_msgs/Header header
+uint32 run_id
+uint64 epoch
+uint64 revision
+string source_id
+ActiveBuoyFix active_buoy
+string low_progress_endpoint_id
+string high_progress_endpoint_id
+Task2RingRecord[] rings
+bool traversal_complete
+uint8 tier
+bool repair_verified
+bool resource_code_complete
+uint8 resource_color
+uint8 delivery_circle_color

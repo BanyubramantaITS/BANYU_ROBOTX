@@ -30,6 +30,7 @@ public:
   }
 
   RepairAcknowledgementResult acknowledgeRingRepair(uint32_t ring_index);
+  void reset();
 
   const RingTracker & tracker() const {return tracker_;}
 

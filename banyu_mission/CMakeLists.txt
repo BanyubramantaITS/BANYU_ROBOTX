@@ -18,6 +18,7 @@ find_package(mavros_msgs REQUIRED)
 find_package(rx_msgs REQUIRED)
 
 add_library(banyu_mission_core
+  src/run_coordinator.cpp
   src/mission_state.cpp
   src/por_mission_config.cpp
   src/action/acknowledge_red_ring_node.cpp
@@ -67,7 +68,12 @@ install(DIRECTORY bt DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
-  ament_add_gtest(test_mission_tree test/test_mission_tree.cpp)
+  ament_add_gtest(test_run_coordinator test/test_run_coordinator.cpp)
+  target_link_libraries(test_run_coordinator banyu_mission_core)
+  ament_add_gtest(test_run_lifecycle test/test_run_lifecycle.cpp ENV ROS_DOMAIN_ID=42)
+  target_link_libraries(test_run_lifecycle banyu_mission_core)
+  ament_target_dependencies(test_run_lifecycle rclcpp rclcpp_action banyu_msgs mavros_msgs rx_msgs)
+  ament_add_gtest(test_mission_tree test/test_mission_tree.cpp ENV ROS_DOMAIN_ID=42)
   target_compile_features(test_mission_tree PRIVATE cxx_std_17)
   target_compile_definitions(test_mission_tree PRIVATE
     BANYU_MISSION_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")

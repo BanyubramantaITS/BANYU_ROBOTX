@@ -1293,6 +1293,7 @@ TEST_F(VehicleExecutionNodeTest, StaleStatusWatchdogFaultsArbiter)
   status.header.stamp = node->now() - rclcpp::Duration::from_seconds(2.0);
   status.fcu_connected = true;
   status.fcu_status_fresh = true;
+  status.armed = true;
   status.operator_takeover = false;
   status_pub->publish(status);
 
@@ -1370,6 +1371,15 @@ TEST_F(VehicleExecutionNodeTest, SurfaceWatchdogIsOptInAndResetsAfterDepthRecove
   depth.data = -2.0;
   depth_pub->publish(depth);
   spinFor(node, 5);
+  EXPECT_TRUE(result_future.wait_for(0ms) != std::future_status::ready);
+  const auto until = std::chrono::steady_clock::now() + 1500ms;
+  while (result_future.wait_for(0ms) != std::future_status::ready &&
+    std::chrono::steady_clock::now() < until)
+  {
+    depth_pub->publish(depth);
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(10ms);
+  }
   ASSERT_TRUE(waitForFuture(node, result_future));
   EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::SUCCEEDED);
 }
@@ -1449,6 +1459,8 @@ TEST_F(VehicleExecutionNodeTest, MavrosPublicationGatedByStatusAndGuidedMode)
   status.fcu_status_fresh = true;
   status.operator_takeover = false;
   status.mode = "MANUAL";
+  status.armed = true;
+  status.rc_fresh = true;
   status_pub->publish(status);
   spinFor(node, 5);
   EXPECT_EQ(mavros_count, 0);
@@ -1488,7 +1500,7 @@ TEST_F(VehicleExecutionNodeTest, MavrosPublicationGatedByStatusAndGuidedMode)
   EXPECT_EQ(mavros_count, stopped_count);
 }
 
-TEST_F(VehicleExecutionNodeTest, MavrosPublicationUngatedWhenRequireGuidedFalse)
+TEST_F(VehicleExecutionNodeTest, PreviewConfigurationCannotBypassMavrosSafety)
 {
   rclcpp::NodeOptions options;
   options.append_parameter_override("control.enable_mavros_publish", true);
@@ -1509,15 +1521,33 @@ TEST_F(VehicleExecutionNodeTest, MavrosPublicationUngatedWhenRequireGuidedFalse)
     "/test_ungated/status", 10);
 
   spinFor(node, 10);
-  EXPECT_GT(mavros_count, 0);
+  EXPECT_EQ(mavros_count, 0);
 
-  // Even with require_guided=false, operator takeover must halt publishing
+  // Preview configuration cannot authorize hardware without GUIDED and RC.
   banyu_msgs::msg::VehicleStatus status;
   status.header.stamp = node->now();
   status.fcu_connected = true;
   status.fcu_status_fresh = true;
-  status.operator_takeover = true;
+  status.rc_fresh = true;
+  status.armed = true;
+  status.operator_takeover = false;
   status.mode = "MANUAL";
+  status_pub->publish(status);
+  spinFor(node, 10);
+  EXPECT_EQ(mavros_count, 0);
+  status.header.stamp = node->now();
+  status.mode = "GUIDED";
+  status.rc_fresh = false;
+  status_pub->publish(status);
+  spinFor(node, 10);
+  EXPECT_EQ(mavros_count, 0);
+  status.header.stamp = node->now();
+  status.rc_fresh = true;
+  status_pub->publish(status);
+  spinFor(node, 10);
+  EXPECT_GT(mavros_count, 0);
+  status.header.stamp = node->now();
+  status.operator_takeover = true;
   status_pub->publish(status);
 
   for (int i = 0; i < 30 && !node->telemetry().operator_takeover; ++i) {

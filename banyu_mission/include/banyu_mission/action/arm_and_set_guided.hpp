@@ -54,7 +54,7 @@ private:
   std::mutex mutex_;
   uint64_t generation_{0};
   Step step_{Step::WaitingForReadiness};
-  rclcpp::Time start_time_{0, 0, RCL_ROS_TIME};
+  std::chrono::steady_clock::time_point start_time_{};
   double timeout_s_{30.0};
   bool set_mode_done_{false};
   bool set_mode_success_{false};

@@ -102,6 +102,11 @@ if(BUILD_TESTING)
     std_msgs
     unique_identifier_msgs)
 
+  ament_add_gtest(test_run_authorization test/test_run_authorization.cpp)
+  target_link_libraries(test_run_authorization ${PROJECT_NAME})
+  target_compile_features(test_run_authorization PUBLIC cxx_std_17)
+  ament_target_dependencies(test_run_authorization rclcpp rclcpp_action banyu_msgs)
+
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)

@@ -1,5 +1,10 @@
 std_msgs/Header header
 uint32 index
+uint32 run_id
+uint64 epoch
+uint32 node_id
+bool ordering_verified
+float64 pipeline_progress_m
 uint8 COLOR_UNKNOWN=0
 uint8 COLOR_RED=1
 uint8 COLOR_GREEN=2

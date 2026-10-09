@@ -155,6 +155,10 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
 {
   const auto & observation = input.observation;
   banyu_msgs::msg::Task2RingRecord record;
+  record.run_id = input.run_id;
+  record.epoch = input.epoch;
+  record.node_id = static_cast<uint32_t>(snapshot_.records.size());
+  record.ordering_verified = false;
   record.frame_sequence = observation.frame_sequence;
   record.color = observation.color;
   record.confidence = observation.confidence;
@@ -170,6 +174,10 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
   snapshot_.last_state.index = static_cast<uint32_t>(snapshot_.records.size() - 1);
   snapshot_.last_state.color = observation.color;
   snapshot_.last_state.confidence = observation.confidence;
+  snapshot_.last_state.run_id = record.run_id;
+  snapshot_.last_state.epoch = record.epoch;
+  snapshot_.last_state.node_id = record.node_id;
+  snapshot_.last_state.ordering_verified = record.ordering_verified;
   if (observation.color == banyu_msgs::msg::PipelineRingObservation::COLOR_RED) {
     snapshot_.red_pending = true;
     snapshot_.repaired = false;

@@ -36,6 +36,8 @@ struct RingTrackerConfig
 
 struct RingTrackerInput
 {
+  uint32_t run_id{0};
+  uint64_t epoch{0};
   banyu_msgs::msg::PipelineRingObservation observation;
   geometry_msgs::msg::PoseStamped vehicle_pose_map;
   bool has_vehicle_pose{false};

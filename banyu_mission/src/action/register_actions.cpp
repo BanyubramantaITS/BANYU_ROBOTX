@@ -68,7 +68,7 @@ void registerActionNodes(
     node->declare_parameter<std::string>(
       "services.trigger_pipeline_survey", "/banyu/communication/trigger_pipeline_survey");
   factory.registerNodeType<PublishPipelineSurveyNode>(
-    "PublishPipelineSurvey", node, survey_service);
+    "PublishPipelineSurvey", node, state, survey_service);
 
   factory.registerNodeType<AcquireGateNode>(
     "AcquireGate", node, action_name("acquire_gate"));

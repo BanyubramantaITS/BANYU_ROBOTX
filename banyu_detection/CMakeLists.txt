@@ -25,6 +25,7 @@ add_library(perception_state_machines
     src/pipeline_end_node.cpp
     src/ring_tracker.cpp
     src/ring_tracker_adapter.cpp
+    src/ring_tracker_node.cpp
 )
 target_include_directories(perception_state_machines PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -40,7 +41,7 @@ target_include_directories(por_detection PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/inc
 add_executable(task2_pipeline_detector src/task2_pipeline_detector.cpp)
 ament_target_dependencies(task2_pipeline_detector rclcpp cv_bridge OpenCV sensor_msgs banyu_msgs)
 
-add_executable(ring_tracker_node src/ring_tracker_node.cpp)
+add_executable(ring_tracker_node src/ring_tracker_main.cpp)
 ament_target_dependencies(ring_tracker_node rclcpp sensor_msgs geometry_msgs banyu_msgs)
 target_link_libraries(ring_tracker_node perception_state_machines)
 
@@ -107,6 +108,13 @@ if(BUILD_TESTING)
       test/test_ring_tracker_node_qos.cpp)
   target_link_libraries(test_ring_tracker_node_qos perception_state_machines)
   ament_target_dependencies(test_ring_tracker_node_qos rclcpp geometry_msgs banyu_msgs)
+
+  ament_add_gtest(test_run_context_gate test/test_run_context_gate.cpp)
+  target_include_directories(test_run_context_gate PRIVATE include)
+
+  ament_add_gtest(test_ring_tracker_reset test/test_ring_tracker_reset.cpp)
+  target_link_libraries(test_ring_tracker_reset perception_state_machines)
+  ament_target_dependencies(test_ring_tracker_reset rclcpp geometry_msgs banyu_msgs)
 
   ament_add_gtest(test_pipeline_end_adapter
       test/test_pipeline_end_adapter.cpp)

@@ -15,7 +15,7 @@ RingTrackerNode::RingTrackerNode(const rclcpp::NodeOptions & options)
 
   state_pub_ = create_publisher<banyu_msgs::msg::PipelineRingState>(state_topic_, ringStateQoS());
   accepted_ring_pub_ = create_publisher<banyu_msgs::msg::Task2RingRecord>(
-    accepted_ring_topic_, rclcpp::SensorDataQoS());
+    accepted_ring_topic_, acceptedRingQoS());
   pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
     pose_topic_, rclcpp::SensorDataQoS(),
     std::bind(&RingTrackerNode::poseCallback, this, std::placeholders::_1));
@@ -27,6 +27,10 @@ RingTrackerNode::RingTrackerNode(const rclcpp::NodeOptions & options)
     std::bind(
       &RingTrackerNode::acknowledgeCallback, this, std::placeholders::_1,
       std::placeholders::_2));
+  reset_service_server_ = create_service<ResetTask2>(
+    reset_service_,
+    std::bind(&RingTrackerNode::resetCallback, this, std::placeholders::_1,
+    std::placeholders::_2));
 }
 
 void RingTrackerNode::declareParameters()
@@ -41,6 +45,9 @@ void RingTrackerNode::declareParameters()
     "accepted_ring_topic", "/banyu/pipeline/accepted_ring");
   repair_service_ = declare_parameter<std::string>(
     "repair_service", "/banyu/pipeline/acknowledge_ring_repair");
+  reset_service_ = declare_parameter<std::string>(
+    "reset_service", "/banyu/pipeline/reset_tracker");
+  require_run_context_ = declare_parameter<bool>("require_run_context", false);
   pose_timestamp_tolerance_s_ = declare_parameter<double>(
     "pose_timestamp_tolerance_s", 0.05);
   pose_history_size_ = static_cast<std::size_t>(std::max<int64_t>(
@@ -112,17 +119,48 @@ void RingTrackerNode::observationCallback(
     return;
   }
 
+  std::lock_guard<std::mutex> lock(adapter_mutex_);
+  if (!run_context_.acceptsStamp(rclcpp::Time(msg->header.stamp).nanoseconds(),
+    require_run_context_))
+  {
+    return;
+  }
   RingTrackerInput input;
+  input.run_id = run_context_.runId();
+  input.epoch = run_context_.epoch();
   input.observation = *msg;
   input.has_vehicle_pose = nearestPose(msg->header.stamp, input.vehicle_pose_map);
-
-  std::lock_guard<std::mutex> lock(adapter_mutex_);
-  const RingTrackerUpdate update = adapter_.update(input);
+  RingTrackerUpdate update = adapter_.update(input);
   if (!update.accepted) {
     return;
   }
-  state_pub_->publish(adapter_.tracker().snapshot().last_state);
+  auto state = adapter_.tracker().snapshot().last_state;
+  state_pub_->publish(state);
   accepted_ring_pub_->publish(update.record);
+}
+
+void RingTrackerNode::resetCallback(
+  const std::shared_ptr<ResetTask2::Request> request,
+  std::shared_ptr<ResetTask2::Response> response)
+{
+  std::lock_guard<std::mutex> lock(adapter_mutex_);
+  const auto result = run_context_.accept(request->run_id, request->epoch, now().nanoseconds());
+  response->success = result.success;
+  response->message = result.message;
+  if (!result.changed) {
+    return;
+  }
+  adapter_.reset();
+  {
+    std::lock_guard<std::mutex> pose_lock(pose_mutex_);
+    pose_history_.clear();
+  }
+  banyu_msgs::msg::PipelineRingState empty_state;
+  empty_state.header.stamp = now();
+  empty_state.run_id = request->run_id;
+  empty_state.epoch = request->epoch;
+  empty_state.color = banyu_msgs::msg::PipelineRingObservation::COLOR_UNKNOWN;
+  state_pub_->publish(empty_state);
 }
 
 void RingTrackerNode::acknowledgeCallback(
@@ -130,6 +168,14 @@ void RingTrackerNode::acknowledgeCallback(
   std::shared_ptr<AcknowledgeRingRepair::Response> response)
 {
   std::lock_guard<std::mutex> lock(adapter_mutex_);
+  if (require_run_context_ && (!run_context_.initialized() ||
+    request->run_id != run_context_.runId() || request->epoch != run_context_.epoch()))
+  {
+    response->success = false;
+    response->reason = "repair acknowledgement has no matching run context";
+    response->accepted_ring_index = kInvalidRingIndex;
+    return;
+  }
   const RepairAcknowledgementResult result =
     adapter_.acknowledgeRingRepair(request->ring_index);
   response->success = result.success;
@@ -138,11 +184,3 @@ void RingTrackerNode::acknowledgeCallback(
 }
 
 }  // namespace banyu_detection
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<banyu_detection::RingTrackerNode>());
-  rclcpp::shutdown();
-  return 0;
-}

@@ -1,4 +1,17 @@
-# Trigger service for store-and-forward Task 2 pipeline survey reporting upon surfacing
+uint32 run_id
+uint64 epoch
+string report_id
 ---
 bool success
 string message
+uint8 ACCEPTED=0
+uint8 ALREADY_ACCEPTED=1
+uint8 WRONG_RUN=2
+uint8 RUN_NOT_ACTIVE=3
+uint8 SURVEY_INVALID=4
+uint8 NOT_SURFACED=5
+uint8 SURFACE_TELEMETRY_STALE=6
+uint8 OUTBOX_UNAVAILABLE=7
+uint8 AUTHORIZATION_REJECTED=8
+uint8 result_code
+string report_id

@@ -19,7 +19,7 @@
   <BehaviorTree ID="MissionPreflight">
     <Sequence>
       <RequireMissionStarted />
-      <ArmAndSetGuided />
+      <RequireVehicleReady />
     </Sequence>
   </BehaviorTree>
 
@@ -82,7 +82,11 @@
 
   <BehaviorTree ID="SurfaceAndReport">
     <Sequence>
+      <Timeout msec="5000">
+        <WaitSurveyComplete />
+      </Timeout>
       <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}" />
+      <ConfirmSurfaceAction />
       <Timeout msec="5000">
         <PublishPipelineSurvey />
       </Timeout>

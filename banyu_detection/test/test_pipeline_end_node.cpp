@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <memory>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -180,6 +181,113 @@ TEST_F(PipelineEndNodeTest, ExplicitFalseCandidateSuppressesDefaultCandidate)
   spinFor(node, 5);
 
   EXPECT_FALSE(node->adapter().isConfirmed());
+}
+
+TEST_F(PipelineEndNodeTest, RunScopedResetPreservesDuplicatesAndRejectsOldEvidence)
+{
+  using ResetTask2 = banyu_msgs::srv::ResetTask2;
+  using namespace std::chrono_literals;
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("require_run_context", true);
+  options.append_parameter_override("required_frames", 2);
+  options.append_parameter_override("default_candidate", true);
+  options.append_parameter_override("observation_topic", "/context_end/obs");
+  options.append_parameter_override("candidate_topic", "/context_end/legacy_candidate");
+  options.append_parameter_override("candidate_state_topic", "/context_end/candidate");
+  options.append_parameter_override("end_topic", "/context_end/legacy_end");
+  options.append_parameter_override("end_state_topic", "/context_end/state");
+  options.append_parameter_override("reset_service", "/context_end/reset");
+  auto node = std::make_shared<banyu_detection::PipelineEndNode>(options);
+  auto peer = std::make_shared<rclcpp::Node>("pipeline_end_context_peer");
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(peer);
+  auto reset = peer->create_client<ResetTask2>("/context_end/reset");
+  auto obs_pub = peer->create_publisher<banyu_msgs::msg::PipelineObservation>(
+    "/context_end/obs", rclcpp::SensorDataQoS());
+  auto candidate_pub = peer->create_publisher<banyu_msgs::msg::PipelineEndCandidate>(
+    "/context_end/candidate", rclcpp::QoS(10));
+  auto legacy_pub = peer->create_publisher<std_msgs::msg::Bool>(
+    "/context_end/legacy_candidate", rclcpp::QoS(10));
+  std::vector<banyu_msgs::msg::PipelineEndState> states;
+  auto state_sub = peer->create_subscription<banyu_msgs::msg::PipelineEndState>(
+    "/context_end/state", rclcpp::QoS(1).reliable().transient_local(),
+    [&states](const banyu_msgs::msg::PipelineEndState & state) {states.push_back(state);});
+  auto spin = [&executor]() {
+      const auto until = std::chrono::steady_clock::now() + 40ms;
+      while (std::chrono::steady_clock::now() < until) {
+        executor.spin_some();
+        std::this_thread::sleep_for(2ms);
+      }
+    };
+  auto initialize = [&](uint32_t run_id, uint64_t epoch) {
+      auto request = std::make_shared<ResetTask2::Request>();
+      request->run_id = run_id;
+      request->epoch = epoch;
+      auto future = reset->async_send_request(request);
+      const auto status = executor.spin_until_future_complete(future, 1s);
+      EXPECT_EQ(status, rclcpp::FutureReturnCode::SUCCESS);
+      if (status != rclcpp::FutureReturnCode::SUCCESS) {
+        return std::make_shared<ResetTask2::Response>();
+      }
+      return future.get();
+    };
+  auto candidate = [&](uint32_t run_id, uint64_t epoch) {
+      banyu_msgs::msg::PipelineEndCandidate msg;
+      msg.header.stamp = peer->now();
+      msg.run_id = run_id;
+      msg.epoch = epoch;
+      msg.candidate = true;
+      candidate_pub->publish(msg);
+      spin();
+    };
+  auto observation = [&](uint64_t sequence, const rclcpp::Time & stamp) {
+      auto msg = makeObservation(sequence, banyu_msgs::msg::PipelineObservation::TRACKED);
+      msg.header.stamp = stamp;
+      obs_pub->publish(msg);
+      spin();
+    };
+  ASSERT_TRUE(reset->wait_for_service(1s));
+  for (int i = 0; i < 5; ++i) {
+    spin();
+  }
+
+  std_msgs::msg::Bool legacy_candidate;
+  legacy_candidate.data = true;
+  legacy_pub->publish(legacy_candidate);
+  observation(1, peer->now());
+  observation(2, peer->now());
+  EXPECT_FALSE(node->adapter().isConfirmed());
+  ASSERT_TRUE(initialize(13, 30)->success);
+  candidate(13, 30);
+  const auto old_stamp = peer->now();
+  observation(1, old_stamp);
+  observation(2, peer->now());
+  ASSERT_TRUE(node->adapter().isConfirmed());
+  spin();
+  ASSERT_FALSE(states.empty());
+  EXPECT_TRUE(states.back().ended);
+  EXPECT_EQ(states.back().run_id, 13U);
+  EXPECT_EQ(states.back().epoch, 30U);
+
+  EXPECT_TRUE(initialize(13, 30)->success);
+  EXPECT_FALSE(initialize(0, 31)->success);
+  EXPECT_FALSE(initialize(13, 29)->success);
+  EXPECT_TRUE(node->adapter().isConfirmed());
+  ASSERT_TRUE(initialize(2, 31)->success);
+  EXPECT_FALSE(node->adapter().isConfirmed());
+  candidate(13, 30);
+  legacy_pub->publish(legacy_candidate);
+  observation(1, peer->now());
+  observation(2, peer->now());
+  EXPECT_FALSE(node->adapter().isConfirmed());
+  candidate(2, 31);
+  observation(3, old_stamp);
+  observation(4, old_stamp);
+  EXPECT_FALSE(node->adapter().isConfirmed());
+  observation(3, peer->now());
+  observation(4, peer->now());
+  EXPECT_TRUE(node->adapter().isConfirmed());
 }
 
 }  // namespace

@@ -2,12 +2,22 @@
 #define BANYU_COMMUNICATION_UUV_COMM_NODE_HPP_
 
 #include <cstdint>
+#include <chrono>
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
+#include <vector>
+#include <memory>
 
 #include <banyu_msgs/msg/pipeline_ring_state.hpp>
+#include <banyu_msgs/msg/run_lifecycle.hpp>
+#include <banyu_msgs/msg/task2_survey_evidence.hpp>
+#include <banyu_msgs/msg/task2_survey_progress.hpp>
+#include <banyu_msgs/msg/task2_submission.hpp>
+#include <banyu_msgs/msg/water_depth.hpp>
+#include <banyu_msgs/srv/seal_task2_report.hpp>
 #include <banyu_msgs/msg/vehicle_status.hpp>
 #include <banyu_msgs/srv/trigger_pipeline_survey.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
@@ -21,9 +31,10 @@
 #include <rx_msgs/msg/mission_status.hpp>
 #include <rx_msgs/msg/pipeline_survey.hpp>
 #include <rx_msgs/msg/readiness_report.hpp>
+#include <rx_msgs/msg/resource_delivery.hpp>
 #include <rx_msgs/msg/rx_task.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
-#include <std_srvs/srv/trigger.hpp>
+#include "banyu_communication/survey_reporting.hpp"
 
 namespace banyu_communication
 {
@@ -32,11 +43,10 @@ class UuvCommNode : public rclcpp::Node
 {
 public:
   explicit UuvCommNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  ~UuvCommNode() override;
 
 private:
   using TriggerPipelineSurvey = banyu_msgs::srv::TriggerPipelineSurvey;
-  static constexpr uint32_t kMaxRingIndex = 20;
-  static constexpr size_t kDefaultPipelineSegments = 4;
 
   void publishHeartbeat();
   void publishMissionStatus(
@@ -48,17 +58,41 @@ private:
   void poseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
   void velocityCallback(const geometry_msgs::msg::TwistStamped::SharedPtr msg);
   void vehicleStatusCallback(const banyu_msgs::msg::VehicleStatus::SharedPtr msg);
-  void ringStateCallback(const banyu_msgs::msg::PipelineRingState::SharedPtr msg);
+  void lifecycleCallback(const banyu_msgs::msg::RunLifecycle::SharedPtr msg);
+  void evidenceCallback(const banyu_msgs::msg::Task2SurveyEvidence::SharedPtr msg);
+  void depthCallback(const banyu_msgs::msg::WaterDepth::SharedPtr msg);
+  void publishSurveyProgress();
   void surveyCallback(
-    const std::shared_ptr<TriggerPipelineSurvey::Request> request,
-    std::shared_ptr<TriggerPipelineSurvey::Response> response);
+    std::shared_ptr<rclcpp::Service<TriggerPipelineSurvey>> service,
+    std::shared_ptr<rmw_request_id_t> header,
+    std::shared_ptr<TriggerPipelineSurvey::Request> request);
+  struct SurveyWaiter
+  {
+    std::shared_ptr<rclcpp::Service<TriggerPipelineSurvey>> service;
+    std::shared_ptr<rmw_request_id_t> header;
+  };
+  struct PendingSurvey
+  {
+    banyu_msgs::msg::Task2Submission survey;
+    std::optional<banyu_msgs::msg::Task2Submission> delivery;
+    std::vector<SurveyWaiter> waiters;
+    std::chrono::steady_clock::time_point started;
+    bool completed{false};
+    int64_t seal_request_id{0};
+  };
+  void requestSeal(const std::shared_ptr<PendingSurvey> & pending, bool delivery);
+  void finishSurvey(
+    const std::shared_ptr<PendingSurvey> & pending,
+    bool success, uint8_t code, const std::string & message);
+  void publishSubmission(const banyu_msgs::msg::Task2Submission & submission);
   uint8_t robotStateLocked() const;
+  bool lifecycleFreshLocked() const;
 
   std::mutex mutex_;
   double heartbeat_rate_hz_;
+  double lifecycle_timeout_s_;
   rx_msgs::msg::LatLng anchor_;
   double anchor_altitude_hae_m_;
-  rx_msgs::msg::LatLng active_buoy_position_;
   mavros_msgs::msg::State state_;
   sensor_msgs::msg::NavSatFix gps_;
   rclcpp::Time last_gps_time_{0, 0, RCL_ROS_TIME};
@@ -68,19 +102,34 @@ private:
   banyu_msgs::msg::VehicleStatus vehicle_status_;
   bool gps_received_{false};
   bool vehicle_status_received_{false};
+  bool state_received_{false};
+  bool lifecycle_received_{false};
+  std::chrono::steady_clock::time_point last_state_received_;
+  std::chrono::steady_clock::time_point last_status_received_;
+  std::chrono::steady_clock::time_point last_lifecycle_received_;
+  banyu_msgs::msg::RunLifecycle lifecycle_;
+  std::set<std::string> retired_authorities_;
   double speed_mps_{0.0};
   uint32_t run_id_{0};
-  uint64_t mission_start_generation_{0};
   uint8_t current_task_{rx_msgs::msg::RxTask::TASK_NONE};
   rx_msgs::msg::Course course_;
   uint32_t pinger_freq_hz_{0};
-  std::map<uint32_t, uint8_t> segments_by_index_;
+  std::unique_ptr<SurveyLedger> survey_ledger_;
+  std::unique_ptr<SurfaceGuard> surface_guard_;
+  std::unique_ptr<SurveyOutbox> survey_outbox_;
+  std::map<std::string, std::shared_ptr<PendingSurvey>> pending_surveys_;
+  bool publish_legacy_copies_{false};
+  uint64_t evidence_revision_{0};
+  bool recovered_outbox_{false};
 
   rclcpp::Publisher<rx_msgs::msg::Heartbeat>::SharedPtr heartbeat_pub_;
   rclcpp::Publisher<rx_msgs::msg::MissionStatus>::SharedPtr mission_status_pub_;
   rclcpp::Publisher<rx_msgs::msg::IncidentAck>::SharedPtr incident_ack_pub_;
   rclcpp::Publisher<rx_msgs::msg::ReadinessReport>::SharedPtr readiness_pub_;
   rclcpp::Publisher<rx_msgs::msg::PipelineSurvey>::SharedPtr survey_pub_;
+  rclcpp::Publisher<rx_msgs::msg::ResourceDelivery>::SharedPtr delivery_pub_;
+  rclcpp::Publisher<banyu_msgs::msg::Task2Submission>::SharedPtr submission_pub_;
+  rclcpp::Publisher<banyu_msgs::msg::Task2SurveyProgress>::SharedPtr survey_progress_pub_;
   rclcpp::Subscription<rx_msgs::msg::Command>::SharedPtr command_sub_;
   rclcpp::Subscription<rx_msgs::msg::Course>::SharedPtr course_sub_;
   rclcpp::Subscription<mavros_msgs::msg::State>::SharedPtr state_sub_;
@@ -88,9 +137,10 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_sub_;
   rclcpp::Subscription<banyu_msgs::msg::VehicleStatus>::SharedPtr vehicle_status_sub_;
-  rclcpp::Subscription<banyu_msgs::msg::PipelineRingState>::SharedPtr ring_state_sub_;
-  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr mission_start_client_;
-  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr mission_abort_client_;
+  rclcpp::Subscription<banyu_msgs::msg::RunLifecycle>::SharedPtr lifecycle_sub_;
+  rclcpp::Subscription<banyu_msgs::msg::Task2SurveyEvidence>::SharedPtr evidence_sub_;
+  rclcpp::Subscription<banyu_msgs::msg::WaterDepth>::SharedPtr water_depth_sub_;
+  rclcpp::Client<banyu_msgs::srv::SealTask2Report>::SharedPtr seal_client_;
   rclcpp::Service<TriggerPipelineSurvey>::SharedPtr survey_service_;
   rclcpp::TimerBase::SharedPtr heartbeat_timer_;
 };
