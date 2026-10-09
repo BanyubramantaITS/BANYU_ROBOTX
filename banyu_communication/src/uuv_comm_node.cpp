@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <stdexcept>
+#include <vector>
 
 #include <rx_msgs/msg/pipeline_segment_status.hpp>
 #include <rx_msgs/msg/robot_state.hpp>
@@ -22,6 +23,19 @@ bool validPosition(double latitude, double longitude)
   return std::isfinite(latitude) && std::isfinite(longitude) &&
          latitude >= -90.0 && latitude <= 90.0 &&
          longitude >= -180.0 && longitude <= 180.0;
+}
+
+// CMD_RUN_STOP is available only in some rx_msgs schemas.
+template<typename CommandMessage>
+auto isRunStop(uint8_t command_type, int) -> decltype(CommandMessage::CMD_RUN_STOP, bool())
+{
+  return command_type == CommandMessage::CMD_RUN_STOP;
+}
+
+template<typename CommandMessage>
+bool isRunStop(uint8_t, long)
+{
+  return false;
 }
 }  // namespace
 
@@ -60,7 +74,7 @@ UuvCommNode::UuvCommNode(const rclcpp::NodeOptions & options)
   readiness_pub_ = create_publisher<rx_msgs::msg::ReadinessReport>(
     "/system/vehicle/uuv/task4/readiness", 10);
   survey_pub_ = create_publisher<rx_msgs::msg::PipelineSurvey>(
-    "/system/vehicle/uuv/task2/pipeline_survey", 10);
+    "/system/vehicle/uuv/task2/pipeline_survey", rclcpp::QoS(10).transient_local());
 
   using std::placeholders::_1;
   using std::placeholders::_2;
@@ -125,6 +139,7 @@ void UuvCommNode::publishHeartbeat()
     heartbeat.state = robotStateLocked();
     heartbeat.current_task = current_task_;
     const bool gps_valid = gps_received_ &&
+      (now() - last_gps_time_).seconds() <= 3.0 &&
       gps_.status.status >= sensor_msgs::msg::NavSatStatus::STATUS_FIX &&
       validPosition(gps_.latitude, gps_.longitude);
     heartbeat.position = anchor_;
@@ -152,7 +167,8 @@ void UuvCommNode::publishHeartbeat()
       const double yaw = std::atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z));
       heartbeat.roll_deg = static_cast<float>(roll * kRadToDeg);
       heartbeat.pitch_deg = static_cast<float>(pitch * kRadToDeg);
-      heartbeat.heading_deg = static_cast<float>(std::fmod(yaw * kRadToDeg + 360.0, 360.0));
+      const double yaw_enu_deg = yaw * kRadToDeg;
+      heartbeat.heading_deg = static_cast<float>(std::fmod(90.0 - yaw_enu_deg + 360.0, 360.0));
       if (heartbeat.heading_deg >= 360.0F) {
         heartbeat.heading_deg = 0.0F;
       }
@@ -191,12 +207,13 @@ void UuvCommNode::commandCallback(const rx_msgs::msg::Command::SharedPtr msg)
     return;
   }
   if (msg->command_type == Command::CMD_RUN_START) {
+    uint64_t generation;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       run_id_ = msg->run_id;
-      current_task_ = rx_msgs::msg::RxTask::TASK_INFRA_SURVEY_REPAIR;
+      generation = ++mission_start_generation_;
+      current_task_ = rx_msgs::msg::RxTask::TASK_NONE;
       segments_by_index_.clear();
-      segments_.clear();
     }
     if (!mission_start_client_->service_is_ready()) {
       publishMissionStatus("Mission start service unavailable", msg->run_id);
@@ -206,12 +223,30 @@ void UuvCommNode::commandCallback(const rx_msgs::msg::Command::SharedPtr msg)
     publishMissionStatus("Mission start requested", msg->run_id);
     mission_start_client_->async_send_request(
       std::make_shared<std_srvs::srv::Trigger::Request>(),
-      [this, run_id = msg->run_id](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+      [this, run_id = msg->run_id, generation](
+        rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
         const auto response = future.get();
+        {
+          std::lock_guard<std::mutex> lock(mutex_);
+          if (generation != mission_start_generation_) {
+            return;
+          }
+          current_task_ = response->success ? rx_msgs::msg::RxTask::TASK_INFRA_SURVEY_REPAIR :
+          rx_msgs::msg::RxTask::TASK_NONE;
+        }
         publishMissionStatus(
           std::string(response->success ? "Mission started: " : "Mission start rejected: ") +
           response->message, run_id);
       });
+  } else if (msg->command_type == Command::CMD_MISSION_DONE ||
+    isRunStop<Command>(msg->command_type, 0))
+  {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      ++mission_start_generation_;
+      current_task_ = rx_msgs::msg::RxTask::TASK_NONE;
+    }
+    publishMissionStatus("Mission stopped");
   } else if (msg->command_type == Command::CMD_TASK4_ASSISTANCE ||
     msg->command_type == Command::CMD_TASK4_KEEP_OUT_ZONE ||
     msg->command_type == Command::CMD_TASK4_ALL_CLEAR)
@@ -247,6 +282,7 @@ void UuvCommNode::gpsCallback(const sensor_msgs::msg::NavSatFix::SharedPtr msg)
 {
   std::lock_guard<std::mutex> lock(mutex_);
   gps_ = *msg;
+  last_gps_time_ = now();
   gps_received_ = true;
 }
 
@@ -284,10 +320,6 @@ void UuvCommNode::ringStateCallback(const banyu_msgs::msg::PipelineRingState::Sh
   segments_by_index_[msg->index] = msg->color == PipelineRingState::COLOR_RED ?
     PipelineSegmentStatus::PIPELINE_SEGMENT_DAMAGED :
     PipelineSegmentStatus::PIPELINE_SEGMENT_INTACT;
-  segments_.clear();
-  for (const auto & segment : segments_by_index_) {
-    segments_.push_back(segment.second);
-  }
 }
 
 void UuvCommNode::surveyCallback(
@@ -300,9 +332,27 @@ void UuvCommNode::surveyCallback(
   {
     std::lock_guard<std::mutex> lock(mutex_);
     survey.active_buoy_position = active_buoy_position_;
-    survey.segments = segments_.empty() ? std::vector<uint8_t>{1, 1, 1, 2, 1} : segments_;
+    std::vector<uint8_t> segments(5, rx_msgs::msg::PipelineSegmentStatus::PIPELINE_SEGMENT_UNKNOWN);
+    if (segments_by_index_.empty()) {
+      segments = {1, 1, 1, 2, 1};
+    } else {
+      for (const auto & ring : segments_by_index_) {
+        if (ring.first >= segments.size()) {
+          segments.resize(
+            static_cast<size_t>(ring.first) + 1,
+            rx_msgs::msg::PipelineSegmentStatus::PIPELINE_SEGMENT_UNKNOWN);
+        }
+        segments[ring.first] = ring.second;
+      }
+    }
+    survey.segments = segments;
   }
   survey_pub_->publish(survey);
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ++mission_start_generation_;
+    current_task_ = rx_msgs::msg::RxTask::TASK_NONE;
+  }
   publishMissionStatus("Pipeline survey published");
   response->success = true;
   response->message = "Pipeline survey published";

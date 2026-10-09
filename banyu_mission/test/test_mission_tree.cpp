@@ -238,6 +238,43 @@ TEST_F(MissionTest, PublishPipelineSurveyNodeProvidedPortsIsEmpty)
   EXPECT_TRUE(banyu_mission::PublishPipelineSurveyNode::providedPorts().empty());
 }
 
+TEST_F(MissionTest, PublishPipelineSurveyWaitsForDelayedServiceDiscovery)
+{
+  using Survey = banyu_msgs::srv::TriggerPipelineSurvey;
+  auto node = std::make_shared<rclcpp::Node>("survey_service_discovery_test");
+  auto server_node = std::make_shared<rclcpp::Node>("delayed_survey_service_test");
+  banyu_mission::PublishPipelineSurveyNode action(
+    "PublishPipelineSurvey", BT::NodeConfig{}, node, "/test/delayed_pipeline_survey");
+  rclcpp::Service<Survey>::SharedPtr server;
+  size_t requests = 0;
+  std::thread advertise_service([&]() {
+      std::this_thread::sleep_for(std::chrono::milliseconds(150));
+      server = server_node->create_service<Survey>(
+        "/test/delayed_pipeline_survey",
+        [&](const std::shared_ptr<Survey::Request>,
+        std::shared_ptr<Survey::Response> response) {
+          ++requests;
+          response->success = true;
+        });
+    });
+  const auto start_status = action.onStart();
+  advertise_service.join();
+  ASSERT_EQ(start_status, BT::NodeStatus::RUNNING);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(server_node);
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (action.onRunning() == BT::NodeStatus::RUNNING &&
+    std::chrono::steady_clock::now() < deadline)
+  {
+    executor.spin_some();
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  EXPECT_EQ(action.onRunning(), BT::NodeStatus::SUCCESS);
+  EXPECT_EQ(requests, 1u);
+}
+
 TEST_F(MissionTest, AcquirePipelineRequiresAcquiredResult)
 {
   using Node = banyu_mission::AcquirePipelineNode;

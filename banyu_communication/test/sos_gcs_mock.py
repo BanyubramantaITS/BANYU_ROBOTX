@@ -25,7 +25,7 @@ from mavros_msgs.msg import State
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, qos_profile_sensor_data, QoSProfile
 from rx_msgs.msg import (
     Command,
     Heartbeat,
@@ -82,8 +82,10 @@ class TeamGcsMock(Node):
         for name, message_type, topic in subscriptions:
             messages = deque(maxlen=200)
             self.reports[name] = messages
+            qos = (QoSProfile(depth=10, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+                   if name == 'survey' else 10)
             self.report_subscriptions.append(self.create_subscription(
-                message_type, topic, lambda msg, target=messages: target.append(msg), 10))
+                message_type, topic, lambda msg, target=messages: target.append(msg), qos))
 
         self.command_pub = self.create_publisher(Command, '/system/mission/command', 10)
         self.gps_pub = self.create_publisher(
@@ -244,6 +246,7 @@ class TeamGcsMock(Node):
             and math.isclose(msg.depth_m, 2.0, abs_tol=1e-3)
             and math.isclose(msg.position.latitude, 34.0, abs_tol=1e-6)
             and math.isclose(msg.position.longitude, -119.0, abs_tol=1e-6)
+            and math.isclose(msg.heading_deg, 90.0, abs_tol=1e-3)
             and msg.state == RobotState.STATE_AUTO,
             'heartbeat reflecting simulated depth, coordinates, and automatic control')
         log.info('Step 2/5 PASS: Heartbeat reflects simulated vehicle telemetry')
@@ -287,7 +290,10 @@ class TeamGcsMock(Node):
         if response is None or not response.success:
             raise VerificationFailure(f'Pipeline survey service failed: {response}')
         expected_segments = [PipelineSegmentStatus.PIPELINE_SEGMENT_DAMAGED,
-                             PipelineSegmentStatus.PIPELINE_SEGMENT_INTACT]
+                             PipelineSegmentStatus.PIPELINE_SEGMENT_INTACT,
+                             PipelineSegmentStatus.PIPELINE_SEGMENT_UNKNOWN,
+                             PipelineSegmentStatus.PIPELINE_SEGMENT_UNKNOWN,
+                             PipelineSegmentStatus.PIPELINE_SEGMENT_UNKNOWN]
         has_survey_run = 'run_id' in PipelineSurvey.get_fields_and_field_types()
         self.wait_report(
             'survey',
@@ -300,10 +306,12 @@ class TeamGcsMock(Node):
             self.wait_report(
                 'status',
                 lambda msg: msg.run_id == self.wire_run_id
+                and getattr(msg, self.task_field) == RxTask.TASK_NONE
                 and msg.message == 'Pipeline survey published',
                 'survey publication status carrying the active run ID')
             log.warning('PipelineSurvey has no run_id; checked run ID on survey MissionStatus')
-        log.info('Step 4/5 PASS: Survey received with buoy=(33.1, -118.1), segments=[2, 1]')
+        log.info(
+            'Step 4/5 PASS: Survey received with buoy=(33.1, -118.1), segments=[2, 1, 0, 0, 0]')
 
         log.info('Step 5/5: Send CMD_TASK4_ASSISTANCE and verify acknowledgement and readiness')
         self.reports['ack'].clear()

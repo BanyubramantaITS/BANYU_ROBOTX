@@ -6,7 +6,6 @@
 #include <mutex>
 #include <optional>
 #include <string>
-#include <vector>
 
 #include <banyu_msgs/msg/pipeline_ring_state.hpp>
 #include <banyu_msgs/msg/vehicle_status.hpp>
@@ -60,17 +59,18 @@ private:
   rx_msgs::msg::LatLng active_buoy_position_;
   mavros_msgs::msg::State state_;
   sensor_msgs::msg::NavSatFix gps_;
+  rclcpp::Time last_gps_time_{0, 0, RCL_ROS_TIME};
   geometry_msgs::msg::PoseStamped pose_;
   banyu_msgs::msg::VehicleStatus vehicle_status_;
   bool gps_received_{false};
   bool vehicle_status_received_{false};
   double speed_mps_{0.0};
   uint32_t run_id_{0};
+  uint64_t mission_start_generation_{0};
   uint8_t current_task_{rx_msgs::msg::RxTask::TASK_NONE};
   rx_msgs::msg::Course course_;
   uint32_t pinger_freq_hz_{0};
   std::map<uint32_t, uint8_t> segments_by_index_;
-  std::vector<uint8_t> segments_;
 
   rclcpp::Publisher<rx_msgs::msg::Heartbeat>::SharedPtr heartbeat_pub_;
   rclcpp::Publisher<rx_msgs::msg::MissionStatus>::SharedPtr mission_status_pub_;

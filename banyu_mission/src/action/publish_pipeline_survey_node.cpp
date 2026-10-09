@@ -15,7 +15,7 @@ PublishPipelineSurveyNode::PublishPipelineSurveyNode(
 
 BT::NodeStatus PublishPipelineSurveyNode::onStart()
 {
-  if (!client_->wait_for_service(std::chrono::milliseconds(0))) {
+  if (!client_->wait_for_service(std::chrono::seconds(3))) {
     RCLCPP_WARN(node_->get_logger(), "Pipeline survey trigger service unavailable");
     return BT::NodeStatus::FAILURE;
   }

@@ -56,7 +56,7 @@ protected:
       "/system/mission/status", 10,
       [this](rx_msgs::msg::MissionStatus::SharedPtr msg) {statuses_.push_back(*msg);});
     survey_sub_ = peer_->create_subscription<rx_msgs::msg::PipelineSurvey>(
-      "/system/vehicle/uuv/task2/pipeline_survey", 10,
+      "/system/vehicle/uuv/task2/pipeline_survey", rclcpp::QoS(10).transient_local(),
       [this](rx_msgs::msg::PipelineSurvey::SharedPtr msg) {surveys_.push_back(*msg);});
     ack_sub_ = peer_->create_subscription<rx_msgs::msg::IncidentAck>(
       "/system/vehicle/uuv/task4/incident_ack", 10,
@@ -123,6 +123,27 @@ protected:
     ASSERT_TRUE(spinUntil([this, count]() {return surveys_.size() > count;}));
   }
 
+  void deferMissionStart()
+  {
+    start_server_ = peer_->create_service<std_srvs::srv::Trigger>(
+      "/banyu/mission/start",
+      [this](const std::shared_ptr<rmw_request_id_t> header,
+      const std::shared_ptr<std_srvs::srv::Trigger::Request>) {
+        ++start_requests_;
+        pending_start_request_ = header;
+      });
+  }
+
+  void acceptMissionStart()
+  {
+    ASSERT_TRUE(pending_start_request_);
+    std_srvs::srv::Trigger::Response response;
+    response.success = true;
+    response.message = "accepted";
+    start_server_->send_response(*pending_start_request_, response);
+    pending_start_request_.reset();
+  }
+
   std::shared_ptr<rclcpp::Context> context_;
   rclcpp::NodeOptions options_;
   std::shared_ptr<UuvCommNode> node_;
@@ -136,6 +157,7 @@ protected:
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr start_server_;
   rclcpp::Publisher<Command>::SharedPtr command_pub_;
   rclcpp::Client<Survey>::SharedPtr survey_client_;
+  std::shared_ptr<rmw_request_id_t> pending_start_request_;
   std::vector<rx_msgs::msg::Heartbeat> heartbeats_;
   std::vector<rx_msgs::msg::MissionStatus> statuses_;
   std::vector<rx_msgs::msg::PipelineSurvey> surveys_;
@@ -202,6 +224,8 @@ TEST_F(UuvCommNodeTest, FiltersCommandsAndStartsAddressedOrBroadcastRuns)
   EXPECT_EQ(statuses_.back().run_id, 17u);
   EXPECT_EQ(statuses_.back().vehicle_id, "uuv");
   EXPECT_EQ(statuses_.back().current_task, RxTask::TASK_INFRA_SURVEY_REPAIR);
+  EXPECT_EQ(statuses_.front().message, "Mission start requested");
+  EXPECT_EQ(statuses_.front().current_task, RxTask::TASK_NONE);
 
   command.target_vehicle = VehicleType::TYPE_UNKNOWN;
   command.run_id = 18;
@@ -224,6 +248,95 @@ TEST_F(UuvCommNodeTest, ReportsRejectedMissionStart)
              statuses_.back().message == "Mission start rejected: preflight failed";
     }));
   EXPECT_EQ(statuses_.back().run_id, 7u);
+  EXPECT_EQ(statuses_.back().current_task, RxTask::TASK_NONE);
+  spinFor(150ms);
+  EXPECT_EQ(heartbeats_.back().current_task, RxTask::TASK_NONE);
+}
+
+TEST_F(UuvCommNodeTest, KeepsTaskNoneUntilMissionStartSucceeds)
+{
+  deferMissionStart();
+  Command command;
+  command.target_vehicle = VehicleType::TYPE_UUV;
+  command.command_type = Command::CMD_RUN_START;
+  command.run_id = 17;
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {
+      return pending_start_request_ && !statuses_.empty() &&
+             statuses_.back().message == "Mission start requested";
+    }));
+  EXPECT_EQ(statuses_.back().current_task, RxTask::TASK_NONE);
+  spinFor(150ms);
+  EXPECT_EQ(heartbeats_.back().current_task, RxTask::TASK_NONE);
+
+  acceptMissionStart();
+  ASSERT_TRUE(spinUntil([this]() {
+      return statuses_.back().message == "Mission started: accepted" &&
+             heartbeats_.back().current_task == RxTask::TASK_INFRA_SURVEY_REPAIR;
+    }));
+  EXPECT_EQ(statuses_.back().current_task, RxTask::TASK_INFRA_SURVEY_REPAIR);
+}
+
+TEST_F(UuvCommNodeTest, ReportsUnavailableMissionStartWithTaskNone)
+{
+  start_server_.reset();
+  ASSERT_TRUE(spinUntil([this]() {return peer_->count_services("/banyu/mission/start") == 0;}));
+  Command command;
+  command.target_vehicle = VehicleType::TYPE_UUV;
+  command.command_type = Command::CMD_RUN_START;
+  command.run_id = 7;
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {
+      return !statuses_.empty() &&
+             statuses_.back().message == "Mission start service unavailable";
+    }));
+  EXPECT_EQ(statuses_.back().current_task, RxTask::TASK_NONE);
+  spinFor(150ms);
+  EXPECT_EQ(heartbeats_.back().current_task, RxTask::TASK_NONE);
+}
+
+TEST_F(UuvCommNodeTest, MissionDoneResetsActiveTaskAndPublishesStatus)
+{
+  Command command;
+  command.target_vehicle = VehicleType::TYPE_UUV;
+  command.command_type = Command::CMD_RUN_START;
+  command.run_id = 17;
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {
+      return !statuses_.empty() && statuses_.back().message == "Mission started: accepted" &&
+             heartbeats_.back().current_task == RxTask::TASK_INFRA_SURVEY_REPAIR;
+    }));
+
+  command.command_type = Command::CMD_MISSION_DONE;
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {
+      return statuses_.back().message == "Mission stopped" &&
+             heartbeats_.back().current_task == RxTask::TASK_NONE;
+    }));
+  EXPECT_EQ(statuses_.back().run_id, 17u);
+  EXPECT_EQ(statuses_.back().current_task, RxTask::TASK_NONE);
+}
+
+TEST_F(UuvCommNodeTest, MissionDoneIgnoresLateMissionStartResponse)
+{
+  deferMissionStart();
+  Command command;
+  command.target_vehicle = VehicleType::TYPE_UUV;
+  command.command_type = Command::CMD_RUN_START;
+  command.run_id = 17;
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {return pending_start_request_ != nullptr;}));
+  command.command_type = Command::CMD_MISSION_DONE;
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {
+      return !statuses_.empty() && statuses_.back().message == "Mission stopped";
+    }));
+
+  acceptMissionStart();
+  spinFor(150ms);
+  EXPECT_EQ(statuses_.back().message, "Mission stopped");
+  EXPECT_EQ(statuses_.back().current_task, RxTask::TASK_NONE);
+  EXPECT_EQ(heartbeats_.back().current_task, RxTask::TASK_NONE);
 }
 
 TEST_F(UuvCommNodeTest, AcknowledgesTask4CommandsWithMatchingSequence)
@@ -301,7 +414,7 @@ TEST_F(UuvCommNodeTest, HeartbeatUsesTelemetryAndFallsBackForInvalidGps)
   EXPECT_DOUBLE_EQ(heartbeat.position.longitude, -119.0);
   EXPECT_FLOAT_EQ(heartbeat.altitude_hae_m, 12.0F);
   EXPECT_FLOAT_EQ(heartbeat.spd_mps, 0.5F);
-  EXPECT_NEAR(heartbeat.heading_deg, 270.0F, 1e-4);
+  EXPECT_NEAR(heartbeat.heading_deg, 180.0F, 1e-4);
   EXPECT_NEAR(heartbeat.roll_deg, 30.0F, 1e-4);
   EXPECT_NEAR(heartbeat.pitch_deg, -20.0F, 1e-4);
 
@@ -319,6 +432,60 @@ TEST_F(UuvCommNodeTest, HeartbeatUsesTelemetryAndFallsBackForInvalidGps)
     spinFor(30ms);
   }
   EXPECT_DOUBLE_EQ(heartbeats_.back().position.latitude, 33.0);
+}
+
+TEST_F(UuvCommNodeTest, HeartbeatFallsBackToAnchorWhenGpsIsStaleAndRecovers)
+{
+  auto gps_pub = publisher<sensor_msgs::msg::NavSatFix>(
+    "/mavros/global_position/global", rclcpp::SensorDataQoS());
+  sensor_msgs::msg::NavSatFix gps;
+  gps.status.status = sensor_msgs::msg::NavSatStatus::STATUS_FIX;
+  gps.latitude = 34.0;
+  gps.longitude = -119.0;
+  gps.altitude = 12.0;
+  auto last_publish_time = node_->now();
+  ASSERT_TRUE(spinUntil([&]() {
+      last_publish_time = node_->now();
+      gps_pub->publish(gps);
+      return heartbeats_.back().position.latitude == 34.0;
+    }));
+
+  spinFor(2500ms);
+  EXPECT_DOUBLE_EQ(heartbeats_.back().position.latitude, 34.0);
+  ASSERT_TRUE(spinUntil([this]() {
+      return heartbeats_.back().position.latitude == 33.0;
+    }, 1500ms));
+  EXPECT_GT((rclcpp::Time(heartbeats_.back().header.stamp) - last_publish_time).seconds(), 3.0);
+  EXPECT_DOUBLE_EQ(heartbeats_.back().position.longitude, -118.0);
+  EXPECT_FLOAT_EQ(heartbeats_.back().altitude_hae_m, 4.0F);
+
+  ASSERT_TRUE(spinUntil([&]() {
+      gps_pub->publish(gps);
+      return heartbeats_.back().position.latitude == 34.0;
+    }));
+  EXPECT_DOUBLE_EQ(heartbeats_.back().position.longitude, -119.0);
+  EXPECT_FLOAT_EQ(heartbeats_.back().altitude_hae_m, 12.0F);
+}
+
+TEST_F(UuvCommNodeTest, HeartbeatConvertsEnuYawToCompassCardinalHeadings)
+{
+  auto pose_pub = publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  geometry_msgs::msg::PoseStamped pose;
+  pose.pose.position.z = -1.0;
+  const std::vector<double> yaw_degrees{90.0, 0.0, -90.0, 180.0};
+  const std::vector<float> compass_headings{0.0F, 90.0F, 180.0F, 270.0F};
+  for (size_t i = 0; i < yaw_degrees.size(); ++i) {
+    const double yaw = yaw_degrees[i] * std::acos(-1.0) / 180.0;
+    pose.pose.orientation.z = std::sin(yaw / 2.0);
+    pose.pose.orientation.w = std::cos(yaw / 2.0);
+    ASSERT_TRUE(spinUntil([&]() {
+        pose_pub->publish(pose);
+        return heartbeats_.back().depth_m == 1.0F &&
+               std::abs(heartbeats_.back().heading_deg - compass_headings[i]) < 1e-4;
+      }));
+    EXPECT_NEAR(heartbeats_.back().heading_deg, compass_headings[i], 1e-4);
+  }
 }
 
 TEST_F(UuvCommNodeTest, HeartbeatDistinguishesAutoManualDisarmedAndFailsafe)
@@ -362,14 +529,27 @@ TEST_F(UuvCommNodeTest, HeartbeatDistinguishesAutoManualDisarmedAndFailsafe)
 
 TEST_F(UuvCommNodeTest, SurveyServicePublishesDefaultSegmentsAndMissionStatus)
 {
+  Command command;
+  command.target_vehicle = VehicleType::TYPE_UUV;
+  command.command_type = Command::CMD_RUN_START;
+  command.run_id = 17;
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {
+      return !statuses_.empty() && statuses_.back().message == "Mission started: accepted";
+    }));
+  EXPECT_EQ(statuses_.back().current_task, RxTask::TASK_INFRA_SURVEY_REPAIR);
   requestSurvey();
   ASSERT_FALSE(surveys_.empty());
   EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{1, 1, 1, 2, 1}));
   EXPECT_DOUBLE_EQ(surveys_.back().active_buoy_position.latitude, 33.1);
   EXPECT_DOUBLE_EQ(surveys_.back().active_buoy_position.longitude, -118.1);
   EXPECT_EQ(surveys_.back().header.frame_id, "uuv");
-  ASSERT_TRUE(spinUntil([this]() {return !statuses_.empty();}));
+  ASSERT_TRUE(spinUntil([this]() {
+      return statuses_.back().message == "Pipeline survey published" &&
+             heartbeats_.back().current_task == RxTask::TASK_NONE;
+    }));
   EXPECT_EQ(statuses_.back().message, "Pipeline survey published");
+  EXPECT_EQ(statuses_.back().current_task, RxTask::TASK_NONE);
 }
 
 TEST_F(UuvCommNodeTest, SurveyOrdersAndDeduplicatesRingObservationsAndResetsForNewRun)
@@ -394,7 +574,7 @@ TEST_F(UuvCommNodeTest, SurveyOrdersAndDeduplicatesRingObservationsAndResetsForN
   spinFor(100ms);
   requestSurvey();
   ASSERT_FALSE(surveys_.empty());
-  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{1, 2, 1}));
+  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{1, 2, 1, 0, 0}));
 
   Command command;
   command.target_vehicle = VehicleType::TYPE_UUV;
@@ -410,4 +590,40 @@ TEST_F(UuvCommNodeTest, SurveyOrdersAndDeduplicatesRingObservationsAndResetsForN
       return statuses_.back().run_id == 9 &&
              statuses_.back().message == "Pipeline survey published";
     }));
+  EXPECT_EQ(statuses_.back().current_task, RxTask::TASK_NONE);
+}
+
+TEST_F(UuvCommNodeTest, SurveyPadsSparseIndicesAndPreservesIndicesBeyondFiveSections)
+{
+  using banyu_msgs::msg::PipelineRingState;
+  auto ring_pub = publisher<PipelineRingState>("/banyu/pipeline/ring_state");
+  PipelineRingState ring;
+  ring.index = 4;
+  ring.color = PipelineRingState::COLOR_BLUE;
+  ring_pub->publish(ring);
+  ring.index = 0;
+  ring.color = PipelineRingState::COLOR_RED;
+  ring_pub->publish(ring);
+  spinFor(100ms);
+  requestSurvey();
+  ASSERT_FALSE(surveys_.empty());
+  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{2, 0, 0, 0, 1}));
+
+  ring.index = 6;
+  ring_pub->publish(ring);
+  spinFor(100ms);
+  requestSurvey();
+  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{2, 0, 0, 0, 1, 0, 2}));
+}
+
+TEST_F(UuvCommNodeTest, LateSurveySubscriberReceivesRetainedReport)
+{
+  requestSurvey();
+  survey_sub_.reset();
+  surveys_.clear();
+  survey_sub_ = peer_->create_subscription<rx_msgs::msg::PipelineSurvey>(
+    "/system/vehicle/uuv/task2/pipeline_survey", rclcpp::QoS(10).transient_local(),
+    [this](rx_msgs::msg::PipelineSurvey::SharedPtr msg) {surveys_.push_back(*msg);});
+  ASSERT_TRUE(spinUntil([this]() {return !surveys_.empty();}));
+  EXPECT_EQ(surveys_.back().segments, (std::vector<uint8_t>{1, 1, 1, 2, 1}));
 }
