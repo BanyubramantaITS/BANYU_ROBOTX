@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Provide deterministic Task 2 ROS topics without a simulator plugin.
+"""
+Provide deterministic Task 2 ROS topics without a simulator plugin.
 
 The start-buoy GPS topic is a surface-only fixture matched to the active
 MAVROS datum, not a true buoy GPS receiver.

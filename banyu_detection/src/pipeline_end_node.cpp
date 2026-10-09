@@ -128,7 +128,7 @@ void PipelineEndNode::candidateStateCallback(
   {
     return;
   }
-  const rclcpp::Time stamp(msg->header.stamp);
+  const rclcpp::Time stamp(msg->header.stamp, get_clock()->get_clock_type());
   const double age = (now() - stamp).seconds();
   if (age < 0.0 || age > candidate_timeout_s_) {
     return;

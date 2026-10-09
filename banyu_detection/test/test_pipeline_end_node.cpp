@@ -290,4 +290,47 @@ TEST_F(PipelineEndNodeTest, RunScopedResetPreservesDuplicatesAndRejectsOldEviden
   EXPECT_TRUE(node->adapter().isConfirmed());
 }
 
+TEST_F(PipelineEndNodeTest, CandidateStateSupportsSimTimeWithoutClockMismatchException)
+{
+  using namespace std::chrono_literals;
+  using banyu_msgs::srv::ResetTask2;
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+      rclcpp::Parameter("use_sim_time", true),
+      rclcpp::Parameter("require_run_context", true),
+  });
+  auto node = std::make_shared<banyu_detection::PipelineEndNode>(options);
+  auto peer = std::make_shared<rclcpp::Node>(
+    "pipeline_end_sim_time_peer",
+    rclcpp::NodeOptions().parameter_overrides({rclcpp::Parameter("use_sim_time", true)}));
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(peer);
+  auto reset = peer->create_client<ResetTask2>("/banyu/pipeline/reset_end");
+  auto candidate_pub = peer->create_publisher<banyu_msgs::msg::PipelineEndCandidate>(
+    "/banyu/pipeline/end_candidate_state", rclcpp::QoS(10));
+  ASSERT_TRUE(reset->wait_for_service(1s));
+  auto request = std::make_shared<ResetTask2::Request>();
+  request->run_id = 7;
+  request->epoch = 1;
+  auto future = reset->async_send_request(request);
+  ASSERT_EQ(executor.spin_until_future_complete(future, 1s), rclcpp::FutureReturnCode::SUCCESS);
+  EXPECT_TRUE(future.get()->success);
+
+  banyu_msgs::msg::PipelineEndCandidate candidate_msg;
+  candidate_msg.header.stamp = peer->now();
+  candidate_msg.run_id = 7;
+  candidate_msg.epoch = 1;
+  candidate_msg.candidate = true;
+  candidate_pub->publish(candidate_msg);
+
+  EXPECT_NO_THROW({
+      const auto deadline = std::chrono::steady_clock::now() + 50ms;
+      while (std::chrono::steady_clock::now() < deadline) {
+        executor.spin_some();
+        std::this_thread::sleep_for(2ms);
+      }
+  });
+}
+
 }  // namespace

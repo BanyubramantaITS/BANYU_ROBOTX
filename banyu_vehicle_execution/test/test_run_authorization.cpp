@@ -248,6 +248,14 @@ TEST_F(RunAuthorizationTest, ActiveNeedsHandshakeAndTerminalPublishesOnlyFiniteZ
   ASSERT_FALSE(targets_.empty());
   EXPECT_NE(targets_.back().yaw_rate, 0.0);
   phase_ = Lifecycle::FAILED;
+  publishLifecycle();
+  const auto abort_deadline = std::chrono::steady_clock::now() + 500ms;
+  while (result.wait_for(0ms) != std::future_status::ready &&
+    std::chrono::steady_clock::now() < abort_deadline)
+  {
+    executor_.spin_some();
+    std::this_thread::sleep_for(2ms);
+  }
   targets_.clear();
   pump(220ms);
   ASSERT_EQ(result.wait_for(0ms), std::future_status::ready);
