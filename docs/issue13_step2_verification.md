@@ -1,5 +1,86 @@
 # Issue 13 Step 2 Verification Record
 
+## Authoritative Implementation & Verification after `4d74257` — October 10, 2026
+
+This entry records the implementation, independent boundary verification, and audit resolution per `docs/issue13_next_steps_4d74257.md`.
+
+- **Scope & Codebase Changes**:
+  - **Priority 1: Atomic Parameter-Update Defect Resolved (`GcsSubmissionAdapter`)**:
+    - Separated parameter handling into a side-effect-free validation callback (`validateParameters`) registered via `add_on_set_parameters_callback` and a committed-application callback (`applyPostSetParameters`) registered via `add_post_set_parameters_callback`.
+    - Validation checks type correctness and finite positive `lifecycle_timeout_s` without mutating caching, freshness, journal, or publishing reports.
+    - Application updates forwarding and timeout caches under `mutex_` and reconciles pending publications only after the atomic batch has successfully committed.
+    - Added 9 regression tests in `test_gcs_submission_adapter.cpp` (now 48 total tests), covering:
+      - `RejectedAtomicParameterBatchCannotPublishPendingReport` (reproduced baseline defect: rejected atomic batch does not leak pending survey or mutate cache)
+      - `ReversedRejectedAtomicParameterBatchCannotPublishPendingReport` (parameter order independence)
+      - `ValidTimeoutWithInvalidParameterBatchRejectsWithoutDivergence` (no cache divergence on late-parameter rejection)
+      - `ExternalValidatorVetoPreventsPostSetApplicationAndPublication` (external validator veto blocks application)
+      - `AcceptedAtomicParameterBatchAppliesBothValuesAndPublishesPending` (atomic commit applies both values and triggers eligible publication)
+      - `AcceptedDisableAndTimeoutUpdateBatchPreventsTransientPublication` (forwarding remains off; no transient leak)
+      - `AcceptedEnableUnderWrongEpochOrStaleAuthorityRetainsPending` (pending retained until matching valid authority)
+      - `InvalidParameterValuesAndTypesRejectedWithoutStateMutation` (NaN, infinity, zero, negative timeout, wrong types rejected)
+      - `ConcurrentParameterUpdatesAndLifecycleProcessingThreadSafety` (bounded concurrent execution with no deadlocks or races)
+  - **Priority 2: Independent Production Boundary Verification (`test_production_mission_boundary.cpp`)**:
+    - Expanded test suite from 8 to 15 end-to-end multi-node integration tests exercising real `banyu_mission::BanyuMission`, `UuvCommNode`, and `GcsSubmissionAdapter` nodes.
+    - Added `TIMEOUT 60` in `banyu_communication/CMakeLists.txt` for `test_production_mission_boundary` to ensure sequential ctest execution does not time out.
+    - Disclosed test harness boundary: uses reduced BehaviorTree (BT), simulated hardware/evidence fixtures, and accelerated timing.
+    - All 15 scenarios independently verify specific gates:
+      1. `ReadyPreflightSetupAcceptsRunStartAndAttributesContext`: valid preflight -> CMD_RUN_START -> accepted context attribution.
+      2. `DirectLocalStartCannotBypassGcsGateAndStartVariationsHandled`: local start rejected; broadcast/addressed variants handled.
+      3. `AbortStopAndReadinessLossClearCurrentTaskToTaskNone`: CMD_MISSION_ABORT, CMD_MISSION_DONE, and lost readiness transition to TASK_NONE.
+      4. `IncompleteEvidenceReturnsDiagnosticAndEmitsNoSurvey`: missing evidence, incomplete 2-node evidence, and duplicate-node ambiguous evidence return diagnostics and block survey publication.
+      5. `CompleteQualifiedEvidenceAndSurfacingPublishesSurvey`: qualified 4-node observations for both `start_buoy` and `end_buoy` active endpoints publish exact survey.
+      6. `AbortBeforeSealingRejectsReportAndAbortAfterPreserves`: abort before seal blocks report; abort after seal preserves durable accepted report.
+      7. `DurableSealPreservedWhenAbortFollowsDurableSeal`: abort during delayed seal response preserves durable seal; no illegal duplicate or discarded report.
+      8. `AdapterRestartRecoversPendingUnderMatchingRetainedSnapshot`: adapter crash/restart recovers pending report from journal under matching lifecycle snapshot.
+      9. `SubmergedDepthBlocksPublicReportAndSealAuthorization`: complete 4-node survey with submerged depth (5.0m) blocks UuvCommNode trigger (`NOT_SURFACED`) and BanyuMission seal (`RUN_NOT_ELIGIBLE_FOR_REPORT`).
+      10. `DepthTelemetryQualityGuardsBlockIndependently`: isolated quality guards: missing telemetry -> `SURFACE_TELEMETRY_MISSING`; uncalibrated datum -> `SURFACE_DATUM_UNVERIFIED`; wrong datum -> `SURFACE_DATUM_UNVERIFIED`; out-of-range -> `SURFACE_DATUM_UNVERIFIED`; stale timestamp -> `SURFACE_TELEMETRY_STAMP_INVALID`; restored valid -> exactly 1 survey published.
+      11. `MissingSurveyCompletionMilestoneBlocksSurfacing`: missing progress milestone keeps phase ACTIVE; seal authorization and trigger blocked.
+      12. `SurfaceExcursionResetsHoldAndBlocksUntilFullHold`: surface sample followed by excursion to 1.5m resets hold timer; full continuous hold required to publish.
+      13. `WrongEpochPrivateSubmissionRecoversUnderMatchingContext`: private submission with future epoch 2 held PENDING without premature publication; recovered and published once matching epoch 2 lifecycle published over ROS.
+      14. `RejectedForeignAuthorityDoesNotRetireCurrentOwnerInProductionStack`: rejected foreign authority leaves accepted owner intact; valid owner completes and publishes report.
+      15. `ActionFailureAndBtFailureTerminateToTaskNoneWithoutResurrection`: test-owned navigation action abort and BT `<AlwaysFailure />` terminate to `Lifecycle::FAILED`, `reason = "EXECUTION_FAILED"`, `current_task = TASK_NONE` in lifecycle AND public heartbeat; delayed commands cannot resurrect.
+  - **Priority 3: Truthful Task 4 Assistance Stub (`UuvCommNode`, `test_uuv_comm_node.cpp`, `sos_gcs_mock.py`)**:
+    - Corrected premature readiness claims: `UuvCommNode::commandCallback` acknowledges CMD_TASK4_ASSISTANCE with `IncidentAck`, sets diagnostic status `"assistance execution unsupported/not ready"`, and emits NO premature `ReadinessReport` or state change.
+    - Updated `sos_gcs_mock.py` Step 5 to assert `IncidentAck`, verify diagnostic status message, and verify absence of premature readiness report. All 6 smoke check steps pass.
+    - Added unit test regressions in `test_uuv_comm_node.cpp` (now 17 tests including defensive null pointer validation across all 10 subscriber callbacks and service handler).
+  - **Priority 4: Course Propagation & Upstream Dependency Boundaries**:
+    - `/system/mission/course` contains boundary and pinger frequency (Hz) but no active buoy coordinates (which arrive via qualified perception observations).
+    - Course consumers in `banyu_guidance` and acoustic homing require physical hardware or hydrophone pipeline integration; documented as dependency boundary.
+
+- **Verified Test Counts & Metrics**:
+  - **Environment**: ROS 2 Jazzy, Ubuntu 24.04 LTS (Linux x86_64), C++17, BehaviorTree.CPP v4.
+  - **Sequential Test Execution**: `ROS_DOMAIN_ID=42 colcon test --executor sequential --packages-select rx_msgs banyu_msgs banyu_guidance banyu_vehicle_interface banyu_vehicle_execution banyu_communication banyu_mission banyu_detection banyu_bringup --ctest-args -j1 --return-code-on-test-failure`.
+  - **Registered C++ Test Cases**: **338 C++ cases across the 9 packages (0 failures, 0 errors)**:
+    - `banyu_communication`: **136 cases** (`test_gcs_submission_adapter`: 48, `test_production_mission_boundary`: 15, `test_uuv_comm_node`: 17, `test_survey_reporting`: 22, `test_survey_reporting_core`: 25, `test_mission_report_integration`: 9)
+    - `banyu_mission`: **70 cases** (`test_mission_tree`: 26, `test_run_coordinator`: 24, `test_run_lifecycle`: 20; note: `test_flash_decoder` and `test_led_tracker` are obsolete Oct 1 artifacts not registered in CMakeLists.txt/CTest)
+    - `banyu_detection`: **42 cases** (`test_pipeline_end_adapter`: 4, `test_pipeline_end_confirmer`: 5, `test_pipeline_end_node`: 6, `test_ring_tracker`: 16, `test_ring_tracker_adapter`: 3, `test_ring_tracker_node_qos`: 2, `test_ring_tracker_reset`: 1, `test_run_context_gate`: 3, `test_survey_evidence_node`: 2; note: `test_acoustics` and `test_pipeline_vision` are obsolete Oct 1 artifacts not registered in CMakeLists.txt/CTest)
+    - `banyu_vehicle_execution`: **74 cases** (`test_calibrated_depth_node`: 7, `test_run_authorization`: 17, `test_vehicle_execution`: 50)
+    - `banyu_guidance`: **8 cases** (`test_pipeline_follower`: 8)
+    - `banyu_vehicle_interface`: **7 cases** (`test_vehicle_status_tracker`: 7)
+    - `banyu_msgs`: **1 case** (`test_action_lease`: 1)
+    - `rx_msgs`: **0 cases** (interface definitions)
+    - `banyu_bringup`: **0 cases** (launch and linters)
+  - **Workspace Aggregate Colcon Result**: `Summary: 739 tests, 0 errors, 0 failures, 156 skipped` across all built packages (reflecting 338 gtests plus linters).
+  - **Smoke Test**: `python3 src/BANYU_ROBOTX/banyu_communication/test/sos_gcs_mock.py` on `ROS_DOMAIN_ID=42` — all 6 steps PASS.
+  - **Code Quality & Style**: `ament_uncrustify`, `ament_flake8`, `git diff --check` pass with 0 errors and 0 warnings.
+
+### Milestone Status Matrix
+
+| Milestone / Gate | Status | Evidence / Notes |
+| --- | --- | --- |
+| **Milestone 1: Adapter transaction correctness** | **PASS** | Side-effect-free validation + post-set application; atomic parameter updates verified; `test_gcs_submission_adapter` (48 tests passed). |
+| **Milestone 2: Production ROS boundary** | **PASS** | `test_production_mission_boundary` (15 tests passed under TIMEOUT 60); independent surfacing/depth quality guards, excursion reset, completion milestone, ROS wrong-epoch recovery, foreign authority rejection, action/BT failure to TASK_NONE all pass. Disclosed mocks/reduced BT. |
+| **Milestone 3: UUV issue acceptance** | **NOT VERIFIED** | Truthful stub implemented for Task 4 assistance (no premature readiness); course boundary/frequency dependency documented; physical water datum calibration, physical sensor evidence (WS2812B/TLV493D), 2Hz heartbeat jitter under load, and full Gazebo SITL simulation in domain 40 remain open. |
+| **Milestone 4: Joint/team acceptance** | **NOT VERIFIED** | Multi-domain DDS routing between domains 40 and 10 and official GCS/OCS transport/credentials remain open. |
+
+## Completion qualification at `4d74257521889690494930b7594e8b1573618b79`
+
+The previous local audit in this session confirmed 321 registered C++ cases, 722 aggregate checks with zero failures/errors and 156 skipped, and six passing smoke checks. It also reproduced an additional failing probe: `RejectedAtomicParameterBatchCannotPublishPendingReport`. The adapter's rejected atomic update can publish a pending report before returning rejection, so the software path is not fully verified despite the registered suite passing.
+
+The new production BanyuMission suite exercises real lifecycle/seal callbacks, but uses a reduced BT, hardware/evidence fixtures and accelerated timing. Its submerged negative subcase retains incomplete evidence and does not independently prove the surfacing guard. Explicit action/BT failure coverage and the remaining production/simulation/routing gates are still needed. Claims of abort disarming, physical hardware validation or cross-domain isolation require their own evidence.
+
+Use [the 4d74257 coding handoff](issue13_next_steps_4d74257.md) for reproduction, implementation and acceptance criteria. This qualification preserves the prior passing evidence while superseding broader completion claims below. This documentation update adds no production fix or fresh test run; temporary prior audit files are unavailable, and the handoff contains the complete reproduction sequence.
+
 ## Phase A–C Authoritative Implementation & Verification after `5f9932b` — October 10, 2026
 
 This entry records the implementation and verification of Phases A–C from `docs/issue13_next_steps_5f9932b.md`.

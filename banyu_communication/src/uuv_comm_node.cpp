@@ -282,6 +282,9 @@ void UuvCommNode::publishMissionStatus(
 
 void UuvCommNode::commandCallback(const rx_msgs::msg::Command::SharedPtr msg)
 {
+  if (!msg) {
+    return;
+  }
   using rx_msgs::msg::Command;
   using rx_msgs::msg::VehicleType;
   if (msg->target_vehicle != VehicleType::TYPE_UUV &&
@@ -299,16 +302,16 @@ void UuvCommNode::commandCallback(const rx_msgs::msg::Command::SharedPtr msg)
     ack.command_seq = msg->command_seq;
     incident_ack_pub_->publish(ack);
     if (msg->command_type == Command::CMD_TASK4_ASSISTANCE) {
-      rx_msgs::msg::ReadinessReport readiness;
-      readiness.header = ack.header;
-      readiness.command_seq = msg->command_seq;
-      readiness_pub_->publish(readiness);
+      publishMissionStatus("assistance execution unsupported/not ready");
     }
   }
 }
 
 void UuvCommNode::courseCallback(const rx_msgs::msg::Course::SharedPtr msg)
 {
+  if (!msg) {
+    return;
+  }
   std::lock_guard<std::mutex> lock(mutex_);
   course_ = *msg;
   pinger_freq_hz_ = msg->pinger_freq_hz;
@@ -317,6 +320,9 @@ void UuvCommNode::courseCallback(const rx_msgs::msg::Course::SharedPtr msg)
 
 void UuvCommNode::stateCallback(const mavros_msgs::msg::State::SharedPtr msg)
 {
+  if (!msg) {
+    return;
+  }
   std::lock_guard<std::mutex> lock(mutex_);
   state_ = *msg;
   state_received_ = true;
@@ -325,6 +331,9 @@ void UuvCommNode::stateCallback(const mavros_msgs::msg::State::SharedPtr msg)
 
 void UuvCommNode::gpsCallback(const sensor_msgs::msg::NavSatFix::SharedPtr msg)
 {
+  if (!msg) {
+    return;
+  }
   std::lock_guard<std::mutex> lock(mutex_);
   gps_ = *msg;
   last_gps_time_ = now();
@@ -333,6 +342,9 @@ void UuvCommNode::gpsCallback(const sensor_msgs::msg::NavSatFix::SharedPtr msg)
 
 void UuvCommNode::poseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
 {
+  if (!msg) {
+    return;
+  }
   std::lock_guard<std::mutex> lock(mutex_);
   pose_ = *msg;
   last_pose_time_ = now();
@@ -340,6 +352,9 @@ void UuvCommNode::poseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr 
 
 void UuvCommNode::velocityCallback(const geometry_msgs::msg::TwistStamped::SharedPtr msg)
 {
+  if (!msg) {
+    return;
+  }
   const auto & velocity = msg->twist.linear;
   const double speed = std::hypot(velocity.x, velocity.y, velocity.z);
   std::lock_guard<std::mutex> lock(mutex_);
@@ -349,6 +364,9 @@ void UuvCommNode::velocityCallback(const geometry_msgs::msg::TwistStamped::Share
 
 void UuvCommNode::vehicleStatusCallback(const banyu_msgs::msg::VehicleStatus::SharedPtr msg)
 {
+  if (!msg) {
+    return;
+  }
   std::lock_guard<std::mutex> lock(mutex_);
   vehicle_status_ = *msg;
   vehicle_status_received_ = true;
@@ -358,6 +376,9 @@ void UuvCommNode::vehicleStatusCallback(const banyu_msgs::msg::VehicleStatus::Sh
 void UuvCommNode::lifecycleCallback(const banyu_msgs::msg::RunLifecycle::SharedPtr msg)
 {
   using Lifecycle = banyu_msgs::msg::RunLifecycle;
+  if (!msg) {
+    return;
+  }
   if ((msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0) ||
     msg->header.stamp.nanosec >= 1000000000U) {return;}
   const double source_age = (now() - rclcpp::Time(msg->header.stamp,
@@ -442,6 +463,9 @@ void UuvCommNode::lifecycleCallback(const banyu_msgs::msg::RunLifecycle::SharedP
 
 void UuvCommNode::evidenceCallback(const banyu_msgs::msg::Task2SurveyEvidence::SharedPtr msg)
 {
+  if (!msg) {
+    return;
+  }
   std::unique_lock<std::mutex> lock(mutex_);
   using Lifecycle = banyu_msgs::msg::RunLifecycle;
   if (!lifecycleFreshLocked() || lifecycle_.phase < Lifecycle::ACTIVE ||
@@ -457,6 +481,9 @@ void UuvCommNode::evidenceCallback(const banyu_msgs::msg::Task2SurveyEvidence::S
 
 void UuvCommNode::depthCallback(const banyu_msgs::msg::WaterDepth::SharedPtr msg)
 {
+  if (!msg) {
+    return;
+  }
   std::lock_guard<std::mutex> lock(mutex_);
   using Lifecycle = banyu_msgs::msg::RunLifecycle;
   if (!lifecycleFreshLocked() || (lifecycle_.phase != Lifecycle::SURVEY_COMPLETE &&
@@ -507,6 +534,9 @@ void UuvCommNode::surveyCallback(
   std::shared_ptr<rmw_request_id_t> header,
   std::shared_ptr<TriggerPipelineSurvey::Request> request)
 {
+  if (!service || !header || !request) {
+    return;
+  }
   using Response = TriggerPipelineSurvey::Response;
   std::lock_guard<std::mutex> lock(mutex_);
   auto reply = [&](uint8_t code, const std::string & message, bool success = false) {

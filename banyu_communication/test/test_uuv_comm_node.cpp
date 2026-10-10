@@ -109,6 +109,21 @@ protected:
     std::filesystem::remove_all(directory_, error);
   }
 
+  void callCallbacksWithNull()
+  {
+    node_->commandCallback(nullptr);
+    node_->lifecycleCallback(nullptr);
+    node_->courseCallback(nullptr);
+    node_->evidenceCallback(nullptr);
+    node_->depthCallback(nullptr);
+    node_->stateCallback(nullptr);
+    node_->gpsCallback(nullptr);
+    node_->poseCallback(nullptr);
+    node_->velocityCallback(nullptr);
+    node_->vehicleStatusCallback(nullptr);
+    node_->surveyCallback(nullptr, nullptr, nullptr);
+  }
+
   bool spinUntil(const std::function<bool()> & predicate, std::chrono::milliseconds timeout = 2s)
   {
     const auto deadline = std::chrono::steady_clock::now() + timeout;
@@ -380,10 +395,14 @@ TEST_F(UuvCommNodeTest, AcknowledgesTask4CommandsWithMatchingSequence)
 
   command.target_vehicle = VehicleType::TYPE_UNKNOWN;
   command_pub_->publish(command);
-  ASSERT_TRUE(spinUntil([this]() {return acks_.size() == 1 && readiness_.size() == 1;}));
+  ASSERT_TRUE(spinUntil([this]() {return acks_.size() == 1;}));
   EXPECT_EQ(acks_.back().command_seq, 10u);
-  EXPECT_EQ(readiness_.back().command_seq, 10u);
   EXPECT_EQ(acks_.back().header.frame_id, "uuv");
+  EXPECT_TRUE(readiness_.empty());
+  ASSERT_TRUE(spinUntil([this]() {
+      return !statuses_.empty() &&
+             statuses_.back().message == "assistance execution unsupported/not ready";
+  }));
 
   command.target_vehicle = VehicleType::TYPE_UUV;
   command.command_type = Command::CMD_TASK4_KEEP_OUT_ZONE;
@@ -396,7 +415,7 @@ TEST_F(UuvCommNodeTest, AcknowledgesTask4CommandsWithMatchingSequence)
   command_pub_->publish(command);
   ASSERT_TRUE(spinUntil([this]() {return acks_.size() == 3;}));
   EXPECT_EQ(acks_.back().command_seq, 12u);
-  EXPECT_EQ(readiness_.size(), 1u);
+  EXPECT_TRUE(readiness_.empty());
 }
 
 TEST_F(UuvCommNodeTest, HeartbeatUsesTelemetryAndFallsBackForInvalidGps)
@@ -670,4 +689,9 @@ TEST_F(UuvCommNodeTest, RejectsInvalidLifecycleConfiguration)
       rclcpp::Parameter("survey.outbox_path", (directory_ / "invalid-outbox.journal").string())});
     EXPECT_THROW(std::make_shared<UuvCommNode>(options), std::invalid_argument);
   }
+}
+
+TEST_F(UuvCommNodeTest, NullMessagePointersHandledSafelyWithoutCrash)
+{
+  EXPECT_NO_THROW(callCallbacksWithNull());
 }

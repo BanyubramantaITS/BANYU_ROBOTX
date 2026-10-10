@@ -66,8 +66,11 @@ GcsSubmissionAdapter::GcsSubmissionAdapter(const rclcpp::NodeOptions & options)
   delivery_pub_ = create_publisher<rx_msgs::msg::ResourceDelivery>(
     delivery_topic, rclcpp::QoS(10).reliable().transient_local());
 
-  param_callback_handle_ = add_on_set_parameters_callback(
-    std::bind(&GcsSubmissionAdapter::handleParameters, this, std::placeholders::_1));
+  on_set_param_callback_handle_ = add_on_set_parameters_callback(
+    std::bind(&GcsSubmissionAdapter::validateParameters, this, std::placeholders::_1));
+
+  post_set_param_callback_handle_ = add_post_set_parameters_callback(
+    std::bind(&GcsSubmissionAdapter::applyPostSetParameters, this, std::placeholders::_1));
 
   RCLCPP_INFO(
     get_logger(),
@@ -206,41 +209,69 @@ bool GcsSubmissionAdapter::isPublicationEligibleLocked(uint32_t run_id, uint64_t
   return hasValidAuthorityLocked(run_id, epoch);
 }
 
-rcl_interfaces::msg::SetParametersResult GcsSubmissionAdapter::handleParameters(
+rcl_interfaces::msg::SetParametersResult GcsSubmissionAdapter::validateParameters(
   const std::vector<rclcpp::Parameter> & parameters)
 {
   rcl_interfaces::msg::SetParametersResult result;
   result.successful = true;
   for (const auto & param : parameters) {
     if (param.get_name() == "forward_to_rx_topics") {
-      std::lock_guard<std::mutex> lock(mutex_);
-      const bool prev = forward_to_rx_topics_;
-      forward_to_rx_topics_ = param.as_bool();
-      RCLCPP_INFO(
-        get_logger(),
-        "Runtime parameter update: forward_to_rx_topics changed from %d to %d",
-        prev, forward_to_rx_topics_);
-      if (!prev && forward_to_rx_topics_) {
-        reconcilePendingReportsLocked();
+      if (param.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+        result.successful = false;
+        result.reason = "forward_to_rx_topics must be a boolean";
+        return result;
       }
     } else if (param.get_name() == "lifecycle_timeout_s") {
+      if (param.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+        result.successful = false;
+        result.reason = "lifecycle_timeout_s must be a double";
+        return result;
+      }
       const double new_timeout = param.as_double();
       if (!std::isfinite(new_timeout) || new_timeout <= 0.0) {
         result.successful = false;
         result.reason = "lifecycle_timeout_s must be finite and positive";
         return result;
       }
-      std::lock_guard<std::mutex> lock(mutex_);
-      const double prev = lifecycle_timeout_s_;
-      lifecycle_timeout_s_ = new_timeout;
-      RCLCPP_INFO(
-        get_logger(),
-        "Runtime parameter update: lifecycle_timeout_s changed from %.3f to %.3f",
-        prev, lifecycle_timeout_s_);
-      reconcilePendingReportsLocked();
     }
   }
   return result;
+}
+
+void GcsSubmissionAdapter::applyPostSetParameters(
+  const std::vector<rclcpp::Parameter> & parameters)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  bool forward_changed = false;
+  bool timeout_changed = false;
+
+  for (const auto & param : parameters) {
+    if (param.get_name() == "forward_to_rx_topics") {
+      const bool new_val = param.as_bool();
+      if (new_val != forward_to_rx_topics_) {
+        RCLCPP_INFO(
+          get_logger(),
+          "Runtime parameter update: forward_to_rx_topics changed from %d to %d",
+          forward_to_rx_topics_, new_val);
+        forward_to_rx_topics_ = new_val;
+        forward_changed = true;
+      }
+    } else if (param.get_name() == "lifecycle_timeout_s") {
+      const double new_val = param.as_double();
+      if (new_val != lifecycle_timeout_s_) {
+        RCLCPP_INFO(
+          get_logger(),
+          "Runtime parameter update: lifecycle_timeout_s changed from %.3f to %.3f",
+          lifecycle_timeout_s_, new_val);
+        lifecycle_timeout_s_ = new_val;
+        timeout_changed = true;
+      }
+    }
+  }
+
+  if (forward_to_rx_topics_ && (forward_changed || timeout_changed)) {
+    reconcilePendingReportsLocked();
+  }
 }
 
 void GcsSubmissionAdapter::handleCommand(const rx_msgs::msg::Command::SharedPtr msg)
@@ -277,6 +308,7 @@ void GcsSubmissionAdapter::handleLifecycle(const banyu_msgs::msg::RunLifecycle::
     return;
   }
 
+  std::lock_guard<std::mutex> lock(mutex_);
   const double source_age = (now() - rclcpp::Time(msg->header.stamp,
     get_clock()->get_clock_type())).seconds();
   const bool is_terminal = (msg->phase == Lifecycle::INTERRUPTED ||
@@ -302,7 +334,6 @@ void GcsSubmissionAdapter::handleLifecycle(const banyu_msgs::msg::RunLifecycle::
     return;
   }
 
-  std::lock_guard<std::mutex> lock(mutex_);
   if (retired_authorities_.count(msg->authority_instance) != 0) {
     RCLCPP_WARN(
       get_logger(), "Rejected RunLifecycle from retired authority instance '%s'",

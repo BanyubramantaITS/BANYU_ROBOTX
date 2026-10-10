@@ -69,7 +69,9 @@ private:
   void reconcilePendingReportsLocked();
   bool hasValidAuthorityLocked(uint32_t run_id, uint64_t epoch = 0) const;
   bool isPublicationEligibleLocked(uint32_t run_id, uint64_t epoch) const;
-  rcl_interfaces::msg::SetParametersResult handleParameters(
+  rcl_interfaces::msg::SetParametersResult validateParameters(
+    const std::vector<rclcpp::Parameter> & parameters);
+  void applyPostSetParameters(
     const std::vector<rclcpp::Parameter> & parameters);
 
   struct AcceptedReport
@@ -121,7 +123,8 @@ private:
   rclcpp::Subscription<rx_msgs::msg::Command>::SharedPtr command_sub_;
   rclcpp::Publisher<rx_msgs::msg::PipelineSurvey>::SharedPtr survey_pub_;
   rclcpp::Publisher<rx_msgs::msg::ResourceDelivery>::SharedPtr delivery_pub_;
-  OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
+  OnSetParametersCallbackHandle::SharedPtr on_set_param_callback_handle_;
+  PostSetParametersCallbackHandle::SharedPtr post_set_param_callback_handle_;
 };
 
 }  // namespace banyu_communication

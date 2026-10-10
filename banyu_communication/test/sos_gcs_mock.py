@@ -459,22 +459,31 @@ class TeamGcsMock(Node):
         log.info(
             'Step 4/6 PASS: Survey received with buoy=(33.1, -118.1), segments=[2, 1, 1, 1]')
 
-        log.info('Step 5/6: Send CMD_TASK4_ASSISTANCE and verify acknowledgement and readiness')
+        log.info(
+            'Step 5/6: Send CMD_TASK4_ASSISTANCE and verify acknowledgement and '
+            'absence of false readiness')
         self.reports['ack'].clear()
         self.reports['readiness'].clear()
+        self.reports['status'].clear()
         sequence = 2
         self.send_command(Command.CMD_TASK4_ASSISTANCE, sequence)
         self.wait_report(
             'ack', lambda msg: getattr(msg, self.sequence_field) == sequence,
             f'incident acknowledgement matching sequence {sequence}')
-        has_readiness_status = 'readiness_status' in ReadinessReport.get_fields_and_field_types()
         self.wait_report(
-            'readiness',
-            lambda msg: getattr(msg, self.sequence_field) == sequence
-            and (not has_readiness_status or msg.readiness_status == ReadinessReport.READY),
-            f'readiness report matching assistance sequence {sequence}')
+            'status',
+            lambda msg: 'assistance execution unsupported/not ready' in msg.message,
+            'mission status indicating assistance execution unsupported/not ready')
+        deadline = time.monotonic() + 0.5
+        while time.monotonic() < deadline:
+            self.check_running()
+            rclpy.spin_once(self, timeout_sec=0.05)
+        if len(self.reports['readiness']) > 0:
+            raise RuntimeError(
+                'Unexpected ReadinessReport emitted for unexecuted Task 4 assistance')
         log.info(
-            'Step 5/6 PASS: Incident acknowledgement and readiness match the assistance command')
+            'Step 5/6 PASS: Incident acknowledgement and diagnostic status received; '
+            'no false readiness')
 
         log.info('Step 6/6: Verify stop commands trigger mission abort and clear the active task')
         stop_commands = [('CMD_MISSION_DONE', Command.CMD_MISSION_DONE)]

@@ -1,10 +1,13 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <memory>
+#include <thread>
 #include <vector>
 
 #include "banyu_communication/gcs_submission_adapter.hpp"
@@ -1548,4 +1551,260 @@ TEST_F(GcsSubmissionAdapterTest, LifecycleTimeoutFreshnessBoundary)
   EXPECT_EQ(received_surveys_.size(), 1u);
   EXPECT_EQ(adapter_node_->pendingCount(), 0u);
   EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, RejectedAtomicParameterBatchCannotPublishPendingReport)
+{
+  restart(false);
+  publishLifecycle(15, 2, banyu_msgs::msg::RunLifecycle::SURFACED);
+  spinFor(100ms);
+
+  submission_pub_->publish(createSurvey(15, 2, "pending-report-1"));
+  spinFor(150ms);
+  ASSERT_EQ(adapter_node_->pendingCount(), 1u);
+  ASSERT_EQ(adapter_node_->attemptedCount(), 0u);
+  EXPECT_TRUE(received_surveys_.empty());
+
+  const double prev_timeout = adapter_node_->get_parameter("lifecycle_timeout_s").as_double();
+  auto res = adapter_node_->set_parameters_atomically({
+    rclcpp::Parameter("forward_to_rx_topics", true),
+    rclcpp::Parameter("lifecycle_timeout_s", -1.0)
+  });
+  EXPECT_FALSE(res.successful);
+  EXPECT_FALSE(adapter_node_->get_parameter("forward_to_rx_topics").as_bool());
+  EXPECT_DOUBLE_EQ(adapter_node_->get_parameter("lifecycle_timeout_s").as_double(), prev_timeout);
+
+  spinFor(200ms);
+  EXPECT_TRUE(received_surveys_.empty());
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
+
+  // Retransmission must remain pending with no public output
+  submission_pub_->publish(createSurvey(15, 2, "pending-report-1"));
+  spinFor(150ms);
+  EXPECT_TRUE(received_surveys_.empty());
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, RejectedAtomicParameterBatchReversedOrderMustNotPublish)
+{
+  restart(false);
+  publishLifecycle(15, 2, banyu_msgs::msg::RunLifecycle::SURFACED);
+  spinFor(100ms);
+
+  submission_pub_->publish(createSurvey(15, 2, "pending-report-reversed"));
+  spinFor(150ms);
+  ASSERT_EQ(adapter_node_->pendingCount(), 1u);
+  ASSERT_EQ(adapter_node_->attemptedCount(), 0u);
+  EXPECT_TRUE(received_surveys_.empty());
+
+  const double prev_timeout = adapter_node_->get_parameter("lifecycle_timeout_s").as_double();
+  auto res = adapter_node_->set_parameters_atomically({
+    rclcpp::Parameter("lifecycle_timeout_s", -1.0),
+    rclcpp::Parameter("forward_to_rx_topics", true)
+  });
+  EXPECT_FALSE(res.successful);
+  EXPECT_FALSE(adapter_node_->get_parameter("forward_to_rx_topics").as_bool());
+  EXPECT_DOUBLE_EQ(adapter_node_->get_parameter("lifecycle_timeout_s").as_double(), prev_timeout);
+
+  spinFor(200ms);
+  EXPECT_TRUE(received_surveys_.empty());
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, RejectedAtomicParameterBatchValidTimeoutFollowedByInvalidParam)
+{
+  restart(true);
+  const double initial_timeout = adapter_node_->get_parameter("lifecycle_timeout_s").as_double();
+
+  // Try updating lifecycle_timeout_s to 0.1s along with an invalid parameter in atomic batch
+  auto res = adapter_node_->set_parameters_atomically({
+    rclcpp::Parameter("lifecycle_timeout_s", 0.1),
+    rclcpp::Parameter("forward_to_rx_topics", -42)
+  });
+  EXPECT_FALSE(res.successful);
+  EXPECT_DOUBLE_EQ(adapter_node_->get_parameter("lifecycle_timeout_s").as_double(),
+    initial_timeout);
+
+  // Verify timeout cache did not secretly change to 0.1s
+  publishLifecycle(15, 2, banyu_msgs::msg::RunLifecycle::ACTIVE);
+  spinFor(50ms);
+  spinFor(150ms);
+  submission_pub_->publish(createSurvey(15, 2, "timeout-divergence-check"));
+  spinFor(150ms);
+  EXPECT_EQ(received_surveys_.size(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, ExternalValidatorVetoPreventsPostSetApplicationAndPublication)
+{
+  restart(false);
+  publishLifecycle(15, 2, banyu_msgs::msg::RunLifecycle::SURFACED);
+  spinFor(100ms);
+
+  submission_pub_->publish(createSurvey(15, 2, "veto-test-report"));
+  spinFor(150ms);
+  ASSERT_EQ(adapter_node_->pendingCount(), 1u);
+
+  auto veto_handle = adapter_node_->add_on_set_parameters_callback(
+    [](const std::vector<rclcpp::Parameter> &) {
+      rcl_interfaces::msg::SetParametersResult res;
+      res.successful = false;
+      res.reason = "vetoed by external validator";
+      return res;
+    });
+
+  auto res = adapter_node_->set_parameters_atomically({
+    rclcpp::Parameter("forward_to_rx_topics", true),
+    rclcpp::Parameter("lifecycle_timeout_s", 2.0)
+  });
+  EXPECT_FALSE(res.successful);
+  EXPECT_FALSE(adapter_node_->get_parameter("forward_to_rx_topics").as_bool());
+
+  spinFor(200ms);
+  EXPECT_TRUE(received_surveys_.empty());
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, AcceptedAtomicParameterBatchAppliesBothAndPublishesOnce)
+{
+  restart(false);
+  publishLifecycle(15, 2, banyu_msgs::msg::RunLifecycle::SURFACED);
+  spinFor(100ms);
+
+  submission_pub_->publish(createSurvey(15, 2, "accepted-batch-report"));
+  spinFor(150ms);
+  ASSERT_EQ(adapter_node_->pendingCount(), 1u);
+  EXPECT_TRUE(received_surveys_.empty());
+
+  auto res = adapter_node_->set_parameters_atomically({
+    rclcpp::Parameter("forward_to_rx_topics", true),
+    rclcpp::Parameter("lifecycle_timeout_s", 2.5)
+  });
+  EXPECT_TRUE(res.successful);
+  EXPECT_TRUE(adapter_node_->get_parameter("forward_to_rx_topics").as_bool());
+  EXPECT_DOUBLE_EQ(adapter_node_->get_parameter("lifecycle_timeout_s").as_double(), 2.5);
+
+  spinFor(200ms);
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, AcceptedDisablePlusTimeoutUpdateDoesNotPublish)
+{
+  restart(true);
+  publishLifecycle(15, 2, banyu_msgs::msg::RunLifecycle::SURFACED);
+  spinFor(100ms);
+
+  auto res = adapter_node_->set_parameters_atomically({
+    rclcpp::Parameter("forward_to_rx_topics", false),
+    rclcpp::Parameter("lifecycle_timeout_s", 3.0)
+  });
+  EXPECT_TRUE(res.successful);
+  EXPECT_FALSE(adapter_node_->get_parameter("forward_to_rx_topics").as_bool());
+  EXPECT_DOUBLE_EQ(adapter_node_->get_parameter("lifecycle_timeout_s").as_double(), 3.0);
+
+  submission_pub_->publish(createSurvey(15, 2, "disable-batch-report"));
+  spinFor(150ms);
+  EXPECT_TRUE(received_surveys_.empty());
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+
+  auto res2 = adapter_node_->set_parameters_atomically({
+    rclcpp::Parameter("lifecycle_timeout_s", 4.0)
+  });
+  EXPECT_TRUE(res2.successful);
+  spinFor(150ms);
+  EXPECT_TRUE(received_surveys_.empty());
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, AcceptedEnableUnderWrongEpochOrStaleAuthorityRetainsPending)
+{
+  restart(false);
+  submission_pub_->publish(createSurvey(15, 2, "stale-context-report"));
+  spinFor(150ms);
+  ASSERT_EQ(adapter_node_->pendingCount(), 1u);
+
+  auto res = adapter_node_->set_parameters_atomically({
+    rclcpp::Parameter("forward_to_rx_topics", true),
+    rclcpp::Parameter("lifecycle_timeout_s", 1.0)
+  });
+  EXPECT_TRUE(res.successful);
+  spinFor(150ms);
+  EXPECT_TRUE(received_surveys_.empty());
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+
+  publishLifecycle(15, 2, banyu_msgs::msg::RunLifecycle::SURFACED);
+  spinFor(200ms);
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, RejectedInvalidParameterValuesAndTypes)
+{
+  restart(true);
+
+  auto res_nan = adapter_node_->set_parameter(
+    rclcpp::Parameter("lifecycle_timeout_s", std::numeric_limits<double>::quiet_NaN()));
+  EXPECT_FALSE(res_nan.successful);
+
+  auto res_inf = adapter_node_->set_parameter(
+    rclcpp::Parameter("lifecycle_timeout_s", std::numeric_limits<double>::infinity()));
+  EXPECT_FALSE(res_inf.successful);
+
+  auto res_zero = adapter_node_->set_parameter(
+    rclcpp::Parameter("lifecycle_timeout_s", 0.0));
+  EXPECT_FALSE(res_zero.successful);
+
+  auto res_neg = adapter_node_->set_parameter(
+    rclcpp::Parameter("lifecycle_timeout_s", -0.5));
+  EXPECT_FALSE(res_neg.successful);
+
+  auto res_type1 = adapter_node_->set_parameter(
+    rclcpp::Parameter("lifecycle_timeout_s", "five_seconds"));
+  EXPECT_FALSE(res_type1.successful);
+
+  auto res_type2 = adapter_node_->set_parameter(
+    rclcpp::Parameter("forward_to_rx_topics", 1));
+  EXPECT_FALSE(res_type2.successful);
+
+  EXPECT_TRUE(adapter_node_->get_parameter("forward_to_rx_topics").as_bool());
+  EXPECT_DOUBLE_EQ(adapter_node_->get_parameter("lifecycle_timeout_s").as_double(), 5.0);
+}
+
+TEST_F(GcsSubmissionAdapterTest, ConcurrentParameterUpdatesAndLifecycleProcessing)
+{
+  restart(true);
+  std::atomic<bool> running{true};
+
+  std::thread param_thread([this, &running]() {
+      while (running.load()) {
+        (void)adapter_node_->set_parameters_atomically({
+        rclcpp::Parameter("forward_to_rx_topics", true),
+        rclcpp::Parameter("lifecycle_timeout_s", 2.0)
+      });
+        std::this_thread::sleep_for(2ms);
+        (void)adapter_node_->set_parameters_atomically({
+        rclcpp::Parameter("forward_to_rx_topics", true),
+        rclcpp::Parameter("lifecycle_timeout_s", 1.5)
+      });
+        std::this_thread::sleep_for(2ms);
+      }
+    });
+
+  for (uint32_t i = 1; i <= 15; ++i) {
+    publishLifecycle(15, i, banyu_msgs::msg::RunLifecycle::ACTIVE);
+    submission_pub_->publish(createSurvey(15, i, "concurrent-sub-" + std::to_string(i)));
+    spinFor(10ms);
+  }
+
+  running.store(false);
+  param_thread.join();
+
+  EXPECT_TRUE(adapter_node_->get_parameter("forward_to_rx_topics").as_bool());
+  EXPECT_GT(adapter_node_->acceptedCount(), 0u);
 }

@@ -39,6 +39,7 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "rx_msgs/msg/command.hpp"
 #include "rx_msgs/msg/course.hpp"
+#include "rx_msgs/msg/heartbeat.hpp"
 #include "rx_msgs/msg/pipeline_survey.hpp"
 #include "rx_msgs/msg/resource_delivery.hpp"
 #include "rx_msgs/msg/rx_task.hpp"
@@ -174,7 +175,10 @@ protected:
       [](const std::shared_ptr<NavigateHandle>) {
         return rclcpp_action::CancelResponse::ACCEPT;
       },
-      [](const std::shared_ptr<NavigateHandle>) {
+      [this](const std::shared_ptr<NavigateHandle> handle) {
+        if (on_navigation_execute_) {
+          on_navigation_execute_(handle);
+        }
       });
 
     // Fixture publishers
@@ -227,6 +231,20 @@ protected:
         received_deliveries_.push_back(*msg);
       },
       sub_opts);
+
+    heartbeat_sub_ = fixture_->create_subscription<rx_msgs::msg::Heartbeat>(
+      "/system/vehicle/uuv/heartbeat", rclcpp::QoS(10).reliable(),
+      [this](const rx_msgs::msg::Heartbeat::SharedPtr msg) {
+        std::lock_guard<std::mutex> lock(heartbeat_mutex_);
+        received_heartbeats_.push_back(*msg);
+      },
+      sub_opts);
+
+    private_submission_pub_ = fixture_->create_publisher<banyu_msgs::msg::Task2Submission>(
+      "/banyu/communication/task2_submission", rclcpp::QoS(10).reliable().transient_local());
+
+    custom_lifecycle_pub_ = fixture_->create_publisher<Lifecycle>(
+      "/banyu/mission/run_lifecycle", rclcpp::QoS(10).reliable().transient_local());
 
     // Fixture service clients
     prepare_client_ = fixture_->create_client<std_srvs::srv::Trigger>(
@@ -337,6 +355,7 @@ protected:
     adapter_node_.reset();
     telemetry_timer_.reset();
     on_seal_response_hook_ = nullptr;
+    on_navigation_execute_ = nullptr;
     proxy_seal_server_.reset();
     seal_client_.reset();
     proxy_node_.reset();
@@ -469,20 +488,21 @@ protected:
       }
     }
 
-    if (depth_enabled_) {
+    if (depth_enabled_.load()) {
       banyu_msgs::msg::WaterDepth depth;
-      depth.header.stamp = stamp;
+      depth.header.stamp = rclcpp::Time(stamp.nanoseconds() -
+        static_cast<int64_t>(depth_age_offset_s_.load() * 1e9));
       {
         std::lock_guard<std::mutex> lock(lifecycle_mutex_);
         depth.run_id = lifecycle_.run_id;
         depth.epoch = lifecycle_.epoch;
       }
       depth.depth_m = current_depth_m_;
-      depth.valid = true;
-      depth.calibrated = true;
-      depth.datum = "water_surface";
+      depth.valid = depth_valid_.load();
+      depth.calibrated = depth_calibrated_.load();
+      depth.datum = depth_datum_;
       depth.source_id = "pressure_depth";
-      depth.calibration_id = "calib-prod-1";
+      depth.calibration_id = depth_calibration_id_;
       depth_pub_->publish(depth);
     }
   }
@@ -604,6 +624,105 @@ protected:
   std::mutex survey_mutex_;
   std::vector<rx_msgs::msg::PipelineSurvey> received_surveys_;
   std::vector<rx_msgs::msg::ResourceDelivery> received_deliveries_;
+  std::function<void(std::shared_ptr<NavigateHandle>)> on_navigation_execute_;
+
+  void restartMissionWithBt(const std::string & bt_content)
+  {
+    if (mission_node_) {
+      executor_->remove_node(mission_node_);
+      mission_node_.reset();
+    }
+    {
+      std::ofstream bt_file(test_bt_path_, std::ios::trunc);
+      bt_file << bt_content;
+    }
+    rclcpp::NodeOptions mission_opts;
+    mission_opts.parameter_overrides({
+        rclcpp::Parameter("mission_mode", "task2"),
+        rclcpp::Parameter("mission.start_latitude", 33.810),
+        rclcpp::Parameter("mission.start_longitude", -118.393),
+        rclcpp::Parameter("mission.target_latitude", 33.811),
+        rclcpp::Parameter("mission.target_longitude", -118.392),
+        rclcpp::Parameter("mission.end_latitude", 33.812),
+        rclcpp::Parameter("mission.end_longitude", -118.391),
+        rclcpp::Parameter("mission.task2_tier", 2),
+        rclcpp::Parameter("run.journal_path", mission_journal_path_),
+        rclcpp::Parameter("bt_xml", test_bt_path_),
+        rclcpp::Parameter("timing.preparation_timeout_s", 10.0),
+        rclcpp::Parameter("timing.run_reset_timeout_s", 2.0),
+        rclcpp::Parameter("timing.execution_readiness_timeout_s", 1.0),
+        rclcpp::Parameter("groot_port", next_groot_port_.fetch_add(4))
+    });
+    mission_node_ = std::make_shared<banyu_mission::BanyuMission>(mission_opts);
+    mission_node_->initialize();
+    executor_->add_node(mission_node_);
+  }
+
+  banyu_msgs::msg::Task2SurveyEvidence createCompleteEvidence(
+    uint32_t run_id, uint64_t epoch, const std::string & active_endpoint = "start_buoy")
+  {
+    banyu_msgs::msg::Task2SurveyEvidence ev;
+    ev.header.stamp = fixture_->now();
+    ev.header.frame_id = "uuv";
+    ev.run_id = run_id;
+    ev.epoch = epoch;
+    ev.revision = 1;
+    ev.source_id = "pipeline_topology";
+    ev.low_progress_endpoint_id = "start_buoy";
+    ev.high_progress_endpoint_id = "end_buoy";
+    ev.traversal_complete = true;
+    ev.tier = 2;
+
+    ev.active_buoy.header.stamp = ev.header.stamp;
+    ev.active_buoy.run_id = run_id;
+    ev.active_buoy.epoch = epoch;
+    ev.active_buoy.revision = 1;
+    ev.active_buoy.source_id = "uuv_buoy_localizer";
+    ev.active_buoy.course_id = "course-prod-1";
+    ev.active_buoy.endpoint_id = active_endpoint;
+    ev.active_buoy.fix.header.stamp = ev.header.stamp;
+    ev.active_buoy.fix.status.status = 1;
+    ev.active_buoy.fix.latitude = 33.810;
+    ev.active_buoy.fix.longitude = -118.393;
+    ev.active_buoy.uncertainty_m = 0.3;
+    ev.active_buoy.green_confirmed = true;
+    ev.active_buoy.pinger_confirmed = true;
+    ev.active_buoy.pinger_freq_hz = 25000;
+
+    const std::array<double, 4> ring_progress{0.5, 2.5, 5.0, 7.5};
+    for (uint32_t i = 0; i < 4; ++i) {
+      banyu_msgs::msg::Task2RingRecord ring;
+      ring.run_id = run_id;
+      ring.epoch = epoch;
+      ring.node_id = 100 + i;
+      ring.frame_sequence = i + 1;
+      ring.physical_identity_verified = true;
+      ring.ordering_verified = true;
+      ring.pipeline_progress_m = ring_progress[i];
+      ring.color = (i == 1) ? 1 : 2;
+      ring.confidence = 0.95F;
+      ring.vehicle_pose_map.header.stamp = ev.header.stamp;
+      ring.vehicle_pose_map.header.frame_id = "map";
+      ring.vehicle_pose_map.pose.position.x = ring_progress[i];
+      ring.vehicle_pose_map.pose.position.y = 0.0;
+      ring.vehicle_pose_map.pose.position.z = -1.5;
+      ring.vehicle_pose_map.pose.orientation.w = 1.0;
+      ev.rings.push_back(ring);
+    }
+    return ev;
+  }
+
+  std::atomic<bool> depth_valid_{true};
+  std::atomic<bool> depth_calibrated_{true};
+  std::string depth_datum_{"water_surface"};
+  std::string depth_calibration_id_{"calib-prod-1"};
+  std::atomic<double> depth_age_offset_s_{0.0};
+
+  rclcpp::Subscription<rx_msgs::msg::Heartbeat>::SharedPtr heartbeat_sub_;
+  rclcpp::Publisher<banyu_msgs::msg::Task2Submission>::SharedPtr private_submission_pub_;
+  rclcpp::Publisher<Lifecycle>::SharedPtr custom_lifecycle_pub_;
+  std::mutex heartbeat_mutex_;
+  std::vector<rx_msgs::msg::Heartbeat> received_heartbeats_;
 };
 
 // 1. Ready/preflight setup through real interfaces; addressed nonzero CMD_RUN_START accepted
@@ -806,51 +925,14 @@ TEST_F(ProductionMissionBoundaryTest, IncompleteEvidenceReturnsDiagnosticAndEmit
   ASSERT_EQ(fut_missing.wait_for(1s), std::future_status::ready);
   auto resp_missing = fut_missing.get();
   EXPECT_FALSE(resp_missing->success);
-  EXPECT_NE(resp_missing->result_code, banyu_msgs::srv::TriggerPipelineSurvey::Response::ACCEPTED);
+  EXPECT_EQ(resp_missing->result_code,
+      banyu_msgs::srv::TriggerPipelineSurvey::Response::SURVEY_INVALID);
+  EXPECT_NE(resp_missing->message.find("SURVEY_INCOMPLETE"), std::string::npos);
 
   // 4b. Incomplete evidence: only 2 rings out of 4 published
-  banyu_msgs::msg::Task2SurveyEvidence inc_ev;
-  inc_ev.header.stamp = fixture_->now();
-  inc_ev.header.frame_id = "uuv";
-  inc_ev.run_id = 15;
-  inc_ev.epoch = active_epoch;
-  inc_ev.revision = 1;
-  inc_ev.source_id = "pipeline_topology";
-  inc_ev.low_progress_endpoint_id = "start_buoy";
-  inc_ev.high_progress_endpoint_id = "end_buoy";
+  auto inc_ev = createCompleteEvidence(15, active_epoch);
+  inc_ev.rings.resize(2);
   inc_ev.traversal_complete = false;
-  inc_ev.tier = 2;
-  inc_ev.active_buoy.header.stamp = inc_ev.header.stamp;
-  inc_ev.active_buoy.run_id = 15;
-  inc_ev.active_buoy.epoch = active_epoch;
-  inc_ev.active_buoy.revision = 1;
-  inc_ev.active_buoy.source_id = "uuv_buoy_localizer";
-  inc_ev.active_buoy.course_id = "course-prod-1";
-  inc_ev.active_buoy.endpoint_id = "start_buoy";
-  inc_ev.active_buoy.fix.latitude = 33.810;
-  inc_ev.active_buoy.fix.longitude = -118.393;
-  inc_ev.active_buoy.uncertainty_m = 0.3;
-  inc_ev.active_buoy.green_confirmed = true;
-  inc_ev.active_buoy.pinger_confirmed = true;
-  inc_ev.active_buoy.pinger_freq_hz = 25000;
-  for (uint32_t i = 0; i < 2; ++i) {
-    banyu_msgs::msg::Task2RingRecord ring;
-    ring.run_id = 15;
-    ring.epoch = active_epoch;
-    ring.node_id = 100 + i;
-    ring.frame_sequence = i + 1;
-    ring.physical_identity_verified = true;
-    ring.ordering_verified = true;
-    ring.pipeline_progress_m = 1.0 + i * 2.0;
-    ring.color = 2;
-    ring.confidence = 0.95F;
-    ring.vehicle_pose_map.header.stamp = inc_ev.header.stamp;
-    ring.vehicle_pose_map.header.frame_id = "map";
-    ring.vehicle_pose_map.pose.position.x = 1.0 + i * 2.0;
-    ring.vehicle_pose_map.pose.position.z = -1.5;
-    ring.vehicle_pose_map.pose.orientation.w = 1.0;
-    inc_ev.rings.push_back(ring);
-  }
   evidence_pub_->publish(inc_ev);
   std::this_thread::sleep_for(100ms);
 
@@ -862,22 +944,35 @@ TEST_F(ProductionMissionBoundaryTest, IncompleteEvidenceReturnsDiagnosticAndEmit
   ASSERT_EQ(fut_inc.wait_for(1s), std::future_status::ready);
   auto resp_inc = fut_inc.get();
   EXPECT_FALSE(resp_inc->success);
-  EXPECT_NE(resp_inc->result_code, banyu_msgs::srv::TriggerPipelineSurvey::Response::ACCEPTED);
+  EXPECT_EQ(resp_inc->result_code,
+      banyu_msgs::srv::TriggerPipelineSurvey::Response::SURVEY_INVALID);
+  EXPECT_NE(resp_inc->message.find("SURVEY_INCOMPLETE observed=2 expected=4"), std::string::npos);
 
-  // 4c. Submerged depth (5.0m) / unverified surfacing
-  current_depth_m_ = 5.0;
+  // 4c. Ambiguous evidence: duplicate node_id in rings
+  auto amb_ev = createCompleteEvidence(15, active_epoch);
+  amb_ev.header.stamp = fixture_->now();
+  amb_ev.revision = 2;
+  amb_ev.active_buoy.header.stamp = amb_ev.header.stamp;
+  amb_ev.active_buoy.revision = 2;
+  amb_ev.active_buoy.fix.header.stamp = amb_ev.header.stamp;
+  for (auto & ring : amb_ev.rings) {
+    ring.vehicle_pose_map.header.stamp = amb_ev.header.stamp;
+  }
+  amb_ev.rings[1].node_id = amb_ev.rings[0].node_id;  // duplicate node_id 100
+  evidence_pub_->publish(amb_ev);
   std::this_thread::sleep_for(100ms);
 
-  auto req_sub = std::make_shared<banyu_msgs::srv::TriggerPipelineSurvey::Request>();
-  req_sub->run_id = 15;
-  req_sub->epoch = active_epoch;
-  req_sub->report_id = "test-fail-depth-report";
-  auto fut_sub = trigger_survey_client_->async_send_request(req_sub);
-  ASSERT_EQ(fut_sub.wait_for(1s), std::future_status::ready);
-  auto resp_sub = fut_sub.get();
-  EXPECT_FALSE(resp_sub->success);
-  EXPECT_EQ(resp_sub->result_code,
+  auto req_amb = std::make_shared<banyu_msgs::srv::TriggerPipelineSurvey::Request>();
+  req_amb->run_id = 15;
+  req_amb->epoch = active_epoch;
+  req_amb->report_id = "test-fail-ambiguous-report";
+  auto fut_amb = trigger_survey_client_->async_send_request(req_amb);
+  ASSERT_EQ(fut_amb.wait_for(1s), std::future_status::ready);
+  auto resp_amb = fut_amb.get();
+  EXPECT_FALSE(resp_amb->success);
+  EXPECT_EQ(resp_amb->result_code,
       banyu_msgs::srv::TriggerPipelineSurvey::Response::SURVEY_INVALID);
+  EXPECT_NE(resp_amb->message.find("NODE_IDENTITY_AMBIGUOUS"), std::string::npos);
 
   // Ensure no public survey was published across all failure paths
   {
@@ -1283,11 +1378,13 @@ TEST_F(ProductionMissionBoundaryTest, DurableSealPreservedWhenAbortFollowsDurabl
   on_seal_response_hook_ = [this, &seal_hook_executed]() {
       auto abort_req = std::make_shared<std_srvs::srv::Trigger::Request>();
       auto abort_fut = abort_client_->async_send_request(abort_req);
-      (void)abort_fut.wait_for(1s);
-      (void)waitUntil([this]() {
+      ASSERT_EQ(abort_fut.wait_for(1s), std::future_status::ready);
+      auto abort_resp = abort_fut.get();
+      ASSERT_TRUE(abort_resp->success);
+      ASSERT_TRUE(waitUntil([this]() {
           std::lock_guard<std::mutex> lock(lifecycle_mutex_);
           return lifecycle_.phase == Lifecycle::INTERRUPTED;
-    }, 2s);
+      }, 2s));
       seal_hook_executed.store(true);
     };
 
@@ -1405,6 +1502,714 @@ TEST_F(ProductionMissionBoundaryTest, AdapterRestartRecoversPendingUnderMatching
 
   // 8c. Submissions with wrong epoch remain blocked in integrated path
   EXPECT_FALSE(adapter_node_->hasValidAuthority(15, active_epoch + 1));
+}
+
+// 9. Submerged depth blocks public report and seal authorization
+TEST_F(ProductionMissionBoundaryTest, SubmergedDepthBlocksPublicReportAndSealAuthorization)
+{
+  ASSERT_TRUE(executePreparation());
+  publishExecutionReadiness(true);
+  sendCommand(15, 1, rx_msgs::msg::Command::CMD_RUN_START);
+  ASSERT_TRUE(waitUntil([this]() {
+      std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+      return lifecycle_.run_id == 15u && lifecycle_.phase == Lifecycle::ACTIVE;
+  }, 3s));
+
+  uint64_t active_epoch = 0;
+  {
+    std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+    active_epoch = lifecycle_.epoch;
+  }
+
+  // Complete four-node evidence
+  auto ev = createCompleteEvidence(15, active_epoch);
+  evidence_pub_->publish(ev);
+
+  // Vehicle remains submerged at 5.0m
+  current_depth_m_ = 5.0;
+  std::this_thread::sleep_for(100ms);
+
+  // Trigger survey rejected via UuvCommNode because phase is ACTIVE, not SURFACED
+  ASSERT_TRUE(trigger_survey_client_->wait_for_service(500ms));
+  auto req = std::make_shared<banyu_msgs::srv::TriggerPipelineSurvey::Request>();
+  req->run_id = 15;
+  req->epoch = active_epoch;
+  req->report_id = "test-submerged-depth-report";
+  auto fut = trigger_survey_client_->async_send_request(req);
+  ASSERT_EQ(fut.wait_for(1s), std::future_status::ready);
+  auto resp = fut.get();
+  EXPECT_FALSE(resp->success);
+  EXPECT_EQ(resp->result_code, banyu_msgs::srv::TriggerPipelineSurvey::Response::NOT_SURFACED);
+  EXPECT_NE(resp->message.find("NOT_SURFACED"), std::string::npos);
+
+  // Direct seal call to BanyuMission rejected with RUN_NOT_ELIGIBLE_FOR_REPORT
+  ASSERT_TRUE(seal_client_->wait_for_service(500ms));
+  auto seal_req = std::make_shared<banyu_msgs::srv::SealTask2Report::Request>();
+  seal_req->submission.schema_version = 1;
+  seal_req->submission.run_id = 15;
+  seal_req->submission.epoch = active_epoch;
+  seal_req->submission.report_id = "submerged-seal-attempt";
+  seal_req->submission.course_id = "course-prod-1";
+  seal_req->submission.kind = banyu_msgs::msg::Task2Submission::SURVEY;
+  seal_req->submission.tier = 2;
+  seal_req->submission.buoy_latitude = 33.810;
+  seal_req->submission.buoy_longitude = -118.393;
+  seal_req->submission.original_conditions = {1, 2, 1, 1};
+  seal_req->submission.authorization_revision = 1;
+  auto seal_fut = seal_client_->async_send_request(seal_req);
+  ASSERT_EQ(seal_fut.wait_for(1s), std::future_status::ready);
+  auto seal_resp = seal_fut.get();
+  EXPECT_FALSE(seal_resp->success);
+  EXPECT_EQ(seal_resp->message, "RUN_NOT_ELIGIBLE_FOR_REPORT");
+
+  // Zero public surveys emitted
+  {
+    std::lock_guard<std::mutex> lock(survey_mutex_);
+    EXPECT_TRUE(received_surveys_.empty());
+  }
+}
+
+// 10. Depth telemetry quality guards block independently (missing, uncalibrated, wrong datum, invalid, stale)
+TEST_F(ProductionMissionBoundaryTest, DepthTelemetryQualityGuardsBlockIndependently)
+{
+  depth_enabled_.store(false);
+  ASSERT_TRUE(executePreparation());
+  publishExecutionReadiness(true);
+  sendCommand(15, 1, rx_msgs::msg::Command::CMD_RUN_START);
+  ASSERT_TRUE(waitUntil([this]() {
+      std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+      return lifecycle_.run_id == 15u && lifecycle_.phase == Lifecycle::ACTIVE;
+  }, 3s));
+
+  uint64_t active_epoch = 0;
+  std::string auth_inst;
+  {
+    std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+    active_epoch = lifecycle_.epoch;
+    auth_inst = lifecycle_.authority_instance;
+  }
+
+  // Complete evidence
+  auto ev = createCompleteEvidence(15, active_epoch);
+  evidence_pub_->publish(ev);
+
+  // Transition mission to SURFACED
+  banyu_msgs::msg::PipelineEndState end_state;
+  end_state.header.stamp = fixture_->now();
+  end_state.run_id = 15;
+  end_state.epoch = active_epoch;
+  end_state.ended = true;
+  end_state_pub_->publish(end_state);
+
+  banyu_msgs::msg::Task2SurveyProgress progress_msg;
+  progress_msg.header.stamp = fixture_->now();
+  progress_msg.authority_instance = auth_inst;
+  progress_msg.run_id = 15;
+  progress_msg.epoch = active_epoch;
+  progress_msg.evidence_revision = 1;
+  progress_msg.survey_complete = true;
+  survey_progress_pub_->publish(progress_msg);
+
+  ASSERT_TRUE(waitUntil([this]() {
+      std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+      return lifecycle_.phase == Lifecycle::SURFACED;
+  }, 4s));
+
+  ASSERT_TRUE(trigger_survey_client_->wait_for_service(500ms));
+
+  // Probe 1: Missing depth telemetry (depth_enabled_ = false)
+  depth_enabled_.store(false);
+  std::this_thread::sleep_for(100ms);
+  {
+    auto req = std::make_shared<banyu_msgs::srv::TriggerPipelineSurvey::Request>();
+    req->run_id = 15;
+    req->epoch = active_epoch;
+    req->report_id = "test-depth-guard-missing";
+    auto fut = trigger_survey_client_->async_send_request(req);
+    ASSERT_EQ(fut.wait_for(1s), std::future_status::ready);
+    auto resp = fut.get();
+    EXPECT_FALSE(resp->success);
+    EXPECT_EQ(resp->result_code,
+        banyu_msgs::srv::TriggerPipelineSurvey::Response::SURFACE_TELEMETRY_STALE);
+    EXPECT_NE(resp->message.find("SURFACE_TELEMETRY_MISSING"), std::string::npos);
+  }
+
+  // Probe 2: Uncalibrated depth (depth_calibrated_ = false)
+  depth_enabled_.store(true);
+  depth_calibrated_.store(false);
+  current_depth_m_ = 0.05;
+  std::this_thread::sleep_for(100ms);
+  {
+    auto req = std::make_shared<banyu_msgs::srv::TriggerPipelineSurvey::Request>();
+    req->run_id = 15;
+    req->epoch = active_epoch;
+    req->report_id = "test-depth-guard-uncalibrated";
+    auto fut = trigger_survey_client_->async_send_request(req);
+    ASSERT_EQ(fut.wait_for(1s), std::future_status::ready);
+    auto resp = fut.get();
+    EXPECT_FALSE(resp->success);
+    EXPECT_EQ(resp->result_code,
+        banyu_msgs::srv::TriggerPipelineSurvey::Response::SURFACE_TELEMETRY_STALE);
+    EXPECT_NE(resp->message.find("SURFACE_DATUM_UNVERIFIED"), std::string::npos);
+  }
+
+  // Probe 3: Wrong datum ("sea_floor")
+  depth_calibrated_.store(true);
+  depth_datum_ = "sea_floor";
+  std::this_thread::sleep_for(100ms);
+  {
+    auto req = std::make_shared<banyu_msgs::srv::TriggerPipelineSurvey::Request>();
+    req->run_id = 15;
+    req->epoch = active_epoch;
+    req->report_id = "test-depth-guard-wrong-datum";
+    auto fut = trigger_survey_client_->async_send_request(req);
+    ASSERT_EQ(fut.wait_for(1s), std::future_status::ready);
+    auto resp = fut.get();
+    EXPECT_FALSE(resp->success);
+    EXPECT_EQ(resp->result_code,
+        banyu_msgs::srv::TriggerPipelineSurvey::Response::SURFACE_TELEMETRY_STALE);
+    EXPECT_NE(resp->message.find("SURFACE_DATUM_UNVERIFIED"), std::string::npos);
+  }
+
+  // Probe 4: Invalid depth flag (depth_valid_ = false)
+  depth_datum_ = "water_surface";
+  depth_valid_.store(false);
+  std::this_thread::sleep_for(100ms);
+  {
+    auto req = std::make_shared<banyu_msgs::srv::TriggerPipelineSurvey::Request>();
+    req->run_id = 15;
+    req->epoch = active_epoch;
+    req->report_id = "test-depth-guard-invalid";
+    auto fut = trigger_survey_client_->async_send_request(req);
+    ASSERT_EQ(fut.wait_for(1s), std::future_status::ready);
+    auto resp = fut.get();
+    EXPECT_FALSE(resp->success);
+    EXPECT_EQ(resp->result_code,
+        banyu_msgs::srv::TriggerPipelineSurvey::Response::SURFACE_TELEMETRY_STALE);
+    EXPECT_NE(resp->message.find("SURFACE_DATUM_UNVERIFIED"), std::string::npos);
+  }
+
+  // Probe 5: Stale timestamp (age offset 2.0s exceeds ttl 0.5s)
+  depth_valid_.store(true);
+  depth_age_offset_s_.store(2.0);
+  std::this_thread::sleep_for(100ms);
+  {
+    auto req = std::make_shared<banyu_msgs::srv::TriggerPipelineSurvey::Request>();
+    req->run_id = 15;
+    req->epoch = active_epoch;
+    req->report_id = "test-depth-guard-stale";
+    auto fut = trigger_survey_client_->async_send_request(req);
+    ASSERT_EQ(fut.wait_for(1s), std::future_status::ready);
+    auto resp = fut.get();
+    EXPECT_FALSE(resp->success);
+    EXPECT_EQ(resp->result_code,
+        banyu_msgs::srv::TriggerPipelineSurvey::Response::SURFACE_TELEMETRY_STALE);
+    EXPECT_NE(resp->message.find("SURFACE_TELEMETRY_STAMP_INVALID"), std::string::npos);
+  }
+
+  // Assert no public survey published during any of the 5 failure probes
+  {
+    std::lock_guard<std::mutex> lock(survey_mutex_);
+    EXPECT_TRUE(received_surveys_.empty());
+  }
+
+  // Probe 6: Restore valid depth telemetry and hold
+  depth_age_offset_s_.store(0.0);
+  std::this_thread::sleep_for(200ms);
+  {
+    auto req = std::make_shared<banyu_msgs::srv::TriggerPipelineSurvey::Request>();
+    req->run_id = 15;
+    req->epoch = active_epoch;
+    req->report_id = "test-depth-guard-restored-valid";
+    auto fut = trigger_survey_client_->async_send_request(req);
+    ASSERT_EQ(fut.wait_for(2s), std::future_status::ready);
+    auto resp = fut.get();
+    EXPECT_TRUE(resp->success) << "Restored valid depth survey trigger failed: " << resp->message;
+  }
+
+  // Exactly 1 public survey published now
+  ASSERT_TRUE(waitUntil([this]() {
+      std::lock_guard<std::mutex> lock(survey_mutex_);
+      return !received_surveys_.empty();
+  }, 2s));
+  {
+    std::lock_guard<std::mutex> lock(survey_mutex_);
+    EXPECT_EQ(received_surveys_.size(), 1u);
+  }
+}
+
+// 11. Missing survey completion milestone blocks surfacing and reporting
+TEST_F(ProductionMissionBoundaryTest, MissingSurveyCompletionMilestoneBlocksSurfacing)
+{
+  ASSERT_TRUE(executePreparation());
+  publishExecutionReadiness(true);
+  sendCommand(15, 1, rx_msgs::msg::Command::CMD_RUN_START);
+  ASSERT_TRUE(waitUntil([this]() {
+      std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+      return lifecycle_.run_id == 15u && lifecycle_.phase == Lifecycle::ACTIVE;
+  }, 3s));
+
+  uint64_t active_epoch = 0;
+  std::string auth_inst;
+  {
+    std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+    active_epoch = lifecycle_.epoch;
+    auth_inst = lifecycle_.authority_instance;
+  }
+
+  // Valid surface depth
+  current_depth_m_ = 0.05;
+
+  // Complete evidence to UuvCommNode
+  auto ev = createCompleteEvidence(15, active_epoch);
+  evidence_pub_->publish(ev);
+
+  // But survey progress milestone is incomplete: survey_complete = false
+  banyu_msgs::msg::Task2SurveyProgress progress_msg;
+  progress_msg.header.stamp = fixture_->now();
+  progress_msg.authority_instance = auth_inst;
+  progress_msg.run_id = 15;
+  progress_msg.epoch = active_epoch;
+  progress_msg.evidence_revision = 1;
+  progress_msg.survey_complete = false;
+  survey_progress_pub_->publish(progress_msg);
+
+  std::this_thread::sleep_for(200ms);
+
+  // Lifecycle must remain ACTIVE (not SURFACED)
+  {
+    std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+    EXPECT_EQ(lifecycle_.phase, Lifecycle::ACTIVE);
+  }
+
+  // Trigger survey rejected with NOT_SURFACED
+  ASSERT_TRUE(trigger_survey_client_->wait_for_service(500ms));
+  auto req = std::make_shared<banyu_msgs::srv::TriggerPipelineSurvey::Request>();
+  req->run_id = 15;
+  req->epoch = active_epoch;
+  req->report_id = "test-missing-milestone-report";
+  auto fut = trigger_survey_client_->async_send_request(req);
+  ASSERT_EQ(fut.wait_for(1s), std::future_status::ready);
+  auto resp = fut.get();
+  EXPECT_FALSE(resp->success);
+  EXPECT_EQ(resp->result_code, banyu_msgs::srv::TriggerPipelineSurvey::Response::NOT_SURFACED);
+
+  // Direct seal call to BanyuMission also rejected
+  ASSERT_TRUE(seal_client_->wait_for_service(500ms));
+  auto seal_req = std::make_shared<banyu_msgs::srv::SealTask2Report::Request>();
+  seal_req->submission.schema_version = 1;
+  seal_req->submission.run_id = 15;
+  seal_req->submission.epoch = active_epoch;
+  seal_req->submission.report_id = "test-missing-milestone-seal";
+  seal_req->submission.course_id = "course-prod-1";
+  seal_req->submission.kind = banyu_msgs::msg::Task2Submission::SURVEY;
+  seal_req->submission.tier = 2;
+  seal_req->submission.buoy_latitude = 33.810;
+  seal_req->submission.buoy_longitude = -118.393;
+  seal_req->submission.original_conditions = {1, 2, 1, 1};
+  seal_req->submission.authorization_revision = 1;
+  auto seal_fut = seal_client_->async_send_request(seal_req);
+  ASSERT_EQ(seal_fut.wait_for(1s), std::future_status::ready);
+  auto seal_resp = seal_fut.get();
+  EXPECT_FALSE(seal_resp->success);
+  EXPECT_EQ(seal_resp->message, "RUN_NOT_ELIGIBLE_FOR_REPORT");
+
+  // Zero public reports
+  {
+    std::lock_guard<std::mutex> lock(survey_mutex_);
+    EXPECT_TRUE(received_surveys_.empty());
+  }
+}
+
+// 12. Surface excursion resets hold and blocks until full fresh hold completes
+TEST_F(ProductionMissionBoundaryTest, SurfaceExcursionResetsHoldAndBlocksUntilFullHold)
+{
+  ASSERT_TRUE(executePreparation());
+  publishExecutionReadiness(true);
+  sendCommand(15, 1, rx_msgs::msg::Command::CMD_RUN_START);
+  ASSERT_TRUE(waitUntil([this]() {
+      std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+      return lifecycle_.run_id == 15u && lifecycle_.phase == Lifecycle::ACTIVE;
+  }, 3s));
+
+  uint64_t active_epoch = 0;
+  std::string auth_inst;
+  {
+    std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+    active_epoch = lifecycle_.epoch;
+    auth_inst = lifecycle_.authority_instance;
+  }
+
+  // Complete evidence and progress
+  auto ev = createCompleteEvidence(15, active_epoch);
+  evidence_pub_->publish(ev);
+
+  banyu_msgs::msg::PipelineEndState end_state;
+  end_state.header.stamp = fixture_->now();
+  end_state.run_id = 15;
+  end_state.epoch = active_epoch;
+  end_state.ended = true;
+  end_state_pub_->publish(end_state);
+
+  banyu_msgs::msg::Task2SurveyProgress progress_msg;
+  progress_msg.header.stamp = fixture_->now();
+  progress_msg.authority_instance = auth_inst;
+  progress_msg.run_id = 15;
+  progress_msg.epoch = active_epoch;
+  progress_msg.evidence_revision = 1;
+  progress_msg.survey_complete = true;
+  survey_progress_pub_->publish(progress_msg);
+
+  // Initial surface sample at 0.05m
+  current_depth_m_ = 0.05;
+
+  ASSERT_TRUE(waitUntil([this]() {
+      std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+      return lifecycle_.phase == Lifecycle::SURFACED;
+  }, 4s));
+
+  // Excursion to 1.5m (beyond 0.2m tolerance)
+  current_depth_m_ = 1.5;
+  std::this_thread::sleep_for(100ms);
+
+  // Trigger survey rejected due to excursion resetting hold
+  ASSERT_TRUE(trigger_survey_client_->wait_for_service(500ms));
+  auto req_exc = std::make_shared<banyu_msgs::srv::TriggerPipelineSurvey::Request>();
+  req_exc->run_id = 15;
+  req_exc->epoch = active_epoch;
+  req_exc->report_id = "test-excursion-report";
+  auto fut_exc = trigger_survey_client_->async_send_request(req_exc);
+  ASSERT_EQ(fut_exc.wait_for(1s), std::future_status::ready);
+  auto resp_exc = fut_exc.get();
+  EXPECT_FALSE(resp_exc->success);
+  EXPECT_EQ(resp_exc->result_code,
+      banyu_msgs::srv::TriggerPipelineSurvey::Response::SURFACE_TELEMETRY_STALE);
+  EXPECT_NE(resp_exc->message.find("NOT_SURFACED"), std::string::npos);
+
+  // Return to 0.05m and allow full hold (0.05s) to complete
+  current_depth_m_ = 0.05;
+  std::this_thread::sleep_for(200ms);
+
+  // Trigger survey accepted after fresh hold
+  auto req_ok = std::make_shared<banyu_msgs::srv::TriggerPipelineSurvey::Request>();
+  req_ok->run_id = 15;
+  req_ok->epoch = active_epoch;
+  req_ok->report_id = "test-fresh-hold-report";
+  auto fut_ok = trigger_survey_client_->async_send_request(req_ok);
+  ASSERT_EQ(fut_ok.wait_for(2s), std::future_status::ready);
+  EXPECT_TRUE(fut_ok.get()->success);
+
+  ASSERT_TRUE(waitUntil([this]() {
+      std::lock_guard<std::mutex> lock(survey_mutex_);
+      return !received_surveys_.empty();
+  }, 2s));
+  {
+    std::lock_guard<std::mutex> lock(survey_mutex_);
+    EXPECT_EQ(received_surveys_.size(), 1u);
+  }
+}
+
+// 13. Wrong-epoch private submission delivered over ROS recovers under matching lifecycle context
+TEST_F(ProductionMissionBoundaryTest, WrongEpochPrivateSubmissionRecoversUnderMatchingContext)
+{
+  ASSERT_TRUE(executePreparation());
+  publishExecutionReadiness(true);
+  sendCommand(15, 1, rx_msgs::msg::Command::CMD_RUN_START);
+  ASSERT_TRUE(waitUntil([this]() {
+      std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+      return lifecycle_.run_id == 15u && lifecycle_.phase == Lifecycle::ACTIVE;
+  }, 3s));
+
+  uint64_t active_epoch = 0;
+  std::string auth_inst;
+  {
+    std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+    active_epoch = lifecycle_.epoch;
+    auth_inst = lifecycle_.authority_instance;
+  }
+
+  // Publish private submission with future epoch (active_epoch + 1)
+  banyu_msgs::msg::Task2Submission future_sub;
+  future_sub.header.stamp = fixture_->now();
+  future_sub.header.frame_id = "uuv";
+  future_sub.schema_version = 1;
+  future_sub.run_id = 15;
+  future_sub.epoch = active_epoch + 1;
+  future_sub.report_id = "future-epoch-submission-15-" + std::to_string(active_epoch + 1);
+  future_sub.kind = banyu_msgs::msg::Task2Submission::SURVEY;
+  future_sub.course_id = "course-prod-1";
+  future_sub.tier = 2;
+  future_sub.buoy_latitude = 33.810;
+  future_sub.buoy_longitude = -118.393;
+  future_sub.original_conditions = {1, 2, 1, 1};
+  future_sub.authorization_revision = 1;
+  private_submission_pub_->publish(future_sub);
+
+  std::this_thread::sleep_for(200ms);
+
+  // Must remain PENDING in adapter, no premature public survey
+  {
+    std::lock_guard<std::mutex> lock(survey_mutex_);
+    EXPECT_TRUE(received_surveys_.empty());
+  }
+
+  uint64_t latest_rev = 0;
+  {
+    std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+    latest_rev = lifecycle_.revision;
+  }
+
+  // Stop mission node to prevent older epoch 1 snapshots from overriding our matching lifecycle
+  executor_->remove_node(mission_node_);
+  mission_node_.reset();
+
+  // Now publish matching lifecycle for epoch (active_epoch + 1) with SURFACED phase
+  Lifecycle matching_lifecycle;
+  matching_lifecycle.header.stamp = fixture_->now();
+  matching_lifecycle.header.frame_id = "uuv";
+  matching_lifecycle.run_id = 15;
+  matching_lifecycle.epoch = active_epoch + 1;
+  matching_lifecycle.command_seq = 2;
+  matching_lifecycle.phase = Lifecycle::SURFACED;
+  matching_lifecycle.current_task = rx_msgs::msg::RxTask::TASK_INFRA_SURVEY_REPAIR;
+  matching_lifecycle.reason = "CURRENT_SURFACE_ACTION_SUCCEEDED";
+  matching_lifecycle.event = Lifecycle::START_ACCEPTED;
+  matching_lifecycle.revision = latest_rev + 100;
+  matching_lifecycle.authority_instance = auth_inst;
+  matching_lifecycle.autonomous_ready = true;
+  custom_lifecycle_pub_->publish(matching_lifecycle);
+
+  // Adapter receives matching lifecycle and reconciles/forwards the pending report
+  ASSERT_TRUE(waitUntil([this]() {
+      std::lock_guard<std::mutex> lock(survey_mutex_);
+      return !received_surveys_.empty();
+  }, 2s));
+
+  {
+    std::lock_guard<std::mutex> lock(survey_mutex_);
+    EXPECT_EQ(received_surveys_.size(), 1u);
+  }
+}
+
+// 14. Rejected foreign authority delivered over ROS does not retire current owner
+TEST_F(ProductionMissionBoundaryTest,
+    RejectedForeignAuthorityDoesNotRetireCurrentOwnerInProductionStack)
+{
+  ASSERT_TRUE(executePreparation());
+  publishExecutionReadiness(true);
+  sendCommand(15, 1, rx_msgs::msg::Command::CMD_RUN_START);
+  ASSERT_TRUE(waitUntil([this]() {
+      std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+      return lifecycle_.run_id == 15u && lifecycle_.phase == Lifecycle::ACTIVE;
+  }, 3s));
+
+  uint64_t active_epoch = 0;
+  std::string auth_inst;
+  {
+    std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+    active_epoch = lifecycle_.epoch;
+    auth_inst = lifecycle_.authority_instance;
+  }
+
+  // Foreign authority injection attempt over ROS while legitimate owner is active and fresh
+  Lifecycle rogue_lifecycle;
+  rogue_lifecycle.header.stamp = fixture_->now();
+  rogue_lifecycle.header.frame_id = "uuv";
+  rogue_lifecycle.run_id = 15;
+  rogue_lifecycle.epoch = active_epoch;
+  rogue_lifecycle.command_seq = 1;
+  rogue_lifecycle.phase = Lifecycle::ACTIVE;
+  rogue_lifecycle.current_task = rx_msgs::msg::RxTask::TASK_INFRA_SURVEY_REPAIR;
+  rogue_lifecycle.reason = "RUN_ACTIVE";
+  rogue_lifecycle.event = Lifecycle::START_ACCEPTED;
+  rogue_lifecycle.revision = 1;
+  rogue_lifecycle.authority_instance = "rogue-unauthorized-authority-999";
+  rogue_lifecycle.autonomous_ready = true;
+  custom_lifecycle_pub_->publish(rogue_lifecycle);
+
+  std::this_thread::sleep_for(150ms);
+
+  // Legitimate owner continues progression to SURFACED
+  auto ev = createCompleteEvidence(15, active_epoch);
+  evidence_pub_->publish(ev);
+
+  banyu_msgs::msg::PipelineEndState end_state;
+  end_state.header.stamp = fixture_->now();
+  end_state.run_id = 15;
+  end_state.epoch = active_epoch;
+  end_state.ended = true;
+  end_state_pub_->publish(end_state);
+
+  banyu_msgs::msg::Task2SurveyProgress progress_msg;
+  progress_msg.header.stamp = fixture_->now();
+  progress_msg.authority_instance = auth_inst;
+  progress_msg.run_id = 15;
+  progress_msg.epoch = active_epoch;
+  progress_msg.evidence_revision = 1;
+  progress_msg.survey_complete = true;
+  survey_progress_pub_->publish(progress_msg);
+
+  current_depth_m_ = 0.05;
+
+  ASSERT_TRUE(waitUntil([this]() {
+      std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+      return lifecycle_.phase == Lifecycle::SURFACED;
+  }, 4s));
+
+  std::this_thread::sleep_for(200ms);
+
+  // Trigger survey: UuvCommNode seals with legitimate owner BanyuMission, Adapter forwards it
+  ASSERT_TRUE(trigger_survey_client_->wait_for_service(500ms));
+  auto req = std::make_shared<banyu_msgs::srv::TriggerPipelineSurvey::Request>();
+  req->run_id = 15;
+  req->epoch = active_epoch;
+  req->report_id = "test-legitimate-owner-survey";
+  auto fut = trigger_survey_client_->async_send_request(req);
+  ASSERT_EQ(fut.wait_for(2s), std::future_status::ready);
+  EXPECT_TRUE(fut.get()->success);
+
+  // Survey is successfully published by adapter
+  ASSERT_TRUE(waitUntil([this]() {
+      std::lock_guard<std::mutex> lock(survey_mutex_);
+      return !received_surveys_.empty();
+  }, 2s));
+  {
+    std::lock_guard<std::mutex> lock(survey_mutex_);
+    EXPECT_EQ(received_surveys_.size(), 1u);
+  }
+}
+
+// 15. Action failure and BT failure terminate to TASK_NONE without resurrection by delayed callbacks
+TEST_F(ProductionMissionBoundaryTest,
+    ActionFailureAndBtFailureTerminateToTaskNoneWithoutResurrection)
+{
+  // 15a. Action failure: Navigation action server aborts goal execution
+  const std::string nav_action_fail_bt =
+    R"(<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4" main_tree_to_execute="Main">
+  <BehaviorTree ID="Main">
+    <ReactiveFallback name="mission_root">
+      <Sequence name="interrupt_sequence">
+        <AutonomyInterrupted />
+        <HandleAbortOrTeleop />
+      </Sequence>
+      <Sequence name="mission_phases">
+        <SubTree ID="MissionPreflight" _autoremap="true" />
+        <NavigateSurfaceGps target_latitude="{target_latitude}" target_longitude="{target_longitude}" start_latitude="{start_latitude}" start_longitude="{start_longitude}" tolerance="{gps_tolerance}" />
+      </Sequence>
+    </ReactiveFallback>
+  </BehaviorTree>
+
+  <BehaviorTree ID="MissionPreflight">
+    <Sequence>
+      <RequireMissionStarted />
+      <RequireVehicleReady />
+    </Sequence>
+  </BehaviorTree>
+</root>
+)";
+
+  restartMissionWithBt(nav_action_fail_bt);
+
+  // Set action execution handler to abort the navigation goal
+  std::atomic<bool> nav_aborted{false};
+  on_navigation_execute_ = [&nav_aborted](std::shared_ptr<NavigateHandle> handle) {
+      auto res = std::make_shared<Navigate::Result>();
+      res->success = false;
+      res->reason = "SIMULATED_NAV_FAULT";
+      handle->abort(res);
+      nav_aborted.store(true);
+    };
+
+  ASSERT_TRUE(executePreparation());
+  publishExecutionReadiness(true);
+  sendCommand(15, 1, rx_msgs::msg::Command::CMD_RUN_START);
+
+  // Action abort must cause BT failure, terminating run to FAILED and TASK_NONE
+  ASSERT_TRUE(waitUntil([this]() {
+      std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+      return lifecycle_.phase == Lifecycle::FAILED;
+  }, 4s));
+
+  EXPECT_TRUE(nav_aborted.load());
+
+  {
+    std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+    EXPECT_EQ(lifecycle_.phase, Lifecycle::FAILED);
+    EXPECT_EQ(lifecycle_.reason, "EXECUTION_FAILED");
+    EXPECT_EQ(lifecycle_.current_task, rx_msgs::msg::RxTask::TASK_NONE);
+    EXPECT_EQ(lifecycle_.event, Lifecycle::TERMINAL);
+  }
+
+  // Public heartbeat must also authoritatively reflect TASK_NONE
+  ASSERT_TRUE(waitUntil([this]() {
+      std::lock_guard<std::mutex> lock(heartbeat_mutex_);
+      return !received_heartbeats_.empty() &&
+             received_heartbeats_.back().current_task == rx_msgs::msg::RxTask::TASK_NONE;
+  }, 2s));
+
+  // Delayed command must NOT resurrect the failed run
+  sendCommand(15, 2, rx_msgs::msg::Command::CMD_RUN_START);
+  std::this_thread::sleep_for(150ms);
+
+  {
+    std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+    EXPECT_EQ(lifecycle_.phase, Lifecycle::FAILED);
+    EXPECT_EQ(lifecycle_.current_task, rx_msgs::msg::RxTask::TASK_NONE);
+  }
+
+  // 15b. Deterministic BT failure: <AlwaysFailure /> node
+  const std::string direct_bt_fail_bt =
+    R"(<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4" main_tree_to_execute="Main">
+  <BehaviorTree ID="Main">
+    <ReactiveFallback name="mission_root">
+      <Sequence name="interrupt_sequence">
+        <AutonomyInterrupted />
+        <HandleAbortOrTeleop />
+      </Sequence>
+      <Sequence name="mission_phases">
+        <SubTree ID="MissionPreflight" _autoremap="true" />
+        <AlwaysFailure />
+      </Sequence>
+    </ReactiveFallback>
+  </BehaviorTree>
+
+  <BehaviorTree ID="MissionPreflight">
+    <Sequence>
+      <RequireMissionStarted />
+      <RequireVehicleReady />
+    </Sequence>
+  </BehaviorTree>
+</root>
+)";
+
+  on_navigation_execute_ = nullptr;
+  restartMissionWithBt(direct_bt_fail_bt);
+
+  ASSERT_TRUE(executePreparation());
+  publishExecutionReadiness(true);
+  sendCommand(16, 3, rx_msgs::msg::Command::CMD_RUN_START);
+
+  ASSERT_TRUE(waitUntil([this]() {
+      std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+      return lifecycle_.run_id == 16u && lifecycle_.phase == Lifecycle::FAILED;
+  }, 4s));
+
+  {
+    std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+    EXPECT_EQ(lifecycle_.phase, Lifecycle::FAILED);
+    EXPECT_EQ(lifecycle_.reason, "EXECUTION_FAILED");
+    EXPECT_EQ(lifecycle_.current_task, rx_msgs::msg::RxTask::TASK_NONE);
+    EXPECT_EQ(lifecycle_.event, Lifecycle::TERMINAL);
+  }
+
+  // Public heartbeat confirms TASK_NONE
+  ASSERT_TRUE(waitUntil([this]() {
+      std::lock_guard<std::mutex> lock(heartbeat_mutex_);
+      return !received_heartbeats_.empty() &&
+             received_heartbeats_.back().current_task == rx_msgs::msg::RxTask::TASK_NONE;
+  }, 2s));
 }
 
 } // namespace

@@ -36,12 +36,15 @@
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include "banyu_communication/survey_reporting.hpp"
 
+class UuvCommNodeTest;
+
 namespace banyu_communication
 {
 
 class UuvCommNode : public rclcpp::Node
 {
 public:
+  friend class ::UuvCommNodeTest;
   explicit UuvCommNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~UuvCommNode() override;
 

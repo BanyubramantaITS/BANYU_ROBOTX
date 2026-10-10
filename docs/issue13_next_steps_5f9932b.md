@@ -1,5 +1,7 @@
 # Issue 13: AI coding agent handoff after 5f9932b
 
+Current baseline handoff: [next steps at 4d74257](issue13_next_steps_4d74257.md). The three adapter regressions below now pass and production mission ROS tests exist. The new guide covers the remaining parameter-transaction defect, independent guard/failure coverage and production acceptance work.
+
 Baseline: `5f9932b6d66814a816248595de71abfcc2e44cea`, audited locally on October 10, 2026. This document instructs future implementation; it does not claim the fixes below are implemented. Start here instead of repeating the failures from the older [886e17f guide](issue13_next_steps_886e17f.md), which now pass.
 
 ## 1. Assignment and scope
