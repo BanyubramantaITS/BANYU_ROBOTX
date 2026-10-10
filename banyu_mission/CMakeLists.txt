@@ -66,6 +66,12 @@ install(TARGETS banyu_mission_core banyu_mission
   RUNTIME DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY bt DESTINATION share/${PROJECT_NAME})
 
+ament_export_include_directories(include)
+ament_export_libraries(banyu_mission_core)
+ament_export_dependencies(
+  ament_index_cpp banyu_msgs behaviortree_cpp builtin_interfaces
+  rclcpp rclcpp_action std_msgs std_srvs mavros_msgs rx_msgs)
+
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_run_coordinator test/test_run_coordinator.cpp)

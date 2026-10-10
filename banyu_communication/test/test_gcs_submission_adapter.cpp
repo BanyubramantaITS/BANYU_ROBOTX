@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <filesystem>
 #include <memory>
 #include <vector>
 
@@ -15,12 +16,29 @@ using namespace std::chrono_literals;
 class GcsSubmissionAdapterTest : public ::testing::Test
 {
 protected:
-  static void SetUpTestSuite() {rclcpp::init(0, nullptr);}
-  static void TearDownTestSuite() {rclcpp::shutdown();}
+  static void SetUpTestSuite()
+  {
+    std::error_code ec;
+    std::filesystem::remove("/tmp/banyu_gcs_adapter_dedup.journal", ec);
+    rclcpp::init(0, nullptr);
+  }
+  static void TearDownTestSuite()
+  {
+    std::error_code ec;
+    std::filesystem::remove("/tmp/banyu_gcs_adapter_dedup.journal", ec);
+    rclcpp::shutdown();
+  }
 
   void SetUp() override
   {
+    test_journal_path_ = (std::filesystem::temp_directory_path() /
+      ("banyu_gcs_adapter_test_" + std::to_string(::getpid()) + ".journal")).string();
+    std::error_code ec;
+    std::filesystem::remove(test_journal_path_, ec);
+    std::filesystem::remove("/tmp/banyu_gcs_adapter_dedup.journal", ec);
+
     rclcpp::NodeOptions options;
+    options.append_parameter_override("journal_path", test_journal_path_);
     options.append_parameter_override(
       "topics.task2_submission", "/test_adapter/submission");
     options.append_parameter_override(
@@ -55,6 +73,9 @@ protected:
   {
     executor_.remove_node(adapter_node_);
     executor_.remove_node(test_node_);
+    std::error_code ec;
+    std::filesystem::remove(test_journal_path_, ec);
+    std::filesystem::remove("/tmp/banyu_gcs_adapter_dedup.journal", ec);
   }
 
   void spinFor(std::chrono::milliseconds duration)
@@ -74,6 +95,7 @@ protected:
   rclcpp::executors::SingleThreadedExecutor executor_;
   std::vector<rx_msgs::msg::PipelineSurvey> received_surveys_;
   std::vector<rx_msgs::msg::ResourceDelivery> received_deliveries_;
+  std::string test_journal_path_;
 };
 
 TEST_F(GcsSubmissionAdapterTest, IngestsAndForwardPipelineSurveyAndDeduplicates)
@@ -178,4 +200,103 @@ TEST_F(GcsSubmissionAdapterTest, UnsealedSubmissionMustNotBeForwarded)
 
   EXPECT_EQ(adapter_node_->acceptedCount(), 0u);
   EXPECT_TRUE(received_surveys_.empty());
+}
+
+TEST_F(GcsSubmissionAdapterTest, RestartMustNotForwardRetainedReportTwice)
+{
+  spinFor(100ms);
+  banyu_msgs::msg::Task2Submission sub;
+  sub.header.stamp = test_node_->now();
+  sub.schema_version = 1;
+  sub.run_id = 15;
+  sub.epoch = 2;
+  sub.report_id = "restart-audit";
+  sub.kind = banyu_msgs::msg::Task2Submission::SURVEY;
+  sub.course_id = "course-1";
+  sub.tier = 2;
+  sub.buoy_latitude = 33.810;
+  sub.buoy_longitude = -118.393;
+  sub.original_conditions = {1, 2, 1, 1};
+  sub.authorization_revision = 1;
+
+  submission_pub_->publish(sub);
+  spinFor(100ms);
+  ASSERT_EQ(received_surveys_.size(), 1u);
+
+  executor_.remove_node(adapter_node_);
+  adapter_node_.reset();
+
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("journal_path", test_journal_path_);
+  options.append_parameter_override("topics.task2_submission", "/test_adapter/submission");
+  options.append_parameter_override("topics.pipeline_survey", "/test_adapter/pipeline_survey");
+  options.append_parameter_override("topics.delivery", "/test_adapter/delivery");
+  adapter_node_ = std::make_shared<banyu_communication::GcsSubmissionAdapter>(options);
+  executor_.add_node(adapter_node_);
+  spinFor(200ms);
+
+  EXPECT_EQ(received_surveys_.size(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, ConflictingPayloadForSameRunEpochKindIsRejected)
+{
+  spinFor(100ms);
+  banyu_msgs::msg::Task2Submission sub1;
+  sub1.header.stamp = test_node_->now();
+  sub1.schema_version = 1;
+  sub1.run_id = 20;
+  sub1.epoch = 1;
+  sub1.report_id = "report-original";
+  sub1.kind = banyu_msgs::msg::Task2Submission::SURVEY;
+  sub1.course_id = "course-1";
+  sub1.tier = 2;
+  sub1.buoy_latitude = 33.810;
+  sub1.buoy_longitude = -118.393;
+  sub1.original_conditions = {1, 2, 1, 1};
+  sub1.authorization_revision = 1;
+
+  submission_pub_->publish(sub1);
+  spinFor(100ms);
+  ASSERT_EQ(adapter_node_->acceptedCount(), 1u);
+  ASSERT_EQ(received_surveys_.size(), 1u);
+
+  banyu_msgs::msg::Task2Submission sub2 = sub1;
+  sub2.report_id = "report-conflict";
+  sub2.original_conditions = {2, 2, 2, 2};
+  submission_pub_->publish(sub2);
+  spinFor(100ms);
+
+  EXPECT_EQ(adapter_node_->acceptedCount(), 1u);
+  EXPECT_EQ(adapter_node_->rejectedCount(), 1u);
+  EXPECT_EQ(received_surveys_.size(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, ReusedReportIdForDifferentRunIsRejected)
+{
+  spinFor(100ms);
+  banyu_msgs::msg::Task2Submission sub1;
+  sub1.header.stamp = test_node_->now();
+  sub1.schema_version = 1;
+  sub1.run_id = 30;
+  sub1.epoch = 1;
+  sub1.report_id = "reused-id";
+  sub1.kind = banyu_msgs::msg::Task2Submission::SURVEY;
+  sub1.course_id = "course-1";
+  sub1.tier = 2;
+  sub1.buoy_latitude = 33.810;
+  sub1.buoy_longitude = -118.393;
+  sub1.original_conditions = {1, 2, 1, 1};
+  sub1.authorization_revision = 1;
+
+  submission_pub_->publish(sub1);
+  spinFor(100ms);
+  ASSERT_EQ(adapter_node_->acceptedCount(), 1u);
+
+  banyu_msgs::msg::Task2Submission sub2 = sub1;
+  sub2.run_id = 31;
+  submission_pub_->publish(sub2);
+  spinFor(100ms);
+
+  EXPECT_EQ(adapter_node_->acceptedCount(), 1u);
+  EXPECT_EQ(adapter_node_->rejectedCount(), 1u);
 }

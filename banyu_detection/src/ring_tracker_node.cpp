@@ -67,7 +67,19 @@ void RingTrackerNode::declareParameters()
   config.maximum_sequence_gap = static_cast<uint64_t>(std::max<int64_t>(
       1, declare_parameter<int64_t>("maximum_sequence_gap", 1)));
   config.reject_duplicate_red = declare_parameter<bool>("reject_duplicate_red", true);
+  config.node_association_distance_m = declare_parameter<double>(
+    "node_association_distance_m", 0.8);
   adapter_ = RingTrackerAdapter(config);
+
+  const auto centerline_points = declare_parameter<std::vector<double>>(
+    "centerline_points", std::vector<double>{});
+  if (centerline_points.size() >= 4 && centerline_points.size() % 2 == 0) {
+    std::vector<std::pair<double, double>> waypoints;
+    for (std::size_t i = 0; i < centerline_points.size(); i += 2) {
+      waypoints.emplace_back(centerline_points[i], centerline_points[i + 1]);
+    }
+    adapter_.setCenterline(waypoints);
+  }
 }
 
 double RingTrackerNode::stampSeconds(const builtin_interfaces::msg::Time & stamp)
@@ -130,6 +142,12 @@ void RingTrackerNode::observationCallback(
   input.epoch = run_context_.epoch();
   input.observation = *msg;
   input.has_vehicle_pose = nearestPose(msg->header.stamp, input.vehicle_pose_map);
+  if (input.has_vehicle_pose && adapter_.hasCenterline()) {
+    input.path_distance_m = adapter_.projectOntoCenterline(
+      input.vehicle_pose_map.pose.position.x,
+      input.vehicle_pose_map.pose.position.y);
+    input.has_path_distance = true;
+  }
   RingTrackerUpdate update = adapter_.update(input);
   if (!update.accepted) {
     return;

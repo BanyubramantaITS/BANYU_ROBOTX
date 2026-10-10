@@ -32,6 +32,7 @@ struct RingTrackerConfig
   double pose_timestamp_tolerance_s{0.05};
   uint64_t maximum_sequence_gap{1};
   bool reject_duplicate_red{true};
+  double node_association_distance_m{0.8};
 };
 
 struct RingTrackerInput
@@ -86,6 +87,13 @@ public:
   bool markRedRepaired();
   void reset();
 
+  void setCenterline(const std::vector<std::pair<double, double>> & waypoints);
+  bool hasCenterline() const;
+  double projectOntoCenterline(double x, double y) const;
+  int findAssociatedRecord(
+    double progress_m,
+    const geometry_msgs::msg::PoseStamped & pose) const;
+
   const RingTrackerSnapshot & snapshot() const {return snapshot_;}
   const std::vector<banyu_msgs::msg::Task2RingRecord> & records() const
   {
@@ -123,9 +131,11 @@ private:
   bool has_last_record_path_distance_{false};
   geometry_msgs::msg::PoseStamped last_record_pose_;
   bool has_last_record_pose_{false};
+  bool rearmed_{false};
   uint8_t pending_color_{
     banyu_msgs::msg::PipelineRingObservation::COLOR_UNKNOWN};
   bool has_pending_color_{false};
+  std::vector<std::pair<double, double>> centerline_waypoints_;
 };
 
 }  // namespace banyu_detection

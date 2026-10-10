@@ -203,3 +203,54 @@ TEST_F(CalibratedDepthNodeTest, MidRunRestartUnderwaterDoesNotRecalibrate)
 
   EXPECT_FALSE(depth_node_->isCalibrated());
 }
+
+TEST_F(CalibratedDepthNodeTest, ActiveHeartbeatCannotReplaceSurfaceProof)
+{
+  spinFor(100ms);
+  banyu_msgs::msg::RunLifecycle life;
+  life.header.stamp = test_node_->now();
+  life.run_id = 42;
+  life.epoch = 1;
+  life.phase = banyu_msgs::msg::RunLifecycle::ACTIVE;
+  lifecycle_pub_->publish(life);
+  spinFor(50ms);
+  std_msgs::msg::Float64 alt;
+  alt.data = 0.0;
+  rel_alt_pub_->publish(alt);
+  spinFor(50ms);
+  ASSERT_FALSE(depth_node_->isCalibrated());
+  life.header.stamp = test_node_->now();
+  lifecycle_pub_->publish(life);
+  spinFor(50ms);
+  EXPECT_FALSE(depth_node_->isCalibrated());
+}
+
+TEST_F(CalibratedDepthNodeTest, EpochChangeWithinSameRunPreservesCalibration)
+{
+  spinFor(100ms);
+  std_msgs::msg::Float64 alt;
+  alt.data = 0.0;
+  rel_alt_pub_->publish(alt);
+  spinFor(50ms);
+
+  banyu_msgs::msg::RunLifecycle life;
+  life.header.stamp = test_node_->now();
+  life.run_id = 42;
+  life.epoch = 1;
+  life.phase = banyu_msgs::msg::RunLifecycle::PREPARING;
+  lifecycle_pub_->publish(life);
+  spinFor(50ms);
+  ASSERT_TRUE(depth_node_->isCalibrated());
+
+  alt.data = -1.5;
+  rel_alt_pub_->publish(alt);
+  spinFor(50ms);
+
+  life.epoch = 2;
+  life.phase = banyu_msgs::msg::RunLifecycle::ACTIVE;
+  lifecycle_pub_->publish(life);
+  spinFor(50ms);
+
+  EXPECT_TRUE(depth_node_->isCalibrated());
+  EXPECT_DOUBLE_EQ(depth_node_->surfaceDatumOffset(), 0.0);
+}

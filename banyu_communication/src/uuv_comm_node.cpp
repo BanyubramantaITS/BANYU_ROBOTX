@@ -127,7 +127,8 @@ UuvCommNode::UuvCommNode(const rclcpp::NodeOptions & options)
   command_sub_ = create_subscription<rx_msgs::msg::Command>(
     "/system/mission/command", 10, std::bind(&UuvCommNode::commandCallback, this, _1));
   course_sub_ = create_subscription<rx_msgs::msg::Course>(
-    "/system/mission/course", 10, std::bind(&UuvCommNode::courseCallback, this, _1));
+    "/system/mission/course", rclcpp::QoS(1).reliable().transient_local(),
+    std::bind(&UuvCommNode::courseCallback, this, _1));
   state_sub_ = create_subscription<mavros_msgs::msg::State>(
     "/mavros/state", 10, std::bind(&UuvCommNode::stateCallback, this, _1));
   gps_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
@@ -415,13 +416,22 @@ void UuvCommNode::lifecycleCallback(const banyu_msgs::msg::RunLifecycle::SharedP
       current_task_ = rx_msgs::msg::RxTask::TASK_NONE;
     }
     if (msg->phase == Lifecycle::INTERRUPTED || msg->phase == Lifecycle::FAILED) {
-      for (const auto & item : pending_surveys_) {
-        survey_outbox_->unstage(item.second->survey.report_id);
-        if (item.second->delivery) {
-          survey_outbox_->unstage(item.second->delivery->report_id);
+      for (auto it = pending_surveys_.begin(); it != pending_surveys_.end(); ) {
+        auto & pending = it->second;
+        if (pending->completed) {
+          it = pending_surveys_.erase(it);
+        } else if (pending->seal_request_id == 0) {
+          survey_outbox_->unstage(pending->survey.report_id);
+          if (pending->delivery) {
+            survey_outbox_->unstage(pending->delivery->report_id);
+          }
+          finishSurvey(pending, false, TriggerPipelineSurvey::Response::RUN_NOT_ACTIVE,
+            "MISSION_ABORTED_BEFORE_SEAL");
+          it = pending_surveys_.erase(it);
+        } else {
+          ++it;
         }
       }
-      pending_surveys_.clear();
     }
   }
   if (notify) {
@@ -614,7 +624,6 @@ void UuvCommNode::requestSeal(const std::shared_ptr<PendingSurvey> & pending, bo
             }
             return;
           }
-          publishSubmission(result.entry->submission);
 
           if (lifecycle_transitioned) {
             if (!pending->completed) {
@@ -623,6 +632,8 @@ void UuvCommNode::requestSeal(const std::shared_ptr<PendingSurvey> & pending, bo
             }
             return;
           }
+
+          publishSubmission(result.entry->submission);
           if (!delivery && pending->delivery) {
             requestSeal(pending, true);
           } else if (!pending->completed) {

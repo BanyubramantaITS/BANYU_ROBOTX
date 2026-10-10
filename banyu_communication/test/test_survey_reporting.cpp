@@ -839,3 +839,82 @@ TEST_F(SurveyReportingTest, OutboxWriteFailurePublishesNoSuccessfulReport)
   ASSERT_NO_FATAL_FAILURE(expectRejected(response));
   EXPECT_EQ(response->result_code, Survey::Response::OUTBOX_UNAVAILABLE);
 }
+
+#include "banyu_mission/run_coordinator.hpp"
+#include "banyu_msgs/task2_submission.hpp"
+
+TEST_F(SurveyReportingTest, DurableSealSurvivesAbortBeforeResponse)
+{
+  using Coordinator = banyu_mission::RunCoordinator;
+  using Phase = Coordinator::Phase;
+  Coordinator coordinator((directory_ / "authority.journal").string());
+  ASSERT_TRUE(coordinator.beginPreparation());
+  ASSERT_TRUE(coordinator.markReady());
+  ASSERT_EQ(coordinator.requestStart(17, 10, true).disposition, Coordinator::Disposition::Accepted);
+  ASSERT_TRUE(coordinator.completeInitialization(1));
+  ASSERT_TRUE(coordinator.transition(1, Phase::SurveyComplete));
+  ASSERT_TRUE(coordinator.transition(1, Phase::Surfaced));
+  beginRun();
+  auto value = evidence();
+  ASSERT_NO_FATAL_FAILURE(publishEvidence(value));
+  confirmSurface();
+  defer_seal_ = true;
+  auto pending = requestAsync();
+  ASSERT_TRUE(spinUntil([this]() {return pending_seals_.size() == 1;}));
+  const auto payload = pending_seals_.front().request->submission;
+  ASSERT_EQ(coordinator.sealReport(payload.run_id, payload.epoch, payload.kind, payload.report_id,
+    banyu_msgs::task2::canonicalPayload(payload)).disposition, Coordinator::Disposition::Accepted);
+  ASSERT_TRUE(coordinator.transition(1, Phase::Interrupted));
+  phase(Lifecycle::INTERRUPTED);
+  resolveSeals(true);
+  const auto response = finish(pending);
+  ASSERT_NE(response, nullptr);
+  EXPECT_FALSE(response->success);
+  EXPECT_EQ(response->result_code, Survey::Response::RUN_NOT_ACTIVE);
+  EXPECT_TRUE(submissions_.empty());
+  EXPECT_TRUE(coordinator.hasSealedReport(17, 1, Submission::SURVEY));
+  executor_->remove_node(node_);
+  node_.reset();
+  banyu_communication::SurveyOutbox outbox((directory_ / "outbox").string());
+  const auto recovered = outbox.find(17, 1, Submission::SURVEY);
+  ASSERT_TRUE(recovered.has_value());
+  EXPECT_TRUE(recovered->authorized);
+}
+
+TEST_F(SurveyReportingTest, AbortBeforeDurableSealRejectsReportAndUnstages)
+{
+  using Coordinator = banyu_mission::RunCoordinator;
+  using Phase = Coordinator::Phase;
+  Coordinator coordinator((directory_ / "authority.journal").string());
+  ASSERT_TRUE(coordinator.beginPreparation());
+  ASSERT_TRUE(coordinator.markReady());
+  ASSERT_EQ(coordinator.requestStart(19, 10, true).disposition, Coordinator::Disposition::Accepted);
+  ASSERT_TRUE(coordinator.completeInitialization(1));
+  ASSERT_TRUE(coordinator.transition(1, Phase::SurveyComplete));
+  ASSERT_TRUE(coordinator.transition(1, Phase::Surfaced));
+  beginRun();
+  auto value = evidence();
+  ASSERT_NO_FATAL_FAILURE(publishEvidence(value));
+  confirmSurface();
+  defer_seal_ = true;
+  auto pending = requestAsync();
+  ASSERT_TRUE(spinUntil([this]() {return pending_seals_.size() == 1;}));
+  const auto payload = pending_seals_.front().request->submission;
+  ASSERT_TRUE(coordinator.transition(1, Phase::Interrupted));
+  phase(Lifecycle::INTERRUPTED);
+  const auto seal_result = coordinator.sealReport(payload.run_id, payload.epoch, payload.kind,
+    payload.report_id, banyu_msgs::task2::canonicalPayload(payload));
+  EXPECT_EQ(seal_result.disposition, Coordinator::Disposition::Rejected);
+  resolveSeals(false);
+  const auto response = finish(pending);
+  ASSERT_NE(response, nullptr);
+  EXPECT_FALSE(response->success);
+  EXPECT_EQ(response->result_code, Survey::Response::AUTHORIZATION_REJECTED);
+  EXPECT_FALSE(coordinator.hasSealedReport(19, 1, Submission::SURVEY));
+  executor_->remove_node(node_);
+  node_.reset();
+  banyu_communication::SurveyOutbox outbox((directory_ / "outbox").string());
+  const auto recovered = outbox.find(19, 1, Submission::SURVEY);
+  EXPECT_FALSE(recovered.has_value());
+  EXPECT_TRUE(submissions_.empty());
+}

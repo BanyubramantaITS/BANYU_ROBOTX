@@ -31,11 +31,25 @@ public:
 private:
   void handleSubmission(const banyu_msgs::msg::Task2Submission::SharedPtr msg);
   void handleCommand(const rx_msgs::msg::Command::SharedPtr msg);
+  struct AcceptedReport
+  {
+    uint32_t run_id{0};
+    uint64_t epoch{0};
+    uint8_t kind{0};
+    std::string report_id;
+    std::string payload;
+    uint64_t authorization_revision{0};
+  };
+
+  using LogicalKey = std::tuple<uint32_t, uint64_t, uint8_t>;
+  void loadJournal();
+  void appendJournal(const AcceptedReport & report);
 
   mutable std::mutex mutex_;
+  std::string journal_path_;
   bool forward_to_rx_topics_{true};
-  std::set<std::string> accepted_report_ids_;
-  std::map<std::string, std::string> accepted_payloads_;
+  std::map<LogicalKey, AcceptedReport> accepted_by_key_;
+  std::map<std::string, LogicalKey> report_id_to_key_;
   std::size_t accepted_count_{0};
   std::size_t duplicate_count_{0};
   std::size_t rejected_count_{0};

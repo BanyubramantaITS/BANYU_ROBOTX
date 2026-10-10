@@ -49,6 +49,7 @@ ament_export_dependencies(
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
+  find_package(banyu_mission REQUIRED)
   ament_add_gtest(test_uuv_comm_node
     test/test_uuv_comm_node.cpp src/uuv_comm_node.cpp
     ENV ROS_DOMAIN_ID=42)
@@ -67,9 +68,9 @@ if(BUILD_TESTING)
   target_compile_definitions(test_survey_reporting PRIVATE BANYU_COMMUNICATION_NO_MAIN)
   target_compile_features(test_survey_reporting PUBLIC cxx_std_17)
   target_include_directories(test_survey_reporting PRIVATE include)
-  target_link_libraries(test_survey_reporting banyu_survey_core)
+  target_link_libraries(test_survey_reporting banyu_survey_core ${banyu_mission_LIBRARIES})
   ament_target_dependencies(test_survey_reporting
-    rclcpp std_msgs sensor_msgs geometry_msgs std_srvs mavros_msgs banyu_msgs rx_msgs)
+    rclcpp std_msgs sensor_msgs geometry_msgs std_srvs mavros_msgs banyu_msgs rx_msgs banyu_mission)
 
   ament_add_gtest(test_gcs_submission_adapter
     test/test_gcs_submission_adapter.cpp src/gcs_submission_adapter.cpp ENV ROS_DOMAIN_ID=42)

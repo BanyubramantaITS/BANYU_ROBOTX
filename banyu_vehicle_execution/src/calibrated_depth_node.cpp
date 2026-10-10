@@ -71,6 +71,9 @@ uint64_t CalibratedDepthNode::epoch() const
 void CalibratedDepthNode::calibrateDatum(double surface_rel_alt)
 {
   std::lock_guard<std::mutex> lock(mutex_);
+  if (!std::isfinite(surface_rel_alt)) {
+    return;
+  }
   surface_datum_offset_ = surface_rel_alt;
   calibrated_ = true;
   RCLCPP_INFO(
@@ -90,23 +93,13 @@ void CalibratedDepthNode::handleLifecycle(const banyu_msgs::msg::RunLifecycle::S
   if (!msg) {
     return;
   }
-  const bool new_run = (msg->run_id != run_id_ || msg->epoch != epoch_);
+  const bool new_run = (msg->run_id != run_id_);
   run_id_ = msg->run_id;
   epoch_ = msg->epoch;
   current_phase_ = msg->phase;
   if (new_run && auto_calibrate_at_start_) {
-    calibrated_ = false;
-  }
-
-  if (auto_calibrate_at_start_ && !calibrated_ && rel_alt_received_) {
-    const double age = (now() - last_rel_alt_time_).seconds();
-    if (age >= 0.0 && age <= max_rel_alt_age_s_ && isNearSurface(last_rel_alt_)) {
-      surface_datum_offset_ = last_rel_alt_;
-      calibrated_ = true;
-      RCLCPP_INFO(
-        get_logger(),
-        "Auto-calibrated surface datum offset to %.3f m for run %u (epoch %lu)",
-        surface_datum_offset_, run_id_, epoch_);
+    if (!rel_alt_received_ || !isNearSurface(last_rel_alt_)) {
+      calibrated_ = false;
     }
   }
 }
@@ -136,7 +129,7 @@ void CalibratedDepthNode::handleRelAlt(const std_msgs::msg::Float64::SharedPtr m
   rel_alt_received_ = true;
 
   if (auto_calibrate_at_start_ && !calibrated_ && isNearSurface(last_rel_alt_)) {
-    if (current_phase_ != banyu_msgs::msg::RunLifecycle::ACTIVE) {
+    if (current_phase_ < banyu_msgs::msg::RunLifecycle::ACTIVE) {
       surface_datum_offset_ = last_rel_alt_;
       calibrated_ = true;
       RCLCPP_INFO(

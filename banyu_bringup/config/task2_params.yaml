@@ -125,6 +125,15 @@ ring_tracker:
     state_topic: "/banyu/pipeline/ring_state"
     accepted_ring_topic: "/banyu/pipeline/accepted_ring"
     repair_service: "/banyu/pipeline/acknowledge_ring_repair"
+    node_association_distance_m: 0.8
+    centerline_points: [
+      51.251, 13.848,
+      50.351, 13.558,
+      49.541, 13.108,
+      48.701, 13.273,
+      47.921, 13.848,
+      47.231, 13.848
+    ]
 
 pipeline_guidance:
   ros__parameters:
@@ -250,6 +259,7 @@ survey_evidence_node:
 gcs_submission_adapter:
   ros__parameters:
     forward_to_rx_topics: true
+    journal_path: "~/.ros/banyu/gcs_adapter_dedup.journal"
     topics:
       task2_submission: "/system/vehicle/uuv/task2/submission"
       command: "/system/mission/command"

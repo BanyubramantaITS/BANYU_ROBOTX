@@ -56,7 +56,7 @@ SurveyEvidenceNode::SurveyEvidenceNode(const rclcpp::NodeOptions & options)
     std::bind(&SurveyEvidenceNode::handleActiveBuoyFix, this, std::placeholders::_1));
 
   course_sub_ = create_subscription<rx_msgs::msg::Course>(
-    course_topic, rclcpp::QoS(10).reliable(),
+    course_topic, rclcpp::QoS(1).reliable().transient_local(),
     std::bind(&SurveyEvidenceNode::handleCourse, this, std::placeholders::_1));
 
   lifecycle_sub_ = create_subscription<banyu_msgs::msg::RunLifecycle>(
@@ -131,6 +131,13 @@ void SurveyEvidenceNode::handleCourse(const rx_msgs::msg::Course::SharedPtr msg)
   if (!msg) {
     return;
   }
+  if (!rings_.empty() && !course_id_.empty() && course_id_ != msg->course_id) {
+    RCLCPP_WARN(
+      get_logger(),
+      "Rejecting conflicting mid-run course update: existing='%s', received='%s'",
+      course_id_.c_str(), msg->course_id.c_str());
+    return;
+  }
   course_id_ = msg->course_id;
   pinger_freq_hz_ = msg->pinger_freq_hz;
   if (buoy_received_) {
@@ -181,7 +188,28 @@ void SurveyEvidenceNode::handleActiveBuoyFix(const banyu_msgs::msg::ActiveBuoyFi
     return;
   }
 
+  if (!rings_.empty() && buoy_received_) {
+    const std::string incoming_endpoint = msg->endpoint_id.empty() ?
+      low_progress_endpoint_id_ : msg->endpoint_id;
+    if (!active_buoy_.endpoint_id.empty() && active_buoy_.endpoint_id != incoming_endpoint) {
+      RCLCPP_WARN(
+        get_logger(),
+        "Rejecting conflicting mid-run endpoint update: pinned='%s', received='%s'",
+        active_buoy_.endpoint_id.c_str(), incoming_endpoint.c_str());
+      return;
+    }
+  }
+
   active_buoy_ = *msg;
+  if (active_buoy_.endpoint_id.empty()) {
+    active_buoy_.endpoint_id = low_progress_endpoint_id_;
+  }
+  if (active_buoy_.course_id.empty() && !course_id_.empty()) {
+    active_buoy_.course_id = course_id_;
+  }
+  if (active_buoy_.pinger_freq_hz == 0 && pinger_freq_hz_ != 0) {
+    active_buoy_.pinger_freq_hz = pinger_freq_hz_;
+  }
   buoy_received_ = true;
   publishEvidence();
 }

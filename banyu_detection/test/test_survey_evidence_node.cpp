@@ -51,7 +51,7 @@ protected:
     buoy_pub_ = test_node_->create_publisher<sensor_msgs::msg::NavSatFix>(
       "/test_evidence/start_buoy_fix", rclcpp::QoS(1).reliable().transient_local());
     course_pub_ = test_node_->create_publisher<rx_msgs::msg::Course>(
-      "/test_evidence/course", rclcpp::QoS(10).reliable());
+      "/test_evidence/course", rclcpp::QoS(1).reliable().transient_local());
     lifecycle_pub_ = test_node_->create_publisher<banyu_msgs::msg::RunLifecycle>(
       "/test_evidence/lifecycle", rclcpp::QoS(1).reliable().transient_local());
 
@@ -157,4 +157,65 @@ TEST_F(SurveyEvidenceNodeTest, AggregatesBuoyRingsAndEndStateIntoEvidence)
   EXPECT_EQ(latest.rings.size(), 4u);
   EXPECT_TRUE(latest.traversal_complete);
   EXPECT_EQ(latest.tier, 2u);
+}
+
+TEST_F(SurveyEvidenceNodeTest, ConflictingMidRunCourseAndEndpointUpdatesAreRejected)
+{
+  banyu_msgs::msg::RunLifecycle life;
+  life.header.stamp = test_node_->now();
+  life.run_id = 10;
+  life.epoch = 1;
+  life.phase = banyu_msgs::msg::RunLifecycle::ACTIVE;
+  lifecycle_pub_->publish(life);
+  spinFor(50ms);
+
+  rx_msgs::msg::Course course;
+  course.course_id = "course-alpha";
+  course.pinger_freq_hz = 25000;
+  course_pub_->publish(course);
+  spinFor(50ms);
+
+  banyu_msgs::msg::ActiveBuoyFix buoy;
+  buoy.header.stamp = test_node_->now();
+  buoy.run_id = 10;
+  buoy.epoch = 1;
+  buoy.endpoint_id = "start_buoy";
+  buoy.green_confirmed = true;
+  auto active_buoy_pub = test_node_->create_publisher<banyu_msgs::msg::ActiveBuoyFix>(
+    "/test_evidence/active_buoy_fix", rclcpp::QoS(1).reliable().transient_local());
+  active_buoy_pub->publish(buoy);
+  spinFor(50ms);
+
+  ASSERT_FALSE(received_evidence_.empty());
+  EXPECT_EQ(received_evidence_.back().active_buoy.course_id, "course-alpha");
+  EXPECT_EQ(received_evidence_.back().active_buoy.endpoint_id, "start_buoy");
+
+  // Record a ring to freeze orientation and course context
+  banyu_msgs::msg::Task2RingRecord ring;
+  ring.run_id = 10;
+  ring.epoch = 1;
+  ring.node_id = 0;
+  ring.color = 2;
+  ring.pipeline_progress_m = 1.0;
+  ring.physical_identity_verified = true;
+  ring.ordering_verified = true;
+  ring_pub_->publish(ring);
+  spinFor(50ms);
+
+  // Attempt to publish conflicting course
+  rx_msgs::msg::Course conflicting_course;
+  conflicting_course.course_id = "course-bravo";
+  conflicting_course.pinger_freq_hz = 30000;
+  course_pub_->publish(conflicting_course);
+  spinFor(50ms);
+
+  // Attempt to publish conflicting endpoint
+  banyu_msgs::msg::ActiveBuoyFix conflicting_buoy = buoy;
+  conflicting_buoy.endpoint_id = "end_buoy";
+  active_buoy_pub->publish(conflicting_buoy);
+  spinFor(50ms);
+
+  // Evidence active_buoy must retain original pinned values
+  EXPECT_EQ(received_evidence_.back().active_buoy.course_id, "course-alpha");
+  EXPECT_EQ(received_evidence_.back().active_buoy.endpoint_id, "start_buoy");
 }
