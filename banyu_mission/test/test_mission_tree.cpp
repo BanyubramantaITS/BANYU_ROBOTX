@@ -221,6 +221,10 @@ TEST_F(MissionTest, RingAcknowledgementMustMatchPendingRecord)
   EXPECT_TRUE(state->redPending());
   EXPECT_TRUE(state->acknowledgeRed(7));
   EXPECT_FALSE(state->redPending());
+
+  publisher->publish(ring);
+  spinFor(node);
+  EXPECT_FALSE(state->redPending());
 }
 
 TEST_F(MissionTest, ActionResultSemanticFailureIsNotTransportSuccess)

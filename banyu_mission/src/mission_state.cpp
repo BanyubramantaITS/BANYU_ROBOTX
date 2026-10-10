@@ -168,6 +168,7 @@ bool MissionState::resetForStart()
   pipeline_seen_ = false;
   pipeline_tracked_ = false;
   red_pending_ = false;
+  red_repaired_ = false;
   ring_visible_ = false;
   ring_color_ = banyu_msgs::msg::PipelineRingObservation::COLOR_UNKNOWN;
   return true;
@@ -371,6 +372,8 @@ bool MissionState::acknowledgeRed(uint32_t index)
     return false;
   }
   red_pending_ = false;
+  red_repaired_ = true;
+  red_repaired_index_ = index;
   return true;
 }
 
@@ -425,7 +428,9 @@ void MissionState::ringStateCallback(const banyu_msgs::msg::PipelineRingState::S
     !mission_started_)) {return;}
   ring_color_ = msg->color;
   if (msg->color == banyu_msgs::msg::PipelineRingState::COLOR_RED && finite(msg->confidence) &&
-    msg->confidence > 0.0F)
+    msg->confidence > 0.0F &&
+    // The tracker re-emits an accepted ring's state; a repaired ring must not re-arm the repair.
+    !(red_repaired_ && red_repaired_index_ == msg->index))
   {
     red_pending_ = true;
     red_record_index_ = msg->index;

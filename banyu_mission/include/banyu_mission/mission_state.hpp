@@ -122,6 +122,8 @@ private:
   bool pipeline_tracked_ {false};
   bool red_pending_ {false};
   uint32_t red_record_index_ {0};
+  bool red_repaired_ {false};
+  uint32_t red_repaired_index_ {0};
   bool ring_visible_ {false};
   uint8_t ring_color_ {0};
   std::string mode_;
