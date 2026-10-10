@@ -101,6 +101,12 @@ std::size_t GcsSubmissionAdapter::attemptedCount() const
   return count;
 }
 
+std::size_t GcsSubmissionAdapter::corruptEntryCount() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return corrupt_entry_count_;
+}
+
 bool GcsSubmissionAdapter::hasReport(const std::string & report_id) const
 {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -131,10 +137,24 @@ void GcsSubmissionAdapter::handleCommand(const rx_msgs::msg::Command::SharedPtr 
   if (msg->command_type == rx_msgs::msg::Command::CMD_RUN_START) {
     if (msg->run_id != 0 && msg->run_id != active_run_id_) {
       active_run_id_ = msg->run_id;
+      std::string run_err;
+      if (!appendActiveRun(active_run_id_, run_err)) {
+        RCLCPP_ERROR(
+          get_logger(),
+          "Failed to persist active run_id=%u to journal '%s': %s",
+          active_run_id_, journal_path_.c_str(), run_err.c_str());
+      }
       for (auto & pair : accepted_by_key_) {
         auto & report = pair.second;
         if (report.run_id != active_run_id_ && report.pub_state == PublicationState::PENDING) {
           report.pub_state = PublicationState::SUPPRESSED_NEW_RUN;
+          std::string sup_err;
+          if (!appendPubSuppressed(report, sup_err)) {
+            RCLCPP_ERROR(
+              get_logger(),
+              "Failed to persist suppressed report marker for '%s' to journal '%s': %s",
+              report.report_id.c_str(), journal_path_.c_str(), sup_err.c_str());
+          }
           RCLCPP_WARN(
             get_logger(),
             "Unresolved report '%s' (run_id=%u) suppressed from publishing under new run_id=%u",
@@ -216,7 +236,12 @@ void GcsSubmissionAdapter::handleSubmission(const banyu_msgs::msg::Task2Submissi
         publishPublicReport(*msg);
         key_it->second.pub_state = PublicationState::ATTEMPTED;
         std::string err;
-        appendPubAttempted(key_it->second, err);
+        if (!appendPubAttempted(key_it->second, err)) {
+          RCLCPP_ERROR(
+            get_logger(),
+            "Failed to append pub attempted marker for '%s' to journal '%s': %s",
+            msg->report_id.c_str(), journal_path_.c_str(), err.c_str());
+        }
         return;
       }
       if (key_it->second.pub_state == PublicationState::ATTEMPTED) {
@@ -270,6 +295,17 @@ void GcsSubmissionAdapter::handleSubmission(const banyu_msgs::msg::Task2Submissi
   report_id_to_key_.emplace(msg->report_id, key);
   ++accepted_count_;
 
+  if (active_run_id_ == 0 && msg->run_id != 0) {
+    active_run_id_ = msg->run_id;
+    std::string run_err;
+    if (!appendActiveRun(active_run_id_, run_err)) {
+      RCLCPP_ERROR(
+        get_logger(),
+        "Failed to persist active run_id=%u to journal '%s': %s",
+        active_run_id_, journal_path_.c_str(), run_err.c_str());
+    }
+  }
+
   RCLCPP_INFO(
     get_logger(),
     "Accepted Task2Submission: report_id='%s', run_id=%u, epoch=%lu, kind=%u, tier=%u, auth_rev=%lu",
@@ -280,7 +316,12 @@ void GcsSubmissionAdapter::handleSubmission(const banyu_msgs::msg::Task2Submissi
 
   auto & stored = accepted_by_key_[key];
   stored.pub_state = PublicationState::ATTEMPTED;
-  appendPubAttempted(stored, err);
+  if (!appendPubAttempted(stored, err)) {
+    RCLCPP_ERROR(
+      get_logger(),
+      "Failed to persist pub attempted marker to journal '%s': %s",
+      journal_path_.c_str(), err.c_str());
+  }
 }
 
 void GcsSubmissionAdapter::loadJournal()
@@ -290,10 +331,18 @@ void GcsSubmissionAdapter::loadJournal()
   }
   std::ifstream file(journal_path_);
   if (!file.is_open()) {
+    if (std::filesystem::exists(journal_path_)) {
+      RCLCPP_ERROR(
+        get_logger(),
+        "Failed to open existing deduplication journal '%s'",
+        journal_path_.c_str());
+    }
     return;
   }
   std::string line;
+  std::size_t line_num = 0;
   while (std::getline(file, line)) {
+    ++line_num;
     if (line.empty() || line[0] == '#') {
       continue;
     }
@@ -303,6 +352,7 @@ void GcsSubmissionAdapter::loadJournal()
     if (!(iss >> tag)) {
       continue;
     }
+    bool parsed = false;
     if (tag == "BANYU_GCS_ADAPTER_ENTRY_V3") {
       AcceptedReport report;
       unsigned kind_val = 0;
@@ -311,11 +361,17 @@ void GcsSubmissionAdapter::loadJournal()
         report.authorization_revision >> state_str >> std::quoted(report.payload))
       {
         report.kind = static_cast<uint8_t>(kind_val);
-        report.pub_state = (state_str == "ATTEMPTED") ?
-          PublicationState::ATTEMPTED : PublicationState::PENDING;
+        if (state_str == "ATTEMPTED") {
+          report.pub_state = PublicationState::ATTEMPTED;
+        } else if (state_str == "SUPPRESSED_NEW_RUN") {
+          report.pub_state = PublicationState::SUPPRESSED_NEW_RUN;
+        } else {
+          report.pub_state = PublicationState::PENDING;
+        }
         const auto key = std::make_tuple(report.run_id, report.epoch, report.kind);
         accepted_by_key_[key] = report;
         report_id_to_key_[report.report_id] = key;
+        parsed = true;
       }
     } else if (tag == "BANYU_GCS_ADAPTER_PUB_ATTEMPTED") {
       uint32_t run_id = 0;
@@ -333,6 +389,31 @@ void GcsSubmissionAdapter::loadJournal()
             accepted_by_key_[id_it->second].pub_state = PublicationState::ATTEMPTED;
           }
         }
+        parsed = true;
+      }
+    } else if (tag == "BANYU_GCS_ADAPTER_PUB_SUPPRESSED") {
+      uint32_t run_id = 0;
+      uint64_t epoch = 0;
+      unsigned kind_val = 0;
+      std::string report_id;
+      if (iss >> run_id >> epoch >> kind_val >> report_id) {
+        const auto key = std::make_tuple(run_id, epoch, static_cast<uint8_t>(kind_val));
+        auto it = accepted_by_key_.find(key);
+        if (it != accepted_by_key_.end()) {
+          it->second.pub_state = PublicationState::SUPPRESSED_NEW_RUN;
+        } else {
+          auto id_it = report_id_to_key_.find(report_id);
+          if (id_it != report_id_to_key_.end()) {
+            accepted_by_key_[id_it->second].pub_state = PublicationState::SUPPRESSED_NEW_RUN;
+          }
+        }
+        parsed = true;
+      }
+    } else if (tag == "BANYU_GCS_ADAPTER_ACTIVE_RUN") {
+      uint32_t run_id = 0;
+      if (iss >> run_id) {
+        active_run_id_ = run_id;
+        parsed = true;
       }
     } else if (tag == "BANYU_GCS_ADAPTER_ENTRY_V2") {
       AcceptedReport report;
@@ -345,6 +426,7 @@ void GcsSubmissionAdapter::loadJournal()
         const auto key = std::make_tuple(report.run_id, report.epoch, report.kind);
         accepted_by_key_[key] = report;
         report_id_to_key_[report.report_id] = key;
+        parsed = true;
       }
     } else if (tag == "BANYU_GCS_ADAPTER_ENTRY_V1") {
       std::string report_id, payload;
@@ -353,12 +435,54 @@ void GcsSubmissionAdapter::loadJournal()
         report.report_id = report_id;
         report.payload = payload;
         report.pub_state = PublicationState::ATTEMPTED;
-        const auto key = std::make_tuple(0u, 0ul, 0u);
-        accepted_by_key_[key] = report;
-        report_id_to_key_[report_id] = key;
+        banyu_msgs::msg::Task2Submission sub;
+        if (banyu_msgs::task2::parseSubmission(payload, sub)) {
+          report.run_id = sub.run_id;
+          report.epoch = sub.epoch;
+          report.kind = sub.kind;
+          report.authorization_revision = sub.authorization_revision;
+          const auto key = std::make_tuple(sub.run_id, sub.epoch, sub.kind);
+          accepted_by_key_[key] = report;
+          report_id_to_key_[report_id] = key;
+        } else {
+          const auto key = std::make_tuple(
+            0u, 0ul, static_cast<uint8_t>(accepted_by_key_.size() + 1));
+          accepted_by_key_[key] = report;
+          report_id_to_key_[report_id] = key;
+        }
+        parsed = true;
+      }
+    } else {
+      RCLCPP_WARN(
+        get_logger(),
+        "Unknown journal tag '%s' on line %zu in '%s'",
+        tag.c_str(), line_num, journal_path_.c_str());
+      continue;
+    }
+    if (!parsed) {
+      ++corrupt_entry_count_;
+      RCLCPP_ERROR(
+        get_logger(),
+        "Corrupt or truncated journal line %zu in '%s': %s",
+        line_num, journal_path_.c_str(), line.c_str());
+    }
+  }
+
+  if (active_run_id_ != 0) {
+    for (auto & pair : accepted_by_key_) {
+      auto & report = pair.second;
+      if (report.run_id != active_run_id_ && report.pub_state == PublicationState::PENDING) {
+        report.pub_state = PublicationState::SUPPRESSED_NEW_RUN;
+        std::string err;
+        appendPubSuppressed(report, err);
+        RCLCPP_WARN(
+          get_logger(),
+          "Stale pending report '%s' (run_id=%u) suppressed under active run_id=%u on startup",
+          report.report_id.c_str(), report.run_id, active_run_id_);
       }
     }
   }
+
   accepted_count_ = accepted_by_key_.size();
   std::size_t pending_n = 0;
   for (const auto & pair : accepted_by_key_) {
@@ -368,8 +492,8 @@ void GcsSubmissionAdapter::loadJournal()
   }
   RCLCPP_INFO(
     get_logger(),
-    "Loaded %zu accepted reports (%zu pending publication) from deduplication journal '%s'",
-    accepted_by_key_.size(), pending_n, journal_path_.c_str());
+    "Loaded %zu accepted reports (%zu pending publication, active_run_id=%u) from journal '%s'",
+    accepted_by_key_.size(), pending_n, active_run_id_, journal_path_.c_str());
 }
 
 bool GcsSubmissionAdapter::appendJournalLine(const std::string & line, std::string & error)
@@ -446,6 +570,23 @@ bool GcsSubmissionAdapter::appendPubAttempted(const AcceptedReport & report, std
   oss.imbue(std::locale::classic());
   oss << "BANYU_GCS_ADAPTER_PUB_ATTEMPTED " << report.run_id << " " << report.epoch << " "
       << static_cast<unsigned>(report.kind) << " " << report.report_id << "\n";
+  return appendJournalLine(oss.str(), error);
+}
+
+bool GcsSubmissionAdapter::appendPubSuppressed(const AcceptedReport & report, std::string & error)
+{
+  std::ostringstream oss;
+  oss.imbue(std::locale::classic());
+  oss << "BANYU_GCS_ADAPTER_PUB_SUPPRESSED " << report.run_id << " " << report.epoch << " "
+      << static_cast<unsigned>(report.kind) << " " << report.report_id << "\n";
+  return appendJournalLine(oss.str(), error);
+}
+
+bool GcsSubmissionAdapter::appendActiveRun(uint32_t run_id, std::string & error)
+{
+  std::ostringstream oss;
+  oss.imbue(std::locale::classic());
+  oss << "BANYU_GCS_ADAPTER_ACTIVE_RUN " << run_id << "\n";
   return appendJournalLine(oss.str(), error);
 }
 

@@ -568,3 +568,197 @@ TEST_F(GcsSubmissionAdapterTest, SurveyAndDeliveryEachRecoverIndependently)
     adapter_node_->publicationState("delivery-indep-001"),
     banyu_communication::GcsSubmissionAdapter::PublicationState::ATTEMPTED);
 }
+
+TEST_F(GcsSubmissionAdapterTest, AdapterRestartsAfterPublicationLateReceiverFollowsDocumentedPolicy)
+{
+  spinFor(50ms);
+  banyu_msgs::msg::Task2Submission sub;
+  sub.header.stamp = test_node_->now();
+  sub.schema_version = 1;
+  sub.run_id = 15;
+  sub.epoch = 2;
+  sub.report_id = "late-recv-probe";
+  sub.kind = banyu_msgs::msg::Task2Submission::SURVEY;
+  sub.course_id = "course-1";
+  sub.tier = 2;
+  sub.buoy_latitude = 33.810;
+  sub.buoy_longitude = -118.393;
+  sub.original_conditions = {1, 2, 1, 1};
+  sub.authorization_revision = 1;
+
+  submission_pub_->publish(sub);
+  spinFor(100ms);
+  ASSERT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(
+    adapter_node_->publicationState("late-recv-probe"),
+    banyu_communication::GcsSubmissionAdapter::PublicationState::ATTEMPTED);
+
+  // Restart adapter
+  executor_.remove_node(adapter_node_);
+  adapter_node_.reset();
+
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("journal_path", test_journal_path_);
+  options.append_parameter_override("topics.task2_submission", "/test_adapter/submission");
+  options.append_parameter_override("topics.pipeline_survey", "/test_adapter/pipeline_survey");
+  options.append_parameter_override("topics.delivery", "/test_adapter/delivery");
+  adapter_node_ = std::make_shared<banyu_communication::GcsSubmissionAdapter>(options);
+  executor_.add_node(adapter_node_);
+  spinFor(50ms);
+
+  // Late subscriber connects after restart
+  std::vector<rx_msgs::msg::PipelineSurvey> late_surveys;
+  auto late_sub = test_node_->create_subscription<rx_msgs::msg::PipelineSurvey>(
+    "/test_adapter/pipeline_survey", rclcpp::QoS(10).reliable().transient_local(),
+    [&late_surveys](const rx_msgs::msg::PipelineSurvey::SharedPtr msg) {
+      late_surveys.push_back(*msg);
+    });
+  spinFor(100ms);
+
+  // Restarted adapter does not spontaneously republish attempted reports.
+  // Note: because submission_pub_ has transient_local QoS, adapter's new subscription
+  // receives the cached submission upon match and deduplicates it immediately.
+  EXPECT_TRUE(late_surveys.empty());
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->duplicateCount(), 1u);
+
+  // Explicit retransmission of already attempted report is also deduplicated and not re-forwarded
+  submission_pub_->publish(sub);
+  spinFor(100ms);
+
+  EXPECT_TRUE(late_surveys.empty());
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->duplicateCount(), 2u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, NewRunSuppressionPersistsAcrossAdapterRestart)
+{
+  spinFor(50ms);
+  banyu_msgs::msg::Task2Submission sub_old;
+  sub_old.header.stamp = test_node_->now();
+  sub_old.schema_version = 1;
+  sub_old.run_id = 10;
+  sub_old.epoch = 1;
+  sub_old.report_id = "old-run-suppressed";
+  sub_old.kind = banyu_msgs::msg::Task2Submission::SURVEY;
+  sub_old.course_id = "course-1";
+  sub_old.tier = 2;
+  sub_old.buoy_latitude = 33.810;
+  sub_old.buoy_longitude = -118.393;
+  sub_old.original_conditions = {1, 2, 1, 1};
+  sub_old.authorization_revision = 1;
+
+  // Pre-seed journal with PENDING entry
+  std::ofstream journal(test_journal_path_, std::ios::app);
+  ASSERT_TRUE(journal.is_open());
+  journal << "BANYU_GCS_ADAPTER_ENTRY_V3 10 1 1 old-run-suppressed 1 PENDING "
+          << std::quoted(banyu_msgs::task2::canonicalPayload(sub_old)) << "\n";
+  journal.close();
+
+  executor_.remove_node(adapter_node_);
+  adapter_node_.reset();
+
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("journal_path", test_journal_path_);
+  options.append_parameter_override("topics.task2_submission", "/test_adapter/submission");
+  options.append_parameter_override("topics.pipeline_survey", "/test_adapter/pipeline_survey");
+  options.append_parameter_override("topics.delivery", "/test_adapter/delivery");
+  options.append_parameter_override("topics.command", "/test_adapter/command");
+  adapter_node_ = std::make_shared<banyu_communication::GcsSubmissionAdapter>(options);
+  executor_.add_node(adapter_node_);
+
+  auto command_pub = test_node_->create_publisher<rx_msgs::msg::Command>(
+    "/test_adapter/command", rclcpp::QoS(10).reliable());
+  spinFor(50ms);
+
+  // CMD_RUN_START for run 20 suppresses old report
+  rx_msgs::msg::Command cmd;
+  cmd.command_type = rx_msgs::msg::Command::CMD_RUN_START;
+  cmd.command_seq = 1;
+  cmd.run_id = 20;
+  command_pub->publish(cmd);
+  spinFor(50ms);
+
+  EXPECT_EQ(
+    adapter_node_->publicationState("old-run-suppressed"),
+    banyu_communication::GcsSubmissionAdapter::PublicationState::SUPPRESSED_NEW_RUN);
+
+  // Restart adapter - suppression state and active run must persist
+  executor_.remove_node(adapter_node_);
+  adapter_node_.reset();
+
+  adapter_node_ = std::make_shared<banyu_communication::GcsSubmissionAdapter>(options);
+  executor_.add_node(adapter_node_);
+  spinFor(50ms);
+
+  EXPECT_EQ(
+    adapter_node_->publicationState("old-run-suppressed"),
+    banyu_communication::GcsSubmissionAdapter::PublicationState::SUPPRESSED_NEW_RUN);
+
+  // Replay of old report must still be rejected and not published
+  submission_pub_->publish(sub_old);
+  spinFor(100ms);
+
+  EXPECT_TRUE(received_surveys_.empty());
+  EXPECT_EQ(adapter_node_->rejectedCount(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, JournalCorruptionMidLineLogsDiagnosticAndRecoversValidEntries)
+{
+  spinFor(50ms);
+  banyu_msgs::msg::Task2Submission sub1;
+  sub1.header.stamp = test_node_->now();
+  sub1.schema_version = 1;
+  sub1.run_id = 15;
+  sub1.epoch = 1;
+  sub1.report_id = "valid-before-corrupt";
+  sub1.kind = banyu_msgs::msg::Task2Submission::SURVEY;
+  sub1.course_id = "course-1";
+  sub1.tier = 2;
+  sub1.buoy_latitude = 33.810;
+  sub1.buoy_longitude = -118.393;
+  sub1.original_conditions = {1, 2, 1, 1};
+  sub1.authorization_revision = 1;
+
+  banyu_msgs::msg::Task2Submission sub2 = sub1;
+  sub2.epoch = 2;
+  sub2.report_id = "valid-after-corrupt";
+
+  // Write valid entry 1, a corrupt truncated entry, an unknown tag, and valid entry 2
+  std::ofstream journal(test_journal_path_, std::ios::app);
+  ASSERT_TRUE(journal.is_open());
+  journal << "BANYU_GCS_ADAPTER_ENTRY_V3 15 1 1 valid-before-corrupt 1 PENDING "
+          << std::quoted(banyu_msgs::task2::canonicalPayload(sub1)) << "\n";
+  journal << "BANYU_GCS_ADAPTER_ENTRY_V3 15 1 corrupt_truncated_line_with_missing_fields\n";
+  journal << "BANYU_GCS_ADAPTER_UNKNOWN_TAG 15 1 foo bar\n";
+  journal << "BANYU_GCS_ADAPTER_ENTRY_V3 15 2 1 valid-after-corrupt 1 PENDING "
+          << std::quoted(banyu_msgs::task2::canonicalPayload(sub2)) << "\n";
+  journal.close();
+
+  executor_.remove_node(adapter_node_);
+  adapter_node_.reset();
+
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("journal_path", test_journal_path_);
+  options.append_parameter_override("topics.task2_submission", "/test_adapter/submission");
+  options.append_parameter_override("topics.pipeline_survey", "/test_adapter/pipeline_survey");
+  options.append_parameter_override("topics.delivery", "/test_adapter/delivery");
+  adapter_node_ = std::make_shared<banyu_communication::GcsSubmissionAdapter>(options);
+  executor_.add_node(adapter_node_);
+  spinFor(50ms);
+
+  EXPECT_EQ(adapter_node_->corruptEntryCount(), 1u);
+  EXPECT_EQ(adapter_node_->acceptedCount(), 2u);
+  EXPECT_TRUE(adapter_node_->hasReport("valid-before-corrupt"));
+  EXPECT_TRUE(adapter_node_->hasReport("valid-after-corrupt"));
+  EXPECT_EQ(adapter_node_->pendingCount(), 2u);
+
+  // Both valid entries can be recovered and published
+  submission_pub_->publish(sub1);
+  spinFor(100ms);
+  EXPECT_EQ(received_surveys_.size(), 1u);
+
+  submission_pub_->publish(sub2);
+  spinFor(100ms);
+  EXPECT_EQ(received_surveys_.size(), 2u);
+}

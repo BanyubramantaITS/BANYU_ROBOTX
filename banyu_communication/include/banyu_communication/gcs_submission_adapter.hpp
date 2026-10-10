@@ -41,6 +41,7 @@ public:
   std::size_t rejectedCount() const;
   std::size_t pendingCount() const;
   std::size_t attemptedCount() const;
+  std::size_t corruptEntryCount() const;
   bool hasReport(const std::string & report_id) const;
   PublicationState publicationState(const std::string & report_id) const;
 
@@ -64,6 +65,8 @@ private:
   void loadJournal();
   bool appendAcceptance(const AcceptedReport & report, std::string & error);
   bool appendPubAttempted(const AcceptedReport & report, std::string & error);
+  bool appendPubSuppressed(const AcceptedReport & report, std::string & error);
+  bool appendActiveRun(uint32_t run_id, std::string & error);
   bool appendJournalLine(const std::string & line, std::string & error);
 
   mutable std::mutex mutex_;
@@ -75,6 +78,7 @@ private:
   std::size_t accepted_count_{0};
   std::size_t duplicate_count_{0};
   std::size_t rejected_count_{0};
+  std::size_t corrupt_entry_count_{0};
 
   rclcpp::Subscription<banyu_msgs::msg::Task2Submission>::SharedPtr submission_sub_;
   rclcpp::Subscription<rx_msgs::msg::Command>::SharedPtr command_sub_;
