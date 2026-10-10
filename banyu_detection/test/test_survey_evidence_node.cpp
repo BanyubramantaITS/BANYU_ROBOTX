@@ -219,3 +219,39 @@ TEST_F(SurveyEvidenceNodeTest, ConflictingMidRunCourseAndEndpointUpdatesAreRejec
   EXPECT_EQ(received_evidence_.back().active_buoy.course_id, "course-alpha");
   EXPECT_EQ(received_evidence_.back().active_buoy.endpoint_id, "start_buoy");
 }
+
+TEST_F(SurveyEvidenceNodeTest, RawStartBuoyFixDoesNotReplaceQualifiedActiveBuoy)
+{
+  banyu_msgs::msg::RunLifecycle life;
+  life.header.stamp = test_node_->now();
+  life.run_id = 11;
+  life.epoch = 1;
+  life.phase = banyu_msgs::msg::RunLifecycle::ACTIVE;
+  lifecycle_pub_->publish(life);
+  spinFor(50ms);
+
+  banyu_msgs::msg::ActiveBuoyFix buoy;
+  buoy.header.stamp = test_node_->now();
+  buoy.run_id = 11;
+  buoy.epoch = 1;
+  buoy.revision = 1;
+  buoy.endpoint_id = "start_buoy";
+  buoy.green_confirmed = true;
+  buoy.fix.latitude = 1.0;
+  buoy.fix.longitude = 2.0;
+  auto active_buoy_pub = test_node_->create_publisher<banyu_msgs::msg::ActiveBuoyFix>(
+    "/test_evidence/active_buoy_fix", rclcpp::QoS(1).reliable().transient_local());
+  active_buoy_pub->publish(buoy);
+  spinFor(50ms);
+  ASSERT_FALSE(received_evidence_.empty());
+  ASSERT_TRUE(received_evidence_.back().active_buoy.green_confirmed);
+
+  sensor_msgs::msg::NavSatFix raw;
+  raw.header.stamp = test_node_->now();
+  raw.latitude = 5.0;
+  raw.longitude = 6.0;
+  buoy_pub_->publish(raw);
+  spinFor(50ms);
+  EXPECT_DOUBLE_EQ(received_evidence_.back().active_buoy.fix.latitude, 1.0);
+  EXPECT_TRUE(received_evidence_.back().active_buoy.green_confirmed);
+}

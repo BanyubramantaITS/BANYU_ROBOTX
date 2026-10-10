@@ -113,6 +113,7 @@ void SurveyEvidenceNode::handleLifecycle(const banyu_msgs::msg::RunLifecycle::Sh
   if (new_run) {
     rings_.clear();
     buoy_received_ = false;
+    qualified_buoy_received_ = false;
     traversal_complete_ = false;
     repair_verified_ = false;
     resource_code_complete_ = false;
@@ -153,6 +154,11 @@ void SurveyEvidenceNode::handleStartBuoyFix(const sensor_msgs::msg::NavSatFix::S
   if (!msg || msg->status.status < 0 || !std::isfinite(msg->latitude) ||
     !std::isfinite(msg->longitude))
   {
+    return;
+  }
+  // A raw surface fix carries no GREEN/pinger qualification; never let it replace a qualified
+  // ActiveBuoyFix for the current run.
+  if (qualified_buoy_received_) {
     return;
   }
 
@@ -201,6 +207,7 @@ void SurveyEvidenceNode::handleActiveBuoyFix(const banyu_msgs::msg::ActiveBuoyFi
   }
 
   active_buoy_ = *msg;
+  qualified_buoy_received_ = msg->green_confirmed || msg->pinger_confirmed;
   if (active_buoy_.endpoint_id.empty()) {
     active_buoy_.endpoint_id = low_progress_endpoint_id_;
   }

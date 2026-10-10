@@ -54,6 +54,7 @@ private:
   uint64_t evidence_revision_{0};
   uint64_t buoy_revision_{0};
   bool buoy_received_{false};
+  bool qualified_buoy_received_{false};
   bool traversal_complete_{false};
   bool repair_verified_{false};
   bool resource_code_complete_{false};

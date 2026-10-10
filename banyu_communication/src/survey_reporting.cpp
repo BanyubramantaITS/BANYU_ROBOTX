@@ -150,17 +150,31 @@ std::string SurveyLedger::ingest(
       return stamp > 0 && stamp <= source_now_ns &&
              (buoy_pinned_ || (source_now_ns - stamp) * 1.0e-9 <= config_.ingress_max_age_s);
     };
-  if (buoy.run_id != run_id_ || buoy.epoch != epoch_ || buoy.revision == 0 ||
-    !allowed(config_.buoy_sources, buoy.source_id) || buoy.course_id != course_id_ ||
-    buoy.endpoint_id.empty() || (!buoy.green_confirmed && !buoy.pinger_confirmed) ||
-    (buoy.pinger_confirmed && buoy.pinger_freq_hz != frequency_) ||
-    !buoy_stamp_valid(stampNs(buoy.header.stamp)) ||
-    !buoy_stamp_valid(stampNs(buoy.fix.header.stamp)) ||
-    buoy.fix.status.status < 0 || !std::isfinite(buoy.fix.latitude) ||
+  if (buoy.run_id != run_id_ || buoy.epoch != epoch_ || buoy.revision == 0) {
+    return fail("ACTIVE_BUOY_UNVERIFIED: run identity");
+  }
+  if (!allowed(config_.buoy_sources, buoy.source_id) || buoy.course_id != course_id_ ||
+    buoy.endpoint_id.empty())
+  {
+    return fail("ACTIVE_BUOY_UNVERIFIED: source, course or endpoint");
+  }
+  if ((!buoy.green_confirmed && !buoy.pinger_confirmed) ||
+    (buoy.pinger_confirmed && buoy.pinger_freq_hz != frequency_))
+  {
+    return fail("ACTIVE_BUOY_UNVERIFIED: not GREEN or pinger confirmed");
+  }
+  if (!buoy_stamp_valid(stampNs(buoy.header.stamp)) ||
+    !buoy_stamp_valid(stampNs(buoy.fix.header.stamp)))
+  {
+    return fail("ACTIVE_BUOY_UNVERIFIED: stamp missing, future or stale");
+  }
+  if (buoy.fix.status.status < 0 || !std::isfinite(buoy.fix.latitude) ||
     std::abs(buoy.fix.latitude) > 90.0 || !std::isfinite(buoy.fix.longitude) ||
     std::abs(buoy.fix.longitude) > 180.0 || !std::isfinite(buoy.uncertainty_m) ||
     buoy.uncertainty_m < 0.0 || buoy.uncertainty_m > config_.maximum_buoy_uncertainty_m)
-  {return fail("ACTIVE_BUOY_UNVERIFIED");}
+  {
+    return fail("ACTIVE_BUOY_UNVERIFIED: invalid fix or uncertainty");
+  }
   const bool low = buoy.endpoint_id == value.low_progress_endpoint_id;
   const bool high = buoy.endpoint_id == value.high_progress_endpoint_id;
   if (value.low_progress_endpoint_id.empty() || value.high_progress_endpoint_id.empty() ||
