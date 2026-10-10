@@ -218,7 +218,7 @@ void VehicleExecutionNode::initActionServers()
     this, center_action, this, ring_kp_sway, ring_kp_surge, ring_search_speed,
     ring_search_timeout_s, ring_lost_grace_s);
   auto hold_server = std::make_shared<HoldProbeOnRingServer>(
-    this, hold_action, this);
+    this, hold_action, this, ring_kp_sway, ring_kp_surge);
   auto surface_server = std::make_shared<SurfaceServer>(
     this, surface_action, this, depth_kp, max_depth_rate, require_calibrated_surface_depth_,
     declare_parameter<double>("control.surface_hold_time_s", 1.0), surface_depth_timeout_s_,
