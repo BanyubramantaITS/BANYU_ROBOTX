@@ -36,30 +36,45 @@
     <Sequence>
       <DiveToDepth target_depth="{inspection_depth}" target_heading="{heading}"
         depth_tolerance="{depth_tolerance}" heading_tolerance="{heading_tolerance}" />
-      <Timeout msec="{acquire_timeout_ms}">
-        <AcquirePipeline camera_name="{camera_name}" use_heading_prior="true"
-          heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}" />
-      </Timeout>
+      <!-- A pass can cross the pipe at an angle and miss it; fall back to a search sweep. -->
+      <RetryUntilSuccessful num_attempts="3">
+        <Fallback>
+          <Timeout msec="{acquire_timeout_ms}">
+            <AcquirePipeline camera_name="{camera_name}" use_heading_prior="true"
+              heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}" />
+          </Timeout>
+          <SubTree ID="ReacquirePipeline" _autoremap="true" />
+        </Fallback>
+      </RetryUntilSuccessful>
     </Sequence>
   </BehaviorTree>
 
+  <!-- Repeats repair/reacquire/follow until the pipeline ends; a failed pass ends the
+       traversal and the trailing PipelineEnded then reports it as a failure. -->
   <BehaviorTree ID="TraversePipeline">
-    <WhileDoElse>
-      <PipelineActive />
-      <ReactiveFallback name="traverse_reactive">
-        <Sequence name="repair_red_ring">
-          <RedRingPending />
-          <SubTree ID="RepairRedRing" _autoremap="true" />
-          <AcknowledgeRedRing />
-        </Sequence>
-        <Sequence name="reacquire_lost_pipeline">
-          <PipelineLost />
-          <SubTree ID="ReacquirePipeline" _autoremap="true" />
-        </Sequence>
-        <FollowPipeline enable="true" />
-      </ReactiveFallback>
+    <Sequence>
+      <ForceSuccess>
+        <KeepRunningUntilFailure>
+          <WhileDoElse>
+            <PipelineActive />
+            <ReactiveFallback name="traverse_reactive">
+              <Sequence name="repair_red_ring">
+                <RedRingPending />
+                <SubTree ID="RepairRedRing" _autoremap="true" />
+                <AcknowledgeRedRing />
+              </Sequence>
+              <Sequence name="reacquire_lost_pipeline">
+                <PipelineLost />
+                <SubTree ID="ReacquirePipeline" _autoremap="true" />
+              </Sequence>
+              <FollowPipeline enable="true" />
+            </ReactiveFallback>
+            <AlwaysFailure />
+          </WhileDoElse>
+        </KeepRunningUntilFailure>
+      </ForceSuccess>
       <PipelineEnded />
-    </WhileDoElse>
+    </Sequence>
   </BehaviorTree>
 
   <BehaviorTree ID="RepairRedRing">
