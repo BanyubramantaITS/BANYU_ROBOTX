@@ -85,6 +85,8 @@ task2_pipeline_detector:
     min_component_area_px: 20
     min_pipeline_confidence: 0.20
     max_heading_error_rad: 1.571
+    # Refit a band of +-ratio*height around the lookahead row when bends spoil the global fit.
+    local_fit_band_ratio: 0.2
 
     # Pipeline mask HSV and grayscale thresholds
     gray_threshold: 170
