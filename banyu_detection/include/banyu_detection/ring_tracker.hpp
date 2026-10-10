@@ -33,6 +33,12 @@ struct RingTrackerConfig
   uint64_t maximum_sequence_gap{1};
   bool reject_duplicate_red{true};
   double node_association_distance_m{0.8};
+  // Bottom camera geometry for estimating where a ring is along the pipe; disabled when
+  // camera_height_m is 0 (ring position then equals vehicle position).
+  double camera_height_m{0.0};
+  double camera_forward_m{0.0};
+  double camera_tilt_from_vertical_rad{0.0};
+  double camera_half_vfov_rad{0.0};
 };
 
 struct RingTrackerInput
@@ -117,6 +123,9 @@ private:
   bool validPoseForObservation(const RingTrackerInput & input) const;
   bool rearmAllowed(const RingTrackerInput & input) const;
   void beginNewRingEntry();
+  bool cameraModelEnabled() const;
+  bool ringProgress(const RingTrackerInput & input, double & progress) const;
+  static bool kind_is_visible(const banyu_msgs::msg::PipelineRingObservation & observation);
 
   void beginExit();
   void beginDebounce();

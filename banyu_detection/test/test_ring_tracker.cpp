@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <limits>
 
 namespace
@@ -468,4 +469,45 @@ TEST(RingTracker, NextRingVisibleBeforePreviousLeavesIsAcceptedAfterMoving) {
   EXPECT_TRUE(accepted);
   ASSERT_EQ(tracker.records().size(), 2U);
   EXPECT_EQ(tracker.records().back().color, Obs::COLOR_GREEN);
+}
+
+TEST(RingTracker, CameraModelSeparatesSameColorRingsSeenBackToBack) {
+  auto config = trackerConfig(3, 2, 2);
+  config.minimum_rearm_distance_m = 0.25;
+  config.node_association_distance_m = 0.4;
+  config.camera_height_m = 1.7;
+  config.camera_forward_m = 0.2;
+  config.camera_tilt_from_vertical_rad = 0.227;
+  config.camera_half_vfov_rad = 0.408;
+  banyu_detection::RingTracker tracker(config);
+  using Obs = banyu_msgs::msg::PipelineRingObservation;
+  const std::vector<double> rings{1.0, 1.85};
+  uint64_t seq = 1;
+  for (double p = -0.6; p <= 2.2; p += 0.02) {
+    // Image row of each ring as seen from vehicle position p; feed the one nearest center.
+    double best_offset = 2.0;
+    for (double ring_position : rings) {
+      const double angle = std::atan((ring_position - p - 0.2) / 1.7);
+      const double offset = (0.227 - angle) / 0.408;
+      if (std::abs(offset) <= 1.0 && std::abs(offset) < std::abs(best_offset)) {
+        best_offset = offset;
+      }
+    }
+    banyu_detection::RingTrackerInput input;
+    const bool visible = std::abs(best_offset) <= 1.0;
+    input.observation = ring(seq, Obs::COLOR_GREEN, visible);
+    if (visible) {input.observation.offset_y = static_cast<float>(best_offset);}
+    input.has_path_distance = true;
+    input.path_distance_m = p;
+    input.has_vehicle_pose = true;
+    input.vehicle_pose_map.header.frame_id = "map";
+    input.vehicle_pose_map.header.stamp = input.observation.header.stamp;
+    input.vehicle_pose_map.pose.position.x = p;
+    input.vehicle_pose_map.pose.orientation.w = 1.0;
+    tracker.update(input);
+    ++seq;
+  }
+  ASSERT_EQ(tracker.records().size(), 2U);
+  EXPECT_NEAR(tracker.records()[0].pipeline_progress_m, 1.0, 0.1);
+  EXPECT_NEAR(tracker.records()[1].pipeline_progress_m, 1.85, 0.1);
 }

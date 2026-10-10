@@ -68,7 +68,7 @@ task2_sim_provider:
     pipeline_start_map_y: 13.85
     pipeline_end_map_x: 51.64
     pipeline_end_map_y: 13.86
-    end_candidate_window_m: 0.8
+    end_candidate_window_m: 0.5
     end_candidate_max_lateral_m: 1.0
     active_buoy_source_id: "uuv_buoy_localizer"
     active_buoy_endpoint_id: "start_buoy"
@@ -143,13 +143,21 @@ ring_tracker:
     pose_timestamp_tolerance_s: 0.12
     # Tolerate a few dropped camera frames (best-effort transport) before treating it as a gap.
     maximum_sequence_gap: 3
+    # Bottom camera geometry at survey depth (sim BlueROV2 Heavy: 77 deg pitch, 60 deg HFOV at
+    # 320x240, ~1.7 m above the rings) used to estimate ring position along the pipe.
+    camera_height_m: 1.7
+    camera_forward_m: 0.2
+    camera_tilt_from_vertical_rad: 0.227
+    camera_half_vfov_rad: 0.408
+    # Ordered from the active (start) buoy end so progress increases along the survey;
+    # survey_evidence low_progress_endpoint_id is start_buoy.
     centerline_points: [
-      51.251, 13.848,
-      50.351, 13.558,
-      49.541, 13.108,
-      48.701, 13.273,
+      47.231, 13.848,
       47.921, 13.848,
-      47.231, 13.848
+      48.701, 13.273,
+      49.541, 13.108,
+      50.351, 13.558,
+      51.251, 13.848
     ]
 
 pipeline_guidance:

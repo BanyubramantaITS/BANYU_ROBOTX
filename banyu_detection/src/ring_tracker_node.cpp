@@ -67,6 +67,11 @@ void RingTrackerNode::declareParameters()
   config.maximum_sequence_gap = static_cast<uint64_t>(std::max<int64_t>(
       1, declare_parameter<int64_t>("maximum_sequence_gap", 1)));
   config.reject_duplicate_red = declare_parameter<bool>("reject_duplicate_red", true);
+  config.camera_height_m = declare_parameter<double>("camera_height_m", 0.0);
+  config.camera_forward_m = declare_parameter<double>("camera_forward_m", 0.0);
+  config.camera_tilt_from_vertical_rad =
+    declare_parameter<double>("camera_tilt_from_vertical_rad", 0.0);
+  config.camera_half_vfov_rad = declare_parameter<double>("camera_half_vfov_rad", 0.0);
   config.node_association_distance_m = declare_parameter<double>(
     "node_association_distance_m", 0.8);
   adapter_ = RingTrackerAdapter(config);

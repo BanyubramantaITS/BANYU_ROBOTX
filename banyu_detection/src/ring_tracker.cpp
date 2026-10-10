@@ -219,6 +219,43 @@ double RingTracker::projectOntoCenterline(double x, double y) const
   return best_arc_length;
 }
 
+bool RingTracker::cameraModelEnabled() const
+{
+  return config_.camera_height_m > 0.0 && config_.camera_half_vfov_rad > 0.0;
+}
+
+bool RingTracker::kind_is_visible(const banyu_msgs::msg::PipelineRingObservation & observation)
+{
+  return observation.visible && std::isfinite(observation.offset_y);
+}
+
+bool RingTracker::ringProgress(const RingTrackerInput & input, double & progress) const
+{
+  double x = input.vehicle_pose_map.pose.position.x;
+  double y = input.vehicle_pose_map.pose.position.y;
+  double ahead = 0.0;
+  if (cameraModelEnabled() && input.has_vehicle_pose && kind_is_visible(input.observation)) {
+    // Bottom camera pitched forward of vertical; image +y (down) is aft.
+    const double angle = config_.camera_tilt_from_vertical_rad -
+      config_.camera_half_vfov_rad * std::clamp(
+      static_cast<double>(input.observation.offset_y), -1.0, 1.0);
+    ahead = config_.camera_forward_m + config_.camera_height_m * std::tan(angle);
+    const auto & q = input.vehicle_pose_map.pose.orientation;
+    const double yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+    x += ahead * std::cos(yaw);
+    y += ahead * std::sin(yaw);
+  }
+  if (hasCenterline() && input.has_vehicle_pose) {
+    progress = projectOntoCenterline(x, y);
+    return true;
+  }
+  if (input.has_path_distance && std::isfinite(input.path_distance_m)) {
+    progress = input.path_distance_m + ahead;
+    return true;
+  }
+  return false;
+}
+
 int RingTracker::findAssociatedRecord(
   double progress_m,
   const geometry_msgs::msg::PoseStamped & pose) const
@@ -269,17 +306,7 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
 {
   const auto & observation = input.observation;
   double calculated_progress = 0.0;
-  bool valid_progress = false;
-
-  if (hasCenterline() && input.has_vehicle_pose) {
-    calculated_progress = projectOntoCenterline(
-      input.vehicle_pose_map.pose.position.x,
-      input.vehicle_pose_map.pose.position.y);
-    valid_progress = true;
-  } else if (input.has_path_distance && std::isfinite(input.path_distance_m)) {
-    calculated_progress = input.path_distance_m;
-    valid_progress = true;
-  }
+  const bool valid_progress = ringProgress(input, calculated_progress);
 
   const int match_idx = findAssociatedRecord(
     valid_progress ? calculated_progress : 0.0,
@@ -429,6 +456,13 @@ RingTrackerUpdate RingTracker::update(const RingTrackerInput & input)
       rearmed_ = true;
     }
     beyond_last_node_ = std::isfinite(sep) && sep > config_.node_association_distance_m;
+    double ring_progress = 0.0;
+    if (cameraModelEnabled() && has_last_record_path_distance_ &&
+      kind_is_visible(input.observation) && ringProgress(input, ring_progress))
+    {
+      beyond_last_node_ = std::abs(ring_progress - last_record_path_distance_) >
+        config_.node_association_distance_m;
+    }
   } else {
     beyond_last_node_ = false;
   }
@@ -442,6 +476,13 @@ RingTrackerUpdate RingTracker::update(const RingTrackerInput & input)
   }
   const bool visible = kind == ObservationKind::VISIBLE;
 
+  if (snapshot_.phase == RingTrackerPhase::TRACKING && visible && cameraModelEnabled() &&
+    beyond_last_node_)
+  {
+    // Consecutive same-color rings can be in view back to back; the estimated ring position
+    // tells them apart.
+    beginNewRingEntry();
+  }
   if (snapshot_.phase == RingTrackerPhase::TRACKING) {
     if (visible && sameColor(observation.color, snapshot_.active_color)) {
       snapshot_.consecutive_frames = std::min(
@@ -531,13 +572,7 @@ RingTrackerUpdate RingTracker::update(const RingTrackerInput & input)
     hasRecordedColor(banyu_msgs::msg::PipelineRingObservation::COLOR_RED))
   {
     double calculated_prog = 0.0;
-    if (hasCenterline() && input.has_vehicle_pose) {
-      calculated_prog = projectOntoCenterline(
-        input.vehicle_pose_map.pose.position.x,
-        input.vehicle_pose_map.pose.position.y);
-    } else if (input.has_path_distance && std::isfinite(input.path_distance_m)) {
-      calculated_prog = input.path_distance_m;
-    }
+    ringProgress(input, calculated_prog);
     const int match = findAssociatedRecord(calculated_prog, input.vehicle_pose_map);
     if (match < 0) {
       return ignoredUpdate();
