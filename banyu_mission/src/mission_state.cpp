@@ -166,6 +166,7 @@ bool MissionState::resetForStart()
   abort_requested_ = false;
   pipeline_ended_ = false;
   pipeline_seen_ = false;
+  pipeline_tracked_ = false;
   red_pending_ = false;
   ring_visible_ = false;
   ring_color_ = banyu_msgs::msg::PipelineRingObservation::COLOR_UNKNOWN;
@@ -395,11 +396,16 @@ void MissionState::pipelineCallback(const banyu_msgs::msg::PipelineObservation::
   if (require_run_context_ && (!mission_started_ ||
     rclcpp::Time(msg->header.stamp, node_->get_clock()->get_clock_type()) < run_started_at_))
   {return;}
-  pipeline_seen_ = true;
-  pipeline_tracked_ = msg->status == banyu_msgs::msg::PipelineObservation::TRACKED && finite(
+  const bool tracked = msg->status == banyu_msgs::msg::PipelineObservation::TRACKED && finite(
     msg->offset_x) && finite(msg->offset_y) &&
     finite(msg->heading_error_rad) && finite(msg->confidence) && msg->confidence >= 0.0F;
-  last_pipeline_ = node_->now();
+  // Only tracked frames refresh the pipeline: a single dropped frame must not count as losing
+  // the pipe, which would abort following on every detection flicker.
+  if (tracked) {
+    pipeline_seen_ = true;
+    pipeline_tracked_ = true;
+    last_pipeline_ = node_->now();
+  }
 }
 
 void MissionState::ringCallback(const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg)

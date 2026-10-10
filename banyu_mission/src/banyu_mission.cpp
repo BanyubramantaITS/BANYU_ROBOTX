@@ -23,6 +23,9 @@ namespace banyu_mission
 namespace
 {
 constexpr double kPi = 3.14159265358979323846;
+// Under sim time this node's clock can lag a fresh source stamp while its executor is busy;
+// tolerate that much skew, matching VehicleStatusTracker, without accepting real future stamps.
+constexpr double kMaxFutureStampS = 0.5;
 
 bool finite(double value)
 {
@@ -187,7 +190,7 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
         (evidence->header.stamp.sec == 0 && evidence->header.stamp.nanosec == 0)) {return;}
         const double age = (now() - rclcpp::Time(evidence->header.stamp,
           get_clock()->get_clock_type())).seconds();
-        if (age < 0.0 || age > execution_readiness_timeout_s_ ||
+        if (age < -kMaxFutureStampS || age > execution_readiness_timeout_s_ ||
         evidence->lifecycle_revision < execution_readiness_.lifecycle_revision) {return;}
         execution_readiness_ = *evidence;
         execution_received_at_ = std::chrono::steady_clock::now();
@@ -206,7 +209,7 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
         (progress->header.stamp.sec == 0 && progress->header.stamp.nanosec == 0)) {return;}
         const double age = (now() - rclcpp::Time(progress->header.stamp,
           get_clock()->get_clock_type())).seconds();
-        if (age < 0.0 || age > 2.0) {return;}
+        if (age < -kMaxFutureStampS || age > 2.0) {return;}
         if (progress->evidence_revision < survey_progress_.evidence_revision) {return;}
         survey_progress_ = *progress;
         survey_progress_received_at_ = std::chrono::steady_clock::now();
@@ -245,7 +248,7 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
         (pose->header.stamp.sec != 0 || pose->header.stamp.nanosec != 0);
         const double source_age = (now() - rclcpp::Time(pose->header.stamp,
           get_clock()->get_clock_type())).seconds();
-        pose_valid_ = pose_valid_ && source_age >= 0.0 && source_age <= 1.0;
+        pose_valid_ = pose_valid_ && source_age >= -kMaxFutureStampS && source_age <= 1.0;
         pose_received_at_ = std::chrono::steady_clock::now();
       });
     for (const auto & service : reset_services) {

@@ -11,6 +11,7 @@
 #include "banyu_mission/action_nodes.hpp"
 #include "banyu_mission/banyu_mission.hpp"
 #include "banyu_mission/por_mission_config.hpp"
+#include "banyu_msgs/msg/pipeline_observation.hpp"
 #include "banyu_msgs/msg/pipeline_ring_state.hpp"
 #include "banyu_msgs/msg/vehicle_status.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -658,4 +659,36 @@ TEST_F(MissionTest, AbortServiceCommandsFallbackModeSurface)
   }
 
   EXPECT_EQ(received_mode, "SURFACE");
+}
+
+TEST_F(MissionTest, SingleDroppedPipelineFrameDoesNotCountAsLosingThePipe)
+{
+  auto node = std::make_shared<rclcpp::Node>("mission_pipeline_debounce_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get());
+  state->configure(1.0, 0.3, 1.0, 4, 1700, "GUIDED", "AUTONOMY", false);
+  auto publisher = node->create_publisher<banyu_msgs::msg::PipelineObservation>(
+    "/banyu/pipeline/observation", rclcpp::SensorDataQoS());
+  auto publish = [&](uint8_t status) {
+      banyu_msgs::msg::PipelineObservation observation;
+      observation.header.stamp = node->now();
+      observation.status = status;
+      observation.confidence = 0.9F;
+      publisher->publish(observation);
+    };
+  auto spin_for = [&](std::chrono::milliseconds duration) {
+      const auto end = std::chrono::steady_clock::now() + duration;
+      while (std::chrono::steady_clock::now() < end) {
+        rclcpp::spin_some(node);
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      }
+    };
+  using Observation = banyu_msgs::msg::PipelineObservation;
+  EXPECT_TRUE(state->pipelineLost());
+  for (int i = 0; i < 5; ++i) {publish(Observation::TRACKED); spin_for(std::chrono::milliseconds(20));}
+  EXPECT_FALSE(state->pipelineLost());
+  publish(Observation::NO_PIPE);
+  spin_for(std::chrono::milliseconds(50));
+  EXPECT_FALSE(state->pipelineLost());
+  for (int i = 0; i < 25; ++i) {publish(Observation::NO_PIPE); spin_for(std::chrono::milliseconds(20));}
+  EXPECT_TRUE(state->pipelineLost());
 }
