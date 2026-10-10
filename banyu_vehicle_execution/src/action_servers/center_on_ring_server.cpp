@@ -14,10 +14,12 @@ CenterOnRingServer::CenterOnRingServer(
   double ring_kp_sway,
   double ring_kp_surge,
   double search_speed,
-  double search_timeout_s)
+  double search_timeout_s,
+  double lost_grace_s)
 : TypedActionServer(node, action_name, coordinator),
   ring_kp_sway_(ring_kp_sway), ring_kp_surge_(ring_kp_surge),
-  search_speed_(std::abs(search_speed)), search_timeout_s_(search_timeout_s)
+  search_speed_(std::abs(search_speed)), search_timeout_s_(search_timeout_s),
+  lost_grace_s_(std::max(0.0, lost_grace_s))
 {
 }
 
@@ -33,6 +35,9 @@ bool CenterOnRingServer::validateGoal(const Goal & goal, std::string & reason)
 void CenterOnRingServer::onGoalStarted()
 {
   search_started_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+  last_visible_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+  last_surge_ = 0.0;
+  last_sway_ = 0.0;
 }
 
 MotionIntent CenterOnRingServer::tick(
@@ -83,10 +88,18 @@ MotionIntent CenterOnRingServer::tick(
   // Bottom camera: image +x is body right, image +y (down) is body aft. Depth is held.
   if (visible) {
     search_started_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
-    const double sway = -std::clamp(ring_kp_sway_ * offset_x, -0.5, 0.5);
-    const double surge = -std::clamp(ring_kp_surge_ * offset_y, -0.3, 0.3);
+    last_visible_ = now;
+    last_sway_ = -std::clamp(ring_kp_sway_ * offset_x, -0.5, 0.5);
+    last_surge_ = -std::clamp(ring_kp_surge_ * offset_y, -0.3, 0.3);
     const auto local_intent = bodyFluToLocalEnu(
-      MotionIntent::bodyFlu(surge, sway, 0.0, 0.0), telemetry.yaw);
+      MotionIntent::bodyFlu(last_surge_, last_sway_, 0.0, 0.0), telemetry.yaw);
+    return local_intent.value_or(zeroIntent());
+  }
+
+  // Ring detections flicker; keep the last centering command through short dropouts.
+  if (last_visible_.nanoseconds() != 0 && (now - last_visible_).seconds() < lost_grace_s_) {
+    const auto local_intent = bodyFluToLocalEnu(
+      MotionIntent::bodyFlu(last_surge_, last_sway_, 0.0, 0.0), telemetry.yaw);
     return local_intent.value_or(zeroIntent());
   }
 

@@ -193,6 +193,7 @@ void VehicleExecutionNode::initActionServers()
   const double ring_search_speed = declare_parameter<double>("control.ring_search_speed", 0.15);
   const double ring_search_timeout_s =
     declare_parameter<double>("control.ring_search_timeout_s", 20.0);
+  const double ring_lost_grace_s = declare_parameter<double>("control.ring_lost_grace_s", 1.0);
   const double acquire_timeout_s = declare_parameter<double>("control.acquire_timeout_s", 20.0);
   const double acquire_surge_speed = declare_parameter<double>("control.acquire_surge_speed", 0.3);
   const int acquire_confirm_frames = declare_parameter<int>("control.acquire_confirm_frames", 5);
@@ -215,7 +216,7 @@ void VehicleExecutionNode::initActionServers()
     this, follow_action, this);
   auto center_server = std::make_shared<CenterOnRingServer>(
     this, center_action, this, ring_kp_sway, ring_kp_surge, ring_search_speed,
-    ring_search_timeout_s);
+    ring_search_timeout_s, ring_lost_grace_s);
   auto hold_server = std::make_shared<HoldProbeOnRingServer>(
     this, hold_action, this);
   auto surface_server = std::make_shared<SurfaceServer>(

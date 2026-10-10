@@ -20,7 +20,8 @@ public:
     double ring_kp_sway = 0.8,
     double ring_kp_surge = 0.5,
     double search_speed = 0.15,
-    double search_timeout_s = 20.0);
+    double search_timeout_s = 20.0,
+    double lost_grace_s = 1.0);
 
   MotionIntent tick(
     const VehicleTelemetry & telemetry, const rclcpp::Time & now,
@@ -37,7 +38,11 @@ private:
   double ring_kp_surge_{0.5};
   double search_speed_{0.15};
   double search_timeout_s_{20.0};
+  double lost_grace_s_{1.0};
   rclcpp::Time search_started_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time last_visible_{0, 0, RCL_ROS_TIME};
+  double last_surge_{0.0};
+  double last_sway_{0.0};
 };
 
 }  // namespace banyu_vehicle_execution

@@ -213,6 +213,7 @@ vehicle_execution_node:
       ring_kp_surge: 0.5
       ring_search_speed: 0.15
       ring_search_timeout_s: 20.0
+      ring_lost_grace_s: 1.0
       search_retrace_distance_m: 1.5
       search_retrace_speed: 0.2
     surface:
