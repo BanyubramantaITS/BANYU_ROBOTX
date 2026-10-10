@@ -73,8 +73,13 @@ public:
     }
     lease_pub_ = node_->create_publisher<banyu_msgs::msg::ActionLease>(lease_topic, rclcpp::QoS(1));
 
+    // Goals without a MissionState take their run context from the mission's RunLifecycle.
+    std::string lifecycle_topic = "/banyu/mission/run_lifecycle";
+    if (node_->has_parameter("topics.run_lifecycle")) {
+      lifecycle_topic = node_->get_parameter("topics.run_lifecycle").as_string();
+    }
     lifecycle_sub_ = node_->create_subscription<banyu_msgs::msg::RunLifecycle>(
-      "/banyu/mission/lifecycle", rclcpp::QoS(1).transient_local(),
+      lifecycle_topic, rclcpp::QoS(1).reliable().transient_local(),
       [this](const banyu_msgs::msg::RunLifecycle::SharedPtr msg) {
         current_run_id_.store(msg->run_id);
         current_epoch_.store(msg->epoch);
