@@ -1,5 +1,7 @@
 # Issue 13 — instructions for completing Step 2
 
+Current instructions: [corrected ownership and remaining UUV work](issue13_uuv_corrections_and_remaining_work.md), reviewed at `92cd50e`. The `588e211` findings below are historical: the three original regressions now pass. Preserve their coverage, and address the newly reproduced journal-before-publication recovery failure. GCS/OCS backend implementation is owned by the GCS developer; it is not a prerequisite for local UUV verification.
+
 Baseline: local commit `588e211`, reviewed on October 10, 2026. This is an implementation checklist, not a completion claim. It follows Step 2 and acceptance gates S1–S8 in [the approved plan](issue13_rules_and_implementation_plan.md). The local audit is `/tmp/banyu-issue13-local-audit-588e211.md`; copy essential evidence into a durable verification record because `/tmp` is temporary.
 
 The baseline builds all eight focused packages and passes 259 registered C++ cases and six communication smoke checks. The five earlier supplemental probes now pass. Three further probes fail: ACTIVE-heartbeat calibration, adapter restart deduplication, and recovery of a durably sealed report after abort.
@@ -15,7 +17,7 @@ Reproduce these sequences:
 | Probe | Sequence | Required result |
 | --- | --- | --- |
 | ACTIVE calibration | Start ACTIVE, publish relative altitude zero, then publish another ACTIVE lifecycle heartbeat without a surface-calibration authorization | Calibration remains unproven; no surfacing/report authorization |
-| Adapter restart | Publish a sealed report, receive it, restart the consumer while its publisher retains the report | Same logical report identity is recognized; no second official report sequence/request |
+| Adapter restart | Publish a sealed report, receive it, restart the local adapter while its publisher retains the report | Selected local identity deduplication is preserved; separately test an unsent pending report and late receiver. No claim about official sequence uniqueness. |
 | Seal then abort | Persist the report seal while Surfaced; delay its response; abort; deliver the response; restart comm | Durable acceptance and delivery intent remain recoverable under the original run identity |
 
 Preserve the already passing original-condition, mixed-snapshot, single-sample, underwater-startup, and unsealed-submission regressions.
@@ -63,23 +65,23 @@ A positive delayed response must not reactivate the mission, restore current_tas
 
 Test crashes before/after staging, before/after durable seal, before/after response, and before/after publication. Verify disk state after restart, not only messages already present in the fixture's receive vector. Also test required SURVEY/DELIVERY pairs: partial acceptance must remain explicit and recoverable rather than being silently called complete.
 
-## 4. Finish identity-preserving GCS ingestion and restart handling
+## 4. Finish local publication recovery and agree the GCS boundary
 
-Targets: `banyu_communication/src/gcs_submission_adapter.cpp`, its header/tests, relevant private interfaces, launch/configuration, and the matching team GCS consumer.
+UUV targets: `banyu_communication/src/gcs_submission_adapter.cpp`, its header/tests, local outbox interfaces and launch/configuration. The external GCS consumer is a separate developer's responsibility.
 
-Keep the versioned `Task2Submission` envelope as the authoritative ingestion contract. Its run, epoch, report identity, kind, course, and payload must reach the component assigning the official OCS report sequence atomically. Current conversion to legacy PipelineSurvey/ResourceDelivery drops that association.
+Keep `Task2Submission` private to the UUV, for example under `/banyu/communication/task2_submission`. Preserve its local identity and immutable payload. `rx_msgs/PipelineSurvey` and `rx_msgs/ResourceDelivery` are the agreed public reports, not legacy copies. Do not require the GCS to consume a custom `/system/...` envelope without a shared-interface agreement.
 
-Do not reconstruct identity from a separate MissionStatus message, DDS arrival order, or frame_id. Legacy topic copies may be retained for compatibility, but the GCS must ingest only one authoritative path. Review the existing launch: adding an adapter executable alone does not prove agreement with the actual GCS.
+Use one production conversion path to those public types. Do not reconstruct missing report identity from MissionStatus arrival order or frame_id. Document the schemas' lack of run/report identifiers as a joint integration limitation; keep official sequence allocation and protobuf/MQTT forwarding in the GCS.
 
 Verify the seal against the trusted authority/context. A nonzero `authorization_revision` is a useful field check but does not independently establish acceptance. Scope deduplication to the complete identity and immutable payload, while enforcing the chosen uniqueness rule for report_id.
 
-Persist the accepted identity, payload, and official mapping. Define crash-safe pending/completed states and bounded retries. Writing a 'sent' flag before publish can lose a report; writing it after publish can repeat transport delivery. Handle this with idempotent downstream ingestion, not an unsupported exactly-once transport claim.
+Persist local acceptance, payload and recoverable publication intent. At `92cd50e`, acceptance journaling precedes publication and restored acceptance suppresses replay, so a crash can permanently lose an unsent report. Register that regression and fix recovery. Check storage errors and distinguish publication attempted from receiver receipt.
 
-Acceptance measures one logical official report/request despite legitimate retries. If ROS/MQTT messages are retransmitted after a crash, the GCS must map them to the same logical identity and official sequence. The existing adapter restart probe demonstrates missing state; extend it to verify this agreed end-to-end ingestion contract.
+Local acceptance measures durable recoverability and correct public messages received by a mock under a documented replay policy. An unconditional no-second-publication assertion can hide report loss. Receiver-side logical deduplication and official sequence reuse require GCS cooperation; do not claim them from the local adapter alone.
 
 Keep service success defined as durable local acceptance. If team delivery receipts are introduced, document their authority, identity fields, and whether they mean GCS durable receipt or onward publication. They are not an official PipelineSurvey scoring ACK.
 
-Test duplicate/conflicting payloads, consumer restart, retained replay, disconnect/reconnect, old accepted reports after a new run, unsealed submissions, and simultaneous envelope/legacy copies. Verify ResourceDelivery separately from original survey conditions. Record any matching GCS change required outside this repository; local-only tests cannot close that external integration obligation.
+Test duplicate/conflicting payloads, journal-before-publish recovery, storage failures, restart/late subscribers, unsealed submissions and stale-run replay. Verify delivery separately from survey. Preserve accepted old-run data without silently forwarding it as the new run. Record joint contract questions without requiring OCS access to finish local work.
 
 ## 5. Supply real physical identity and pipeline topology
 
@@ -91,7 +93,7 @@ Implement stable association using calibrated perception/localization and valida
 
 Implement progression along the pipeline centerline/topology. Total vehicle travel distance is not pipeline arc progression: backtracking or looping increases travel distance without discovering a new node. Do not substitute Euclidean distance from the buoy, record count, vehicle pose, or an arbitrary increasing counter.
 
-Wire the real progression/association inputs into `RingTrackerNode`; it currently never supplies `has_path_distance`. Rename/evolve that field if needed so its meaning matches validated pipeline progression. Set verification flags only after their supporting checks succeed. Ambiguous association or topology must remain unverified and block reporting.
+At `92cd50e`, centerline progression is wired into `RingTrackerNode`. Validate its frame, geometry and physical association; the earlier missing-`has_path_distance` finding is historical. Set verification flags only after their supporting checks succeed. Far-off projections and ambiguous association/topology must remain unverified and block reporting.
 
 Verify the actual detector/tracker/aggregator path rather than injecting records with verification flags already set. Use deterministic source-level fixtures with known geometry, both active endpoints, a bent/U-shaped pipe, reverse revisits, missed frames, and overlapping observations. A revisit must reuse a physical identity and must not manufacture a fifth node.
 
@@ -123,7 +125,7 @@ Accepted run + consumer reset acknowledgments
   -> current-run Surface action + independent calibrated sustained depth
   -> report_ready
   -> durable seal/outbox acceptance
-  -> idempotent GCS ingestion under original report identity
+  -> agreed public rx_msgs received by a mock under the documented replay policy
   -> BT completion and task NONE
 ```
 
@@ -173,12 +175,12 @@ Create a durable verification record, suggested path `docs/issue13_step2_verific
 | S5 | Premature/failed-run surfacing and report calls rejected |
 | S6 | Verified datum and sustained fresh depth plus current-run Surface success |
 | S7 | Concurrent requests, abort/seal ordering, restart recovery, consistent responses and run identity |
-| S8 | Local acceptance distinguished from GCS forwarding; durable logical deduplication and identity preserved through reconnect |
+| S8 | Durable local acceptance and recoverable public publication; GCS receipt/official attribution separately checked under an agreed contract |
 
-Mark a gate pending when its matching GCS/hardware evidence is unavailable. Do not convert an unperformed or mocked gate into a pass. Steps 3–5, physics-backed E1, and official multi-vehicle E2 remain separate obligations.
+Mark the appropriate hardware or joint-integration portion pending when evidence is unavailable. Do not convert an unperformed or mocked check into a pass, or label missing OCS access a UUV implementation defect. Steps 3–5, physics-backed E1, and official multi-vehicle E2 remain separate obligations with their respective owners.
 
 ## Completion gate
 
-Step 2 closure requires passing registered regressions, real upstream identity/topology/buoy/end wiring, proven water-datum authorization, recoverable accepted reports, and agreed identity-preserving GCS ingestion. Preserve the original approved scope in the verification record; if only a local/Core subset is demonstrated, name that subset explicitly and leave the remaining gates open.
+Local Step 2 closure requires passing registered regressions, real upstream identity/topology/buoy/end wiring, proven water-datum authorization, recoverable accepted reports and correct public publication to a mock. Receiver-confirmed delivery, official run attribution and GCS wire checks are separate joint/GCS milestones. Name the demonstrated local/Core subset explicitly and leave unperformed gates open.
 
-Suggested implementation commits: calibration and regression; seal/outbox reconciliation and crash tests; GCS durable ingestion; tracker/topology association; buoy/end/course wiring; real-node integration and verification record. These are proposed work units, not completed changes.
+Use the ordered work items in the current correction guide rather than repeating fixes already completed at `92cd50e`.

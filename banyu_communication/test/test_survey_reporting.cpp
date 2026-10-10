@@ -88,7 +88,7 @@ protected:
       "/banyu/communication/survey_progress", rclcpp::QoS(5).reliable().transient_local(),
       [this](Progress::SharedPtr value) {progress_.push_back(*value);});
     submission_sub_ = peer_->create_subscription<Submission>(
-      "/system/vehicle/uuv/task2/submission", rclcpp::QoS(10).reliable().transient_local(),
+      "/banyu/communication/task2_submission", rclcpp::QoS(10).reliable().transient_local(),
       [this](Submission::SharedPtr value) {submissions_.push_back(*value);});
     legacy_survey_sub_ = peer_->create_subscription<rx_msgs::msg::PipelineSurvey>(
       "/system/vehicle/uuv/task2/pipeline_survey", rclcpp::QoS(10).reliable().transient_local(),

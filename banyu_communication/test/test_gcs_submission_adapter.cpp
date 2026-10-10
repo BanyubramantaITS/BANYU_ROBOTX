@@ -2,12 +2,16 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <memory>
 #include <vector>
 
 #include "banyu_communication/gcs_submission_adapter.hpp"
 #include "banyu_msgs/msg/task2_submission.hpp"
+#include "banyu_msgs/task2_submission.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rx_msgs/msg/command.hpp"
 #include "rx_msgs/msg/pipeline_survey.hpp"
 #include "rx_msgs/msg/resource_delivery.hpp"
 
@@ -299,4 +303,268 @@ TEST_F(GcsSubmissionAdapterTest, ReusedReportIdForDifferentRunIsRejected)
 
   EXPECT_EQ(adapter_node_->acceptedCount(), 1u);
   EXPECT_EQ(adapter_node_->rejectedCount(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, LocalAuditRecoversJournaledButUnpublishedReport)
+{
+  spinFor(100ms);
+  banyu_msgs::msg::Task2Submission sub;
+  sub.header.stamp = test_node_->now();
+  sub.schema_version = 1;
+  sub.run_id = 15;
+  sub.epoch = 2;
+  sub.report_id = "recovery-probe-001";
+  sub.kind = banyu_msgs::msg::Task2Submission::SURVEY;
+  sub.course_id = "course-1";
+  sub.tier = 2;
+  sub.buoy_latitude = 33.810;
+  sub.buoy_longitude = -118.393;
+  sub.original_conditions = {1, 2, 1, 1};
+  sub.authorization_revision = 1;
+
+  // Pre-seed journal with accepted entry without publication attempt marker
+  std::ofstream journal(test_journal_path_, std::ios::app);
+  ASSERT_TRUE(journal.is_open());
+  journal << "BANYU_GCS_ADAPTER_ENTRY_V2 15 2 1 recovery-probe-001 1 "
+          << std::quoted(banyu_msgs::task2::canonicalPayload(sub)) << "\n";
+  journal.close();
+
+  executor_.remove_node(adapter_node_);
+  adapter_node_.reset();
+
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("journal_path", test_journal_path_);
+  options.append_parameter_override("topics.task2_submission", "/test_adapter/submission");
+  options.append_parameter_override("topics.pipeline_survey", "/test_adapter/pipeline_survey");
+  options.append_parameter_override("topics.delivery", "/test_adapter/delivery");
+  adapter_node_ = std::make_shared<banyu_communication::GcsSubmissionAdapter>(options);
+  executor_.add_node(adapter_node_);
+  spinFor(50ms);
+
+  EXPECT_EQ(adapter_node_->acceptedCount(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
+  EXPECT_TRUE(received_surveys_.empty());
+
+  // Replay: recovers and publishes to public pipeline_survey topic
+  submission_pub_->publish(sub);
+  spinFor(100ms);
+
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_DOUBLE_EQ(received_surveys_[0].active_buoy_position.latitude, 33.810);
+  EXPECT_DOUBLE_EQ(received_surveys_[0].active_buoy_position.longitude, -118.393);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+
+  // Subsequent duplicate submission should deduplicate
+  submission_pub_->publish(sub);
+  spinFor(100ms);
+
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->duplicateCount(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, CrashBeforeDurableAcceptanceAllowsSubsequentRetry)
+{
+  spinFor(50ms);
+  banyu_msgs::msg::Task2Submission sub;
+  sub.header.stamp = test_node_->now();
+  sub.schema_version = 1;
+  sub.run_id = 15;
+  sub.epoch = 2;
+  sub.report_id = "retry-probe-001";
+  sub.kind = banyu_msgs::msg::Task2Submission::SURVEY;
+  sub.course_id = "course-1";
+  sub.tier = 2;
+  sub.buoy_latitude = 33.810;
+  sub.buoy_longitude = -118.393;
+  sub.original_conditions = {1, 2, 1, 1};
+  sub.authorization_revision = 1;
+
+  EXPECT_EQ(adapter_node_->acceptedCount(), 0u);
+  EXPECT_FALSE(adapter_node_->hasReport("retry-probe-001"));
+
+  // First valid attempt succeeds
+  submission_pub_->publish(sub);
+  spinFor(100ms);
+
+  EXPECT_EQ(adapter_node_->acceptedCount(), 1u);
+  EXPECT_TRUE(adapter_node_->hasReport("retry-probe-001"));
+  EXPECT_EQ(received_surveys_.size(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, JournalStorageFailureRejectsAndDoesNotClaimDurableSuccess)
+{
+  spinFor(50ms);
+  executor_.remove_node(adapter_node_);
+  adapter_node_.reset();
+
+  std::string invalid_journal = "/dev/null/unwritable_dir/test.journal";
+
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("journal_path", invalid_journal);
+  options.append_parameter_override("topics.task2_submission", "/test_adapter/submission");
+  options.append_parameter_override("topics.pipeline_survey", "/test_adapter/pipeline_survey");
+  options.append_parameter_override("topics.delivery", "/test_adapter/delivery");
+  adapter_node_ = std::make_shared<banyu_communication::GcsSubmissionAdapter>(options);
+  executor_.add_node(adapter_node_);
+  spinFor(50ms);
+
+  banyu_msgs::msg::Task2Submission sub;
+  sub.header.stamp = test_node_->now();
+  sub.schema_version = 1;
+  sub.run_id = 15;
+  sub.epoch = 2;
+  sub.report_id = "storage-fail-001";
+  sub.kind = banyu_msgs::msg::Task2Submission::SURVEY;
+  sub.course_id = "course-1";
+  sub.tier = 2;
+  sub.buoy_latitude = 33.810;
+  sub.buoy_longitude = -118.393;
+  sub.original_conditions = {1, 2, 1, 1};
+  sub.authorization_revision = 1;
+
+  submission_pub_->publish(sub);
+  spinFor(100ms);
+
+  EXPECT_EQ(adapter_node_->rejectedCount(), 1u);
+  EXPECT_EQ(adapter_node_->acceptedCount(), 0u);
+  EXPECT_TRUE(received_surveys_.empty());
+  EXPECT_FALSE(adapter_node_->hasReport("storage-fail-001"));
+}
+
+TEST_F(GcsSubmissionAdapterTest, NewRunBeginsSuppressesUnresolvedPendingReportFromOldRun)
+{
+  spinFor(50ms);
+  banyu_msgs::msg::Task2Submission sub_old;
+  sub_old.header.stamp = test_node_->now();
+  sub_old.schema_version = 1;
+  sub_old.run_id = 10;
+  sub_old.epoch = 1;
+  sub_old.report_id = "old-run-report";
+  sub_old.kind = banyu_msgs::msg::Task2Submission::SURVEY;
+  sub_old.course_id = "course-1";
+  sub_old.tier = 2;
+  sub_old.buoy_latitude = 33.810;
+  sub_old.buoy_longitude = -118.393;
+  sub_old.original_conditions = {1, 2, 1, 1};
+  sub_old.authorization_revision = 1;
+
+  std::ofstream journal(test_journal_path_, std::ios::app);
+  ASSERT_TRUE(journal.is_open());
+  journal << "BANYU_GCS_ADAPTER_ENTRY_V3 10 1 1 old-run-report 1 PENDING "
+          << std::quoted(banyu_msgs::task2::canonicalPayload(sub_old)) << "\n";
+  journal.close();
+
+  executor_.remove_node(adapter_node_);
+  adapter_node_.reset();
+
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("journal_path", test_journal_path_);
+  options.append_parameter_override("topics.task2_submission", "/test_adapter/submission");
+  options.append_parameter_override("topics.pipeline_survey", "/test_adapter/pipeline_survey");
+  options.append_parameter_override("topics.delivery", "/test_adapter/delivery");
+  options.append_parameter_override("topics.command", "/test_adapter/command");
+  adapter_node_ = std::make_shared<banyu_communication::GcsSubmissionAdapter>(options);
+  executor_.add_node(adapter_node_);
+
+  auto command_pub = test_node_->create_publisher<rx_msgs::msg::Command>(
+    "/test_adapter/command", rclcpp::QoS(10).reliable());
+  spinFor(50ms);
+
+  rx_msgs::msg::Command cmd;
+  cmd.command_type = rx_msgs::msg::Command::CMD_RUN_START;
+  cmd.command_seq = 1;
+  cmd.run_id = 20;
+  command_pub->publish(cmd);
+  spinFor(50ms);
+
+  // Replay of old run report must not be published
+  submission_pub_->publish(sub_old);
+  spinFor(100ms);
+
+  EXPECT_TRUE(received_surveys_.empty());
+  EXPECT_EQ(adapter_node_->rejectedCount(), 1u);
+
+  // New report for current run 20 is accepted and published
+  banyu_msgs::msg::Task2Submission sub_new = sub_old;
+  sub_new.run_id = 20;
+  sub_new.report_id = "new-run-report";
+  submission_pub_->publish(sub_new);
+  spinFor(100ms);
+
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_TRUE(adapter_node_->hasReport("new-run-report"));
+}
+
+TEST_F(GcsSubmissionAdapterTest, SurveyAndDeliveryEachRecoverIndependently)
+{
+  spinFor(50ms);
+  banyu_msgs::msg::Task2Submission sub;
+  sub.header.stamp = test_node_->now();
+  sub.schema_version = 1;
+  sub.run_id = 15;
+  sub.epoch = 2;
+  sub.report_id = "survey-indep-001";
+  sub.kind = banyu_msgs::msg::Task2Submission::SURVEY;
+  sub.course_id = "course-1";
+  sub.tier = 3;
+  sub.buoy_latitude = 33.810;
+  sub.buoy_longitude = -118.393;
+  sub.original_conditions = {1, 2, 1, 1};
+  sub.resource_color = 4;
+  sub.delivery_circle_color = 2;
+  sub.authorization_revision = 1;
+
+  banyu_msgs::msg::Task2Submission del = sub;
+  del.kind = banyu_msgs::msg::Task2Submission::DELIVERY;
+  del.report_id = "delivery-indep-001";
+  del.authorization_revision = 2;
+
+  std::ofstream journal(test_journal_path_, std::ios::app);
+  ASSERT_TRUE(journal.is_open());
+  journal << "BANYU_GCS_ADAPTER_ENTRY_V3 15 2 1 survey-indep-001 1 PENDING "
+          << std::quoted(banyu_msgs::task2::canonicalPayload(sub)) << "\n";
+  journal << "BANYU_GCS_ADAPTER_ENTRY_V3 15 2 2 delivery-indep-001 2 PENDING "
+          << std::quoted(banyu_msgs::task2::canonicalPayload(del)) << "\n";
+  journal.close();
+
+  executor_.remove_node(adapter_node_);
+  adapter_node_.reset();
+
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("journal_path", test_journal_path_);
+  options.append_parameter_override("topics.task2_submission", "/test_adapter/submission");
+  options.append_parameter_override("topics.pipeline_survey", "/test_adapter/pipeline_survey");
+  options.append_parameter_override("topics.delivery", "/test_adapter/delivery");
+  adapter_node_ = std::make_shared<banyu_communication::GcsSubmissionAdapter>(options);
+  executor_.add_node(adapter_node_);
+  spinFor(50ms);
+
+  EXPECT_EQ(adapter_node_->pendingCount(), 2u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
+
+  // Replay SURVEY only
+  submission_pub_->publish(sub);
+  spinFor(100ms);
+
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_TRUE(received_deliveries_.empty());
+  EXPECT_EQ(
+    adapter_node_->publicationState("survey-indep-001"),
+    banyu_communication::GcsSubmissionAdapter::PublicationState::ATTEMPTED);
+  EXPECT_EQ(
+    adapter_node_->publicationState("delivery-indep-001"),
+    banyu_communication::GcsSubmissionAdapter::PublicationState::PENDING);
+
+  // Replay DELIVERY only
+  submission_pub_->publish(del);
+  spinFor(100ms);
+
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  ASSERT_EQ(received_deliveries_.size(), 1u);
+  EXPECT_EQ(received_deliveries_[0].resource_color, 4u);
+  EXPECT_EQ(
+    adapter_node_->publicationState("delivery-indep-001"),
+    banyu_communication::GcsSubmissionAdapter::PublicationState::ATTEMPTED);
 }

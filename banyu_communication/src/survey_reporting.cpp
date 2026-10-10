@@ -80,34 +80,7 @@ bool writeAtomic(const std::string & path, const std::string & contents, std::st
 
 bool parseSubmission(const std::string & payload, banyu_msgs::msg::Task2Submission & submission)
 {
-  std::istringstream input(payload);
-  input.imbue(std::locale::classic());
-  uint64_t version = 0;
-  uint64_t run = 0;
-  uint64_t kind = 0;
-  uint64_t tier = 0;
-  if (!(input >> version >> run >> submission.epoch >> std::quoted(submission.report_id) >>
-    kind >> std::quoted(submission.course_id) >> tier >> submission.buoy_latitude >>
-    submission.buoy_longitude) || version > 255 || run > std::numeric_limits<uint32_t>::max() ||
-    kind > 255 || tier > 255)
-  {return false;}
-  submission.schema_version = static_cast<uint8_t>(version);
-  submission.run_id = static_cast<uint32_t>(run);
-  submission.kind = static_cast<uint8_t>(kind);
-  submission.tier = static_cast<uint8_t>(tier);
-  for (auto & condition : submission.original_conditions) {
-    uint64_t value = 0;
-    if (!(input >> value) || value > 255) {return false;}
-    condition = static_cast<uint8_t>(value);
-  }
-  uint64_t resource = 0;
-  uint64_t delivery = 0;
-  if (!(input >> resource >> delivery) || resource > 255 || delivery > 255) {return false;}
-  submission.resource_color = static_cast<uint8_t>(resource);
-  submission.delivery_circle_color = static_cast<uint8_t>(delivery);
-  input >> std::ws;
-  return input.eof() && banyu_msgs::task2::validSubmission(submission) &&
-         banyu_msgs::task2::canonicalPayload(submission) == payload;
+  return banyu_msgs::task2::parseSubmission(payload, submission);
 }
 }  // namespace
 

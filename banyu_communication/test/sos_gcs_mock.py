@@ -22,7 +22,6 @@ import zlib
 from banyu_msgs.msg import (
     RunLifecycle,
     Task2RingRecord,
-    Task2Submission,
     Task2SurveyEvidence,
     VehicleStatus,
     WaterDepth,
@@ -60,14 +59,22 @@ SURVEY_SERVICE = '/banyu/communication/trigger_pipeline_survey'
 BRIDGE_COMMAND = [
     'ros2', 'run', 'banyu_communication', 'uuv_comm_node', '--ros-args',
     '-p', 'heartbeat_rate_hz:=2.0',
-    '-p', 'survey.publish_legacy_copies:=true',
+    '-p', 'survey.publish_legacy_copies:=false',
     '-p', 'survey.surface_hold_s:=0.2',
     '-p', f'survey.outbox_path:={OUTBOX_DIR}/reports.outbox',
+    '-p', 'topics.task2_submission:=/banyu/communication/task2_submission',
     '-p', 'anchor_latitude:=33.0',
     '-p', 'anchor_longitude:=-118.0',
     '-p', 'anchor_altitude_hae_m:=4.0',
     '-p', 'active_buoy_latitude:=33.1',
     '-p', 'active_buoy_longitude:=-118.1',
+]
+ADAPTER_COMMAND = [
+    'ros2', 'run', 'banyu_communication', 'gcs_submission_adapter', '--ros-args',
+    '-p', f'journal_path:={OUTBOX_DIR}/adapter.journal',
+    '-p', 'topics.task2_submission:=/banyu/communication/task2_submission',
+    '-p', 'topics.pipeline_survey:=/system/vehicle/uuv/task2/pipeline_survey',
+    '-p', 'topics.delivery:=/system/vehicle/uuv/task2/delivery',
 ]
 
 
@@ -105,7 +112,6 @@ class TeamGcsMock(Node):
             ('heartbeat', Heartbeat, '/system/vehicle/uuv/heartbeat'),
             ('status', MissionStatus, '/system/mission/status'),
             ('survey', PipelineSurvey, '/system/vehicle/uuv/task2/pipeline_survey'),
-            ('submission', Task2Submission, '/system/vehicle/uuv/task2/submission'),
             ('ack', IncidentAck, '/system/vehicle/uuv/task4/incident_ack'),
             ('readiness', ReadinessReport, '/system/vehicle/uuv/task4/readiness'),
         )
@@ -113,7 +119,7 @@ class TeamGcsMock(Node):
             messages = deque(maxlen=200)
             self.reports[name] = messages
             qos = (QoSProfile(depth=10, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-                   if name in ('survey', 'submission') else 10)
+                   if name == 'survey' else 10)
             self.report_subscriptions.append(self.create_subscription(
                 message_type, topic, lambda msg, target=messages: target.append(msg), qos))
 
@@ -547,7 +553,7 @@ def main(argv=None):
     """Run the mock and return zero only when every supported check passes."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--no-spawn', action='store_true',
-                        help='use an existing configured uuv_comm_node on ROS_DOMAIN_ID=42')
+                        help='use an existing configured UUV stack on ROS_DOMAIN_ID=42')
     parser.add_argument('--timeout', type=positive_timeout, default=10.0,
                         help='timeout in seconds for each check (default: 10)')
     args = parser.parse_args(argv)
@@ -556,16 +562,21 @@ def main(argv=None):
     os.makedirs(OUTBOX_DIR, exist_ok=True)
     node = None
     process = None
+    adapter_process = None
     try:
         rclpy.init(args=[])
         node = TeamGcsMock(args.timeout)
         if args.no_spawn:
-            node.get_logger().info('Using an existing uuv_comm_node on ROS_DOMAIN_ID=42')
+            node.get_logger().info('Using an existing UUV stack on ROS_DOMAIN_ID=42')
         else:
-            node.get_logger().info('Starting uuv_comm_node on ROS_DOMAIN_ID=42')
+            node.get_logger().info(
+                'Starting uuv_comm_node and gcs_submission_adapter on ROS_DOMAIN_ID=42')
             process = subprocess.Popen(
                 BRIDGE_COMMAND, env=os.environ.copy(), start_new_session=True)
+            adapter_process = subprocess.Popen(
+                ADAPTER_COMMAND, env=os.environ.copy(), start_new_session=True)
             node.bridge_process = process
+            node.adapter_process = adapter_process
         node.run_verification()
         node.get_logger().info('All six Team GCS communication checks passed')
         return 0
@@ -576,6 +587,8 @@ def main(argv=None):
         print(f'FAIL: {error}', file=sys.stderr)
         return 1
     finally:
+        if adapter_process is not None:
+            stop_bridge(adapter_process)
         if process is not None:
             stop_bridge(process)
         if node is not None:

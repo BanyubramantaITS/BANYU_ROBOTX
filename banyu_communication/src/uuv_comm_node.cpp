@@ -113,7 +113,7 @@ UuvCommNode::UuvCommNode(const rclcpp::NodeOptions & options)
     "/system/vehicle/uuv/task2/delivery", rclcpp::QoS(1).reliable().transient_local());
   submission_pub_ = create_publisher<banyu_msgs::msg::Task2Submission>(
     declare_parameter<std::string>("topics.task2_submission",
-      "/system/vehicle/uuv/task2/submission"),
+      "/banyu/communication/task2_submission"),
     rclcpp::QoS(32).reliable().transient_local());
   survey_progress_pub_ = create_publisher<banyu_msgs::msg::Task2SurveyProgress>(
     declare_parameter<std::string>("topics.survey_progress",

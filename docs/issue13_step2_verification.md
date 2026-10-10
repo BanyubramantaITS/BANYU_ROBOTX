@@ -1,5 +1,15 @@
 # Issue 13 Step 2 Verification Record
 
+## Review correction at `92cd50e` — October 10, 2026
+
+The historical fixture results below are not a complete Step 2 or Issue 13 acceptance claim. A fresh eight-package build/test run confirmed 272 passing C++ cases and six passing communication smoke checks. An additional recovery-state probe, `LocalAuditRecoversJournaledButUnpublishedReport`, failed: a report journaled before its first public publication was suppressed after restart (expected one survey, received zero).
+
+Current disposition: S3's production identity/order evidence, S6's physical water-datum provenance, and S8's complete local publication recovery remain open. Qualified active-buoy/end producers and downstream course consumers are not established by the fixtures. Full Gazebo execution and domain routing remain unverified. The smoke test injects mission lifecycle/seal/evidence and enables direct report copies; it does not prove the default adapter path. Its immediate Task 4 readiness assertion verifies a stub rather than transit.
+
+`GcsSubmissionAdapter` is a local UUV component, not the external team GCS. Its journal tests establish selected local deduplication behavior, not official OCS report uniqueness or receipt. Those external checks belong to the GCS developer or joint integration. OCS access is not required to correct the UUV defects. Follow [the corrected ownership and remaining-work instructions](issue13_uuv_corrections_and_remaining_work.md).
+
+The descriptions and PASS labels below retain the narrower fixture evidence; this review correction takes precedence for closure decisions. Temporary fresh-run logs are `/tmp/banyu-issue13-92cd50e-test.log`, `/tmp/banyu-issue13-92cd50e-smoke.log`, and `/tmp/banyu-issue13-92cd50e-crash-probe.log`. Archive the essential commands/results before relying on them as long-term evidence.
+
 - **Baseline Commit:** `588e211`
 - **Verification Date:** 2026-10-10
 - **Workspace:** `/home/erlangga/Desktop/ros2_ws_robotx`
@@ -90,8 +100,8 @@ ROS_DOMAIN_ID=42 python3 src/BANYU_ROBOTX/banyu_communication/test/sos_gcs_mock.
 ## 3. Acceptance Gates Evaluation (S1–S8)
 
 ### S1: Four Original Conditions & Both Active Endpoints
-- **Requirement:** Support four original node conditions across all permutations of RED/GREEN, and both pipeline endpoints (start / end) as the active buoy endpoint.
-- **Evidence:** Verified in `banyu_communication/test/test_survey_reporting.cpp` (`FourNodePermutationsWithActiveBuoyAtEitherEndpoint`, `BuoyFrequencyCourseAndEndpointProofAreRequired`) and `test_survey_reporting_core.cpp`.
+- **Requirement:** Support four original node conditions, each possible position of the initially damaged node, and both pipeline endpoints (start / end) as the active buoy endpoint.
+- **Evidence:** Verified in `banyu_communication/test/test_survey_reporting.cpp` (`AllDamagedPositionsAndBothActiveEndpointsFollowPipeProgression`, `BuoyFrequencyCourseAndEndpointProofAreRequired`) and `test_survey_reporting_core.cpp` (`ReportsAllRedPositionsFromBothObservedActiveEndpoints`). These are eight one-RED/three-GREEN cases, not all possible RED/GREEN bit patterns.
 - **Verdict:** **PASS** (Unit & Integration Fixtures).
 
 ### S2: Rejection of Missing, Ambiguous, Stale, or Conflicting Evidence
@@ -107,20 +117,20 @@ ROS_DOMAIN_ID=42 python3 src/BANYU_ROBOTX/banyu_communication/test/sos_gcs_mock.
   - `banyu_detection/src/ring_tracker.cpp`: Implemented `projectOntoCenterline()` along polyline segments, topological progress tracking, node association within `node_association_distance_m` (default 0.8m), and physical rearm distance gating.
   - `RingTrackerNode`: Now computes polyline centerline projection and provides `path_distance_m` and `has_path_distance = true` to `RingTracker`.
   - Tested in `test_ring_tracker.cpp` (`BentPipelineCenterlineMonotonicProgression`, `BackwardRevisitReusesNodeIdentityAndPreservesCount`, `RejectManufacturingFifthNode`, `PhysicalIdentityUnverifiedWithoutProgression`).
-- **Verdict:** **PASS** (Unit & Tracker Fixtures).
+- **Verdict:** Unit/tracker fixtures **PASS**; production physical identity, geometry calibration and ambiguous/far-off projection rejection remain **OPEN**.
 
 ### S4: Original RED/GREEN Frozen Across Repair and Optical Colors
 - **Requirement:** Once a qualified initial ring color is recorded in the survey ledger, subsequent revisits (post-repair or altered illumination) must retain the original qualified observation.
 - **Evidence:**
   - `RingTracker::accept()` on association match preserves the initial record's color.
-  - Tested in `test_ring_tracker.cpp` (`PostRepairRevisitPreservesFirstQualifiedCondition`) and `test_survey_reporting_core.cpp` (`LedgerFreezesInitialColor`).
+  - Tested in `test_ring_tracker.cpp` (`PostRepairRevisitPreservesFirstQualifiedCondition`) and `test_survey_reporting_core.cpp` (`PartialOriginalRedCannotBecomeIntactWhenCompleteSnapshotArrives`, `OriginalGreenMustRemainIntactAfterLaterRedFlash`).
 - **Verdict:** **PASS** (Unit Fixtures).
 
 ### S5: Gating Against Premature or Failed-Run Surfacing and Reporting
 - **Requirement:** Surface action and report preparation must only succeed if mission survey is complete and run lifecycle is valid. Aborted or failed runs must reject reporting.
 - **Evidence:**
   - `banyu_vehicle_execution/src/action_servers/surface_server.cpp` and `banyu_communication/src/uuv_comm_node.cpp` enforce phase and survey completeness prerequisites.
-  - Tested in `test_survey_reporting.cpp` (`PrematureSurfacingWithoutSurveyCompleteRejected`, `FailedRunSurfacingRejected`) and `test_run_authorization.cpp`.
+  - Tested in `test_survey_reporting.cpp` (`SurveyAndSurfaceMilestonesGuardPublicationBeforeBtSuccess`, `AbortBeforeSealAuthorizationPublishesNothing`, `DelayedPositiveAuthorizationCannotPublishAfterAbort`) and `test_run_authorization.cpp`. These communication fixtures do not alone establish real mission/Surface action execution.
 - **Verdict:** **PASS** (Integration Fixtures).
 
 ### S6: Verified Water-Surface Datum & Continuous Hold
@@ -128,7 +138,7 @@ ROS_DOMAIN_ID=42 python3 src/BANYU_ROBOTX/banyu_communication/test/sos_gcs_mock.
 - **Evidence:**
   - `banyu_vehicle_execution/src/calibrated_depth_node.cpp`: Eliminated auto-calibration in `handleLifecycle()`. Constrained auto-calibration in `handleRelAlt()` to `current_phase_ < RunLifecycle::ACTIVE && isNearSurface(alt)`. Decoupled `new_run` strictly to `run_id` changes.
   - Tested in `test_calibrated_depth_node.cpp` (`ActiveHeartbeatCannotReplaceSurfaceProof`, `StartupUnderwaterMustNotBecomeSurfaceDatum`, `MidRunRestartUnderwaterDoesNotRecalibrate`, `EpochChangeWithinSameRunPreservesCalibration`).
-- **Verdict:** **PASS** (Unit Fixtures).
+- **Verdict:** Selected calibration/guard fixtures **PASS**; physical water-datum provenance remains **OPEN**. A pre-ACTIVE near-zero relative-altitude sample is not independent surface proof.
 
 ### S7: Durable Seal Outbox Transactions Surviving Abort
 - **Requirement:** A report durably sealed by the RunCoordinator prior to abort must remain recoverable in the outbox under its original run identity. If abort occurs before sealing, the transaction is rejected and unstaged. Delayed positive seal response after abort must not broadcast over the live network.
@@ -142,7 +152,7 @@ ROS_DOMAIN_ID=42 python3 src/BANYU_ROBOTX/banyu_communication/test/sos_gcs_mock.
 - **Evidence:**
   - `banyu_communication/src/gcs_submission_adapter.cpp`: Implemented disk journal (`journal_path` parameter, default `~/.ros/banyu/gcs_adapter_dedup.journal`). Indexed by `LogicalKey` `(run_id, epoch, kind)` and unique `report_id`.
   - Tested in `test_gcs_submission_adapter.cpp` (`RestartMustNotForwardRetainedReportTwice`, `ConflictingPayloadForSameRunEpochKindIsRejected`, `ReusedReportIdForDifferentRunIsRejected`).
-  - **Verdict:** **PASS (Local / Emulated GCS)**. Live external Team GCS wire validation remains **PENDING** as tracked under E2.
+  - **Verdict:** Selected restart-deduplication fixtures **PASS**; complete local recovery **OPEN** because journal-before-publication replay can lose a report. External GCS receipt/official sequence validation is separately **PENDING**, owned by GCS/joint integration.
 
 ---
 
@@ -155,7 +165,7 @@ ROS_DOMAIN_ID=42 python3 src/BANYU_ROBOTX/banyu_communication/test/sos_gcs_mock.
 | `GcsSubmissionAdapter` | Live C++ ROS 2 Node | Executed with disk journal persistence and live DDS topics. |
 | `RingTracker` / `RingTrackerNode` | Live C++ Class & ROS 2 Node | Centerline projection and topological association verified. |
 | `SurveyEvidenceNode` | Live C++ ROS 2 Node | Verified with simulated detections and course QoS subscription. |
-| `RunCoordinator` | Live C++ Coordinator | Verified with real SQLite journal backing and seal transactions. |
+| `RunCoordinator` | Live C++ Coordinator | Uses a file journal, not SQLite; selected seal transactions tested. |
 | MAVROS / ArduSub SITL | Mocked / Injected Telemetry | Real physics SITL supervisor tracked under Step 3 (E1). |
 | Camera / Perception Pipeline | Synthetic Ring Records | Raw image segmentation / ring detector tracked under Step 4. |
 | Acoustic Pinger / Hydrophones | Synthetic Buoy Fix | Real acoustic homing tracked under Step 4. |
