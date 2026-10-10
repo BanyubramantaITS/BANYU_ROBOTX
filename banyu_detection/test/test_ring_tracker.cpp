@@ -447,3 +447,25 @@ TEST(RingTracker, RejectManufacturingFifthNode) {
 }
 
 }  // namespace
+
+TEST(RingTracker, NextRingVisibleBeforePreviousLeavesIsAcceptedAfterMoving) {
+  auto config = trackerConfig(3, 2, 2);
+  config.minimum_rearm_distance_m = 0.25;
+  config.node_association_distance_m = 0.4;
+  banyu_detection::RingTracker tracker(config);
+  using Obs = banyu_msgs::msg::PipelineRingObservation;
+  uint64_t seq = 1;
+  for (int i = 0; i < 3; ++i) {update(tracker, seq++, Obs::COLOR_RED, true, 0.0);}
+  ASSERT_EQ(tracker.records().size(), 1U);
+  // Green comes into view while red is still tracked and never leaves the frame.
+  EXPECT_FALSE(update(tracker, seq++, Obs::COLOR_GREEN, true, 0.05).accepted);
+  EXPECT_FALSE(update(tracker, seq++, Obs::COLOR_GREEN, true, 0.1).accepted);
+  EXPECT_EQ(tracker.records().size(), 1U);  // not yet moved past the red record
+  bool accepted = false;
+  for (double distance = 0.3; distance <= 0.9; distance += 0.05) {
+    accepted = update(tracker, seq++, Obs::COLOR_GREEN, true, distance).accepted || accepted;
+  }
+  EXPECT_TRUE(accepted);
+  ASSERT_EQ(tracker.records().size(), 2U);
+  EXPECT_EQ(tracker.records().back().color, Obs::COLOR_GREEN);
+}

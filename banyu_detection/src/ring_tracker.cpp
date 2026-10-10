@@ -77,6 +77,15 @@ void RingTracker::beginExit()
   snapshot_.invisible_frames = 0;
 }
 
+void RingTracker::beginNewRingEntry()
+{
+  clearEntry();
+  snapshot_.phase = RingTrackerPhase::IDLE;
+  snapshot_.active_color = banyu_msgs::msg::PipelineRingObservation::COLOR_UNKNOWN;
+  snapshot_.consecutive_frames = 0;
+  snapshot_.invisible_frames = 0;
+}
+
 void RingTracker::beginDebounce()
 {
   clearEntry();
@@ -419,6 +428,9 @@ RingTrackerUpdate RingTracker::update(const RingTrackerInput & input)
     if (std::isfinite(sep) && sep >= config_.minimum_rearm_distance_m) {
       rearmed_ = true;
     }
+    beyond_last_node_ = std::isfinite(sep) && sep > config_.node_association_distance_m;
+  } else {
+    beyond_last_node_ = false;
   }
   if (kind == ObservationKind::MALFORMED_OR_UNCERTAIN) {
     if (snapshot_.phase == RingTrackerPhase::EXIT ||
@@ -458,8 +470,14 @@ RingTrackerUpdate RingTracker::update(const RingTrackerInput & input)
       snapshot_.consecutive_frames = 1;
       return ignoredUpdate();
     }
-    snapshot_.invisible_frames = 0;
-    return ignoredUpdate();
+    // Rings can be closer than the camera footprint, so the next ring may be in view before
+    // the last one leaves. Once the vehicle is beyond the last node's association radius, a
+    // different color is a new ring and goes through normal entry confirmation.
+    if (!beyond_last_node_) {
+      snapshot_.invisible_frames = 0;
+      return ignoredUpdate();
+    }
+    beginNewRingEntry();
   }
 
   if (snapshot_.phase == RingTrackerPhase::DEBOUNCE) {
@@ -477,6 +495,8 @@ RingTrackerUpdate RingTracker::update(const RingTrackerInput & input)
       snapshot_.invisible_frames = 0;
       snapshot_.consecutive_frames = 1;
       return ignoredUpdate();
+    } else if (beyond_last_node_) {
+      beginNewRingEntry();
     } else {
       // Any visible frame interrupts absence, even when it is another color.
       beginExit();

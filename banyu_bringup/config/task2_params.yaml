@@ -137,9 +137,12 @@ ring_tracker:
     state_topic: "/banyu/pipeline/ring_state"
     accepted_ring_topic: "/banyu/pipeline/accepted_ring"
     repair_service: "/banyu/pipeline/acknowledge_ring_repair"
-    node_association_distance_m: 0.8
+    # Same physical node if within this distance; keep below half the minimum ring spacing.
+    node_association_distance_m: 0.4
     # Nearest pose can be half a pose period away (MAVROS pose ~5-10 Hz vs 30 Hz camera).
     pose_timestamp_tolerance_s: 0.12
+    # Tolerate a few dropped camera frames (best-effort transport) before treating it as a gap.
+    maximum_sequence_gap: 3
     centerline_points: [
       51.251, 13.848,
       50.351, 13.558,

@@ -116,6 +116,7 @@ private:
   bool hasRecordedColor(uint8_t color) const;
   bool validPoseForObservation(const RingTrackerInput & input) const;
   bool rearmAllowed(const RingTrackerInput & input) const;
+  void beginNewRingEntry();
 
   void beginExit();
   void beginDebounce();
@@ -132,6 +133,7 @@ private:
   geometry_msgs::msg::PoseStamped last_record_pose_;
   bool has_last_record_pose_{false};
   bool rearmed_{false};
+  bool beyond_last_node_{false};
   uint8_t pending_color_{
     banyu_msgs::msg::PipelineRingObservation::COLOR_UNKNOWN};
   bool has_pending_color_{false};
