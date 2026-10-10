@@ -262,6 +262,7 @@ gcs_submission_adapter:
     journal_path: "~/.ros/banyu/gcs_adapter_dedup.journal"
     topics:
       task2_submission: "/banyu/communication/task2_submission"
+      run_lifecycle: "/banyu/mission/run_lifecycle"
       command: "/system/mission/command"
       pipeline_survey: "/system/vehicle/uuv/task2/pipeline_survey"
       delivery: "/system/vehicle/uuv/task2/delivery"

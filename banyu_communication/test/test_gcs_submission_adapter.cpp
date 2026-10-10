@@ -8,12 +8,14 @@
 #include <vector>
 
 #include "banyu_communication/gcs_submission_adapter.hpp"
+#include "banyu_mission/run_coordinator.hpp"
 #include "banyu_msgs/msg/task2_submission.hpp"
 #include "banyu_msgs/task2_submission.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rx_msgs/msg/command.hpp"
 #include "rx_msgs/msg/pipeline_survey.hpp"
 #include "rx_msgs/msg/resource_delivery.hpp"
+#include "rx_msgs/msg/vehicle_type.hpp"
 
 using namespace std::chrono_literals;
 
@@ -46,9 +48,13 @@ protected:
     options.append_parameter_override(
       "topics.task2_submission", "/test_adapter/submission");
     options.append_parameter_override(
+      "topics.run_lifecycle", "/test_adapter/run_lifecycle");
+    options.append_parameter_override(
       "topics.pipeline_survey", "/test_adapter/pipeline_survey");
     options.append_parameter_override(
       "topics.delivery", "/test_adapter/delivery");
+    options.append_parameter_override(
+      "topics.command", "/test_adapter/command");
     options.append_parameter_override("forward_to_rx_topics", true);
 
     adapter_node_ = std::make_shared<banyu_communication::GcsSubmissionAdapter>(options);
@@ -56,6 +62,9 @@ protected:
 
     submission_pub_ = test_node_->create_publisher<banyu_msgs::msg::Task2Submission>(
       "/test_adapter/submission", rclcpp::QoS(10).reliable().transient_local());
+
+    lifecycle_pub_ = test_node_->create_publisher<banyu_msgs::msg::RunLifecycle>(
+      "/test_adapter/run_lifecycle", rclcpp::QoS(10).reliable().transient_local());
 
     survey_sub_ = test_node_->create_subscription<rx_msgs::msg::PipelineSurvey>(
       "/test_adapter/pipeline_survey", rclcpp::QoS(10).reliable(),
@@ -91,9 +100,76 @@ protected:
     }
   }
 
+  void restart(bool forward)
+  {
+    if (adapter_node_) {
+      executor_.remove_node(adapter_node_);
+      adapter_node_.reset();
+    }
+    rclcpp::NodeOptions options;
+    options.append_parameter_override("journal_path", test_journal_path_);
+    options.append_parameter_override(
+      "topics.task2_submission", "/test_adapter/submission");
+    options.append_parameter_override(
+      "topics.run_lifecycle", "/test_adapter/run_lifecycle");
+    options.append_parameter_override(
+      "topics.pipeline_survey", "/test_adapter/pipeline_survey");
+    options.append_parameter_override(
+      "topics.delivery", "/test_adapter/delivery");
+    options.append_parameter_override(
+      "topics.command", "/test_adapter/command");
+    options.append_parameter_override("forward_to_rx_topics", forward);
+    adapter_node_ = std::make_shared<banyu_communication::GcsSubmissionAdapter>(options);
+    executor_.add_node(adapter_node_);
+    spinFor(150ms);
+  }
+
+  void publishLifecycle(
+    uint32_t run_id = 15, uint64_t epoch = 2,
+    uint8_t phase = banyu_msgs::msg::RunLifecycle::ACTIVE,
+    uint8_t event = banyu_msgs::msg::RunLifecycle::START_ACCEPTED,
+    uint32_t requested_run_id = 15)
+  {
+    banyu_msgs::msg::RunLifecycle msg;
+    msg.header.stamp = test_node_->now();
+    msg.header.frame_id = "uuv";
+    msg.authority_instance = "test_authority";
+    msg.revision = ++lifecycle_revision_;
+    msg.run_id = run_id;
+    msg.epoch = epoch;
+    msg.phase = phase;
+    msg.event = event;
+    msg.requested_run_id = requested_run_id;
+    msg.autonomous_ready = true;
+    lifecycle_pub_->publish(msg);
+    spinFor(50ms);
+  }
+
+  banyu_msgs::msg::Task2Submission createSurvey(
+    uint32_t run_id = 15, uint64_t epoch = 1,
+    const std::string & report_id = "local-audit-report")
+  {
+    banyu_msgs::msg::Task2Submission s;
+    s.header.stamp = test_node_->now();
+    s.schema_version = 1;
+    s.run_id = run_id;
+    s.epoch = epoch;
+    s.report_id = report_id;
+    s.kind = banyu_msgs::msg::Task2Submission::SURVEY;
+    s.course_id = "course-1";
+    s.tier = 2;
+    s.buoy_latitude = 33.810;
+    s.buoy_longitude = -118.393;
+    s.original_conditions = {1, 2, 1, 1};
+    s.authorization_revision = 1;
+    return s;
+  }
+
   std::shared_ptr<banyu_communication::GcsSubmissionAdapter> adapter_node_;
   rclcpp::Node::SharedPtr test_node_;
   rclcpp::Publisher<banyu_msgs::msg::Task2Submission>::SharedPtr submission_pub_;
+  rclcpp::Publisher<banyu_msgs::msg::RunLifecycle>::SharedPtr lifecycle_pub_;
+  uint64_t lifecycle_revision_{0};
   rclcpp::Subscription<rx_msgs::msg::PipelineSurvey>::SharedPtr survey_sub_;
   rclcpp::Subscription<rx_msgs::msg::ResourceDelivery>::SharedPtr delivery_sub_;
   rclcpp::executors::SingleThreadedExecutor executor_;
@@ -104,6 +180,7 @@ protected:
 
 TEST_F(GcsSubmissionAdapterTest, IngestsAndForwardPipelineSurveyAndDeduplicates)
 {
+  publishLifecycle(15, 2);
   banyu_msgs::msg::Task2Submission sub;
   sub.header.stamp = test_node_->now();
   sub.schema_version = 1;
@@ -141,6 +218,7 @@ TEST_F(GcsSubmissionAdapterTest, IngestsAndForwardPipelineSurveyAndDeduplicates)
 
 TEST_F(GcsSubmissionAdapterTest, IngestsAndForwardResourceDelivery)
 {
+  publishLifecycle(15, 2);
   banyu_msgs::msg::Task2Submission del;
   del.header.stamp = test_node_->now();
   del.schema_version = 1;
@@ -209,6 +287,7 @@ TEST_F(GcsSubmissionAdapterTest, UnsealedSubmissionMustNotBeForwarded)
 TEST_F(GcsSubmissionAdapterTest, RestartMustNotForwardRetainedReportTwice)
 {
   spinFor(100ms);
+  publishLifecycle(15, 2);
   banyu_msgs::msg::Task2Submission sub;
   sub.header.stamp = test_node_->now();
   sub.schema_version = 1;
@@ -245,6 +324,7 @@ TEST_F(GcsSubmissionAdapterTest, RestartMustNotForwardRetainedReportTwice)
 TEST_F(GcsSubmissionAdapterTest, ConflictingPayloadForSameRunEpochKindIsRejected)
 {
   spinFor(100ms);
+  publishLifecycle(20, 1);
   banyu_msgs::msg::Task2Submission sub1;
   sub1.header.stamp = test_node_->now();
   sub1.schema_version = 1;
@@ -278,6 +358,7 @@ TEST_F(GcsSubmissionAdapterTest, ConflictingPayloadForSameRunEpochKindIsRejected
 TEST_F(GcsSubmissionAdapterTest, ReusedReportIdForDifferentRunIsRejected)
 {
   spinFor(100ms);
+  publishLifecycle(30, 1);
   banyu_msgs::msg::Task2Submission sub1;
   sub1.header.stamp = test_node_->now();
   sub1.schema_version = 1;
@@ -329,28 +410,18 @@ TEST_F(GcsSubmissionAdapterTest, LocalAuditRecoversJournaledButUnpublishedReport
           << std::quoted(banyu_msgs::task2::canonicalPayload(sub)) << "\n";
   journal.close();
 
-  executor_.remove_node(adapter_node_);
-  adapter_node_.reset();
-
-  rclcpp::NodeOptions options;
-  options.append_parameter_override("journal_path", test_journal_path_);
-  options.append_parameter_override("topics.task2_submission", "/test_adapter/submission");
-  options.append_parameter_override("topics.pipeline_survey", "/test_adapter/pipeline_survey");
-  options.append_parameter_override("topics.delivery", "/test_adapter/delivery");
-  adapter_node_ = std::make_shared<banyu_communication::GcsSubmissionAdapter>(options);
-  executor_.add_node(adapter_node_);
-  spinFor(50ms);
+  restart(true);
 
   EXPECT_EQ(adapter_node_->acceptedCount(), 1u);
   EXPECT_EQ(adapter_node_->pendingCount(), 1u);
   EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
   EXPECT_TRUE(received_surveys_.empty());
 
-  // Replay: recovers and publishes to public pipeline_survey topic
-  submission_pub_->publish(sub);
+  // Establish authoritative lifecycle for run 15, epoch 2: recovers and publishes
+  publishLifecycle(15, 2);
   spinFor(100ms);
 
-  EXPECT_EQ(received_surveys_.size(), 1u);
+  ASSERT_EQ(received_surveys_.size(), 1u);
   EXPECT_DOUBLE_EQ(received_surveys_[0].active_buoy_position.latitude, 33.810);
   EXPECT_DOUBLE_EQ(received_surveys_[0].active_buoy_position.longitude, -118.393);
   EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
@@ -367,6 +438,7 @@ TEST_F(GcsSubmissionAdapterTest, LocalAuditRecoversJournaledButUnpublishedReport
 TEST_F(GcsSubmissionAdapterTest, CrashBeforeDurableAcceptanceAllowsSubsequentRetry)
 {
   spinFor(50ms);
+  publishLifecycle(15, 2);
   banyu_msgs::msg::Task2Submission sub;
   sub.header.stamp = test_node_->now();
   sub.schema_version = 1;
@@ -465,6 +537,7 @@ TEST_F(GcsSubmissionAdapterTest, NewRunBeginsSuppressesUnresolvedPendingReportFr
   options.append_parameter_override("topics.pipeline_survey", "/test_adapter/pipeline_survey");
   options.append_parameter_override("topics.delivery", "/test_adapter/delivery");
   options.append_parameter_override("topics.command", "/test_adapter/command");
+  options.append_parameter_override("topics.run_lifecycle", "/test_adapter/run_lifecycle");
   adapter_node_ = std::make_shared<banyu_communication::GcsSubmissionAdapter>(options);
   executor_.add_node(adapter_node_);
 
@@ -477,6 +550,7 @@ TEST_F(GcsSubmissionAdapterTest, NewRunBeginsSuppressesUnresolvedPendingReportFr
   cmd.command_seq = 1;
   cmd.run_id = 20;
   command_pub->publish(cmd);
+  publishLifecycle(20, 1);
   spinFor(50ms);
 
   // Replay of old run report must not be published
@@ -529,49 +603,45 @@ TEST_F(GcsSubmissionAdapterTest, SurveyAndDeliveryEachRecoverIndependently)
           << std::quoted(banyu_msgs::task2::canonicalPayload(del)) << "\n";
   journal.close();
 
-  executor_.remove_node(adapter_node_);
-  adapter_node_.reset();
-
-  rclcpp::NodeOptions options;
-  options.append_parameter_override("journal_path", test_journal_path_);
-  options.append_parameter_override("topics.task2_submission", "/test_adapter/submission");
-  options.append_parameter_override("topics.pipeline_survey", "/test_adapter/pipeline_survey");
-  options.append_parameter_override("topics.delivery", "/test_adapter/delivery");
-  adapter_node_ = std::make_shared<banyu_communication::GcsSubmissionAdapter>(options);
-  executor_.add_node(adapter_node_);
-  spinFor(50ms);
+  restart(true);
 
   EXPECT_EQ(adapter_node_->pendingCount(), 2u);
   EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
-
-  // Replay SURVEY only
-  submission_pub_->publish(sub);
-  spinFor(100ms);
-
-  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_TRUE(received_surveys_.empty());
   EXPECT_TRUE(received_deliveries_.empty());
-  EXPECT_EQ(
-    adapter_node_->publicationState("survey-indep-001"),
-    banyu_communication::GcsSubmissionAdapter::PublicationState::ATTEMPTED);
-  EXPECT_EQ(
-    adapter_node_->publicationState("delivery-indep-001"),
-    banyu_communication::GcsSubmissionAdapter::PublicationState::PENDING);
 
-  // Replay DELIVERY only
-  submission_pub_->publish(del);
+  // Establish authoritative lifecycle for run 15, epoch 2: recovers both to their respective public topics
+  publishLifecycle(15, 2);
   spinFor(100ms);
 
   EXPECT_EQ(received_surveys_.size(), 1u);
   ASSERT_EQ(received_deliveries_.size(), 1u);
   EXPECT_EQ(received_deliveries_[0].resource_color, 4u);
   EXPECT_EQ(
+    adapter_node_->publicationState("survey-indep-001"),
+    banyu_communication::GcsSubmissionAdapter::PublicationState::ATTEMPTED);
+  EXPECT_EQ(
     adapter_node_->publicationState("delivery-indep-001"),
     banyu_communication::GcsSubmissionAdapter::PublicationState::ATTEMPTED);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 2u);
+
+  // Retransmission of already attempted reports deduplicates independently
+  submission_pub_->publish(sub);
+  spinFor(100ms);
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->duplicateCount(), 1u);
+
+  submission_pub_->publish(del);
+  spinFor(100ms);
+  EXPECT_EQ(received_deliveries_.size(), 1u);
+  EXPECT_EQ(adapter_node_->duplicateCount(), 2u);
 }
 
 TEST_F(GcsSubmissionAdapterTest, AdapterRestartsAfterPublicationLateReceiverFollowsDocumentedPolicy)
 {
   spinFor(50ms);
+  publishLifecycle(15, 2);
   banyu_msgs::msg::Task2Submission sub;
   sub.header.stamp = test_node_->now();
   sub.schema_version = 1;
@@ -664,6 +734,7 @@ TEST_F(GcsSubmissionAdapterTest, NewRunSuppressionPersistsAcrossAdapterRestart)
   options.append_parameter_override("topics.pipeline_survey", "/test_adapter/pipeline_survey");
   options.append_parameter_override("topics.delivery", "/test_adapter/delivery");
   options.append_parameter_override("topics.command", "/test_adapter/command");
+  options.append_parameter_override("topics.run_lifecycle", "/test_adapter/run_lifecycle");
   adapter_node_ = std::make_shared<banyu_communication::GcsSubmissionAdapter>(options);
   executor_.add_node(adapter_node_);
 
@@ -671,12 +742,13 @@ TEST_F(GcsSubmissionAdapterTest, NewRunSuppressionPersistsAcrossAdapterRestart)
     "/test_adapter/command", rclcpp::QoS(10).reliable());
   spinFor(50ms);
 
-  // CMD_RUN_START for run 20 suppresses old report
+  // Authoritative lifecycle for run 20 suppresses old report
   rx_msgs::msg::Command cmd;
   cmd.command_type = rx_msgs::msg::Command::CMD_RUN_START;
   cmd.command_seq = 1;
   cmd.run_id = 20;
   command_pub->publish(cmd);
+  publishLifecycle(20, 1);
   spinFor(50ms);
 
   EXPECT_EQ(
@@ -735,17 +807,7 @@ TEST_F(GcsSubmissionAdapterTest, JournalCorruptionMidLineLogsDiagnosticAndRecove
           << std::quoted(banyu_msgs::task2::canonicalPayload(sub2)) << "\n";
   journal.close();
 
-  executor_.remove_node(adapter_node_);
-  adapter_node_.reset();
-
-  rclcpp::NodeOptions options;
-  options.append_parameter_override("journal_path", test_journal_path_);
-  options.append_parameter_override("topics.task2_submission", "/test_adapter/submission");
-  options.append_parameter_override("topics.pipeline_survey", "/test_adapter/pipeline_survey");
-  options.append_parameter_override("topics.delivery", "/test_adapter/delivery");
-  adapter_node_ = std::make_shared<banyu_communication::GcsSubmissionAdapter>(options);
-  executor_.add_node(adapter_node_);
-  spinFor(50ms);
+  restart(true);
 
   EXPECT_EQ(adapter_node_->corruptEntryCount(), 1u);
   EXPECT_EQ(adapter_node_->acceptedCount(), 2u);
@@ -753,12 +815,326 @@ TEST_F(GcsSubmissionAdapterTest, JournalCorruptionMidLineLogsDiagnosticAndRecove
   EXPECT_TRUE(adapter_node_->hasReport("valid-after-corrupt"));
   EXPECT_EQ(adapter_node_->pendingCount(), 2u);
 
-  // Both valid entries can be recovered and published
-  submission_pub_->publish(sub1);
+  // Publish valid lifecycle for run 15, epoch 1 to recover valid reports
+  publishLifecycle(15, 1);
   spinFor(100ms);
+
+  EXPECT_EQ(received_surveys_.size(), 2u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 2u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, ForeignVehicleStartMustNotBlockUuvReport)
+{
+  restart(true);
+  publishLifecycle(15, 1);
+  auto p = test_node_->create_publisher<rx_msgs::msg::Command>("/test_adapter/command", 10);
+  spinFor(150ms);
+  rx_msgs::msg::Command c;
+  c.command_type = c.CMD_RUN_START;
+  c.command_seq = 1;
+  c.run_id = 99;
+  c.target_vehicle = rx_msgs::msg::VehicleType::TYPE_UAV;
+  p->publish(c);
+  spinFor(150ms);
+  submission_pub_->publish(createSurvey(15, 1, "local-audit-report"));
+  spinFor(200ms);
+  EXPECT_EQ(received_surveys_.size(), 1u)
+    << "A UAV-addressed start must not change UUV report context";
+}
+
+TEST_F(GcsSubmissionAdapterTest, RejectedConflictingStartMustNotBlockAcceptedRunReport)
+{
+  restart(true);
+  banyu_mission::RunCoordinator coordinator;
+  ASSERT_TRUE(coordinator.beginPreparation());
+  ASSERT_TRUE(coordinator.markReady());
+  auto accepted = coordinator.requestStart(15, 1, true);
+  ASSERT_EQ(accepted.disposition, banyu_mission::RunCoordinator::Disposition::Accepted);
+  ASSERT_TRUE(coordinator.completeInitialization(accepted.snapshot.epoch));
+  publishLifecycle(15, accepted.snapshot.epoch, banyu_msgs::msg::RunLifecycle::ACTIVE,
+    banyu_msgs::msg::RunLifecycle::START_ACCEPTED, 15);
+
+  auto p = test_node_->create_publisher<rx_msgs::msg::Command>("/test_adapter/command", 10);
+  spinFor(150ms);
+  rx_msgs::msg::Command c;
+  c.command_type = c.CMD_RUN_START;
+  c.command_seq = 1;
+  c.run_id = 15;
+  c.target_vehicle = rx_msgs::msg::VehicleType::TYPE_UUV;
+  p->publish(c);
+  spinFor(150ms);
+  auto rejected = coordinator.requestStart(99, 2, true);
+  ASSERT_EQ(rejected.disposition, banyu_mission::RunCoordinator::Disposition::Rejected);
+  EXPECT_EQ(coordinator.snapshot().run_id, 15u);
+  publishLifecycle(15, accepted.snapshot.epoch, banyu_msgs::msg::RunLifecycle::ACTIVE,
+    banyu_msgs::msg::RunLifecycle::START_REJECTED, 99);
+  c.command_seq = 2;
+  c.run_id = 99;
+  p->publish(c);
+  spinFor(150ms);
+  auto s = createSurvey(15, accepted.snapshot.epoch, "local-audit-report");
+  ASSERT_TRUE(coordinator.transition(s.epoch,
+    banyu_mission::RunCoordinator::Phase::SurveyComplete));
+  ASSERT_TRUE(coordinator.transition(s.epoch, banyu_mission::RunCoordinator::Phase::Surfaced));
+  auto seal = coordinator.sealReport(
+    s.run_id, s.epoch, s.kind, s.report_id, banyu_msgs::task2::canonicalPayload(s));
+  ASSERT_EQ(seal.disposition, banyu_mission::RunCoordinator::Disposition::Accepted);
+  submission_pub_->publish(s);
+  spinFor(200ms);
+  EXPECT_EQ(received_surveys_.size(), 1u)
+    << "Adapter must track mission-accepted context rather than raw conflicting starts";
+}
+
+TEST_F(GcsSubmissionAdapterTest, DisabledForwardingMustPreservePendingPublication)
+{
+  restart(false);
+  publishLifecycle(15, 1);
+  submission_pub_->publish(createSurvey(15, 1, "local-audit-report"));
+  spinFor(200ms);
+  EXPECT_TRUE(received_surveys_.empty());
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u)
+    << "No publication was attempted when forwarding is disabled";
+  EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
+  restart(true);
+  publishLifecycle(15, 1);
+  spinFor(200ms);
+  EXPECT_EQ(received_surveys_.size(), 1u)
+    << "Enabling forwarding must recover the unsent report";
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, AlreadyPendingRecoveryWithForwardingDisabledRemainsPending)
+{
+  restart(false);
+  publishLifecycle(15, 1);
+  submission_pub_->publish(createSurvey(15, 1, "disabled-restart-pending"));
+  spinFor(200ms);
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
+  EXPECT_TRUE(received_surveys_.empty());
+
+  restart(false);
+  publishLifecycle(15, 1);
+  spinFor(200ms);
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
+  EXPECT_TRUE(received_surveys_.empty());
+}
+
+TEST_F(GcsSubmissionAdapterTest,
+  DeliveryPreservesPendingPublicationWhenForwardingDisabledAndRecovers)
+{
+  restart(false);
+  publishLifecycle(15, 1);
+  banyu_msgs::msg::Task2Submission del = createSurvey(15, 1, "delivery-disabled-rep");
+  del.kind = banyu_msgs::msg::Task2Submission::DELIVERY;
+  del.resource_color = 4;
+  del.delivery_circle_color = 2;
+  del.tier = 3;
+  submission_pub_->publish(del);
+  spinFor(200ms);
+  EXPECT_TRUE(received_deliveries_.empty());
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
+
+  restart(true);
+  publishLifecycle(15, 1);
+  spinFor(200ms);
+  EXPECT_EQ(received_deliveries_.size(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+}
+
+TEST_F(GcsSubmissionAdapterTest,
+  DelayedOldAuthorityOrLowerEpochRejectedWithoutMutatingAcceptedContext)
+{
+  restart(true);
+  publishLifecycle(15, 5, banyu_msgs::msg::RunLifecycle::ACTIVE,
+    banyu_msgs::msg::RunLifecycle::START_ACCEPTED, 15);
+  EXPECT_EQ(adapter_node_->activeRunId(), 15u);
+  EXPECT_EQ(adapter_node_->activeEpoch(), 5u);
+
+  publishLifecycle(15, 3, banyu_msgs::msg::RunLifecycle::ACTIVE,
+    banyu_msgs::msg::RunLifecycle::SNAPSHOT, 15);
+  EXPECT_EQ(adapter_node_->activeRunId(), 15u);
+  EXPECT_EQ(adapter_node_->activeEpoch(), 5u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, DuplicateStartRefreshesAuthorityWithoutSuppressingOrResetting)
+{
+  restart(true);
+  publishLifecycle(15, 2, banyu_msgs::msg::RunLifecycle::ACTIVE,
+    banyu_msgs::msg::RunLifecycle::START_ACCEPTED, 15);
+  auto sub = createSurvey(15, 2, "dup-start-test");
+  submission_pub_->publish(sub);
+  spinFor(150ms);
   EXPECT_EQ(received_surveys_.size(), 1u);
 
-  submission_pub_->publish(sub2);
+  publishLifecycle(15, 2, banyu_msgs::msg::RunLifecycle::ACTIVE,
+    banyu_msgs::msg::RunLifecycle::START_DUPLICATE, 15);
+  EXPECT_EQ(adapter_node_->activeRunId(), 15u);
+  EXPECT_TRUE(adapter_node_->hasReport("dup-start-test"));
+}
+
+TEST_F(GcsSubmissionAdapterTest, StaleOrMismatchedCommandDoesNotSuppressReport)
+{
+  restart(true);
+  publishLifecycle(15, 1);
+  auto p = test_node_->create_publisher<rx_msgs::msg::Command>("/test_adapter/command", 10);
   spinFor(100ms);
-  EXPECT_EQ(received_surveys_.size(), 2u);
+
+  rx_msgs::msg::Command c;
+  c.command_type = rx_msgs::msg::Command::CMD_RUN_START;
+  c.command_seq = 0;
+  c.run_id = 99;
+  p->publish(c);
+  spinFor(100ms);
+
+  submission_pub_->publish(createSurvey(15, 1, "valid-report-under-stale-cmd"));
+  spinFor(200ms);
+  EXPECT_EQ(received_surveys_.size(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, LegacyActiveRunJournalHintDoesNotAuthorizeRun)
+{
+  // Write legacy ACTIVE_RUN and a pending report to journal
+  auto s = createSurvey(10, 1, "legacy-active-run-pending");
+  std::ofstream journal(test_journal_path_, std::ios::trunc);
+  ASSERT_TRUE(journal.is_open());
+  journal << "BANYU_GCS_ADAPTER_ENTRY_V3 10 1 1 legacy-active-run-pending 1 PENDING "
+          << std::quoted(banyu_msgs::task2::canonicalPayload(s)) << "\n";
+  journal << "BANYU_GCS_ADAPTER_ACTIVE_RUN 10\n";
+  journal.close();
+
+  restart(true);
+  EXPECT_EQ(adapter_node_->activeRunId(), 0u)
+    << "Legacy ACTIVE_RUN must be treated as a hint, not proof of mission acceptance";
+  EXPECT_EQ(adapter_node_->historicalHintRunId(), 10u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+  EXPECT_TRUE(received_surveys_.empty());
+
+  // Authoritative lifecycle for run 10 arrives
+  publishLifecycle(10, 1);
+  spinFor(150ms);
+  EXPECT_EQ(adapter_node_->activeRunId(), 10u);
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, StaleEpochWithinSameRunRejected)
+{
+  restart(true);
+  publishLifecycle(15, 2, banyu_msgs::msg::RunLifecycle::ACTIVE,
+    banyu_msgs::msg::RunLifecycle::START_ACCEPTED, 15);
+  EXPECT_EQ(adapter_node_->activeRunId(), 15u);
+  EXPECT_EQ(adapter_node_->activeEpoch(), 2u);
+
+  // Submitting a report with stale epoch=1 for run 15 must be rejected
+  auto stale_sub = createSurvey(15, 1, "stale-epoch-report");
+  submission_pub_->publish(stale_sub);
+  spinFor(150ms);
+
+  EXPECT_EQ(adapter_node_->rejectedCount(), 1u);
+  EXPECT_FALSE(adapter_node_->hasReport("stale-epoch-report"));
+  EXPECT_TRUE(received_surveys_.empty());
+
+  // Submitting valid report for active epoch=2 is accepted and forwarded
+  auto valid_sub = createSurvey(15, 2, "valid-epoch2-report");
+  submission_pub_->publish(valid_sub);
+  spinFor(150ms);
+
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_TRUE(adapter_node_->hasReport("valid-epoch2-report"));
+}
+
+TEST_F(GcsSubmissionAdapterTest, RetransmissionWhileAuthorityUnavailableDoesNotPublish)
+{
+  restart(true);
+  EXPECT_EQ(adapter_node_->activeRunId(), 0u);
+
+  // Initial submission while active_run_id_ == 0 is accepted as PENDING, but not published
+  auto sub = createSurvey(15, 1, "no-authority-pending");
+  submission_pub_->publish(sub);
+  spinFor(150ms);
+
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
+  EXPECT_TRUE(received_surveys_.empty());
+
+  // Retransmission while active_run_id_ == 0 must still remain PENDING and not publish
+  submission_pub_->publish(sub);
+  spinFor(150ms);
+
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
+  EXPECT_TRUE(received_surveys_.empty());
+
+  // Only when authoritative lifecycle arrives does it forward
+  publishLifecycle(15, 1);
+  spinFor(150ms);
+
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, StaleLifecycleRejectedAfterJournalRestart)
+{
+  // Persist active context run 20, epoch 5, revision 10
+  std::ofstream journal(test_journal_path_, std::ios::trunc);
+  ASSERT_TRUE(journal.is_open());
+  journal << "BANYU_GCS_ADAPTER_ACTIVE_CONTEXT 20 5 10 coord_persisted_instance\n";
+  journal.close();
+
+  restart(true);
+  EXPECT_EQ(adapter_node_->activeRunId(), 20u);
+  EXPECT_EQ(adapter_node_->activeEpoch(), 5u);
+
+  // Stale lifecycle message with lower epoch=3 arriving as first lifecycle after restart
+  banyu_msgs::msg::RunLifecycle stale_msg;
+  stale_msg.header.stamp = test_node_->now();
+  stale_msg.header.frame_id = "uuv";
+  stale_msg.authority_instance = "coord_stale_instance";
+  stale_msg.revision = 1;
+  stale_msg.run_id = 20;
+  stale_msg.epoch = 3;
+  stale_msg.phase = banyu_msgs::msg::RunLifecycle::ACTIVE;
+  stale_msg.event = banyu_msgs::msg::RunLifecycle::SNAPSHOT;
+  stale_msg.requested_run_id = 20;
+  lifecycle_pub_->publish(stale_msg);
+  spinFor(100ms);
+
+  EXPECT_EQ(adapter_node_->activeRunId(), 20u);
+  EXPECT_EQ(adapter_node_->activeEpoch(), 5u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, PersistenceFailurePreservesInMemoryAuthority)
+{
+  restart(true);
+  publishLifecycle(15, 1);
+  EXPECT_EQ(adapter_node_->activeRunId(), 15u);
+  EXPECT_EQ(adapter_node_->activeEpoch(), 1u);
+
+  // Make journal read-only so appendActiveContext fails
+  std::filesystem::permissions(
+    test_journal_path_,
+    std::filesystem::perms::owner_read | std::filesystem::perms::group_read,
+    std::filesystem::perm_options::replace);
+
+  // Transition to run 20 must fail persistence and preserve in-memory authority (run 15)
+  publishLifecycle(20, 2);
+  spinFor(100ms);
+
+  EXPECT_EQ(adapter_node_->activeRunId(), 15u)
+    << "In-memory authority must not change when required persistence fails";
+  EXPECT_EQ(adapter_node_->activeEpoch(), 1u);
+
+  // Restore permissions for teardown
+  std::filesystem::permissions(
+    test_journal_path_,
+    std::filesystem::perms::all,
+    std::filesystem::perm_options::replace);
 }

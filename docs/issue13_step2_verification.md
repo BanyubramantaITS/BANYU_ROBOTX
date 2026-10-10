@@ -1,5 +1,57 @@
 # Issue 13 Step 2 Verification Record
 
+## Authoritative Lifecycle & Integration Verification after `886e17f` — October 10, 2026
+
+This entry records the completion and verification of the instructions in `docs/issue13_next_steps_886e17f.md`.
+
+- **Branch / Worktree**: `13-featcomm-integrate-robotx-sos-communication-interface-rx_msgs-into-main_task`
+- **Scope**:
+  - Authoritative run ownership via `banyu_msgs/msg/RunLifecycle` on `/banyu/mission/run_lifecycle` (raw start commands demoted to diagnostic-only).
+  - Explicit publication outcomes (`Attempted`, `Disabled`, `Failed`), keeping reports `PENDING` when forwarding is disabled and marking `ATTEMPTED` only upon actual ROS publication.
+  - Registered regressions for wrong-target starts, mission-rejected conflicting starts, and disabled-forwarding recovery in `test_gcs_submission_adapter.cpp`.
+  - Registered real integration test suite linking `RunCoordinator`, `UuvCommNode`, and `GcsSubmissionAdapter` without mocks for lifecycle or sealing in `test_mission_report_integration.cpp`.
+- **C++ gtest Count**: **301 C++ gtest cases across all 9 packages, zero failures/errors**.
+- **Aggregate Colcon Result**: `Summary: 699 tests, 0 errors, 0 failures, 155 skipped`.
+- **Communication Smoke Test**: `python3 src/BANYU_ROBOTX/banyu_communication/test/sos_gcs_mock.py` — all 6 Team GCS communication checks PASS.
+- **Linters & Style**: `ament_uncrustify`, `ament_flake8`, `ament_pep257`, and `git diff --check` pass with zero divergences.
+- **Probe Outcomes (previously failing at 886e17f)**:
+  - `ForeignVehicleStartMustNotBlockUuvReport`: PASS.
+  - `RejectedConflictingStartMustNotBlockAcceptedRunReport`: PASS.
+  - `DisabledForwardingMustPreservePendingPublication`: PASS.
+- **Mission-Report Real Integration Suite (`test_mission_report_integration.cpp`)**:
+  - `ValidStartAndReportFlowReachesStandardGcs`: PASS.
+  - `RejectedConflictingStartDoesNotBlockAcceptedRunReport`: PASS.
+  - `DuplicateStartPreservesObservations`: PASS.
+  - `AbortBeforeSealRejectsSurveyAndPreventsReport`: PASS.
+  - `DurableSealBeforeDelayedAbortPreservesReport`: PASS.
+  - `AdapterRestartDoesNotDuplicatePublication`: PASS.
+  - `DisabledForwardingRecoveryPreservesPendingAndRecovers`: PASS.
+  - `StaleEpochAndDelayedPreviousRunResponseRejected`: PASS.
+- **Remaining Open Gates**:
+  - Qualified `ActiveBuoyFix` and `PipelineEndCandidate` producers (Work C).
+  - RingTracker physical association and topology (Work D).
+  - Calibrated depth water-datum physical proof (Work E).
+  - Course boundary and acoustic frequency downstream consumers (Work F).
+  - Truthful full Task 4 transit/hold behavior (Work G).
+  - Full Gazebo SITL execution and DDS multi-domain routing (Work H).
+
+## Local audit at `886e17f00950cbab652956fcbed4c0b395589a6e` — October 10, 2026
+
+This entry takes precedence over the historical reviews below. The source working tree was clean at audit time. The subsequent next-step documentation update does not implement the fixes.
+
+- Nine focused packages built successfully on ROS 2 Jazzy.
+- Sequential registered checks passed: 280 C++ cases, zero failures/errors. Aggregate colcon result: 675 checks, zero failures/errors, 154 skipped; aggregate checks are not the C++ case count.
+- Six communication smoke checks passed through the real local adapter with direct copies disabled. The fixture still substitutes mission lifecycle/sealing/evidence, accelerates surface hold and forces DDS domain 42.
+- The original `LocalAuditRecoversJournaledButUnpublishedReport` is now registered and passes for the tested replay path. Private submission topic migration is implemented.
+- A default heartbeat probe with synthetic telemetry/lifecycle produced 61 messages and 60 intervals over 30.5 seconds, mean interval 0.4999989 seconds. Checked UUV type, AUTO state, depth, GPS and heading passed. Valid increasing lifecycle revisions were used; the initial fixed-revision fixture expired correctly and was corrected before this result.
+- Three supplemental adapter probes failed: `ForeignVehicleStartMustNotBlockUuvReport`, `RejectedConflictingStartMustNotBlockAcceptedRunReport`, and `DisabledForwardingMustPreservePendingPublication`. Expected recovered/public survey count was one in each; actual zero. The disabled-forwarding case also expected PENDING but observed ATTEMPTED.
+
+The conflicting-start probe uses the real RunCoordinator class and real adapter with test-side orchestration, not the full mission ROS node. The coordinator correctly rejects the conflicting start; the adapter changes context on the raw command anyway. Both fresh and recovered forwarding paths also mark ATTEMPTED when forwarding is disabled.
+
+Current disposition: Work A is complete locally; Work B remains partial due to those two defects. Production buoy/end evidence, physical identity/order and water-datum proof, course consumers, truthful full Task 4 and complete Gazebo/domain routing remain open. Missing OCS access is not a UUV defect. Follow [the next-step instructions](issue13_next_steps_886e17f.md).
+
+Fresh-run artifacts: `/tmp/banyu-issue13-886e17f-build.log`, `test.log`, `test-results.log`, `smoke.log`, `probes.log` and `heartbeat.json`, each using the `/tmp/banyu-issue13-886e17f-` prefix. Reproduction source/build script: `/tmp/banyu_issue13_886_probes.cpp` and `/tmp/banyu_issue13_886_probe_build.py`. The audit summary is `/tmp/banyu-issue13-886e17f-local-audit.md`. Preserve essential results here and register the probes; these temporary artifacts alone are not permanent evidence.
+
 ## Review correction at `92cd50e` — October 10, 2026
 
 The historical fixture results below are not a complete Step 2 or Issue 13 acceptance claim. A fresh eight-package build/test run confirmed 272 passing C++ cases and six passing communication smoke checks. An additional recovery-state probe, `LocalAuditRecoversJournaledButUnpublishedReport`, failed: a report journaled before its first public publication was suppressed after restart (expected one survey, received zero).

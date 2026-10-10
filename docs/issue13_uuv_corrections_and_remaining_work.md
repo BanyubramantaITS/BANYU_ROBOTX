@@ -1,5 +1,7 @@
 # Issue 13: corrected ownership and remaining UUV work
 
+Current next actions at `886e17f`: follow [the focused follow-up guide](issue13_next_steps_886e17f.md) first. The private topic and original pending-publication recovery case are now implemented. Three additional probes expose raw-command run-context mutation and false ATTEMPTED transitions. Work C–H below remains the broader implementation checklist; this document's `92cd50e` observations are historical.
+
 Baseline: `92cd50e`, reviewed October 10, 2026. This is an instruction document, not an implementation or completion claim. It supersedes the GCS ownership and public-envelope recommendations in the earlier Step 2 guide. Preserve the competition rules and UUV safety requirements in [the approved plan](issue13_rules_and_implementation_plan.md).
 
 ## 1. Responsibility boundary

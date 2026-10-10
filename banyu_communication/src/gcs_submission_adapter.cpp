@@ -22,8 +22,12 @@ GcsSubmissionAdapter::GcsSubmissionAdapter(const rclcpp::NodeOptions & options)
 : Node("gcs_submission_adapter", options)
 {
   forward_to_rx_topics_ = declare_parameter<bool>("forward_to_rx_topics", true);
+  lifecycle_timeout_s_ = declare_parameter<double>("lifecycle_timeout_s", 5.0);
+
   const auto submission_topic = declare_parameter<std::string>(
     "topics.task2_submission", "/banyu/communication/task2_submission");
+  const auto lifecycle_topic = declare_parameter<std::string>(
+    "topics.run_lifecycle", "/banyu/mission/run_lifecycle");
   const auto command_topic = declare_parameter<std::string>(
     "topics.command", "/system/mission/command");
   const auto survey_topic = declare_parameter<std::string>(
@@ -43,6 +47,10 @@ GcsSubmissionAdapter::GcsSubmissionAdapter(const rclcpp::NodeOptions & options)
     submission_topic, rclcpp::QoS(32).reliable().transient_local(),
     std::bind(&GcsSubmissionAdapter::handleSubmission, this, std::placeholders::_1));
 
+  lifecycle_sub_ = create_subscription<banyu_msgs::msg::RunLifecycle>(
+    lifecycle_topic, rclcpp::QoS(10).reliable().transient_local(),
+    std::bind(&GcsSubmissionAdapter::handleLifecycle, this, std::placeholders::_1));
+
   command_sub_ = create_subscription<rx_msgs::msg::Command>(
     command_topic, rclcpp::QoS(10).reliable(),
     std::bind(&GcsSubmissionAdapter::handleCommand, this, std::placeholders::_1));
@@ -55,8 +63,10 @@ GcsSubmissionAdapter::GcsSubmissionAdapter(const rclcpp::NodeOptions & options)
 
   RCLCPP_INFO(
     get_logger(),
-    "GcsSubmissionAdapter initialized: forward_to_rx=%d, submission_topic='%s', journal='%s'",
-    forward_to_rx_topics_, submission_topic.c_str(), journal_path_.c_str());
+    "GcsSubmissionAdapter initialized: forward_to_rx=%d, submission_topic='%s', "
+    "lifecycle_topic='%s', active_run_id=%u, journal='%s'",
+    forward_to_rx_topics_, submission_topic.c_str(), lifecycle_topic.c_str(),
+    active_run_id_, journal_path_.c_str());
 }
 
 std::size_t GcsSubmissionAdapter::acceptedCount() const
@@ -107,6 +117,24 @@ std::size_t GcsSubmissionAdapter::corruptEntryCount() const
   return corrupt_entry_count_;
 }
 
+uint32_t GcsSubmissionAdapter::activeRunId() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return active_run_id_;
+}
+
+uint64_t GcsSubmissionAdapter::activeEpoch() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return active_epoch_;
+}
+
+uint32_t GcsSubmissionAdapter::historicalHintRunId() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return historical_hint_run_id_;
+}
+
 bool GcsSubmissionAdapter::hasReport(const std::string & report_id) const
 {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -130,20 +158,132 @@ GcsSubmissionAdapter::PublicationState GcsSubmissionAdapter::publicationState(
 
 void GcsSubmissionAdapter::handleCommand(const rx_msgs::msg::Command::SharedPtr msg)
 {
-  std::lock_guard<std::mutex> lock(mutex_);
   if (!msg) {
     return;
   }
-  if (msg->command_type == rx_msgs::msg::Command::CMD_RUN_START) {
-    if (msg->run_id != 0 && msg->run_id != active_run_id_) {
-      active_run_id_ = msg->run_id;
+  if (msg->target_vehicle != rx_msgs::msg::VehicleType::TYPE_UUV &&
+    msg->target_vehicle != rx_msgs::msg::VehicleType::TYPE_UNKNOWN)
+  {
+    RCLCPP_DEBUG(
+      get_logger(),
+      "Ignoring raw command (seq=%u, type=%u) addressed to other vehicle type=%u",
+      msg->command_seq, msg->command_type, msg->target_vehicle);
+    return;
+  }
+  RCLCPP_INFO(
+    get_logger(),
+    "Observed command seq=%u, type=%u, run_id=%u for target=%u (diagnostic only; "
+    "run ownership governed by mission RunLifecycle)",
+    msg->command_seq, msg->command_type, msg->run_id, msg->target_vehicle);
+}
+
+void GcsSubmissionAdapter::handleLifecycle(const banyu_msgs::msg::RunLifecycle::SharedPtr msg)
+{
+  using Lifecycle = banyu_msgs::msg::RunLifecycle;
+  if (!msg) {
+    return;
+  }
+  if ((msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0) ||
+    msg->header.stamp.nanosec >= 1000000000U)
+  {
+    RCLCPP_WARN(get_logger(), "Rejected RunLifecycle with invalid header timestamp");
+    return;
+  }
+
+  const double source_age = (now() - rclcpp::Time(msg->header.stamp,
+    get_clock()->get_clock_type())).seconds();
+  if (source_age < -1.0 || source_age > lifecycle_timeout_s_) {
+    RCLCPP_WARN(
+      get_logger(),
+      "Rejected RunLifecycle with out-of-window source age: %.3fs (timeout: %.3fs)",
+      source_age, lifecycle_timeout_s_);
+    return;
+  }
+
+  if (msg->authority_instance.empty() || msg->revision == 0 ||
+    msg->phase > Lifecycle::INTERRUPTED)
+  {
+    RCLCPP_WARN(get_logger(), "Rejected RunLifecycle with empty authority or invalid phase");
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (retired_authorities_.count(msg->authority_instance) != 0) {
+    RCLCPP_WARN(
+      get_logger(), "Rejected RunLifecycle from retired authority instance '%s'",
+      msg->authority_instance.c_str());
+    return;
+  }
+
+  const bool has_prior_context = lifecycle_received_ || active_epoch_ != 0 || active_run_id_ != 0;
+  if (has_prior_context) {
+    if (!authority_instance_.empty() && msg->authority_instance == authority_instance_ &&
+      msg->revision <= lifecycle_revision_)
+    {
+      return;
+    }
+    if (active_epoch_ != 0 && msg->epoch < active_epoch_) {
+      RCLCPP_WARN(
+        get_logger(),
+        "Rejected RunLifecycle with lower epoch=%lu than active_epoch=%lu",
+        msg->epoch, active_epoch_);
+      return;
+    }
+    if (active_epoch_ != 0 && msg->epoch == active_epoch_ && active_run_id_ != 0 &&
+      msg->run_id != active_run_id_)
+    {
+      RCLCPP_WARN(
+        get_logger(),
+        "Rejected RunLifecycle with conflicting run_id=%u for current active epoch=%lu",
+        msg->run_id, msg->epoch);
+      return;
+    }
+    if (!authority_instance_.empty() && msg->authority_instance != authority_instance_) {
+      const bool live = (phase_ >= Lifecycle::INITIALIZING && phase_ <= Lifecycle::SURFACED);
+      const bool fresh = lifecycle_received_ && (std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - last_lifecycle_time_).count() <= lifecycle_timeout_s_);
+      if (live && fresh && msg->epoch == active_epoch_) {
+        RCLCPP_WARN(
+          get_logger(),
+          "Rejected RunLifecycle authority replacement while previous authority is active and fresh");
+        return;
+      }
+      retired_authorities_.insert(authority_instance_);
+    }
+  }
+
+  if (msg->event == Lifecycle::START_REJECTED) {
+    RCLCPP_INFO(
+      get_logger(),
+      "RunLifecycle reported START_REJECTED for requested_run_id=%u; active_run_id=%u preserved",
+      msg->requested_run_id, active_run_id_);
+    last_lifecycle_time_ = std::chrono::steady_clock::now();
+    return;
+  }
+
+  const bool is_start_accepted = (msg->event == Lifecycle::START_ACCEPTED);
+  const bool is_active_context = (msg->phase >= Lifecycle::INITIALIZING &&
+    msg->phase <= Lifecycle::SURFACED && msg->event != Lifecycle::TERMINAL);
+
+  if ((is_start_accepted || is_active_context) && msg->run_id != 0 && msg->epoch != 0) {
+    const bool is_new_run = (msg->run_id != active_run_id_ || msg->epoch > active_epoch_);
+    if (is_new_run) {
       std::string run_err;
-      if (!appendActiveRun(active_run_id_, run_err)) {
+      if (!appendActiveContext(msg->run_id, msg->epoch, msg->authority_instance,
+          msg->revision, run_err))
+      {
         RCLCPP_ERROR(
           get_logger(),
-          "Failed to persist active run_id=%u to journal '%s': %s",
-          active_run_id_, journal_path_.c_str(), run_err.c_str());
+          "Failed to persist active context (run_id=%u, epoch=%lu) to journal '%s': %s; "
+          "in-memory authority preserved without mutation",
+          msg->run_id, msg->epoch, journal_path_.c_str(), run_err.c_str());
+        return;
       }
+
+      const uint32_t prev_run = active_run_id_;
+      active_run_id_ = msg->run_id;
+      active_epoch_ = msg->epoch;
+
       for (auto & pair : accepted_by_key_) {
         auto & report = pair.second;
         if (report.run_id != active_run_id_ && report.pub_state == PublicationState::PENDING) {
@@ -152,45 +292,141 @@ void GcsSubmissionAdapter::handleCommand(const rx_msgs::msg::Command::SharedPtr 
           if (!appendPubSuppressed(report, sup_err)) {
             RCLCPP_ERROR(
               get_logger(),
-              "Failed to persist suppressed report marker for '%s' to journal '%s': %s",
+              "Failed to persist suppressed report marker for '%s' to journal '%s': %s; "
+              "preserving pending state in memory",
               report.report_id.c_str(), journal_path_.c_str(), sup_err.c_str());
+            report.pub_state = PublicationState::PENDING;
+          } else {
+            RCLCPP_WARN(
+              get_logger(),
+              "Unresolved report '%s' (run_id=%u) suppressed under new accepted run_id=%u",
+              report.report_id.c_str(), report.run_id, active_run_id_);
           }
-          RCLCPP_WARN(
-            get_logger(),
-            "Unresolved report '%s' (run_id=%u) suppressed from publishing under new run_id=%u",
-            report.report_id.c_str(), report.run_id, active_run_id_);
         }
       }
+
+      RCLCPP_INFO(
+        get_logger(),
+        "Authoritative run accepted: run_id=%u, epoch=%lu (previous run_id=%u)",
+        active_run_id_, active_epoch_, prev_run);
     }
+  }
+
+  authority_instance_ = msg->authority_instance;
+  lifecycle_revision_ = msg->revision;
+  last_lifecycle_time_ = std::chrono::steady_clock::now();
+  phase_ = msg->phase;
+  lifecycle_received_ = true;
+
+  if (msg->phase == Lifecycle::INTERRUPTED || msg->phase == Lifecycle::FAILED ||
+    msg->phase == Lifecycle::SUCCEEDED || msg->event == Lifecycle::TERMINAL)
+  {
     RCLCPP_INFO(
       get_logger(),
-      "Run start detected (run_id=%u, seq=%u); retaining historical accepted report count=%zu",
-      msg->run_id, msg->command_seq, accepted_by_key_.size());
+      "RunLifecycle reported terminal phase=%u (preserving durable accepted reports)",
+      msg->phase);
   }
+
+  reconcilePendingReportsLocked();
 }
 
-void GcsSubmissionAdapter::publishPublicReport(const banyu_msgs::msg::Task2Submission & msg)
+GcsSubmissionAdapter::PublishOutcome GcsSubmissionAdapter::publishPublicReport(
+  const banyu_msgs::msg::Task2Submission & msg)
 {
   if (!forward_to_rx_topics_) {
-    return;
+    return PublishOutcome::Disabled;
   }
 
   if (msg.kind == banyu_msgs::msg::Task2Submission::SURVEY) {
+    if (!survey_pub_) {
+      RCLCPP_ERROR(get_logger(), "Survey publisher is uninitialized");
+      return PublishOutcome::Failed;
+    }
     rx_msgs::msg::PipelineSurvey survey;
     survey.header = msg.header;
+    if (survey.header.stamp.sec == 0 && survey.header.stamp.nanosec == 0) {
+      survey.header.stamp = now();
+    }
+    if (survey.header.frame_id.empty()) {
+      survey.header.frame_id = "uuv";
+    }
     survey.active_buoy_position.latitude = msg.buoy_latitude;
     survey.active_buoy_position.longitude = msg.buoy_longitude;
     survey.segments.assign(
       msg.original_conditions.begin(),
       msg.original_conditions.end());
-    survey_pub_->publish(survey);
+    try {
+      survey_pub_->publish(survey);
+      return PublishOutcome::Attempted;
+    } catch (const std::exception & e) {
+      RCLCPP_ERROR(get_logger(), "Exception while publishing pipeline survey: %s", e.what());
+      return PublishOutcome::Failed;
+    }
   } else if (msg.kind == banyu_msgs::msg::Task2Submission::DELIVERY) {
+    if (!delivery_pub_) {
+      RCLCPP_ERROR(get_logger(), "Delivery publisher is uninitialized");
+      return PublishOutcome::Failed;
+    }
     rx_msgs::msg::ResourceDelivery delivery;
     delivery.header = msg.header;
+    if (delivery.header.stamp.sec == 0 && delivery.header.stamp.nanosec == 0) {
+      delivery.header.stamp = now();
+    }
+    if (delivery.header.frame_id.empty()) {
+      delivery.header.frame_id = "uuv";
+    }
     delivery.task = rx_msgs::msg::RxTask::TASK_INFRA_SURVEY_REPAIR;
     delivery.resource_color = msg.resource_color;
     delivery.delivery_circle_color = msg.delivery_circle_color;
-    delivery_pub_->publish(delivery);
+    try {
+      delivery_pub_->publish(delivery);
+      return PublishOutcome::Attempted;
+    } catch (const std::exception & e) {
+      RCLCPP_ERROR(get_logger(), "Exception while publishing resource delivery: %s", e.what());
+      return PublishOutcome::Failed;
+    }
+  }
+
+  RCLCPP_ERROR(get_logger(), "Unsupported Task2Submission kind=%u", msg.kind);
+  return PublishOutcome::Failed;
+}
+
+void GcsSubmissionAdapter::reconcilePendingReportsLocked()
+{
+  if (!forward_to_rx_topics_ || active_run_id_ == 0) {
+    return;
+  }
+
+  for (auto & pair : accepted_by_key_) {
+    auto & report = pair.second;
+    if (report.pub_state == PublicationState::PENDING && report.run_id == active_run_id_) {
+      banyu_msgs::msg::Task2Submission sub;
+      if (!banyu_msgs::task2::parseSubmission(report.payload, sub)) {
+        RCLCPP_ERROR(
+          get_logger(),
+          "Failed to reconstruct Task2Submission payload for pending report '%s'",
+          report.report_id.c_str());
+        continue;
+      }
+      PublishOutcome outcome = publishPublicReport(sub);
+      if (outcome == PublishOutcome::Attempted) {
+        std::string err;
+        if (!appendPubAttempted(report, err)) {
+          RCLCPP_ERROR(
+            get_logger(),
+            "Publication issued for recovered report '%s', but persisting ATTEMPTED marker failed: %s. "
+            "Durable journal remains PENDING; replay window acknowledged.",
+            report.report_id.c_str(), err.c_str());
+          report.pub_state = PublicationState::PENDING;
+        } else {
+          report.pub_state = PublicationState::ATTEMPTED;
+          RCLCPP_INFO(
+            get_logger(),
+            "Recovered and forwarded pending report '%s' (run_id=%u, epoch=%lu)",
+            report.report_id.c_str(), report.run_id, report.epoch);
+        }
+      }
+    }
   }
 }
 
@@ -222,6 +458,15 @@ void GcsSubmissionAdapter::handleSubmission(const banyu_msgs::msg::Task2Submissi
     return;
   }
 
+  if (active_epoch_ != 0 && msg->epoch < active_epoch_) {
+    ++rejected_count_;
+    RCLCPP_WARN(
+      get_logger(),
+      "Rejected Task2Submission (report_id='%s', epoch=%lu) with stale epoch compared to active epoch=%lu",
+      msg->report_id.c_str(), msg->epoch, active_epoch_);
+    return;
+  }
+
   const std::string payload = banyu_msgs::task2::canonicalPayload(*msg);
   const auto key = std::make_tuple(msg->run_id, msg->epoch, msg->kind);
 
@@ -229,18 +474,39 @@ void GcsSubmissionAdapter::handleSubmission(const banyu_msgs::msg::Task2Submissi
   if (key_it != accepted_by_key_.end()) {
     if (key_it->second.report_id == msg->report_id && key_it->second.payload == payload) {
       if (key_it->second.pub_state == PublicationState::PENDING) {
-        RCLCPP_INFO(
-          get_logger(),
-          "Recovering and publishing pending Task2Submission (report_id='%s')",
-          msg->report_id.c_str());
-        publishPublicReport(*msg);
-        key_it->second.pub_state = PublicationState::ATTEMPTED;
-        std::string err;
-        if (!appendPubAttempted(key_it->second, err)) {
-          RCLCPP_ERROR(
+        if (!forward_to_rx_topics_) {
+          RCLCPP_INFO(
             get_logger(),
-            "Failed to append pub attempted marker for '%s' to journal '%s': %s",
-            msg->report_id.c_str(), journal_path_.c_str(), err.c_str());
+            "Retransmitted Task2Submission (report_id='%s') remains PENDING (forwarding disabled)",
+            msg->report_id.c_str());
+          return;
+        }
+        if (active_run_id_ != 0 && msg->run_id == active_run_id_ &&
+          (active_epoch_ == 0 || msg->epoch == active_epoch_))
+        {
+          RCLCPP_INFO(
+            get_logger(),
+            "Publishing pending Task2Submission (report_id='%s')",
+            msg->report_id.c_str());
+          PublishOutcome outcome = publishPublicReport(*msg);
+          if (outcome == PublishOutcome::Attempted) {
+            std::string err;
+            if (!appendPubAttempted(key_it->second, err)) {
+              RCLCPP_ERROR(
+                get_logger(),
+                "Publication issued for report '%s', but persisting ATTEMPTED marker failed: %s. "
+                "Durable journal remains PENDING; replay window acknowledged.",
+                msg->report_id.c_str(), err.c_str());
+              key_it->second.pub_state = PublicationState::PENDING;
+            } else {
+              key_it->second.pub_state = PublicationState::ATTEMPTED;
+            }
+          }
+        } else {
+          RCLCPP_WARN(
+            get_logger(),
+            "Retransmitted Task2Submission (report_id='%s') remains PENDING (awaiting validated mission RunLifecycle for run_id=%u, epoch=%lu)",
+            msg->report_id.c_str(), msg->run_id, msg->epoch);
         }
         return;
       }
@@ -295,32 +561,39 @@ void GcsSubmissionAdapter::handleSubmission(const banyu_msgs::msg::Task2Submissi
   report_id_to_key_.emplace(msg->report_id, key);
   ++accepted_count_;
 
-  if (active_run_id_ == 0 && msg->run_id != 0) {
-    active_run_id_ = msg->run_id;
-    std::string run_err;
-    if (!appendActiveRun(active_run_id_, run_err)) {
-      RCLCPP_ERROR(
-        get_logger(),
-        "Failed to persist active run_id=%u to journal '%s': %s",
-        active_run_id_, journal_path_.c_str(), run_err.c_str());
-    }
-  }
-
   RCLCPP_INFO(
     get_logger(),
     "Accepted Task2Submission: report_id='%s', run_id=%u, epoch=%lu, kind=%u, tier=%u, auth_rev=%lu",
     msg->report_id.c_str(), msg->run_id, msg->epoch, msg->kind, msg->tier,
     msg->authorization_revision);
 
-  publishPublicReport(*msg);
-
-  auto & stored = accepted_by_key_[key];
-  stored.pub_state = PublicationState::ATTEMPTED;
-  if (!appendPubAttempted(stored, err)) {
-    RCLCPP_ERROR(
+  if (forward_to_rx_topics_ && active_run_id_ != 0 && msg->run_id == active_run_id_ &&
+    (active_epoch_ == 0 || msg->epoch == active_epoch_))
+  {
+    PublishOutcome outcome = publishPublicReport(*msg);
+    if (outcome == PublishOutcome::Attempted) {
+      auto & stored = accepted_by_key_[key];
+      if (!appendPubAttempted(stored, err)) {
+        RCLCPP_ERROR(
+          get_logger(),
+          "Publication issued for report '%s', but persisting ATTEMPTED marker failed: %s. "
+          "Durable journal remains PENDING; replay window acknowledged.",
+          stored.report_id.c_str(), err.c_str());
+        stored.pub_state = PublicationState::PENDING;
+      } else {
+        stored.pub_state = PublicationState::ATTEMPTED;
+      }
+    }
+  } else if (!forward_to_rx_topics_) {
+    RCLCPP_INFO(
       get_logger(),
-      "Failed to persist pub attempted marker to journal '%s': %s",
-      journal_path_.c_str(), err.c_str());
+      "Task2Submission '%s' accepted and retained PENDING (forwarding disabled)",
+      msg->report_id.c_str());
+  } else {
+    RCLCPP_WARN(
+      get_logger(),
+      "Task2Submission '%s' accepted and retained PENDING (awaiting validated mission RunLifecycle for run_id=%u, epoch=%lu)",
+      msg->report_id.c_str(), msg->run_id, msg->epoch);
   }
 }
 
@@ -409,10 +682,27 @@ void GcsSubmissionAdapter::loadJournal()
         }
         parsed = true;
       }
+    } else if (tag == "BANYU_GCS_ADAPTER_ACTIVE_CONTEXT") {
+      uint32_t run_id = 0;
+      uint64_t epoch = 0;
+      uint64_t rev = 0;
+      std::string auth;
+      if (iss >> run_id >> epoch >> rev >> auth) {
+        active_run_id_ = run_id;
+        active_epoch_ = epoch;
+        lifecycle_revision_ = rev;
+        authority_instance_ = auth;
+        parsed = true;
+      }
     } else if (tag == "BANYU_GCS_ADAPTER_ACTIVE_RUN") {
       uint32_t run_id = 0;
       if (iss >> run_id) {
-        active_run_id_ = run_id;
+        historical_hint_run_id_ = run_id;
+        RCLCPP_INFO(
+          get_logger(),
+          "Observed historical ACTIVE_RUN hint run_id=%u in journal '%s' (not authoritative; "
+          "awaiting mission RunLifecycle)",
+          run_id, journal_path_.c_str());
         parsed = true;
       }
     } else if (tag == "BANYU_GCS_ADAPTER_ENTRY_V2") {
@@ -465,21 +755,6 @@ void GcsSubmissionAdapter::loadJournal()
         get_logger(),
         "Corrupt or truncated journal line %zu in '%s': %s",
         line_num, journal_path_.c_str(), line.c_str());
-    }
-  }
-
-  if (active_run_id_ != 0) {
-    for (auto & pair : accepted_by_key_) {
-      auto & report = pair.second;
-      if (report.run_id != active_run_id_ && report.pub_state == PublicationState::PENDING) {
-        report.pub_state = PublicationState::SUPPRESSED_NEW_RUN;
-        std::string err;
-        appendPubSuppressed(report, err);
-        RCLCPP_WARN(
-          get_logger(),
-          "Stale pending report '%s' (run_id=%u) suppressed under active run_id=%u on startup",
-          report.report_id.c_str(), report.run_id, active_run_id_);
-      }
     }
   }
 
@@ -587,6 +862,17 @@ bool GcsSubmissionAdapter::appendActiveRun(uint32_t run_id, std::string & error)
   std::ostringstream oss;
   oss.imbue(std::locale::classic());
   oss << "BANYU_GCS_ADAPTER_ACTIVE_RUN " << run_id << "\n";
+  return appendJournalLine(oss.str(), error);
+}
+
+bool GcsSubmissionAdapter::appendActiveContext(
+  uint32_t run_id, uint64_t epoch, const std::string & authority_instance,
+  uint64_t revision, std::string & error)
+{
+  std::ostringstream oss;
+  oss.imbue(std::locale::classic());
+  oss << "BANYU_GCS_ADAPTER_ACTIVE_CONTEXT " << run_id << " " << epoch << " "
+      << revision << " " << authority_instance << "\n";
   return appendJournalLine(oss.str(), error);
 }
 

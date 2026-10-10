@@ -1,5 +1,7 @@
 # Issue 13 — instructions for completing Step 2
 
+Latest baseline `886e17f`: start with [the next-step instructions](issue13_next_steps_886e17f.md). The earlier unsent-report replay case now passes, but three new adapter probes fail. Do not repeat completed fixes or interpret the historical findings below as the current verification record.
+
 Current instructions: [corrected ownership and remaining UUV work](issue13_uuv_corrections_and_remaining_work.md), reviewed at `92cd50e`. The `588e211` findings below are historical: the three original regressions now pass. Preserve their coverage, and address the newly reproduced journal-before-publication recovery failure. GCS/OCS backend implementation is owned by the GCS developer; it is not a prerequisite for local UUV verification.
 
 Baseline: local commit `588e211`, reviewed on October 10, 2026. This is an implementation checklist, not a completion claim. It follows Step 2 and acceptance gates S1–S8 in [the approved plan](issue13_rules_and_implementation_plan.md). The local audit is `/tmp/banyu-issue13-local-audit-588e211.md`; copy essential evidence into a durable verification record because `/tmp` is temporary.
