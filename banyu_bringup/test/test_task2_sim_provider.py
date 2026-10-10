@@ -142,8 +142,9 @@ def test_run_fixtures_are_run_tagged_and_need_active_run(rclpy_init):
         start = time.monotonic()
         while (not buoys or len(candidates) < 2) and time.monotonic() - start < 1.0:
             rclpy.spin_once(node, timeout_sec=0.05)
-        assert len(buoys) == 1
+        assert len(buoys) == 1  # republished at ~1 Hz, not every tick
         assert (buoys[0].run_id, buoys[0].epoch) == (7, 2)
+        assert buoys[0].fix.header.stamp == buoys[0].header.stamp
         assert buoys[0].green_confirmed and not buoys[0].pinger_confirmed
         assert buoys[0].source_id == 'uuv_buoy_localizer'
         assert candidates and all(c.candidate and c.run_id == 7 for c in candidates)

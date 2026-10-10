@@ -244,6 +244,7 @@ class Task2SimProvider(Node):
         self._course = None
         self._start_buoy_fix = None
         self._active_buoy_run = None
+        self._active_buoy_sent_s = 0.0
         self.create_subscription(
             RunLifecycle, "/banyu/mission/run_lifecycle", self._on_lifecycle, latched
         )
@@ -339,7 +340,11 @@ class Task2SimProvider(Node):
             return
         run = (lifecycle.run_id, lifecycle.epoch)
         stamp = self.get_clock().now().to_msg()
-        if self._start_buoy_fix is not None and self._active_buoy_run != run:
+        now_s = self.get_clock().now().nanoseconds * 1e-9
+        # Survey ingress only accepts recent buoy evidence, so re-assert the (fixed) ground
+        # truth position at about 1 Hz with fresh stamps while the run is active.
+        if self._start_buoy_fix is not None and (
+                self._active_buoy_run != run or now_s - self._active_buoy_sent_s >= 1.0):
             buoy = ActiveBuoyFix()
             buoy.header.stamp = stamp
             buoy.header.frame_id = "map"
@@ -348,16 +353,24 @@ class Task2SimProvider(Node):
             buoy.source_id = self.active_buoy_source_id
             buoy.course_id = self._course.course_id if self._course else ""
             buoy.endpoint_id = self.active_buoy_endpoint_id
-            buoy.fix = self._start_buoy_fix
+            buoy.fix = NavSatFix()
+            buoy.fix.header.frame_id = self._start_buoy_fix.header.frame_id
+            buoy.fix.header.stamp = stamp
+            buoy.fix.status = self._start_buoy_fix.status
+            buoy.fix.latitude = self._start_buoy_fix.latitude
+            buoy.fix.longitude = self._start_buoy_fix.longitude
+            buoy.fix.altitude = self._start_buoy_fix.altitude
             buoy.uncertainty_m = 1.0
             buoy.green_confirmed = True
             buoy.pinger_confirmed = False
             buoy.pinger_freq_hz = self._course.pinger_freq_hz if self._course else 0
             self.active_buoy_pub.publish(buoy)
+            if self._active_buoy_run != run:
+                self.get_logger().info(
+                    f"Simulated active buoy fix publishing for run {run[0]} epoch {run[1]}"
+                )
             self._active_buoy_run = run
-            self.get_logger().info(
-                f"Simulated active buoy fix published for run {run[0]} epoch {run[1]}"
-            )
+            self._active_buoy_sent_s = now_s
         pose = self._latest_vehicle_pose
         if not self._valid_vehicle_pose(pose):
             return
