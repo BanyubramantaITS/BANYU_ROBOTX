@@ -456,7 +456,9 @@ TEST(RingTracker, NextRingVisibleBeforePreviousLeavesIsAcceptedAfterMoving) {
   banyu_detection::RingTracker tracker(config);
   using Obs = banyu_msgs::msg::PipelineRingObservation;
   uint64_t seq = 1;
-  for (int i = 0; i < 3; ++i) {update(tracker, seq++, Obs::COLOR_RED, true, 0.0);}
+  for (int i = 0; i < 3; ++i) {
+    update(tracker, seq++, Obs::COLOR_RED, true, 0.0);
+  }
   ASSERT_EQ(tracker.records().size(), 1U);
   // Green comes into view while red is still tracked and never leaves the frame.
   EXPECT_FALSE(update(tracker, seq++, Obs::COLOR_GREEN, true, 0.05).accepted);

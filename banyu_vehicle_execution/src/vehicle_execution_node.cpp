@@ -209,7 +209,8 @@ void VehicleExecutionNode::initActionServers()
     acquire_confirm_frames);
   const double search_retrace_distance_m =
     declare_parameter<double>("control.search_retrace_distance_m", 1.5);
-  const double search_retrace_speed = declare_parameter<double>("control.search_retrace_speed", 0.2);
+  const double search_retrace_speed = declare_parameter<double>("control.search_retrace_speed",
+      0.2);
   auto search_server = std::make_shared<SearchPipelineServer>(
     this, search_action, this, 0.2, 0.3, search_retrace_distance_m, search_retrace_speed);
   auto follow_server = std::make_shared<FollowPipelineServer>(

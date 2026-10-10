@@ -688,11 +688,17 @@ TEST_F(MissionTest, SingleDroppedPipelineFrameDoesNotCountAsLosingThePipe)
     };
   using Observation = banyu_msgs::msg::PipelineObservation;
   EXPECT_TRUE(state->pipelineLost());
-  for (int i = 0; i < 5; ++i) {publish(Observation::TRACKED); spin_for(std::chrono::milliseconds(20));}
+  for (int i = 0; i < 5; ++i) {
+    publish(Observation::TRACKED);
+    spin_for(std::chrono::milliseconds(20));
+  }
   EXPECT_FALSE(state->pipelineLost());
   publish(Observation::NO_PIPE);
   spin_for(std::chrono::milliseconds(50));
   EXPECT_FALSE(state->pipelineLost());
-  for (int i = 0; i < 25; ++i) {publish(Observation::NO_PIPE); spin_for(std::chrono::milliseconds(20));}
+  for (int i = 0; i < 25; ++i) {
+    publish(Observation::NO_PIPE);
+    spin_for(std::chrono::milliseconds(20));
+  }
   EXPECT_TRUE(state->pipelineLost());
 }
