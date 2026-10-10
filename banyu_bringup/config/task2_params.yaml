@@ -36,7 +36,7 @@ banyu_mission:
     mission:
       task2_tier: 2
       surface_depth_m: 0.0
-      surface_tolerance_m: 0.2
+      surface_tolerance_m: 0.5
       max_retries: 3
       start_latitude: 33.810313
       start_longitude: -118.393866
@@ -193,7 +193,7 @@ uuv_comm_node:
       ingress_max_age_s: 2.0
       minimum_progress_separation_m: 0.0
       surface_hold_s: 1.0
-      surface_tolerance_m: 0.2
+      surface_tolerance_m: 0.5
       depth_timeout_s: 0.5
     topics:
       survey_evidence: "/banyu/pipeline/survey_evidence"
@@ -214,7 +214,9 @@ vehicle_execution_node:
       require_calibrated_surface_depth: true
       surface_hold_time_s: 1.0
       surface_depth_timeout_s: 0.5
-      surface_max_depth_m: 0.2
+      # Water depth is datum minus EKF baro altitude, which drifts ~0.2-0.4 m over a dive;
+      # 0.5 m matches the GPS surface tolerance used elsewhere in this file.
+      surface_max_depth_m: 0.5
       require_run_authorization: true
       run_lifecycle_timeout_s: 1.0
       enable_mavros_publish: true
