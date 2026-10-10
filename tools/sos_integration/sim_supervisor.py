@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Simulation-only operator stand-in for headless SITL runs (UUV domain 40).
+
+ArduSub SITL reports RC_CHANNELS with zero channels, so /mavros/rc/in never makes rc_fresh true.
+This publishes a neutral supervisor RC stream on /sim/supervisor_rc (point the vehicle status
+node's rc_topic at it, never on hardware) and logs RunLifecycle transitions, the received Course
+and incoming /system/mission/command messages to JSONL.
+
+Usage: ROS_DOMAIN_ID=40 python3 sim_supervisor.py OUT.jsonl
+"""
+import json
+import sys
+import time
+
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+
+from banyu_msgs.msg import RunLifecycle
+from mavros_msgs.msg import RCIn
+from rx_msgs.msg import Command, Course
+
+PHASES = ['IDLE', 'PREPARING', 'READY', 'INITIALIZING', 'ACTIVE', 'SURVEY_COMPLETE',
+          'SURFACED', 'SUCCEEDED', 'FAILED', 'INTERRUPTED']
+EVENTS = ['SNAPSHOT', 'START_ACCEPTED', 'START_DUPLICATE', 'START_REJECTED', 'TERMINAL']
+LATCHED = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                     durability=DurabilityPolicy.TRANSIENT_LOCAL)
+
+
+class SimSupervisor(Node):
+    def __init__(self, log_path):
+        super().__init__('sim_supervisor')
+        self.out = open(log_path, 'a', buffering=1)
+        self.rc = self.create_publisher(RCIn, '/sim/supervisor_rc', 10)
+        self.create_timer(0.1, lambda: self.rc.publish(RCIn(channels=[1500] * 8)))
+        self.last = None
+        self.create_subscription(RunLifecycle, '/banyu/mission/run_lifecycle', self.on_lifecycle,
+                                 LATCHED)
+        self.create_subscription(Course, '/system/mission/course', self.on_course, LATCHED)
+        self.create_subscription(Command, '/system/mission/command', self.on_command, 10)
+
+    def record(self, kind, **data):
+        data.update(kind=kind, t=time.time())
+        self.out.write(json.dumps(data) + '\n')
+        print(f'[uuv] {kind} {data}', flush=True)
+
+    def on_lifecycle(self, m):
+        key = (m.phase, m.event, m.reason, m.run_id)
+        if key != self.last:
+            self.last = key
+            self.record('lifecycle', phase=PHASES[m.phase], event=EVENTS[m.event], run_id=m.run_id,
+                        epoch=m.epoch, seq=m.command_seq, task=m.current_task, reason=m.reason,
+                        requested=m.requested_run_id)
+
+    def on_course(self, m):
+        self.record('course_received', course_id=m.course_id, pinger=m.pinger_freq_hz,
+                    corners=len(m.boundary))
+
+    def on_command(self, m):
+        self.record('command_received', type=m.command_type, seq=m.command_seq, run_id=m.run_id,
+                    target=m.target_vehicle)
+
+
+def main():
+    rclpy.init()
+    rclpy.spin(SimSupervisor(sys.argv[1]))
+
+
+if __name__ == '__main__':
+    main()
