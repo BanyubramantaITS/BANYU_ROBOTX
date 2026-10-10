@@ -58,6 +58,8 @@ public:
   uint32_t historicalHintRunId() const;
   bool hasReport(const std::string & report_id) const;
   PublicationState publicationState(const std::string & report_id) const;
+  bool hasValidAuthority(uint32_t run_id) const;
+  bool lifecycleReceived() const;
 
 private:
   void handleSubmission(const banyu_msgs::msg::Task2Submission::SharedPtr msg);
@@ -65,6 +67,9 @@ private:
   void handleCommand(const rx_msgs::msg::Command::SharedPtr msg);
   PublishOutcome publishPublicReport(const banyu_msgs::msg::Task2Submission & msg);
   void reconcilePendingReportsLocked();
+  bool hasValidAuthorityLocked(uint32_t run_id) const;
+  rcl_interfaces::msg::SetParametersResult handleParameters(
+    const std::vector<rclcpp::Parameter> & parameters);
 
   struct AcceptedReport
   {
@@ -115,6 +120,7 @@ private:
   rclcpp::Subscription<rx_msgs::msg::Command>::SharedPtr command_sub_;
   rclcpp::Publisher<rx_msgs::msg::PipelineSurvey>::SharedPtr survey_pub_;
   rclcpp::Publisher<rx_msgs::msg::ResourceDelivery>::SharedPtr delivery_pub_;
+  OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
 };
 
 }  // namespace banyu_communication

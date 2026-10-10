@@ -1138,3 +1138,182 @@ TEST_F(GcsSubmissionAdapterTest, PersistenceFailurePreservesInMemoryAuthority)
     std::filesystem::perms::all,
     std::filesystem::perm_options::replace);
 }
+
+TEST_F(GcsSubmissionAdapterTest, RetainedSnapshotWithSameRevisionRecoversPendingReportOnRestart)
+{
+  auto sub = createSurvey(15, 2, "retained-same-rev-report");
+  std::ofstream journal(test_journal_path_, std::ios::trunc);
+  ASSERT_TRUE(journal.is_open());
+  journal << "BANYU_GCS_ADAPTER_ACTIVE_CONTEXT 15 2 10 test_authority\n";
+  journal << "BANYU_GCS_ADAPTER_ENTRY_V3 15 2 1 retained-same-rev-report 1 PENDING "
+          << std::quoted(banyu_msgs::task2::canonicalPayload(sub)) << "\n";
+  journal.close();
+
+  restart(true);
+  EXPECT_EQ(adapter_node_->activeRunId(), 15u);
+  EXPECT_EQ(adapter_node_->activeEpoch(), 2u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+  EXPECT_FALSE(adapter_node_->lifecycleReceived());
+
+  // Transient-local retained message arriving on restart has exact same revision=10
+  banyu_msgs::msg::RunLifecycle msg;
+  msg.header.stamp = test_node_->now();
+  msg.header.frame_id = "uuv";
+  msg.authority_instance = "test_authority";
+  msg.revision = 10;
+  msg.run_id = 15;
+  msg.epoch = 2;
+  msg.phase = banyu_msgs::msg::RunLifecycle::ACTIVE;
+  msg.event = banyu_msgs::msg::RunLifecycle::SNAPSHOT;
+  msg.requested_run_id = 15;
+  lifecycle_pub_->publish(msg);
+  spinFor(150ms);
+
+  EXPECT_TRUE(adapter_node_->lifecycleReceived());
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest,
+  StartRejectedArrivingAsFirstMessageEstablishesAcceptedContextAndRecovers)
+{
+  auto sub = createSurvey(15, 1, "rejected-first-msg-report");
+  std::ofstream journal(test_journal_path_, std::ios::trunc);
+  ASSERT_TRUE(journal.is_open());
+  journal << "BANYU_GCS_ADAPTER_ENTRY_V3 15 1 1 rejected-first-msg-report 1 PENDING "
+          << std::quoted(banyu_msgs::task2::canonicalPayload(sub)) << "\n";
+  journal.close();
+
+  restart(true);
+  EXPECT_EQ(adapter_node_->activeRunId(), 0u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+
+  // START_REJECTED arriving as first lifecycle message describes accepted run 15 and rejected command 99
+  banyu_msgs::msg::RunLifecycle msg;
+  msg.header.stamp = test_node_->now();
+  msg.header.frame_id = "uuv";
+  msg.authority_instance = "coord_inst";
+  msg.revision = 1;
+  msg.run_id = 15;
+  msg.epoch = 1;
+  msg.phase = banyu_msgs::msg::RunLifecycle::ACTIVE;
+  msg.event = banyu_msgs::msg::RunLifecycle::START_REJECTED;
+  msg.requested_run_id = 99;
+  lifecycle_pub_->publish(msg);
+  spinFor(150ms);
+
+  EXPECT_EQ(adapter_node_->activeRunId(), 15u);
+  EXPECT_TRUE(adapter_node_->lifecycleReceived());
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, TerminalLifecycleWithOlderSourceAgeAcceptedForReportRecovery)
+{
+  auto sub = createSurvey(15, 1, "terminal-old-source-report");
+  std::ofstream journal(test_journal_path_, std::ios::trunc);
+  ASSERT_TRUE(journal.is_open());
+  journal << "BANYU_GCS_ADAPTER_ENTRY_V3 15 1 1 terminal-old-source-report 1 PENDING "
+          << std::quoted(banyu_msgs::task2::canonicalPayload(sub)) << "\n";
+  journal.close();
+
+  restart(true);
+
+  // Terminal lifecycle with timestamp 10 seconds in the past (> 5s lifecycle_timeout_s)
+  banyu_msgs::msg::RunLifecycle msg;
+  msg.header.stamp = test_node_->now() - rclcpp::Duration::from_seconds(10.0);
+  msg.header.frame_id = "uuv";
+  msg.authority_instance = "coord_terminal";
+  msg.revision = 1;
+  msg.run_id = 15;
+  msg.epoch = 1;
+  msg.phase = banyu_msgs::msg::RunLifecycle::SUCCEEDED;
+  msg.event = banyu_msgs::msg::RunLifecycle::TERMINAL;
+  msg.requested_run_id = 15;
+  lifecycle_pub_->publish(msg);
+  spinFor(150ms);
+
+  EXPECT_EQ(adapter_node_->activeRunId(), 15u);
+  EXPECT_TRUE(adapter_node_->lifecycleReceived());
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest,
+  SubmissionArrivingBeforeLifecycleOnRestartRemainsPendingUntilLifecycleArrives)
+{
+  std::ofstream journal(test_journal_path_, std::ios::trunc);
+  ASSERT_TRUE(journal.is_open());
+  journal << "BANYU_GCS_ADAPTER_ACTIVE_CONTEXT 15 1 5 coord_prev\n";
+  journal.close();
+
+  restart(true);
+  EXPECT_EQ(adapter_node_->activeRunId(), 15u);
+  EXPECT_FALSE(adapter_node_->lifecycleReceived());
+
+  // Report arrives before any lifecycle message in this process
+  auto sub = createSurvey(15, 1, "before-lifecycle-report");
+  submission_pub_->publish(sub);
+  spinFor(150ms);
+
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
+  EXPECT_TRUE(received_surveys_.empty());
+
+  // Valid lifecycle arrives
+  publishLifecycle(15, 1);
+  spinFor(150ms);
+
+  EXPECT_TRUE(adapter_node_->lifecycleReceived());
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest,
+  DynamicParameterToggleEnablesForwardingAndRecoversPendingWithoutRestart)
+{
+  restart(false);
+  publishLifecycle(15, 1);
+
+  auto sub = createSurvey(15, 1, "param-toggle-report");
+  submission_pub_->publish(sub);
+  spinFor(150ms);
+
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
+  EXPECT_TRUE(received_surveys_.empty());
+
+  // Dynamically set parameter forward_to_rx_topics to true
+  auto result = adapter_node_->set_parameter(rclcpp::Parameter("forward_to_rx_topics", true));
+  EXPECT_TRUE(result.successful);
+  spinFor(150ms);
+
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, PhaseInitializingWithZeroRunIdOrEpochIsRejected)
+{
+  restart(true);
+
+  banyu_msgs::msg::RunLifecycle msg;
+  msg.header.stamp = test_node_->now();
+  msg.header.frame_id = "uuv";
+  msg.authority_instance = "coord_invalid";
+  msg.revision = 1;
+  msg.run_id = 0;  // invalid: zero in active phase
+  msg.epoch = 1;
+  msg.phase = banyu_msgs::msg::RunLifecycle::INITIALIZING;
+  msg.event = banyu_msgs::msg::RunLifecycle::SNAPSHOT;
+  msg.requested_run_id = 0;
+  lifecycle_pub_->publish(msg);
+  spinFor(100ms);
+
+  EXPECT_EQ(adapter_node_->activeRunId(), 0u);
+  EXPECT_FALSE(adapter_node_->lifecycleReceived());
+}

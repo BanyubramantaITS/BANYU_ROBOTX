@@ -61,6 +61,9 @@ GcsSubmissionAdapter::GcsSubmissionAdapter(const rclcpp::NodeOptions & options)
   delivery_pub_ = create_publisher<rx_msgs::msg::ResourceDelivery>(
     delivery_topic, rclcpp::QoS(10).reliable().transient_local());
 
+  param_callback_handle_ = add_on_set_parameters_callback(
+    std::bind(&GcsSubmissionAdapter::handleParameters, this, std::placeholders::_1));
+
   RCLCPP_INFO(
     get_logger(),
     "GcsSubmissionAdapter initialized: forward_to_rx=%d, submission_topic='%s', "
@@ -156,6 +159,56 @@ GcsSubmissionAdapter::PublicationState GcsSubmissionAdapter::publicationState(
   return entry_it->second.pub_state;
 }
 
+bool GcsSubmissionAdapter::hasValidAuthority(uint32_t run_id) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return hasValidAuthorityLocked(run_id);
+}
+
+bool GcsSubmissionAdapter::lifecycleReceived() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return lifecycle_received_;
+}
+
+bool GcsSubmissionAdapter::hasValidAuthorityLocked(uint32_t run_id) const
+{
+  if (!lifecycle_received_ || active_run_id_ == 0 || run_id != active_run_id_) {
+    return false;
+  }
+  const bool terminal = (phase_ == banyu_msgs::msg::RunLifecycle::SUCCEEDED ||
+    phase_ == banyu_msgs::msg::RunLifecycle::FAILED ||
+    phase_ == banyu_msgs::msg::RunLifecycle::INTERRUPTED);
+  if (terminal) {
+    return true;
+  }
+  const double elapsed = std::chrono::duration<double>(
+    std::chrono::steady_clock::now() - last_lifecycle_time_).count();
+  return elapsed <= lifecycle_timeout_s_;
+}
+
+rcl_interfaces::msg::SetParametersResult GcsSubmissionAdapter::handleParameters(
+  const std::vector<rclcpp::Parameter> & parameters)
+{
+  rcl_interfaces::msg::SetParametersResult result;
+  result.successful = true;
+  for (const auto & param : parameters) {
+    if (param.get_name() == "forward_to_rx_topics") {
+      std::lock_guard<std::mutex> lock(mutex_);
+      const bool prev = forward_to_rx_topics_;
+      forward_to_rx_topics_ = param.as_bool();
+      RCLCPP_INFO(
+        get_logger(),
+        "Runtime parameter update: forward_to_rx_topics changed from %d to %d",
+        prev, forward_to_rx_topics_);
+      if (!prev && forward_to_rx_topics_) {
+        reconcilePendingReportsLocked();
+      }
+    }
+  }
+  return result;
+}
+
 void GcsSubmissionAdapter::handleCommand(const rx_msgs::msg::Command::SharedPtr msg)
 {
   if (!msg) {
@@ -192,7 +245,12 @@ void GcsSubmissionAdapter::handleLifecycle(const banyu_msgs::msg::RunLifecycle::
 
   const double source_age = (now() - rclcpp::Time(msg->header.stamp,
     get_clock()->get_clock_type())).seconds();
-  if (source_age < -1.0 || source_age > lifecycle_timeout_s_) {
+  const bool is_terminal = (msg->phase == Lifecycle::INTERRUPTED ||
+    msg->phase == Lifecycle::FAILED ||
+    msg->phase == Lifecycle::SUCCEEDED ||
+    msg->event == Lifecycle::TERMINAL);
+
+  if (source_age < -1.0 || (!is_terminal && source_age > lifecycle_timeout_s_)) {
     RCLCPP_WARN(
       get_logger(),
       "Rejected RunLifecycle with out-of-window source age: %.3fs (timeout: %.3fs)",
@@ -201,9 +259,12 @@ void GcsSubmissionAdapter::handleLifecycle(const banyu_msgs::msg::RunLifecycle::
   }
 
   if (msg->authority_instance.empty() || msg->revision == 0 ||
-    msg->phase > Lifecycle::INTERRUPTED)
+    msg->phase > Lifecycle::INTERRUPTED ||
+    (msg->phase >= Lifecycle::INITIALIZING && (msg->run_id == 0 || msg->epoch == 0)))
   {
-    RCLCPP_WARN(get_logger(), "Rejected RunLifecycle with empty authority or invalid phase");
+    RCLCPP_WARN(
+      get_logger(),
+      "Rejected RunLifecycle with empty authority, invalid phase, or zero run/epoch in active phase");
     return;
   }
 
@@ -215,57 +276,66 @@ void GcsSubmissionAdapter::handleLifecycle(const banyu_msgs::msg::RunLifecycle::
     return;
   }
 
-  const bool has_prior_context = lifecycle_received_ || active_epoch_ != 0 || active_run_id_ != 0;
-  if (has_prior_context) {
+  if (!authority_instance_.empty() && msg->authority_instance != authority_instance_) {
+    const bool live = (phase_ >= Lifecycle::INITIALIZING && phase_ <= Lifecycle::SURFACED);
+    const bool fresh = lifecycle_received_ && (std::chrono::duration<double>(
+      std::chrono::steady_clock::now() - last_lifecycle_time_).count() <= lifecycle_timeout_s_);
+    if (live && fresh && msg->epoch == active_epoch_) {
+      RCLCPP_WARN(
+        get_logger(),
+        "Rejected RunLifecycle authority replacement while previous authority is active and fresh");
+      return;
+    }
+    retired_authorities_.insert(authority_instance_);
+  }
+
+  if (active_epoch_ != 0 && msg->epoch < active_epoch_) {
+    RCLCPP_WARN(
+      get_logger(),
+      "Rejected RunLifecycle with lower epoch=%lu than active_epoch=%lu",
+      msg->epoch, active_epoch_);
+    return;
+  }
+  if (active_epoch_ != 0 && msg->epoch == active_epoch_ && active_run_id_ != 0 &&
+    msg->run_id != active_run_id_)
+  {
+    RCLCPP_WARN(
+      get_logger(),
+      "Rejected RunLifecycle with conflicting run_id=%u for current active epoch=%lu",
+      msg->run_id, msg->epoch);
+    return;
+  }
+
+  if (lifecycle_received_) {
     if (!authority_instance_.empty() && msg->authority_instance == authority_instance_ &&
       msg->revision <= lifecycle_revision_)
     {
       return;
     }
-    if (active_epoch_ != 0 && msg->epoch < active_epoch_) {
-      RCLCPP_WARN(
-        get_logger(),
-        "Rejected RunLifecycle with lower epoch=%lu than active_epoch=%lu",
-        msg->epoch, active_epoch_);
-      return;
-    }
-    if (active_epoch_ != 0 && msg->epoch == active_epoch_ && active_run_id_ != 0 &&
-      msg->run_id != active_run_id_)
+  } else {
+    if (!authority_instance_.empty() && msg->authority_instance == authority_instance_ &&
+      msg->revision < lifecycle_revision_)
     {
       RCLCPP_WARN(
         get_logger(),
-        "Rejected RunLifecycle with conflicting run_id=%u for current active epoch=%lu",
-        msg->run_id, msg->epoch);
+        "Rejected RunLifecycle with stale revision=%lu compared to persisted revision=%lu",
+        msg->revision, lifecycle_revision_);
       return;
-    }
-    if (!authority_instance_.empty() && msg->authority_instance != authority_instance_) {
-      const bool live = (phase_ >= Lifecycle::INITIALIZING && phase_ <= Lifecycle::SURFACED);
-      const bool fresh = lifecycle_received_ && (std::chrono::duration<double>(
-        std::chrono::steady_clock::now() - last_lifecycle_time_).count() <= lifecycle_timeout_s_);
-      if (live && fresh && msg->epoch == active_epoch_) {
-        RCLCPP_WARN(
-          get_logger(),
-          "Rejected RunLifecycle authority replacement while previous authority is active and fresh");
-        return;
-      }
-      retired_authorities_.insert(authority_instance_);
     }
   }
 
   if (msg->event == Lifecycle::START_REJECTED) {
     RCLCPP_INFO(
       get_logger(),
-      "RunLifecycle reported START_REJECTED for requested_run_id=%u; active_run_id=%u preserved",
-      msg->requested_run_id, active_run_id_);
-    last_lifecycle_time_ = std::chrono::steady_clock::now();
-    return;
+      "RunLifecycle reported START_REJECTED for requested_run_id=%u; accepted run_id=%u preserved",
+      msg->requested_run_id, msg->run_id);
   }
 
   const bool is_start_accepted = (msg->event == Lifecycle::START_ACCEPTED);
-  const bool is_active_context = (msg->phase >= Lifecycle::INITIALIZING &&
-    msg->phase <= Lifecycle::SURFACED && msg->event != Lifecycle::TERMINAL);
+  const bool is_active_or_terminal_context = (msg->phase >= Lifecycle::INITIALIZING &&
+    msg->phase <= Lifecycle::INTERRUPTED);
 
-  if ((is_start_accepted || is_active_context) && msg->run_id != 0 && msg->epoch != 0) {
+  if ((is_start_accepted || is_active_or_terminal_context) && msg->run_id != 0 && msg->epoch != 0) {
     const bool is_new_run = (msg->run_id != active_run_id_ || msg->epoch > active_epoch_);
     if (is_new_run) {
       std::string run_err;
@@ -286,7 +356,9 @@ void GcsSubmissionAdapter::handleLifecycle(const banyu_msgs::msg::RunLifecycle::
 
       for (auto & pair : accepted_by_key_) {
         auto & report = pair.second;
-        if (report.run_id != active_run_id_ && report.pub_state == PublicationState::PENDING) {
+        if ((report.run_id != active_run_id_ || report.epoch < active_epoch_) &&
+          report.pub_state == PublicationState::PENDING)
+        {
           report.pub_state = PublicationState::SUPPRESSED_NEW_RUN;
           std::string sup_err;
           if (!appendPubSuppressed(report, sup_err)) {
@@ -299,8 +371,8 @@ void GcsSubmissionAdapter::handleLifecycle(const banyu_msgs::msg::RunLifecycle::
           } else {
             RCLCPP_WARN(
               get_logger(),
-              "Unresolved report '%s' (run_id=%u) suppressed under new accepted run_id=%u",
-              report.report_id.c_str(), report.run_id, active_run_id_);
+              "Unresolved report '%s' (run_id=%u, epoch=%lu) suppressed under new accepted run_id=%u, epoch=%lu",
+              report.report_id.c_str(), report.run_id, report.epoch, active_run_id_, active_epoch_);
           }
         }
       }
@@ -318,9 +390,7 @@ void GcsSubmissionAdapter::handleLifecycle(const banyu_msgs::msg::RunLifecycle::
   phase_ = msg->phase;
   lifecycle_received_ = true;
 
-  if (msg->phase == Lifecycle::INTERRUPTED || msg->phase == Lifecycle::FAILED ||
-    msg->phase == Lifecycle::SUCCEEDED || msg->event == Lifecycle::TERMINAL)
-  {
+  if (is_terminal) {
     RCLCPP_INFO(
       get_logger(),
       "RunLifecycle reported terminal phase=%u (preserving durable accepted reports)",
@@ -399,7 +469,9 @@ void GcsSubmissionAdapter::reconcilePendingReportsLocked()
 
   for (auto & pair : accepted_by_key_) {
     auto & report = pair.second;
-    if (report.pub_state == PublicationState::PENDING && report.run_id == active_run_id_) {
+    if (report.pub_state == PublicationState::PENDING &&
+      hasValidAuthorityLocked(report.run_id))
+    {
       banyu_msgs::msg::Task2Submission sub;
       if (!banyu_msgs::task2::parseSubmission(report.payload, sub)) {
         RCLCPP_ERROR(
@@ -481,9 +553,7 @@ void GcsSubmissionAdapter::handleSubmission(const banyu_msgs::msg::Task2Submissi
             msg->report_id.c_str());
           return;
         }
-        if (active_run_id_ != 0 && msg->run_id == active_run_id_ &&
-          (active_epoch_ == 0 || msg->epoch == active_epoch_))
-        {
+        if (hasValidAuthorityLocked(msg->run_id)) {
           RCLCPP_INFO(
             get_logger(),
             "Publishing pending Task2Submission (report_id='%s')",
@@ -567,9 +637,7 @@ void GcsSubmissionAdapter::handleSubmission(const banyu_msgs::msg::Task2Submissi
     msg->report_id.c_str(), msg->run_id, msg->epoch, msg->kind, msg->tier,
     msg->authorization_revision);
 
-  if (forward_to_rx_topics_ && active_run_id_ != 0 && msg->run_id == active_run_id_ &&
-    (active_epoch_ == 0 || msg->epoch == active_epoch_))
-  {
+  if (forward_to_rx_topics_ && hasValidAuthorityLocked(msg->run_id)) {
     PublishOutcome outcome = publishPublicReport(*msg);
     if (outcome == PublishOutcome::Attempted) {
       auto & stored = accepted_by_key_[key];

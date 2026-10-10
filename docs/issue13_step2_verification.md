@@ -10,8 +10,8 @@ This entry records the completion and verification of the instructions in `docs/
   - Explicit publication outcomes (`Attempted`, `Disabled`, `Failed`), keeping reports `PENDING` when forwarding is disabled and marking `ATTEMPTED` only upon actual ROS publication.
   - Registered regressions for wrong-target starts, mission-rejected conflicting starts, and disabled-forwarding recovery in `test_gcs_submission_adapter.cpp`.
   - Registered real integration test suite linking `RunCoordinator`, `UuvCommNode`, and `GcsSubmissionAdapter` without mocks for lifecycle or sealing in `test_mission_report_integration.cpp`.
-- **C++ gtest Count**: **301 C++ gtest cases across all 9 packages, zero failures/errors**.
-- **Aggregate Colcon Result**: `Summary: 699 tests, 0 errors, 0 failures, 155 skipped`.
+- **C++ gtest Count**: **330 C++ gtest cases across all 9 packages, zero failures/errors**.
+- **Aggregate Colcon Result**: `Summary: 706 tests, 0 errors, 0 failures, 155 skipped`.
 - **Communication Smoke Test**: `python3 src/BANYU_ROBOTX/banyu_communication/test/sos_gcs_mock.py` — all 6 Team GCS communication checks PASS.
 - **Linters & Style**: `ament_uncrustify`, `ament_flake8`, `ament_pep257`, and `git diff --check` pass with zero divergences.
 - **Probe Outcomes (previously failing at 886e17f)**:
@@ -27,6 +27,14 @@ This entry records the completion and verification of the instructions in `docs/
   - `AdapterRestartDoesNotDuplicatePublication`: PASS.
   - `DisabledForwardingRecoveryPreservesPendingAndRecovers`: PASS.
   - `StaleEpochAndDelayedPreviousRunResponseRejected`: PASS.
+  - `RestartUnderRetainedSnapshotWithSameRevisionRecoversPendingReport`: PASS.
+- **Supplemental Edge Case Regression Probes (`test_gcs_submission_adapter.cpp`)**:
+  - `RetainedSnapshotWithSameRevisionRecoversPendingReportOnRestart`: PASS.
+  - `StartRejectedArrivingAsFirstMessageEstablishesAcceptedContextAndRecovers`: PASS.
+  - `TerminalLifecycleWithOlderSourceAgeAcceptedForReportRecovery`: PASS.
+  - `SubmissionArrivingBeforeLifecycleOnRestartRemainsPendingUntilLifecycleArrives`: PASS.
+  - `DynamicParameterToggleEnablesForwardingAndRecoversPendingWithoutRestart`: PASS.
+  - `PhaseInitializingWithZeroRunIdOrEpochIsRejected`: PASS.
 - **Remaining Open Gates**:
   - Qualified `ActiveBuoyFix` and `PipelineEndCandidate` producers (Work C).
   - RingTracker physical association and topology (Work D).

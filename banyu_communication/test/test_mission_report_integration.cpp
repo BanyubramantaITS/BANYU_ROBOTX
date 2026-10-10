@@ -657,3 +657,37 @@ TEST_F(MissionReportIntegrationTest, StaleEpochAndDelayedPreviousRunResponseReje
   EXPECT_FALSE(adapter_node_->hasReport("delayed-stale-run15"));
   EXPECT_EQ(adapter_node_->activeRunId(), 16u);
 }
+
+// Case 9: Restart under retained snapshot with same revision recovers pending report
+TEST_F(MissionReportIntegrationTest,
+  RestartUnderRetainedSnapshotWithSameRevisionRecoversPendingReport)
+{
+  stopAdapterNode();
+  startAdapterNode(false);
+
+  startRun(15, 1);
+  feedEvidence();
+  surfaceVehicle();
+
+  auto req = std::make_shared<banyu_msgs::srv::TriggerPipelineSurvey::Request>();
+  req->run_id = 15;
+  req->epoch = active_epoch_;
+  req->report_id = "same-rev-integ";
+  auto future = survey_client_->async_send_request(req);
+  ASSERT_TRUE(spinUntil([&future]() {return future.wait_for(0s) == std::future_status::ready;}));
+  EXPECT_TRUE(future.get()->success);
+
+  spinFor(100ms);
+  EXPECT_TRUE(received_surveys_.empty());
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+
+  // Restart adapter with forwarding enabled without manually republishing lifecycle;
+  // transient-local QoS delivers the retained snapshot with the same revision.
+  stopAdapterNode();
+  startAdapterNode(true);
+
+  ASSERT_TRUE(spinUntil([this]() {return !received_surveys_.empty();}));
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+}
