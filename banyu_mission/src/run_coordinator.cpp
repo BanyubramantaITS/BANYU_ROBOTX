@@ -101,6 +101,9 @@ bool RunCoordinator::beginPreparation()
   }
   snapshot_.phase = Phase::Preparing;
   snapshot_.reason.clear();
+  // RoboCommand numbers commands per session, so an explicit operator preparation opens a new
+  // sequence window. Already accepted run_ids still never restart.
+  max_accepted_sequence_ = 0;
   return true;
 }
 
@@ -170,13 +173,16 @@ RunCoordinator::StartResult RunCoordinator::requestStart(
   const Snapshot next{run_id, command_seq, snapshot_.epoch + 1, Phase::Initializing, {}};
   auto accepted = accepted_runs_;
   accepted.emplace(run_id, command_seq);
+  auto epochs = accepted_epochs_;
+  epochs.emplace(run_id, next.epoch);
   std::string error;
-  if (!persist(next, accepted, error)) {
+  if (!persist(next, accepted, error, nullptr, &epochs)) {
     journal_error_ = error;
     return result(Disposition::Rejected, "JOURNAL_UNAVAILABLE: " + error);
   }
   snapshot_ = next;
   accepted_runs_ = std::move(accepted);
+  accepted_epochs_ = std::move(epochs);
   max_accepted_sequence_ = command_seq;
   return result(Disposition::Accepted, "RUN_ACCEPTED_INITIALIZING");
 }
@@ -284,17 +290,24 @@ RunCoordinator::Snapshot RunCoordinator::snapshot() const
 
 bool RunCoordinator::persist(
   const Snapshot & snapshot, const std::map<uint32_t, uint32_t> & accepted_runs,
-  std::string & error, const Seals * seals) const
+  std::string & error, const Seals * seals,
+  const std::map<uint32_t, uint64_t> * accepted_epochs) const
 {
   if (journal_path_.empty()) {
     return true;
   }
+  const auto & epochs = accepted_epochs ? *accepted_epochs : accepted_epochs_;
   std::ostringstream output;
-  output << "BANYU_RUN_COORDINATOR_V1\n" << snapshot.epoch << ' ' << snapshot.run_id << ' ' <<
+  output << "BANYU_RUN_COORDINATOR_V2\n" << snapshot.epoch << ' ' << snapshot.run_id << ' ' <<
     snapshot.command_seq << ' ' << static_cast<int>(snapshot.phase) << '\n' <<
     std::quoted(snapshot.reason) << '\n' << accepted_runs.size() << '\n';
   for (const auto & entry : accepted_runs) {
-    output << entry.first << ' ' << entry.second << '\n';
+    const auto epoch = epochs.find(entry.first);
+    if (epoch == epochs.end()) {
+      error = "accepted run has no recorded epoch";
+      return false;
+    }
+    output << entry.first << ' ' << entry.second << ' ' << epoch->second << '\n';
   }
   const auto & reports = seals ? *seals : seals_;
   output << "SEALS_V1 " << reports.size() << '\n';
@@ -386,7 +399,8 @@ void RunCoordinator::loadJournal()
   uint64_t command_seq = 0;
   std::size_t count = 0;
   if (!(input >> format >> loaded.epoch >> run_id >> command_seq >> phase >>
-    std::quoted(loaded.reason) >> count) || format != "BANYU_RUN_COORDINATOR_V1" ||
+    std::quoted(loaded.reason) >> count) ||
+    (format != "BANYU_RUN_COORDINATOR_V1" && format != "BANYU_RUN_COORDINATOR_V2") ||
     run_id == 0 || run_id > std::numeric_limits<uint32_t>::max() ||
     command_seq == 0 || command_seq > std::numeric_limits<uint32_t>::max() ||
     phase < static_cast<int>(Phase::Initializing) || phase > static_cast<int>(Phase::Interrupted) ||
@@ -398,29 +412,47 @@ void RunCoordinator::loadJournal()
   loaded.run_id = static_cast<uint32_t>(run_id);
   loaded.command_seq = static_cast<uint32_t>(command_seq);
   loaded.phase = static_cast<Phase>(phase);
+  const bool explicit_epochs = format == "BANYU_RUN_COORDINATOR_V2";
   std::map<uint32_t, uint32_t> accepted;
   std::map<uint32_t, uint32_t> sequences;
+  std::map<uint32_t, uint64_t> epochs;
+  std::map<uint64_t, uint32_t> runs_by_epoch;
   uint32_t maximum = 0;
   for (std::size_t i = 0; i < count; ++i) {
-    if (!(input >> run_id >> command_seq) || run_id == 0 ||
-      run_id > std::numeric_limits<uint32_t>::max() || command_seq == 0 ||
-      command_seq > std::numeric_limits<uint32_t>::max())
+    uint64_t entry_epoch = 0;
+    if (!(input >> run_id >> command_seq) || (explicit_epochs && !(input >> entry_epoch)) ||
+      run_id == 0 || run_id > std::numeric_limits<uint32_t>::max() || command_seq == 0 ||
+      command_seq > std::numeric_limits<uint32_t>::max() ||
+      (explicit_epochs && (entry_epoch == 0 || entry_epoch > count)))
     {
       journal_error_ = "invalid accepted-run journal entry";
       return;
     }
     const auto id = static_cast<uint32_t>(run_id);
     const auto sequence = static_cast<uint32_t>(command_seq);
-    if (!accepted.emplace(id, sequence).second || !sequences.emplace(sequence, id).second) {
+    // V1 journals ordered runs by globally increasing sequence; V2 records each epoch.
+    if (!accepted.emplace(id, sequence).second ||
+      (!explicit_epochs && !sequences.emplace(sequence, id).second) ||
+      (explicit_epochs && (!epochs.emplace(id, entry_epoch).second ||
+      !runs_by_epoch.emplace(entry_epoch, id).second)))
+    {
       journal_error_ = "duplicate accepted-run journal identity";
       return;
     }
     maximum = std::max(maximum, sequence);
   }
+  if (!explicit_epochs) {
+    uint64_t sequence_epoch = 0;
+    for (const auto & sequence : sequences) {
+      epochs.emplace(sequence.second, ++sequence_epoch);
+    }
+  }
   input >> std::ws;
   const auto current = accepted.find(loaded.run_id);
+  const auto current_epoch = epochs.find(loaded.run_id);
   if (current == accepted.end() || current->second != loaded.command_seq ||
-    loaded.command_seq != maximum)
+    current_epoch == epochs.end() || current_epoch->second != loaded.epoch ||
+    (!explicit_epochs && loaded.command_seq != maximum))
   {
     journal_error_ = "inconsistent accepted-run journal";
     return;
@@ -432,11 +464,6 @@ void RunCoordinator::loadJournal()
     if (!(input >> section >> seal_count) || section != "SEALS_V1" || seal_count > count * 2) {
       journal_error_ = "invalid seal journal section";
       return;
-    }
-    std::map<uint32_t, uint64_t> epochs;
-    uint64_t sequence_epoch = 0;
-    for (const auto & sequence : sequences) {
-      epochs.emplace(sequence.second, ++sequence_epoch);
     }
     std::map<std::string, bool> report_ids;
     for (std::size_t i = 0; i < seal_count; ++i) {
@@ -470,7 +497,8 @@ void RunCoordinator::loadJournal()
     }
   }
   accepted_runs_ = std::move(accepted);
-  max_accepted_sequence_ = maximum;
+  accepted_epochs_ = std::move(epochs);
+  max_accepted_sequence_ = explicit_epochs ? loaded.command_seq : maximum;
   seals_ = std::move(loaded_seals);
   snapshot_ = std::move(loaded);
   if (!terminalPhase(snapshot_.phase)) {

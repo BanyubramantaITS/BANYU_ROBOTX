@@ -134,18 +134,15 @@ TEST(RunCoordinator, RejectsConflictingAndInvalidStartsWithoutMutation)
   expectSame(coordinator.snapshot(), active);
 }
 
-TEST(RunCoordinator, RunIdsNeedNotIncreaseButAcceptedSequencesMust)
+TEST(RunCoordinator, OperatorPreparationOpensNewSequenceWindow)
 {
   Coordinator coordinator;
   prepare(coordinator);
   ASSERT_EQ(coordinator.requestStart(900, 10, true).disposition, Disposition::Accepted);
   ASSERT_TRUE(coordinator.transition(1, Phase::Interrupted, "operator abort"));
   prepare(coordinator);
-  const auto ready = coordinator.snapshot();
-  EXPECT_EQ(coordinator.requestStart(2, 9, true).disposition, Disposition::Rejected);
-  EXPECT_EQ(coordinator.requestStart(2, 10, true).disposition, Disposition::Rejected);
-  expectSame(coordinator.snapshot(), ready);
-  const auto accepted = coordinator.requestStart(2, 11, true);
+  // A restarted RoboCommand session numbers commands from 1 again.
+  const auto accepted = coordinator.requestStart(2, 1, true);
   ASSERT_EQ(accepted.disposition, Disposition::Accepted);
   EXPECT_EQ(accepted.snapshot.epoch, 2u);
   EXPECT_EQ(accepted.snapshot.run_id, 2u);
@@ -268,10 +265,61 @@ TEST_F(JournalFixture, PersistsAcceptanceBeforeInitializationAndRejectsRestartRe
   expectSame(restarted.snapshot(), interrupted);
   EXPECT_FALSE(restarted.completeInitialization(1));
   prepare(restarted);
-  EXPECT_EQ(restarted.requestStart(14, 10, true).disposition, Disposition::Rejected);
-  const auto next = restarted.requestStart(14, 11, true);
+  EXPECT_EQ(restarted.requestStart(13, 1, true).disposition, Disposition::Duplicate);
+  const auto next = restarted.requestStart(14, 1, true);
   ASSERT_EQ(next.disposition, Disposition::Accepted);
   EXPECT_EQ(next.snapshot.epoch, 2u);
+}
+
+TEST_F(JournalFixture, NewRoboCommandSessionSequencesSurviveRestart)
+{
+  {
+    Coordinator coordinator(journal_);
+    prepare(coordinator);
+    ASSERT_EQ(coordinator.requestStart(77, 30, true).disposition, Disposition::Accepted);
+    ASSERT_TRUE(coordinator.transition(1, Phase::Failed, "execution failed"));
+    prepare(coordinator);
+    ASSERT_EQ(coordinator.requestStart(78, 1, true).disposition, Disposition::Accepted);
+    ASSERT_TRUE(coordinator.transition(2, Phase::Failed, "execution failed"));
+  }
+  Coordinator restarted(journal_);
+  const auto failed = restarted.snapshot();
+  EXPECT_EQ(failed.phase, Phase::Failed);
+  EXPECT_EQ(failed.run_id, 78u);
+  EXPECT_EQ(failed.command_seq, 1u);
+  EXPECT_EQ(failed.epoch, 2u);
+  EXPECT_EQ(restarted.requestStart(77, 30, true).disposition, Disposition::Duplicate);
+  EXPECT_EQ(restarted.requestStart(77, 1, true).disposition, Disposition::Rejected);
+  EXPECT_EQ(restarted.requestStart(78, 1, true).disposition, Disposition::Duplicate);
+  expectSame(restarted.snapshot(), failed);
+  prepare(restarted);
+  const auto next = restarted.requestStart(79, 1, true);
+  ASSERT_EQ(next.disposition, Disposition::Accepted);
+  EXPECT_EQ(next.snapshot.epoch, 3u);
+}
+
+TEST_F(JournalFixture, LoadsLegacyV1JournalWithSequenceOrderedEpochs)
+{
+  {
+    std::ofstream legacy(journal_);
+    legacy << "BANYU_RUN_COORDINATOR_V1\n2 14 11 8\n\"execution failed\"\n2\n13 10\n14 11\n"
+      "SEALS_V1 0\n";
+  }
+  {
+    Coordinator coordinator(journal_);
+    const auto loaded = coordinator.snapshot();
+    EXPECT_EQ(loaded.phase, Phase::Failed);
+    EXPECT_EQ(loaded.run_id, 14u);
+    EXPECT_EQ(loaded.epoch, 2u);
+    EXPECT_EQ(coordinator.requestStart(13, 10, true).disposition, Disposition::Duplicate);
+    prepare(coordinator);
+    const auto next = coordinator.requestStart(15, 1, true);
+    ASSERT_EQ(next.disposition, Disposition::Accepted);
+    EXPECT_EQ(next.snapshot.epoch, 3u);
+  }
+  Coordinator rewritten(journal_);
+  EXPECT_EQ(rewritten.snapshot().run_id, 15u);
+  EXPECT_EQ(rewritten.snapshot().epoch, 3u);
 }
 
 TEST_F(JournalFixture, PersistsTerminalFailureAndAcceptedHistoryAcrossMultipleRestarts)
@@ -296,7 +344,10 @@ TEST_F(JournalFixture, PersistsTerminalFailureAndAcceptedHistoryAcrossMultipleRe
     EXPECT_EQ(coordinator.requestStart(13, 20, true).disposition, Disposition::Duplicate);
     expectSame(coordinator.snapshot(), failed);
     prepare(coordinator);
-    EXPECT_EQ(coordinator.requestStart(2, 19, true).disposition, Disposition::Rejected);
+    const auto ready = coordinator.snapshot();
+    EXPECT_EQ(coordinator.requestStart(50, 1, true).disposition, Disposition::Duplicate);
+    EXPECT_EQ(coordinator.requestStart(13, 1, true).disposition, Disposition::Duplicate);
+    expectSame(coordinator.snapshot(), ready);
   }
 }
 
@@ -447,7 +498,7 @@ TEST(RunCoordinator, CancelledPreparationRequiresExplicitNewPreparation)
   EXPECT_FALSE(coordinator.cancelPreparation("cannot cancel an accepted run"));
 }
 
-TEST(RunCoordinator, SequenceOverflowIsRejectedRatherThanWrapped)
+TEST(RunCoordinator, MaximumSequenceDoesNotBlockLaterPreparedRuns)
 {
   Coordinator coordinator;
   prepare(coordinator);
@@ -457,8 +508,9 @@ TEST(RunCoordinator, SequenceOverflowIsRejectedRatherThanWrapped)
   ASSERT_TRUE(coordinator.transition(1, Phase::Interrupted));
   prepare(coordinator);
   const auto ready = coordinator.snapshot();
-  EXPECT_EQ(coordinator.requestStart(14, 1, true).disposition, Disposition::Rejected);
+  EXPECT_EQ(coordinator.requestStart(13, 1, true).disposition, Disposition::Duplicate);
   expectSame(coordinator.snapshot(), ready);
+  EXPECT_EQ(coordinator.requestStart(14, 1, true).disposition, Disposition::Accepted);
 }
 
 TEST(RunCoordinator, SealRequiresCurrentSurfacedRunAndImmutableIdentity)

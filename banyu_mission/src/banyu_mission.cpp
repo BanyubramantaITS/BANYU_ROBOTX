@@ -264,6 +264,7 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
         response->success ? "Autonomy preparation accepted; position hold only" :
         "Preparation rejected: configuration, safety, GPS, journal or active run";
         if (response->success) {
+          start_commands_.clear();
           execution_readiness_ = banyu_msgs::msg::ExecutionReadiness{};
           execution_received_at_ = {};
           preparation_hold_seen_ = false;
