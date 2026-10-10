@@ -204,6 +204,37 @@ TEST_F(CalibratedDepthNodeTest, MidRunRestartUnderwaterDoesNotRecalibrate)
   EXPECT_FALSE(depth_node_->isCalibrated());
 }
 
+TEST_F(CalibratedDepthNodeTest, PreStartDatumSurvivesSurfaceDriftAtRunStart)
+{
+  spinFor(100ms);
+  std_msgs::msg::Float64 alt;
+  alt.data = 0.25;
+  rel_alt_pub_->publish(alt);
+  spinFor(50ms);
+
+  banyu_msgs::msg::RunLifecycle life;
+  life.header.stamp = test_node_->now();
+  life.run_id = 42;
+  life.epoch = 1;
+  life.phase = banyu_msgs::msg::RunLifecycle::READY;
+  lifecycle_pub_->publish(life);
+  spinFor(50ms);
+  ASSERT_TRUE(depth_node_->isCalibrated());
+
+  // Barometer drift moves the surfaced reading out of the raw surface band before the start.
+  alt.data = 0.6;
+  rel_alt_pub_->publish(alt);
+  spinFor(50ms);
+
+  life.run_id = 43;
+  life.epoch = 2;
+  life.phase = banyu_msgs::msg::RunLifecycle::INITIALIZING;
+  lifecycle_pub_->publish(life);
+  spinFor(50ms);
+  EXPECT_TRUE(depth_node_->isCalibrated());
+  EXPECT_NEAR(depth_node_->surfaceDatumOffset(), 0.25, 1e-6);
+}
+
 TEST_F(CalibratedDepthNodeTest, ActiveHeartbeatCannotReplaceSurfaceProof)
 {
   spinFor(100ms);

@@ -6,6 +6,11 @@
 namespace banyu_vehicle_execution
 {
 
+namespace
+{
+constexpr double kMaxDatumSurfaceDepthM = 0.5;
+}  // namespace
+
 CalibratedDepthNode::CalibratedDepthNode(const rclcpp::NodeOptions & options)
 : Node("calibrated_depth_node", options)
 {
@@ -98,9 +103,16 @@ void CalibratedDepthNode::handleLifecycle(const banyu_msgs::msg::RunLifecycle::S
   epoch_ = msg->epoch;
   current_phase_ = msg->phase;
   if (new_run && auto_calibrate_at_start_) {
-    if (!rel_alt_received_ || !isNearSurface(last_rel_alt_)) {
+    // A pre-start datum stays valid while the vehicle is still at the surface relative to it;
+    // raw rel_alt alone drifts out of the surface band with barometer drift.
+    const bool at_datum_surface = pre_start_calibration_ && calibrated_ &&
+      std::abs(surface_datum_offset_ - last_rel_alt_) <= kMaxDatumSurfaceDepthM;
+    if (!rel_alt_received_ || !(isNearSurface(last_rel_alt_) || at_datum_surface)) {
       calibrated_ = false;
     }
+  }
+  if (current_phase_ >= banyu_msgs::msg::RunLifecycle::ACTIVE) {
+    pre_start_calibration_ = false;
   }
 }
 
@@ -128,10 +140,14 @@ void CalibratedDepthNode::handleRelAlt(const std_msgs::msg::Float64::SharedPtr m
   last_rel_alt_time_ = current_stamp;
   rel_alt_received_ = true;
 
-  if (auto_calibrate_at_start_ && !calibrated_ && isNearSurface(last_rel_alt_)) {
+  // Refresh the datum at the surface before every run, not only the first one.
+  if (auto_calibrate_at_start_ && (!calibrated_ || !pre_start_calibration_) &&
+    isNearSurface(last_rel_alt_))
+  {
     if (current_phase_ < banyu_msgs::msg::RunLifecycle::ACTIVE) {
       surface_datum_offset_ = last_rel_alt_;
       calibrated_ = true;
+      pre_start_calibration_ = true;
       RCLCPP_INFO(
         get_logger(),
         "Initial surface datum auto-calibrated to %.3f m",

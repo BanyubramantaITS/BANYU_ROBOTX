@@ -36,6 +36,8 @@ private:
   double surface_datum_offset_{0.0};
   bool auto_calibrate_at_start_{true};
   bool calibrated_{false};
+  // Datum captured at the surface before the current run went active.
+  bool pre_start_calibration_{false};
   double max_rel_alt_age_s_{1.0};
 
   uint32_t run_id_{0};
