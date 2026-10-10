@@ -58,7 +58,7 @@ public:
   uint32_t historicalHintRunId() const;
   bool hasReport(const std::string & report_id) const;
   PublicationState publicationState(const std::string & report_id) const;
-  bool hasValidAuthority(uint32_t run_id) const;
+  bool hasValidAuthority(uint32_t run_id, uint64_t epoch = 0) const;
   bool lifecycleReceived() const;
 
 private:
@@ -67,7 +67,8 @@ private:
   void handleCommand(const rx_msgs::msg::Command::SharedPtr msg);
   PublishOutcome publishPublicReport(const banyu_msgs::msg::Task2Submission & msg);
   void reconcilePendingReportsLocked();
-  bool hasValidAuthorityLocked(uint32_t run_id) const;
+  bool hasValidAuthorityLocked(uint32_t run_id, uint64_t epoch = 0) const;
+  bool isPublicationEligibleLocked(uint32_t run_id, uint64_t epoch) const;
   rcl_interfaces::msg::SetParametersResult handleParameters(
     const std::vector<rclcpp::Parameter> & parameters);
 

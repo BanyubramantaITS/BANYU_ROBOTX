@@ -1,5 +1,72 @@
 # Issue 13 Step 2 Verification Record
 
+## Phase A–C Authoritative Implementation & Verification after `5f9932b` — October 10, 2026
+
+This entry records the implementation and verification of Phases A–C from `docs/issue13_next_steps_5f9932b.md`.
+
+- **Scope & Codebase Changes**:
+  - **Phase A (Publication Eligibility & Transactional Authority)**:
+    - Bound publication authority to matching `run_id` AND `epoch` across all paths (new submission, retransmission, lifecycle reconciliation, restart recovery, parameter toggle).
+    - Refactored `handleLifecycle` in `gcs_submission_adapter.cpp` into validation first, accepted context persistence, and retirement of prior authority only upon successful acceptance of the replacement authority.
+    - Registered and passed the 3 reproduced audit failures in `test_gcs_submission_adapter.cpp`:
+      - `FutureEpochSubmissionCannotPublishUnderOlderAuthority`: PASS
+      - `PendingFutureEpochCannotRecoverUnderOlderAuthority`: PASS
+      - `RejectedAuthorityMustNotRetireCurrentMissionOwner`: PASS
+  - **Phase B (Timeout Configuration Synchronization)**:
+    - Explicitly configured `lifecycle_timeout_s: 5.0` in `banyu_bringup/config/task2_params.yaml`.
+    - Added runtime parameter validation and tests in `test_gcs_submission_adapter.cpp`:
+      - `LifecycleTimeoutConfigurationAndRuntimeValidation`: PASS
+      - `LifecycleTimeoutFreshnessBoundary`: PASS
+  - **Phase C (Production BanyuMission ROS Boundary Verification)**:
+    - Implemented `banyu_communication/test/test_production_mission_boundary.cpp` testing real `banyu_mission::BanyuMission`, `UuvCommNode`, and `GcsSubmissionAdapter` nodes executing real lifecycle, sealing, command, and survey callbacks (not fixture-owned callbacks):
+      1. `ReadyPreflightSetupAcceptsRunStartAndAttributesLifecycle`: PASS
+      2. `DirectLocalStartBlockedAndCommandVariationsHandled`: PASS
+      3. `AbortFailureAndReadinessLossClearCurrentTaskToNone`: PASS
+      4. `MissingOrIncompleteSurveyAndUnverifiedSurfacingRejectReporting`: PASS
+      5. `CompleteQualifiedEvidenceAndSurfacingPublishesSurvey`: PASS
+      6. `AbortBeforeSealingRejectsReportAndAbortAfterPreserves`: PASS
+      7. `DurableSealPreservedWhenAbortFollowsDurableSeal`: PASS
+      8. `AdapterRestartRecoversPendingUnderMatchingRetainedSnapshot`: PASS
+- **Exact Test Counts**:
+  - **321 registered C++ test cases** across all 9 packages (zero failures, zero errors).
+    - `rx_msgs`: 0
+    - `banyu_msgs`: 1
+    - `banyu_guidance`: 8
+    - `banyu_vehicle_interface`: 7
+    - `banyu_vehicle_execution`: 74
+    - `banyu_communication`: 119 (including 39 adapter tests, 8 production boundary tests, 9 mission-report integration tests, 63 survey reporting tests)
+    - `banyu_mission`: 70 (26 mission tree, 24 run coordinator, 20 run lifecycle)
+    - `banyu_detection`: 42 (23 ring tracker & evidence, 15 pipeline end, 4 context gate)
+  - **Aggregate Colcon Result**: `Summary: 722 tests, 0 errors, 0 failures, 156 skipped`.
+  - **Team GCS Smoke Test**: `python3 src/BANYU_ROBOTX/banyu_communication/test/sos_gcs_mock.py` — all 6 steps passed cleanly.
+  - **Linters**: `ament_uncrustify`, `git diff --check` pass with zero divergences.
+
+### Milestone Status Matrix
+
+| Milestone / Gate | Status | Evidence / Notes |
+| --- | --- | --- |
+| **Phase A: Epoch publication gate** | **PASS** | `test_gcs_submission_adapter` (39 tests passed) |
+| **Phase A: Transactional authority replacement** | **PASS** | Prior owner retained on rejected replacement |
+| **Phase B: Lifecycle timeout config sync** | **PASS** | `task2_params.yaml` synced to 5.0s; parameter validation tests pass |
+| **Phase C: Production BanyuMission ROS boundary** | **PASS** | `test_production_mission_boundary` (8 production scenarios pass) |
+| **Phase D: Work C (ActiveBuoy / PipelineEndCandidate)** | **NOT VERIFIED** | Requires upstream perception/hydrophone production wiring |
+| **Phase D: Work D (Physical node association/order)** | **NOT VERIFIED** | RingTracker physical localization / centerline association open |
+| **Phase D: Work E (Water datum/surfacing)** | **NOT VERIFIED** | Defensible physical water datum calibration source open |
+| **Phase D: Work F (Course consumers)** | **NOT VERIFIED** | Guidance/acoustic consumers for changing frequency/boundary open |
+| **Phase D: Work G (Task 4 Core/Disruptive)** | **NOT VERIFIED** | Physical transit/station hold and hazard response open |
+| **Phase E: Headless SITL & deadman** | **NOT VERIFIED** | Requires Gazebo SITL execution with supervised deadman source |
+| **Phase E: DDS multi-domain routing** | **NOT VERIFIED** | Requires multi-domain router testbed (domains 40/10) |
+
+## Local audit correction at `5f9932b6d66814a816248595de71abfcc2e44cea` — October 10, 2026
+
+This correction takes precedence over the completion/count claims in the historical entries below. Fresh local verification built nine focused packages, passed **308 registered C++ cases**, reported **706 aggregate checks / zero errors / zero failures / 155 skipped**, and passed all six communication smoke checks. The previous three adapter regressions pass. The 330 C++ count below does not match the audited result files.
+
+Three additional, not-yet-registered audit probes failed: `FutureEpochSubmissionCannotPublishUnderOlderAuthority`, `PendingFutureEpochCannotRecoverUnderOlderAuthority`, and `RejectedAuthorityMustNotRetireCurrentMissionOwner`. They expose two remaining defects: publication under authority for a different epoch, and retirement of the accepted owner before rejecting a replacement lifecycle. Passing registered checks therefore does not establish completion.
+
+The nine-case integration suite uses the real RunCoordinator/journal and communication components with fixture-owned mission lifecycle and seal ROS callbacks. It does not instantiate production BanyuMission. `DurableSealBeforeDelayedAbortPreservesReport` covers seal-then-abort, not a delayed seal-response race. Production evidence producers, physical association/order, water datum, downstream course consumers, Task 4 behavior, headless/full Gazebo execution and cross-domain routing remain open.
+
+Follow [the current AI coding agent handoff](issue13_next_steps_5f9932b.md) for fixes, acceptance gates, commands and ownership boundaries. This documentation update introduces no production fix or new test result. The original audit logs/probes were stored under `/tmp/banyu-issue13-5f9932b-*` and `/tmp/banyu_issue13_5f_probes.cpp`; the handoff includes reproducible scenarios so those temporary files are not required.
+
 ## Authoritative Lifecycle & Integration Verification after `886e17f` — October 10, 2026
 
 This entry records the completion and verification of the instructions in `docs/issue13_next_steps_886e17f.md`.

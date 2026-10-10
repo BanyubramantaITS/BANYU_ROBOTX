@@ -23,6 +23,11 @@ GcsSubmissionAdapter::GcsSubmissionAdapter(const rclcpp::NodeOptions & options)
 {
   forward_to_rx_topics_ = declare_parameter<bool>("forward_to_rx_topics", true);
   lifecycle_timeout_s_ = declare_parameter<double>("lifecycle_timeout_s", 5.0);
+  if (!std::isfinite(lifecycle_timeout_s_) || lifecycle_timeout_s_ <= 0.0) {
+    throw std::invalid_argument(
+      "lifecycle_timeout_s must be finite and positive, got: " +
+        std::to_string(lifecycle_timeout_s_));
+  }
 
   const auto submission_topic = declare_parameter<std::string>(
     "topics.task2_submission", "/banyu/communication/task2_submission");
@@ -159,10 +164,10 @@ GcsSubmissionAdapter::PublicationState GcsSubmissionAdapter::publicationState(
   return entry_it->second.pub_state;
 }
 
-bool GcsSubmissionAdapter::hasValidAuthority(uint32_t run_id) const
+bool GcsSubmissionAdapter::hasValidAuthority(uint32_t run_id, uint64_t epoch) const
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  return hasValidAuthorityLocked(run_id);
+  return hasValidAuthorityLocked(run_id, epoch);
 }
 
 bool GcsSubmissionAdapter::lifecycleReceived() const
@@ -171,9 +176,12 @@ bool GcsSubmissionAdapter::lifecycleReceived() const
   return lifecycle_received_;
 }
 
-bool GcsSubmissionAdapter::hasValidAuthorityLocked(uint32_t run_id) const
+bool GcsSubmissionAdapter::hasValidAuthorityLocked(uint32_t run_id, uint64_t epoch) const
 {
   if (!lifecycle_received_ || active_run_id_ == 0 || run_id != active_run_id_) {
+    return false;
+  }
+  if (epoch != 0 && epoch != active_epoch_) {
     return false;
   }
   const bool terminal = (phase_ == banyu_msgs::msg::RunLifecycle::SUCCEEDED ||
@@ -185,6 +193,17 @@ bool GcsSubmissionAdapter::hasValidAuthorityLocked(uint32_t run_id) const
   const double elapsed = std::chrono::duration<double>(
     std::chrono::steady_clock::now() - last_lifecycle_time_).count();
   return elapsed <= lifecycle_timeout_s_;
+}
+
+bool GcsSubmissionAdapter::isPublicationEligibleLocked(uint32_t run_id, uint64_t epoch) const
+{
+  if (!forward_to_rx_topics_) {
+    return false;
+  }
+  if (run_id == 0 || epoch == 0) {
+    return false;
+  }
+  return hasValidAuthorityLocked(run_id, epoch);
 }
 
 rcl_interfaces::msg::SetParametersResult GcsSubmissionAdapter::handleParameters(
@@ -204,6 +223,21 @@ rcl_interfaces::msg::SetParametersResult GcsSubmissionAdapter::handleParameters(
       if (!prev && forward_to_rx_topics_) {
         reconcilePendingReportsLocked();
       }
+    } else if (param.get_name() == "lifecycle_timeout_s") {
+      const double new_timeout = param.as_double();
+      if (!std::isfinite(new_timeout) || new_timeout <= 0.0) {
+        result.successful = false;
+        result.reason = "lifecycle_timeout_s must be finite and positive";
+        return result;
+      }
+      std::lock_guard<std::mutex> lock(mutex_);
+      const double prev = lifecycle_timeout_s_;
+      lifecycle_timeout_s_ = new_timeout;
+      RCLCPP_INFO(
+        get_logger(),
+        "Runtime parameter update: lifecycle_timeout_s changed from %.3f to %.3f",
+        prev, lifecycle_timeout_s_);
+      reconcilePendingReportsLocked();
     }
   }
   return result;
@@ -276,7 +310,10 @@ void GcsSubmissionAdapter::handleLifecycle(const banyu_msgs::msg::RunLifecycle::
     return;
   }
 
-  if (!authority_instance_.empty() && msg->authority_instance != authority_instance_) {
+  const bool is_different_authority = !authority_instance_.empty() &&
+    msg->authority_instance != authority_instance_;
+
+  if (is_different_authority) {
     const bool live = (phase_ >= Lifecycle::INITIALIZING && phase_ <= Lifecycle::SURFACED);
     const bool fresh = lifecycle_received_ && (std::chrono::duration<double>(
       std::chrono::steady_clock::now() - last_lifecycle_time_).count() <= lifecycle_timeout_s_);
@@ -286,7 +323,6 @@ void GcsSubmissionAdapter::handleLifecycle(const banyu_msgs::msg::RunLifecycle::
         "Rejected RunLifecycle authority replacement while previous authority is active and fresh");
       return;
     }
-    retired_authorities_.insert(authority_instance_);
   }
 
   if (active_epoch_ != 0 && msg->epoch < active_epoch_) {
@@ -306,21 +342,19 @@ void GcsSubmissionAdapter::handleLifecycle(const banyu_msgs::msg::RunLifecycle::
     return;
   }
 
-  if (lifecycle_received_) {
-    if (!authority_instance_.empty() && msg->authority_instance == authority_instance_ &&
-      msg->revision <= lifecycle_revision_)
-    {
-      return;
-    }
-  } else {
-    if (!authority_instance_.empty() && msg->authority_instance == authority_instance_ &&
-      msg->revision < lifecycle_revision_)
-    {
-      RCLCPP_WARN(
-        get_logger(),
-        "Rejected RunLifecycle with stale revision=%lu compared to persisted revision=%lu",
-        msg->revision, lifecycle_revision_);
-      return;
+  if (!authority_instance_.empty() && msg->authority_instance == authority_instance_) {
+    if (lifecycle_received_) {
+      if (msg->revision <= lifecycle_revision_) {
+        return;
+      }
+    } else {
+      if (msg->revision < lifecycle_revision_) {
+        RCLCPP_WARN(
+          get_logger(),
+          "Rejected RunLifecycle with stale revision=%lu compared to persisted revision=%lu",
+          msg->revision, lifecycle_revision_);
+        return;
+      }
     }
   }
 
@@ -334,54 +368,76 @@ void GcsSubmissionAdapter::handleLifecycle(const banyu_msgs::msg::RunLifecycle::
   const bool is_start_accepted = (msg->event == Lifecycle::START_ACCEPTED);
   const bool is_active_or_terminal_context = (msg->phase >= Lifecycle::INITIALIZING &&
     msg->phase <= Lifecycle::INTERRUPTED);
+  if (is_different_authority &&
+    !((is_start_accepted || is_active_or_terminal_context) && msg->run_id != 0 && msg->epoch != 0))
+  {
+    RCLCPP_WARN(
+      get_logger(),
+      "Rejected RunLifecycle authority replacement from '%s' without accepted or active run context",
+      msg->authority_instance.c_str());
+    return;
+  }
 
-  if ((is_start_accepted || is_active_or_terminal_context) && msg->run_id != 0 && msg->epoch != 0) {
-    const bool is_new_run = (msg->run_id != active_run_id_ || msg->epoch > active_epoch_);
-    if (is_new_run) {
-      std::string run_err;
-      if (!appendActiveContext(msg->run_id, msg->epoch, msg->authority_instance,
-          msg->revision, run_err))
+  const bool is_new_run = (msg->run_id != active_run_id_ || msg->epoch > active_epoch_);
+  const bool needs_context_persist = (is_start_accepted || is_active_or_terminal_context) &&
+    msg->run_id != 0 && msg->epoch != 0 && (is_new_run || is_different_authority);
+
+  if (needs_context_persist) {
+    std::string run_err;
+    if (!appendActiveContext(msg->run_id, msg->epoch, msg->authority_instance,
+        msg->revision, run_err))
+    {
+      RCLCPP_ERROR(
+        get_logger(),
+        "Failed to persist active context (run_id=%u, epoch=%lu) to journal '%s': %s; "
+        "in-memory authority preserved without mutation",
+        msg->run_id, msg->epoch, journal_path_.c_str(), run_err.c_str());
+      return;
+    }
+  }
+
+  if (is_different_authority) {
+    retired_authorities_.insert(authority_instance_);
+    RCLCPP_INFO(
+      get_logger(),
+      "Retired previous authority '%s' upon accepting replacement '%s'",
+      authority_instance_.c_str(), msg->authority_instance.c_str());
+  }
+
+  if (is_new_run && (is_start_accepted || is_active_or_terminal_context) &&
+    msg->run_id != 0 && msg->epoch != 0)
+  {
+    const uint32_t prev_run = active_run_id_;
+    active_run_id_ = msg->run_id;
+    active_epoch_ = msg->epoch;
+
+    for (auto & pair : accepted_by_key_) {
+      auto & report = pair.second;
+      if ((report.run_id != active_run_id_ || report.epoch < active_epoch_) &&
+        report.pub_state == PublicationState::PENDING)
       {
-        RCLCPP_ERROR(
-          get_logger(),
-          "Failed to persist active context (run_id=%u, epoch=%lu) to journal '%s': %s; "
-          "in-memory authority preserved without mutation",
-          msg->run_id, msg->epoch, journal_path_.c_str(), run_err.c_str());
-        return;
-      }
-
-      const uint32_t prev_run = active_run_id_;
-      active_run_id_ = msg->run_id;
-      active_epoch_ = msg->epoch;
-
-      for (auto & pair : accepted_by_key_) {
-        auto & report = pair.second;
-        if ((report.run_id != active_run_id_ || report.epoch < active_epoch_) &&
-          report.pub_state == PublicationState::PENDING)
-        {
-          report.pub_state = PublicationState::SUPPRESSED_NEW_RUN;
-          std::string sup_err;
-          if (!appendPubSuppressed(report, sup_err)) {
-            RCLCPP_ERROR(
-              get_logger(),
-              "Failed to persist suppressed report marker for '%s' to journal '%s': %s; "
-              "preserving pending state in memory",
-              report.report_id.c_str(), journal_path_.c_str(), sup_err.c_str());
-            report.pub_state = PublicationState::PENDING;
-          } else {
-            RCLCPP_WARN(
-              get_logger(),
-              "Unresolved report '%s' (run_id=%u, epoch=%lu) suppressed under new accepted run_id=%u, epoch=%lu",
-              report.report_id.c_str(), report.run_id, report.epoch, active_run_id_, active_epoch_);
-          }
+        report.pub_state = PublicationState::SUPPRESSED_NEW_RUN;
+        std::string sup_err;
+        if (!appendPubSuppressed(report, sup_err)) {
+          RCLCPP_ERROR(
+            get_logger(),
+            "Failed to persist suppressed report marker for '%s' to journal '%s': %s; "
+            "preserving pending state in memory",
+            report.report_id.c_str(), journal_path_.c_str(), sup_err.c_str());
+          report.pub_state = PublicationState::PENDING;
+        } else {
+          RCLCPP_WARN(
+            get_logger(),
+            "Unresolved report '%s' (run_id=%u, epoch=%lu) suppressed under new accepted run_id=%u, epoch=%lu",
+            report.report_id.c_str(), report.run_id, report.epoch, active_run_id_, active_epoch_);
         }
       }
-
-      RCLCPP_INFO(
-        get_logger(),
-        "Authoritative run accepted: run_id=%u, epoch=%lu (previous run_id=%u)",
-        active_run_id_, active_epoch_, prev_run);
     }
+
+    RCLCPP_INFO(
+      get_logger(),
+      "Authoritative run accepted: run_id=%u, epoch=%lu (previous run_id=%u)",
+      active_run_id_, active_epoch_, prev_run);
   }
 
   authority_instance_ = msg->authority_instance;
@@ -470,7 +526,7 @@ void GcsSubmissionAdapter::reconcilePendingReportsLocked()
   for (auto & pair : accepted_by_key_) {
     auto & report = pair.second;
     if (report.pub_state == PublicationState::PENDING &&
-      hasValidAuthorityLocked(report.run_id))
+      isPublicationEligibleLocked(report.run_id, report.epoch))
     {
       banyu_msgs::msg::Task2Submission sub;
       if (!banyu_msgs::task2::parseSubmission(report.payload, sub)) {
@@ -553,7 +609,7 @@ void GcsSubmissionAdapter::handleSubmission(const banyu_msgs::msg::Task2Submissi
             msg->report_id.c_str());
           return;
         }
-        if (hasValidAuthorityLocked(msg->run_id)) {
+        if (isPublicationEligibleLocked(msg->run_id, msg->epoch)) {
           RCLCPP_INFO(
             get_logger(),
             "Publishing pending Task2Submission (report_id='%s')",
@@ -637,7 +693,7 @@ void GcsSubmissionAdapter::handleSubmission(const banyu_msgs::msg::Task2Submissi
     msg->report_id.c_str(), msg->run_id, msg->epoch, msg->kind, msg->tier,
     msg->authorization_revision);
 
-  if (forward_to_rx_topics_ && hasValidAuthorityLocked(msg->run_id)) {
+  if (isPublicationEligibleLocked(msg->run_id, msg->epoch)) {
     PublishOutcome outcome = publishPublicReport(*msg);
     if (outcome == PublishOutcome::Attempted) {
       auto & stored = accepted_by_key_[key];

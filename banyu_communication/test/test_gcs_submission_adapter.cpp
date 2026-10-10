@@ -815,8 +815,16 @@ TEST_F(GcsSubmissionAdapterTest, JournalCorruptionMidLineLogsDiagnosticAndRecove
   EXPECT_TRUE(adapter_node_->hasReport("valid-after-corrupt"));
   EXPECT_EQ(adapter_node_->pendingCount(), 2u);
 
-  // Publish valid lifecycle for run 15, epoch 1 to recover valid reports
+  // Publish valid lifecycle for run 15, epoch 1 to recover valid epoch-1 report
   publishLifecycle(15, 1);
+  spinFor(100ms);
+
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+
+  // Publish valid lifecycle for run 15, epoch 2 to recover valid epoch-2 report
+  publishLifecycle(15, 2);
   spinFor(100ms);
 
   EXPECT_EQ(received_surveys_.size(), 2u);
@@ -1132,11 +1140,18 @@ TEST_F(GcsSubmissionAdapterTest, PersistenceFailurePreservesInMemoryAuthority)
     << "In-memory authority must not change when required persistence fails";
   EXPECT_EQ(adapter_node_->activeEpoch(), 1u);
 
-  // Restore permissions for teardown
+  // Restore permissions for teardown and verify previously accepted owner can still progress
   std::filesystem::permissions(
     test_journal_path_,
     std::filesystem::perms::all,
     std::filesystem::perm_options::replace);
+
+  submission_pub_->publish(createSurvey(15, 1, "progress-after-persistence-failure"));
+  spinFor(150ms);
+
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
 }
 
 TEST_F(GcsSubmissionAdapterTest, RetainedSnapshotWithSameRevisionRecoversPendingReportOnRestart)
@@ -1316,4 +1331,221 @@ TEST_F(GcsSubmissionAdapterTest, PhaseInitializingWithZeroRunIdOrEpochIsRejected
 
   EXPECT_EQ(adapter_node_->activeRunId(), 0u);
   EXPECT_FALSE(adapter_node_->lifecycleReceived());
+}
+
+TEST_F(GcsSubmissionAdapterTest, FutureEpochSubmissionCannotPublishUnderOlderAuthority)
+{
+  spinFor(150ms);
+  publishLifecycle(15, 2, banyu_msgs::msg::RunLifecycle::SURFACED);
+  ASSERT_EQ(adapter_node_->activeEpoch(), 2u);
+
+  // Future epoch=3 submission cannot publish under epoch=2 authority
+  submission_pub_->publish(createSurvey(15, 3, "future-epoch-fresh"));
+  spinFor(200ms);
+  EXPECT_TRUE(received_surveys_.empty())
+    << "Authority for epoch 2 cannot publish a report from epoch 3";
+  EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+
+  // Retransmission still awaiting matching authority
+  submission_pub_->publish(createSurvey(15, 3, "future-epoch-fresh"));
+  spinFor(100ms);
+  EXPECT_TRUE(received_surveys_.empty());
+  EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+
+  // Matching epoch=3 authority arrives -> published once
+  publishLifecycle(15, 3, banyu_msgs::msg::RunLifecycle::SURFACED);
+  spinFor(200ms);
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+
+  // Retransmission after publication is deduplicated
+  submission_pub_->publish(createSurvey(15, 3, "future-epoch-fresh"));
+  spinFor(100ms);
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->duplicateCount(), 1u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, PendingFutureEpochCannotRecoverUnderOlderAuthority)
+{
+  spinFor(150ms);
+  submission_pub_->publish(createSurvey(15, 3, "future-epoch-pending"));
+  spinFor(150ms);
+  ASSERT_EQ(adapter_node_->pendingCount(), 1u);
+  ASSERT_TRUE(received_surveys_.empty());
+
+  publishLifecycle(15, 2, banyu_msgs::msg::RunLifecycle::SURFACED);
+  spinFor(200ms);
+  EXPECT_TRUE(received_surveys_.empty())
+    << "Pending epoch-3 report must await matching authority";
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 0u);
+
+  // Restart with forwarding disabled
+  restart(false);
+  publishLifecycle(15, 2, banyu_msgs::msg::RunLifecycle::SURFACED);
+  spinFor(100ms);
+  EXPECT_TRUE(received_surveys_.empty());
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+
+  // Toggle forwarding to true while under older authority
+  auto toggle_res = adapter_node_->set_parameter(rclcpp::Parameter("forward_to_rx_topics", true));
+  EXPECT_TRUE(toggle_res.successful);
+  spinFor(100ms);
+  EXPECT_TRUE(received_surveys_.empty());
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+
+  // Matching epoch=3 authority arrives
+  publishLifecycle(15, 3, banyu_msgs::msg::RunLifecycle::SURFACED);
+  spinFor(200ms);
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, RejectedAuthorityMustNotRetireCurrentMissionOwner)
+{
+  using L = banyu_msgs::msg::RunLifecycle;
+  spinFor(150ms);
+  publishLifecycle(15, 2, L::SUCCEEDED, L::TERMINAL);
+  ASSERT_EQ(adapter_node_->activeRunId(), 15u);
+  ASSERT_EQ(adapter_node_->activeEpoch(), 2u);
+
+  // Rejected lower-epoch message from other authority
+  L stale;
+  stale.header.stamp = test_node_->now();
+  stale.authority_instance = "stale_other_owner";
+  stale.revision = 1;
+  stale.run_id = 14;
+  stale.epoch = 1;
+  stale.phase = L::ACTIVE;
+  stale.event = L::SNAPSHOT;
+  lifecycle_pub_->publish(stale);
+  spinFor(100ms);
+  ASSERT_EQ(adapter_node_->activeRunId(), 15u);
+  ASSERT_EQ(adapter_node_->activeEpoch(), 2u);
+
+  // Rejected conflicting same-epoch run from other authority
+  L conflict;
+  conflict.header.stamp = test_node_->now();
+  conflict.authority_instance = "conflicting_owner";
+  conflict.revision = 1;
+  conflict.run_id = 99;
+  conflict.epoch = 2;
+  conflict.phase = L::ACTIVE;
+  conflict.event = L::SNAPSHOT;
+  lifecycle_pub_->publish(conflict);
+  spinFor(100ms);
+  // Rejected unaccepted replacement without active/accepted context from other authority
+  L unaccepted_prep;
+  unaccepted_prep.header.stamp = test_node_->now();
+  unaccepted_prep.authority_instance = "prep_only_owner";
+  unaccepted_prep.revision = 1;
+  unaccepted_prep.run_id = 0;
+  unaccepted_prep.epoch = 3;
+  unaccepted_prep.phase = L::PREPARING;
+  unaccepted_prep.event = L::SNAPSHOT;
+  lifecycle_pub_->publish(unaccepted_prep);
+  spinFor(100ms);
+  ASSERT_EQ(adapter_node_->activeRunId(), 15u);
+  ASSERT_EQ(adapter_node_->activeEpoch(), 2u);
+
+  // Stale same-owner revision is ignored without retiring owner
+  L stale_rev;
+  stale_rev.header.stamp = test_node_->now();
+  stale_rev.authority_instance = "test_authority";
+  stale_rev.revision = 1;  // stale revision
+  stale_rev.run_id = 15;
+  stale_rev.epoch = 2;
+  stale_rev.phase = L::SUCCEEDED;
+  stale_rev.event = L::SNAPSHOT;
+  lifecycle_pub_->publish(stale_rev);
+  spinFor(100ms);
+  ASSERT_EQ(adapter_node_->activeRunId(), 15u);
+  ASSERT_EQ(adapter_node_->activeEpoch(), 2u);
+
+  // Valid next run from current owner test_authority succeeds
+  publishLifecycle(16, 3, L::SURFACED, L::START_ACCEPTED, 16);
+  spinFor(100ms);
+  EXPECT_EQ(adapter_node_->activeRunId(), 16u)
+    << "Rejected lower-epoch replacement must leave the current owner usable";
+  EXPECT_EQ(adapter_node_->activeEpoch(), 3u);
+  submission_pub_->publish(createSurvey(16, 3, "current-owner-next-run"));
+  spinFor(200ms);
+  EXPECT_EQ(received_surveys_.size(), 1u);
+
+  // Accepted replacement by a new authority
+  L new_owner;
+  new_owner.header.stamp = test_node_->now();
+  new_owner.authority_instance = "new_valid_owner";
+  new_owner.revision = 1;
+  new_owner.run_id = 17;
+  new_owner.epoch = 4;
+  new_owner.phase = L::SURFACED;
+  new_owner.event = L::START_ACCEPTED;
+  new_owner.requested_run_id = 17;
+  lifecycle_pub_->publish(new_owner);
+  spinFor(100ms);
+  EXPECT_EQ(adapter_node_->activeRunId(), 17u);
+  EXPECT_EQ(adapter_node_->activeEpoch(), 4u);
+
+  // Previous owner test_authority is now retired; messages from it are rejected
+  publishLifecycle(18, 5, L::SURFACED, L::START_ACCEPTED, 18);
+  spinFor(100ms);
+  EXPECT_EQ(adapter_node_->activeRunId(), 17u);
+  EXPECT_EQ(adapter_node_->activeEpoch(), 4u);
+
+  // New owner submission publishes
+  submission_pub_->publish(createSurvey(17, 4, "new-owner-report"));
+  spinFor(200ms);
+  EXPECT_EQ(received_surveys_.size(), 2u);
+}
+
+TEST_F(GcsSubmissionAdapterTest, LifecycleTimeoutConfigurationAndRuntimeValidation)
+{
+  rclcpp::NodeOptions bad_opts1;
+  bad_opts1.append_parameter_override("lifecycle_timeout_s", -1.0);
+  EXPECT_THROW(
+    std::make_shared<banyu_communication::GcsSubmissionAdapter>(bad_opts1),
+    std::invalid_argument);
+
+  rclcpp::NodeOptions bad_opts2;
+  bad_opts2.append_parameter_override("lifecycle_timeout_s", 0.0);
+  EXPECT_THROW(
+    std::make_shared<banyu_communication::GcsSubmissionAdapter>(bad_opts2),
+    std::invalid_argument);
+
+  auto res_bad = adapter_node_->set_parameter(rclcpp::Parameter("lifecycle_timeout_s", -2.0));
+  EXPECT_FALSE(res_bad.successful);
+
+  auto res_ok = adapter_node_->set_parameter(rclcpp::Parameter("lifecycle_timeout_s", 1.0));
+  EXPECT_TRUE(res_ok.successful);
+}
+
+TEST_F(GcsSubmissionAdapterTest, LifecycleTimeoutFreshnessBoundary)
+{
+  restart(true);
+  auto res_timeout = adapter_node_->set_parameter(rclcpp::Parameter("lifecycle_timeout_s", 0.2));
+  ASSERT_TRUE(res_timeout.successful);
+
+  publishLifecycle(15, 2, banyu_msgs::msg::RunLifecycle::ACTIVE);
+  spinFor(50ms);
+
+  // Wait past 0.2s timeout so authority becomes stale
+  spinFor(250ms);
+
+  submission_pub_->publish(createSurvey(15, 2, "stale-timeout-sub"));
+  spinFor(100ms);
+  EXPECT_TRUE(received_surveys_.empty())
+    << "Stale active authority past timeout cannot publish fresh submission";
+  EXPECT_EQ(adapter_node_->pendingCount(), 1u);
+
+  // Fresh active lifecycle within window reconciles and publishes
+  publishLifecycle(15, 2, banyu_msgs::msg::RunLifecycle::ACTIVE);
+  spinFor(150ms);
+  EXPECT_EQ(received_surveys_.size(), 1u);
+  EXPECT_EQ(adapter_node_->pendingCount(), 0u);
+  EXPECT_EQ(adapter_node_->attemptedCount(), 1u);
 }

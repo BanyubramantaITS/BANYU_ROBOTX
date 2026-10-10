@@ -259,6 +259,7 @@ survey_evidence_node:
 gcs_submission_adapter:
   ros__parameters:
     forward_to_rx_topics: true
+    lifecycle_timeout_s: 5.0
     journal_path: "~/.ros/banyu/gcs_adapter_dedup.journal"
     topics:
       task2_submission: "/banyu/communication/task2_submission"

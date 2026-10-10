@@ -1,5 +1,7 @@
 # Issue 13: next implementation and verification steps after 886e17f
 
+Current handoff: use [the 5f9932b AI coding agent instructions](issue13_next_steps_5f9932b.md). The three regressions described below now pass; the newer audit identifies two remaining adapter defects and the next production verification gates. This document retains its historical baseline.
+
 Baseline: `886e17f00950cbab652956fcbed4c0b395589a6e`, reviewed October 10, 2026. These are instructions for future changes, not a claim that those changes exist. Use this guide first, then continue the broader [UUV correction guide](issue13_uuv_corrections_and_remaining_work.md). The [approved plan](issue13_rules_and_implementation_plan.md) remains the source for competition rules and safety constraints.
 
 ## 1. What is already done
