@@ -631,8 +631,10 @@ TEST_F(UuvCommNodeTest, AutoHeartbeatRequiresActualGuidedSafetyAndLifecycleReadi
   state.armed = true;
   state.system_status = 5;
   state_pub->publish(state);
-  spinFor(150ms);
-  EXPECT_EQ(heartbeats_.back().state, RobotState::STATE_KILLED);
+  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_AUTO;}));
+  state.system_status = 6;
+  state_pub->publish(state);
+  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_KILLED;}));
 }
 
 TEST_F(UuvCommNodeTest, LegacyRingStatesCannotAuthorizeSurveyOrAlterTask)

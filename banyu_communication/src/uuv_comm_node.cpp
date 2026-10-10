@@ -178,8 +178,9 @@ uint8_t UuvCommNode::robotStateLocked() const
     lifecycle_timeout_s_ &&
     std::chrono::duration<double>(current_time - last_status_received_).count() <=
     lifecycle_timeout_s_;
-  // MAV_STATE values 5 through 8 indicate critical, emergency, poweroff or termination.
-  if (!telemetry_fresh || !state_.connected || !state_.armed || state_.system_status >= 5 ||
+  // MAV_STATE 6-8 (emergency, poweroff, termination) mean the vehicle cannot operate. CRITICAL (5)
+  // is a failsafe the vehicle can still navigate in; ArduSub reports it without a pilot joystick.
+  if (!telemetry_fresh || !state_.connected || !state_.armed || state_.system_status >= 6 ||
     !vehicle_status_.armed || !vehicle_status_.fcu_connected ||
     !vehicle_status_.fcu_status_fresh || vehicle_status_.authority == "FAILSAFE")
   {
