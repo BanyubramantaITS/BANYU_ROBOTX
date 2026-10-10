@@ -10,7 +10,7 @@ from launch.substitutions import (
     LaunchConfiguration,
     PythonExpression,
 )
-from launch_ros.actions import Node, SetUseSimTime
+from launch_ros.actions import Node, SetParameter
 
 
 def generate_launch_description():
@@ -50,8 +50,16 @@ def generate_launch_description():
         description="FCU connection URL (udp://127.0.0.1:14551@ for SITL or udp://192.168.2.1:14550@ for real ROV). SITL keeps 14550 free for QGC.",
     )
 
-    set_use_sim_time = SetUseSimTime(
-        True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
+    # SetUseSimTime only configures launch's own node; SetParameter reaches every launched node.
+    set_use_sim_time = SetParameter(
+        name="use_sim_time",
+        value=True,
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+                EqualsSubstitution(LaunchConfiguration("use_sim_time"), "True"),
+            )
+        ),
     )
 
     _banyu_bringup_share = get_package_share_directory("banyu_bringup")
@@ -96,6 +104,8 @@ def generate_launch_description():
         # MAVROS cannot carry VISION_POSITION_DELTA anyway.
         "--out=udp:127.0.0.1:14552",
         "--console",
+        # MAVProxy requests telemetry at 4 Hz by default; mission readiness needs pose fresher than 1 s.
+        "--mavproxy-args=--streamrate=10",
         "-w",
         "--add-param-file=" + _banyu_defaults_file,
     ]
@@ -136,6 +146,16 @@ def generate_launch_description():
                     "'fcu_url:=' + '",
                     LaunchConfiguration("fcu_url"),
                     "'",
+                ]
+            ),
+            "-p",
+            PythonExpression(
+                [
+                    "'use_sim_time:=' + ('true' if '",
+                    LaunchConfiguration("use_sim"),
+                    "' == 'True' and '",
+                    LaunchConfiguration("use_sim_time"),
+                    "' == 'True' else 'false')",
                 ]
             ),
             "--log-level",

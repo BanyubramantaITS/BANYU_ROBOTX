@@ -9,7 +9,7 @@ from launch.substitutions import (
     EqualsSubstitution,
     LaunchConfiguration,
 )
-from launch_ros.actions import Node, SetUseSimTime
+from launch_ros.actions import Node, SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
 
 
@@ -63,8 +63,16 @@ def generate_launch_description():
         description="Path to ROS 2 parameter YAML file for POR nodes",
     )
 
-    set_use_sim_time = SetUseSimTime(
-        True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
+    # SetUseSimTime only configures launch's own node; SetParameter reaches every launched node.
+    set_use_sim_time = SetParameter(
+        name="use_sim_time",
+        value=True,
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+                EqualsSubstitution(LaunchConfiguration("use_sim_time"), "True"),
+            )
+        ),
     )
 
     mode = LaunchConfiguration("mode")
