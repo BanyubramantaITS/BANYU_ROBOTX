@@ -199,6 +199,10 @@ vehicle_execution_node:
       acquire_surge_speed: 0.3
       acquire_timeout_s: 20.0
       acquire_confirm_frames: 5
+      ring_kp_sway: 0.8
+      ring_kp_surge: 0.5
+      ring_search_speed: 0.15
+      ring_search_timeout_s: 20.0
     surface:
       depth_sources: ["pressure_depth"]
     topics:

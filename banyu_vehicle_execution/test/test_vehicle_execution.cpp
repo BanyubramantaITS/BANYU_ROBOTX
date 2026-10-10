@@ -538,6 +538,36 @@ TEST_F(VehicleExecutionNodeTest, PorAlignMarkerMissingDetectionTimesOut)
   EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::ABORTED);
 }
 
+TEST_F(VehicleExecutionNodeTest, CenterOnRingSearchesThenAbortsWhenRingNeverReappears)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("control.ring_search_timeout_s", 0.2);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::CenterOnRing;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/center_on_ring");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  Action::Goal goal;
+  goal.ring_color = "red";
+  goal.tolerance = 0.1;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  for (int i = 0; i < 40; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    spinFor(node, 2);
+  }
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  const auto wrapped = result_future.get();
+  EXPECT_EQ(wrapped.code, rclcpp_action::ResultCode::ABORTED);
+  EXPECT_FALSE(wrapped.result->success);
+  EXPECT_NE(wrapped.result->reason.find("not reacquired"), std::string::npos);
+}
+
 TEST_F(VehicleExecutionNodeTest, PorAcquireGatePoseLossTimesOutAndRecoveryResetsWatchdog)
 {
   rclcpp::NodeOptions options;

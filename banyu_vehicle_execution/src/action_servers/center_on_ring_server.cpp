@@ -12,9 +12,12 @@ CenterOnRingServer::CenterOnRingServer(
   const std::string & action_name,
   ActionServerCoordinator * coordinator,
   double ring_kp_sway,
-  double ring_kp_z)
+  double ring_kp_surge,
+  double search_speed,
+  double search_timeout_s)
 : TypedActionServer(node, action_name, coordinator),
-  ring_kp_sway_(ring_kp_sway), ring_kp_z_(ring_kp_z)
+  ring_kp_sway_(ring_kp_sway), ring_kp_surge_(ring_kp_surge),
+  search_speed_(std::abs(search_speed)), search_timeout_s_(search_timeout_s)
 {
 }
 
@@ -27,6 +30,11 @@ bool CenterOnRingServer::validateGoal(const Goal & goal, std::string & reason)
   return true;
 }
 
+void CenterOnRingServer::onGoalStarted()
+{
+  search_started_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+}
+
 MotionIntent CenterOnRingServer::tick(
   const VehicleTelemetry & telemetry, const rclcpp::Time & now, double /*dt*/)
 {
@@ -34,6 +42,7 @@ MotionIntent CenterOnRingServer::tick(
     return zeroIntent();
   }
   if (active_handle_->is_canceling()) {
+    search_started_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
     cancelActive();
     return zeroIntent();
   }
@@ -63,21 +72,48 @@ MotionIntent CenterOnRingServer::tick(
     coordinator_->completeGoal(GoalHandle{active_identity_});
     active_handle_.reset();
     active_identity_ = {};
+    search_started_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
     return zeroIntent();
   }
 
+  if (!telemetry.pose_valid) {
+    return zeroIntent();
+  }
+
+  // Bottom camera: image +x is body right, image +y (down) is body aft. Depth is held.
   if (visible) {
-    if (!telemetry.pose_valid) {
-      return zeroIntent();
-    }
+    search_started_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
     const double sway = -std::clamp(ring_kp_sway_ * offset_x, -0.5, 0.5);
-    const double vz = -std::clamp(ring_kp_z_ * offset_y, -0.5, 0.5);
+    const double surge = -std::clamp(ring_kp_surge_ * offset_y, -0.3, 0.3);
     const auto local_intent = bodyFluToLocalEnu(
-      MotionIntent::bodyFlu(0.0, sway, vz, 0.0), telemetry.yaw);
+      MotionIntent::bodyFlu(surge, sway, 0.0, 0.0), telemetry.yaw);
     return local_intent.value_or(zeroIntent());
   }
 
-  return zeroIntent();
+  // The vehicle coasts past the ring after following stops, so search by backing up.
+  if (search_started_.nanoseconds() == 0) {
+    search_started_ = now;
+  }
+  if (search_timeout_s_ > 0.0 && (now - search_started_).seconds() >= search_timeout_s_) {
+    abortWithReason("Ring not reacquired within search timeout", offset_x, offset_y);
+    return zeroIntent();
+  }
+  const auto local_intent = bodyFluToLocalEnu(
+    MotionIntent::bodyFlu(-search_speed_, 0.0, 0.0, 0.0), telemetry.yaw);
+  return local_intent.value_or(zeroIntent());
+}
+
+void CenterOnRingServer::abortWithReason(
+  const std::string & reason, double offset_x, double offset_y)
+{
+  auto result = std::make_shared<Result>();
+  result->success = false;
+  result->reason = reason;
+  result->ring_color = active_handle_ ? active_handle_->get_goal()->ring_color : "";
+  result->final_offset_x = offset_x;
+  result->final_offset_y = offset_y;
+  search_started_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+  abortActiveWithResult(result);
 }
 
 }  // namespace banyu_vehicle_execution
