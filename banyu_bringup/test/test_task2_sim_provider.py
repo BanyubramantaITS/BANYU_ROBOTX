@@ -148,6 +148,15 @@ def test_run_fixtures_are_run_tagged_and_need_active_run(rclpy_init):
         assert buoys[0].green_confirmed and not buoys[0].pinger_confirmed
         assert buoys[0].source_id == 'uuv_buoy_localizer'
         assert candidates and all(c.candidate and c.run_id == 7 for c in candidates)
+        # The live surfaced fix may jitter; the published buoy stays fixed for the run.
+        node._start_buoy_fix = NavSatFix(latitude=33.82, longitude=-118.38)
+        node._active_buoy_sent_s = 0.0
+        node._publish_run_fixtures()
+        start = time.monotonic()
+        while len(buoys) < 2 and time.monotonic() - start < 1.0:
+            rclpy.spin_once(node, timeout_sec=0.05)
+        assert len(buoys) == 2
+        assert (buoys[1].fix.latitude, buoys[1].fix.longitude) == (33.81, -118.39)
     finally:
         for sub in subs:
             node.destroy_subscription(sub)

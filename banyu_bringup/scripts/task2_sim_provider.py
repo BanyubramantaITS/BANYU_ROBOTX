@@ -245,6 +245,7 @@ class Task2SimProvider(Node):
         self._start_buoy_fix = None
         self._active_buoy_run = None
         self._active_buoy_sent_s = 0.0
+        self._active_buoy_position = None
         self.create_subscription(
             RunLifecycle, "/banyu/mission/run_lifecycle", self._on_lifecycle, latched
         )
@@ -343,6 +344,10 @@ class Task2SimProvider(Node):
         now_s = self.get_clock().now().nanoseconds * 1e-9
         # Survey ingress only accepts recent buoy evidence, so re-assert the (fixed) ground
         # truth position at about 1 Hz with fresh stamps while the run is active.
+        if self._start_buoy_fix is not None and self._active_buoy_run != run:
+            # One position per run: the live surfaced fix jitters with vehicle GPS, and the survey
+            # rejects an active buoy that moves after it was pinned.
+            self._active_buoy_position = self._start_buoy_fix
         if self._start_buoy_fix is not None and (
                 self._active_buoy_run != run or now_s - self._active_buoy_sent_s >= 1.0):
             buoy = ActiveBuoyFix()
@@ -354,12 +359,13 @@ class Task2SimProvider(Node):
             buoy.course_id = self._course.course_id if self._course else ""
             buoy.endpoint_id = self.active_buoy_endpoint_id
             buoy.fix = NavSatFix()
-            buoy.fix.header.frame_id = self._start_buoy_fix.header.frame_id
+            position = self._active_buoy_position
+            buoy.fix.header.frame_id = position.header.frame_id
             buoy.fix.header.stamp = stamp
-            buoy.fix.status = self._start_buoy_fix.status
-            buoy.fix.latitude = self._start_buoy_fix.latitude
-            buoy.fix.longitude = self._start_buoy_fix.longitude
-            buoy.fix.altitude = self._start_buoy_fix.altitude
+            buoy.fix.status = position.status
+            buoy.fix.latitude = position.latitude
+            buoy.fix.longitude = position.longitude
+            buoy.fix.altitude = position.altitude
             buoy.uncertainty_m = 1.0
             buoy.green_confirmed = True
             buoy.pinger_confirmed = False
