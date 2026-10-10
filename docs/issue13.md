@@ -2,9 +2,52 @@
 
 This is the single maintained document for [Issue #13: integrate the RobotX SoS interface into main_task](https://github.com/BanyubramantaITS/BANYU_ROBOTX/issues/13). It consolidates the earlier rules, audits, corrections and coding handoffs. Superseded tracked documents remain recoverable from Git history.
 
-**Status baseline:** `50dbb01787a51d21fba37f74a50342e2e6256b6a`, reviewed October 10, 2026. Check HEAD and intervening changes before using this status for a newer revision. This consolidation changes documentation only; it does not implement remaining work or constitute a fresh test run.
+**Status baseline:** October 11, 2026 update (§0) on top of `50dbb01`. Sections 1–10 below are the October 10 baseline; where they conflict, §0 is current.
 
-**Verdict:** the core communication/lifecycle/reporting implementation works in the tested local paths. Issue 13 is not yet ready for full acceptance: course consumers, complete deployed Task 2 simulation and DDS routing evidence remain open. Production evidence/calibration also has unresolved dependencies. The unfinished physical robot does not prevent completion of software and simulation milestones.
+**Verdict:** the UUV ⇄ GCS ⇄ RoboCommand communication path is verified end to end in simulation against the GCS team's `GcsReporter` and RoboCommand's official schemas and test client. A full simulated Task 2 run, started by RoboCommand, delivered a correct `PipelineSurvey` to RoboCommand (§0). What remains is hardware/field work and joint decisions (real DDS Router/two-machine test, GCS-side bridge, Task 4 scope, pinger use).
+
+## 0. Update — October 11, 2026
+
+Scope decisions from the UUV team: Task 2 is attempted at the **Disruptive** tier; Task 4 is **undecided** (keep the ACK-only stub); use of the acoustic pinger on the robot is **undecided** (no pinger processing yet).
+
+### Fixed (each with regression tests)
+
+| Area | Problem found in integration/simulation | Fix |
+|---|---|---|
+| RoboCommand starts | Journal enforced a globally increasing `RxCommand.seq`; a restarted RoboCommand session (seq 1) was rejected as replay forever | `prepare_autonomy` opens a new sequence window; journal V2 stores each run's epoch (V1 still loads); accepted `run_id`s never restart |
+| Heartbeat state | `MAV_STATE_CRITICAL` (ArduSub pilot-input failsafe) reported `STATE_KILLED` while driving | Only EMERGENCY/POWEROFF/TERMINATION count as killed |
+| Action goals | Task 2 action nodes read run context from an unpublished topic; every goal was `(0, 0)` and rejected | Use `topics.run_lifecycle` |
+| Simulation clock | No `/clock` bridge and `SetUseSimTime` does not reach launched nodes; sim-stamped camera vs wall-time nodes dropped every observation; MAVROS stamped zero | `/clock` bridge, `SetParameter(use_sim_time)` only with `use_sim:=True`, MAVROS from the same condition |
+| Telemetry rate | MAVProxy default 4 Hz pose vs 1 s readiness window | `--streamrate=10` |
+| Mission BT | Single-pass traversal; acquisition without retry; no traversal bound | Loop until `PipelineEnded`, retry acquisition via search, `mission.traverse_timeout_s` |
+| Pipeline loss | One dropped frame aborted following; reacquire surges random-walked the vehicle off the pipe | Loss only after `pipeline_timeout_s` without a tracked frame; search retraces before sweeping |
+| Readiness | Lost readiness only said `AUTONOMY_READINESS_LOST`; busy-executor clock lag made fresh poses look future-stamped | Reason names the failing input; 0.5 s future-skew tolerance |
+| Ring repair | `CenterOnRing` drove depth from image-y and hung when the ring left view; hold commanded zero and drifted off | Surge from image-y, grace + backing-up search with timeout; centering continues during the probe hold |
+| Detector | Bends and node housings made one line fit fail (NO_PIPE, ring dropped) | Local refit around the lookahead row |
+| Red-ring repair loop | The tracker re-emits an accepted ring's state; the mission re-armed the repair for the already repaired ring and the second acknowledgement was rejected forever | A repaired ring index no longer re-arms the repair |
+| Surface datum | The datum captured at the surface in READY was dropped at the run start when barometer drift moved raw `rel_alt` out of the surface band; `Surface` then held zero velocity at the bottom | Keep the pre-start datum while still at the surface relative to it; refresh it before each run; surfaced tolerance 0.5 m (sim EKF drift up to 0.38 m) |
+| Survey evidence | Raw surface start-buoy fix overwrote the qualified buoy; rings passed at speed and rings closer than the camera footprint were never recorded | Qualified buoy wins; pose tolerance 0.12 s; ring position estimated from the camera model; centerline ordered from the active buoy |
+
+Sim-only stand-ins (labelled, launched only with `use_sim:=True`): `task2_sim_provider.py` publishes a run-tagged GREEN-confirmed `ActiveBuoyFix` and `PipelineEndCandidate` from world ground truth, in place of the not-yet-built buoy localizer and end-of-pipe detector. `tools/sos_integration/sim_supervisor.py` provides the headless deadman RC (ArduSub SITL reports no RC channels).
+
+### Integration evidence (local, one machine)
+
+Stack: Gazebo Harmonic + ArduSub SITL + MAVROS + the full Task 2 launch on domain 40; `tools/sos_integration/dds_relay.py` (`/system/*` only) to domain 10; `tools/sos_integration/gcs_ros_bridge.py` around `GcsReporter` (`robocommand-rx-ui-itsn` `18bcd00`); local MQTT broker; RoboCommand's official test client and protobuf schemas.
+
+- Course → UUV (boundary, 25 kHz pinger); heartbeat at 2.000 Hz (0.1 ms jitter) with GPS position, depth, attitude, `TASK_INFRA_SURVEY_REPAIR` during the run and `TASK_NONE` after; `STATE_AUTO` while ArduSub reports CRITICAL.
+- `RunStart` → run ACTIVE in ~120 ms; duplicate start ignored; restarted RoboCommand session (seq 1) accepted after re-preparation; Task 4 `IncidentAck` with the original `command_seq`; no ACK for moving-object; no false readiness.
+- `PipelineSurvey` delivered to RoboCommand from the real `uuv_comm_node`/`gcs_submission_adapter` with injected evidence (`sos_gcs_mock.py`).
+- Full simulated mission (run 102, started by RoboCommand `RunStart` seq 17): surface GPS transit → dive → acquire → follow → red-ring repair (one center/probe/acknowledge) → all four rings recorded in order (RED, GREEN, GREEN, GREEN at 1.39/2.55/3.20/4.39 m from the active-buoy end) → end of pipe → `SURVEY_COMPLETE` → surfaced → `SUCCEEDED / MISSION_COMPLETED`. RoboCommand received exactly one `RxReport.pipeline_survey` (active buoy lat/lon, segments `DAMAGED, INTACT, INTACT, INTACT`) 164 s after the start, and heartbeats returned to `TASK_NONE` after the run.
+
+Open findings for the GCS team (spec: `docs/gcs_ros_bridge_spec.md`): command forwarding, stale-heartbeat policy, sequence persistence across GCS restarts and one-shot survey de-duplication are missing from `GcsReporter`; the reference bridge implements all four.
+
+### Remaining for closure
+
+1. Two-machine test with the team's real DDS Router (UUV domain 40, GCS domain 10) and the GCS team's own bridge.
+2. RoboCommand test server / Team Village run.
+3. Real perception producers replacing the sim stand-ins (active buoy, end of pipe); Disruptive-tier LED reading → `ResourceDelivery` on hardware.
+4. Task 4 scope decision (stub vs full); pinger use decision; boundary enforcement in navigation.
+5. A real deadman/RC source for headless hardware runs.
 
 ## 1. Read this status correctly
 
