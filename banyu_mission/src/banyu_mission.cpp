@@ -354,6 +354,26 @@ bool BanyuMission::autonomousReady() const
          std::chrono::steady_clock::now() - pose_received_at_ < std::chrono::seconds(1);
 }
 
+std::string BanyuMission::autonomyNotReadyReason() const
+{
+  const auto vehicle = state_->snapshot();
+  const auto phase = run_ ? run_->snapshot().phase : RunCoordinator::Phase::Idle;
+  const bool underway = phase == RunCoordinator::Phase::Active ||
+    phase == RunCoordinator::Phase::SurveyComplete || phase == RunCoordinator::Phase::Surfaced;
+  if (!mission_config_valid_) {return "mission config invalid";}
+  if (!vehicle.fcu_connected || !vehicle.fcu_status_fresh) {return "FCU disconnected or stale";}
+  if (!vehicle.rc_fresh) {return "RC/deadman stale";}
+  if (!vehicle.armed) {return "disarmed";}
+  if (vehicle.operator_takeover) {return "operator takeover";}
+  if (!underway && !vehicle.gps_available) {return "GPS unavailable";}
+  if (vehicle.mode != "GUIDED") {return "mode " + vehicle.mode;}
+  if (!pose_valid_) {return "pose invalid or stamp older than 1 s";}
+  if (std::chrono::steady_clock::now() - pose_received_at_ >= std::chrono::seconds(1)) {
+    return "pose not received for 1 s";
+  }
+  return "ready";
+}
+
 bool BanyuMission::operatorHasControl() const
 {
   const auto vehicle = state_->snapshot();
@@ -619,6 +639,8 @@ void BanyuMission::initialize()
   const auto heading_rad = declare_parameter<double>(
     "mission.heading_rad", std::numeric_limits<double>::quiet_NaN());
   const auto acquire_timeout_s = declare_parameter<double>("mission.acquire_timeout_s", 15.0);
+  const auto traverse_timeout_s =
+    declare_parameter<double>("mission.traverse_timeout_s", 600.0);
   const auto search_span = declare_parameter<double>("mission.search_span_rad", 2.0 * kPi);
   const auto sweep_rate = declare_parameter<double>("mission.sweep_rate_rad_s", 0.2);
   const auto ring_tolerance = declare_parameter<double>("mission.ring_tolerance", 0.08);
@@ -639,7 +661,8 @@ void BanyuMission::initialize()
   }
   mission_config_valid_ = mission_config_valid_ && positive(gps_tolerance) &&
     positive(heading_tolerance) && nonnegative(inspection_depth) && positive(depth_tolerance) &&
-    positive(acquire_timeout_s) && (std::isnan(heading_rad) || finite(heading_rad)) &&
+    positive(acquire_timeout_s) && positive(traverse_timeout_s) &&
+    (std::isnan(heading_rad) || finite(heading_rad)) &&
     (std::isnan(end_latitude) || finite(end_latitude)) &&
     (std::isnan(end_longitude) || finite(end_longitude)) &&
     positive(search_span) && search_span <= 2.0 * kPi && positive(sweep_rate) &&
@@ -711,6 +734,7 @@ void BanyuMission::initialize()
   blackboard->set("camera_name", camera);
   blackboard->set("heading_prior", effective_heading);
   blackboard->set("acquire_timeout_ms", static_cast<unsigned>(acquire_timeout_s * 1000.0));
+  blackboard->set("traverse_timeout_ms", static_cast<unsigned>(traverse_timeout_s * 1000.0));
   blackboard->set("search_span", search_span);
   blackboard->set("sweep_rate", sweep_rate);
   blackboard->set("ring_tolerance", ring_tolerance);
@@ -754,7 +778,11 @@ void BanyuMission::tickLoop(int tick_period_ms)
       if ((phase == RunCoordinator::Phase::Active ||
         phase == RunCoordinator::Phase::SurveyComplete ||
         phase == RunCoordinator::Phase::Surfaced) && !autonomousReady())
-      {terminateRun(false, "AUTONOMY_READINESS_LOST", !operatorHasControl());}
+      {
+        const auto cause = autonomyNotReadyReason();
+        RCLCPP_WARN(get_logger(), "Autonomy readiness lost: %s", cause.c_str());
+        terminateRun(false, "AUTONOMY_READINESS_LOST: " + cause, !operatorHasControl());
+      }
       if (std::chrono::steady_clock::now() - lifecycle_published_at_ >=
         std::chrono::milliseconds(250)) {publishLifecycle();}
     }

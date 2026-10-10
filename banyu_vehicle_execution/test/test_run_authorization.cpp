@@ -7,6 +7,8 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+
+#include <cmath>
 #include <rcl/time.h>
 #include <rclcpp_action/rclcpp_action.hpp>
 
@@ -248,7 +250,10 @@ TEST_F(RunAuthorizationTest, ActiveNeedsHandshakeAndTerminalPublishesOnlyFiniteZ
   auto result = client_->async_get_result(handle);
   pump(120ms);
   ASSERT_FALSE(targets_.empty());
-  EXPECT_NE(targets_.back().yaw_rate, 0.0);
+  // Search starts with a retrace (surge) and then sweeps (yaw); either is commanded motion.
+  const auto & moving = targets_.back();
+  EXPECT_GT(std::abs(moving.velocity.x) + std::abs(moving.velocity.y) +
+    std::abs(moving.yaw_rate), 0.0);
   phase_ = Lifecycle::FAILED;
   publishLifecycle();
   const auto abort_deadline = std::chrono::steady_clock::now() + 500ms;

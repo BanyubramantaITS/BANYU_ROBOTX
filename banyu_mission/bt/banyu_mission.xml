@@ -49,29 +49,31 @@
     </Sequence>
   </BehaviorTree>
 
-  <!-- Repeats repair/reacquire/follow until the pipeline ends; a failed pass ends the
-       traversal and the trailing PipelineEnded then reports it as a failure. -->
+  <!-- Repeats repair/reacquire/follow until the pipeline ends; a failed pass or the overall
+       traverse timeout ends the traversal and the trailing PipelineEnded reports a failure. -->
   <BehaviorTree ID="TraversePipeline">
     <Sequence>
       <ForceSuccess>
-        <KeepRunningUntilFailure>
-          <WhileDoElse>
-            <PipelineActive />
-            <ReactiveFallback name="traverse_reactive">
-              <Sequence name="repair_red_ring">
-                <RedRingPending />
-                <SubTree ID="RepairRedRing" _autoremap="true" />
-                <AcknowledgeRedRing />
-              </Sequence>
-              <Sequence name="reacquire_lost_pipeline">
-                <PipelineLost />
-                <SubTree ID="ReacquirePipeline" _autoremap="true" />
-              </Sequence>
-              <FollowPipeline enable="true" />
-            </ReactiveFallback>
-            <AlwaysFailure />
-          </WhileDoElse>
-        </KeepRunningUntilFailure>
+        <Timeout msec="{traverse_timeout_ms}">
+          <KeepRunningUntilFailure>
+            <WhileDoElse>
+              <PipelineActive />
+              <ReactiveFallback name="traverse_reactive">
+                <Sequence name="repair_red_ring">
+                  <RedRingPending />
+                  <SubTree ID="RepairRedRing" _autoremap="true" />
+                  <AcknowledgeRedRing />
+                </Sequence>
+                <Sequence name="reacquire_lost_pipeline">
+                  <PipelineLost />
+                  <SubTree ID="ReacquirePipeline" _autoremap="true" />
+                </Sequence>
+                <FollowPipeline enable="true" />
+              </ReactiveFallback>
+              <AlwaysFailure />
+            </WhileDoElse>
+          </KeepRunningUntilFailure>
+        </Timeout>
       </ForceSuccess>
       <PipelineEnded />
     </Sequence>

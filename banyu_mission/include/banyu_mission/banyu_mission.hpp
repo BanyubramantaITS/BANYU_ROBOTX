@@ -61,6 +61,7 @@ private:
   void tickTask2Preparation();
   void tickRunInitialization();
   bool autonomousReady() const;
+  std::string autonomyNotReadyReason() const;
   bool executionHolding() const;
   bool surveyEvidenceReady() const;
   bool operatorHasControl() const;

@@ -206,8 +206,11 @@ void VehicleExecutionNode::initActionServers()
   auto acquire_server = std::make_shared<AcquirePipelineServer>(
     this, acquire_action, this, yaw_kp, max_yaw_rate, 0.3, acquire_timeout_s, acquire_surge_speed,
     acquire_confirm_frames);
+  const double search_retrace_distance_m =
+    declare_parameter<double>("control.search_retrace_distance_m", 1.5);
+  const double search_retrace_speed = declare_parameter<double>("control.search_retrace_speed", 0.2);
   auto search_server = std::make_shared<SearchPipelineServer>(
-    this, search_action, this);
+    this, search_action, this, 0.2, 0.3, search_retrace_distance_m, search_retrace_speed);
   auto follow_server = std::make_shared<FollowPipelineServer>(
     this, follow_action, this);
   auto center_server = std::make_shared<CenterOnRingServer>(
