@@ -92,3 +92,62 @@ def test_publish_fixture_publishes_four_ring_states(rclpy_init):
     finally:
         node.destroy_subscription(sub)
         node.destroy_node()
+
+
+def test_end_candidate_only_inside_end_window(rclpy_init):
+    node = Task2SimProvider()
+    try:
+        point = type('Point', (), {})
+        def at(x, y):
+            p = point()
+            p.x, p.y = x, y
+            return p
+        assert not node._near_pipeline_end(at(47.2, 13.85))
+        assert not node._near_pipeline_end(at(50.5, 13.85))
+        assert node._near_pipeline_end(at(51.2, 13.85))
+        assert node._near_pipeline_end(at(51.9, 13.85))
+        assert not node._near_pipeline_end(at(51.2, 15.5))
+        assert not node._near_pipeline_end(at(53.0, 13.85))
+    finally:
+        node.destroy_node()
+
+
+def test_run_fixtures_are_run_tagged_and_need_active_run(rclpy_init):
+    from banyu_msgs.msg import ActiveBuoyFix, PipelineEndCandidate, RunLifecycle
+    from geometry_msgs.msg import PoseStamped
+    from sensor_msgs.msg import NavSatFix
+    node = Task2SimProvider()
+    buoys, candidates = [], []
+    subs = [
+        node.create_subscription(ActiveBuoyFix, '/banyu/task2/active_buoy_fix',
+                                 buoys.append, 10),
+        node.create_subscription(PipelineEndCandidate, '/banyu/pipeline/end_candidate_state',
+                                 candidates.append, 10),
+    ]
+    try:
+        node._start_buoy_fix = NavSatFix(latitude=33.81, longitude=-118.39)
+        pose = PoseStamped()
+        pose.header.frame_id = 'map'
+        pose.header.stamp = node.get_clock().now().to_msg()
+        pose.pose.position.x, pose.pose.position.y = 51.3, 13.85
+        pose.pose.orientation.w = 1.0
+        node._latest_vehicle_pose = pose
+        node._publish_run_fixtures()
+        for _ in range(5):
+            rclpy.spin_once(node, timeout_sec=0.05)
+        assert not buoys and not candidates
+        node._lifecycle = RunLifecycle(run_id=7, epoch=2, phase=RunLifecycle.ACTIVE)
+        node._publish_run_fixtures()
+        node._publish_run_fixtures()
+        start = time.monotonic()
+        while (not buoys or len(candidates) < 2) and time.monotonic() - start < 1.0:
+            rclpy.spin_once(node, timeout_sec=0.05)
+        assert len(buoys) == 1
+        assert (buoys[0].run_id, buoys[0].epoch) == (7, 2)
+        assert buoys[0].green_confirmed and not buoys[0].pinger_confirmed
+        assert buoys[0].source_id == 'uuv_buoy_localizer'
+        assert candidates and all(c.candidate and c.run_id == 7 for c in candidates)
+    finally:
+        for sub in subs:
+            node.destroy_subscription(sub)
+        node.destroy_node()

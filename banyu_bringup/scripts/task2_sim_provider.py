@@ -8,10 +8,17 @@ MAVROS datum, not a true buoy GPS receiver.
 
 import math
 
-from banyu_msgs.msg import HydrophoneHeading, PipelineRingState
+from banyu_msgs.msg import (
+    ActiveBuoyFix,
+    HydrophoneHeading,
+    PipelineEndCandidate,
+    PipelineRingState,
+    RunLifecycle,
+)
 import rclpy
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
+from rx_msgs.msg import Course
 from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy,
@@ -109,6 +116,16 @@ class Task2SimProvider(Node):
         self.declare_parameter(
             "ring_colors", ["green", "green", "green", "red"]
         )
+        # Simulation ground truth standing in for the not-yet-built buoy localizer and
+        # end-of-pipe detector; published only by this sim-only fixture node.
+        self.declare_parameter("pipeline_start_map_x", 47.11)
+        self.declare_parameter("pipeline_start_map_y", 13.85)
+        self.declare_parameter("pipeline_end_map_x", 51.64)
+        self.declare_parameter("pipeline_end_map_y", 13.86)
+        self.declare_parameter("end_candidate_window_m", 0.8)
+        self.declare_parameter("end_candidate_max_lateral_m", 1.0)
+        self.declare_parameter("active_buoy_source_id", "uuv_buoy_localizer")
+        self.declare_parameter("active_buoy_endpoint_id", "start_buoy")
 
         self.buoy_x = float(self.get_parameter("buoy_x").value)
         self.buoy_y = float(self.get_parameter("buoy_y").value)
@@ -141,6 +158,27 @@ class Task2SimProvider(Node):
         self.task2_gps_fix_timeout_s = float(
             self.get_parameter("task2_gps_fix_timeout_s").value
         )
+        self.pipeline_start = (
+            float(self.get_parameter("pipeline_start_map_x").value),
+            float(self.get_parameter("pipeline_start_map_y").value),
+        )
+        self.pipeline_end = (
+            float(self.get_parameter("pipeline_end_map_x").value),
+            float(self.get_parameter("pipeline_end_map_y").value),
+        )
+        self.end_candidate_window_m = float(
+            self.get_parameter("end_candidate_window_m").value
+        )
+        self.end_candidate_max_lateral_m = float(
+            self.get_parameter("end_candidate_max_lateral_m").value
+        )
+        self.active_buoy_source_id = str(self.get_parameter("active_buoy_source_id").value)
+        self.active_buoy_endpoint_id = str(self.get_parameter("active_buoy_endpoint_id").value)
+        if math.hypot(self.pipeline_end[0] - self.pipeline_start[0],
+                      self.pipeline_end[1] - self.pipeline_start[1]) < 0.5:
+            raise ValueError("pipeline start and end must be at least 0.5 m apart")
+        if self.end_candidate_window_m <= 0.0 or self.end_candidate_max_lateral_m <= 0.0:
+            raise ValueError("end candidate window and lateral limit must be positive")
         self._validate_task2_parameters()
         if publish_rate <= 0.0:
             raise ValueError("publish_rate must be greater than zero")
@@ -190,6 +228,26 @@ class Task2SimProvider(Node):
         self.start_buoy_fix_pub = self.create_publisher(
             NavSatFix, "/banyu/task2/start_buoy_fix", start_buoy_qos
         )
+
+        latched = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.active_buoy_pub = self.create_publisher(
+            ActiveBuoyFix, "/banyu/task2/active_buoy_fix", latched
+        )
+        self.end_candidate_pub = self.create_publisher(
+            PipelineEndCandidate, "/banyu/pipeline/end_candidate_state", 10
+        )
+        self._lifecycle = None
+        self._course = None
+        self._start_buoy_fix = None
+        self._active_buoy_run = None
+        self.create_subscription(
+            RunLifecycle, "/banyu/mission/run_lifecycle", self._on_lifecycle, latched
+        )
+        self.create_subscription(Course, "/system/mission/course", self._on_course, latched)
 
         self._latest_global_fix = None
         self._latest_vehicle_pose = None
@@ -266,6 +324,59 @@ class Task2SimProvider(Node):
             route.poses.append(route_pose)
         self.route_pub.publish(route)
         self._maybe_publish_start_buoy_fix()
+        self._publish_run_fixtures()
+
+    def _on_lifecycle(self, msg):
+        self._lifecycle = msg
+
+    def _on_course(self, msg):
+        self._course = msg
+
+    def _publish_run_fixtures(self):
+        lifecycle = self._lifecycle
+        if lifecycle is None or lifecycle.run_id == 0 or lifecycle.phase not in (
+                RunLifecycle.ACTIVE, RunLifecycle.SURVEY_COMPLETE):
+            return
+        run = (lifecycle.run_id, lifecycle.epoch)
+        stamp = self.get_clock().now().to_msg()
+        if self._start_buoy_fix is not None and self._active_buoy_run != run:
+            buoy = ActiveBuoyFix()
+            buoy.header.stamp = stamp
+            buoy.header.frame_id = "map"
+            buoy.run_id, buoy.epoch = run
+            buoy.revision = 1
+            buoy.source_id = self.active_buoy_source_id
+            buoy.course_id = self._course.course_id if self._course else ""
+            buoy.endpoint_id = self.active_buoy_endpoint_id
+            buoy.fix = self._start_buoy_fix
+            buoy.uncertainty_m = 1.0
+            buoy.green_confirmed = True
+            buoy.pinger_confirmed = False
+            buoy.pinger_freq_hz = self._course.pinger_freq_hz if self._course else 0
+            self.active_buoy_pub.publish(buoy)
+            self._active_buoy_run = run
+            self.get_logger().info(
+                f"Simulated active buoy fix published for run {run[0]} epoch {run[1]}"
+            )
+        pose = self._latest_vehicle_pose
+        if not self._valid_vehicle_pose(pose):
+            return
+        candidate = PipelineEndCandidate()
+        candidate.header.stamp = stamp
+        candidate.run_id, candidate.epoch = run
+        candidate.candidate = self._near_pipeline_end(pose.pose.position)
+        self.end_candidate_pub.publish(candidate)
+
+    def _near_pipeline_end(self, position):
+        axis_x = self.pipeline_end[0] - self.pipeline_start[0]
+        axis_y = self.pipeline_end[1] - self.pipeline_start[1]
+        length = math.hypot(axis_x, axis_y)
+        rel_x = position.x - self.pipeline_start[0]
+        rel_y = position.y - self.pipeline_start[1]
+        progress = (rel_x * axis_x + rel_y * axis_y) / length
+        lateral = abs(rel_x * axis_y - rel_y * axis_x) / length
+        return (length - self.end_candidate_window_m <= progress <= length + 0.5 and
+                lateral <= self.end_candidate_max_lateral_m)
 
     def _on_vehicle_pose(self, msg):
         self._latest_vehicle_pose = msg
@@ -405,6 +516,7 @@ class Task2SimProvider(Node):
             buoy_fix.position_covariance_type = NavSatFix.COVARIANCE_TYPE_DIAGONAL_KNOWN
 
         self.start_buoy_fix_pub.publish(buoy_fix)
+        self._start_buoy_fix = buoy_fix
         self._last_gate_diagnostic = ""
         if not self._start_buoy_fix_published:
             self.get_logger().info(

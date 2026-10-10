@@ -63,6 +63,15 @@ task2_sim_provider:
     start_buoy_map_x: 43.95
     start_buoy_map_y: 13.85
 
+    # Simulation ground truth (sim-only fixture): pipe axis, end window and active buoy identity.
+    pipeline_start_map_x: 47.11
+    pipeline_start_map_y: 13.85
+    pipeline_end_map_x: 51.64
+    pipeline_end_map_y: 13.86
+    end_candidate_window_m: 0.8
+    end_candidate_max_lateral_m: 1.0
+    active_buoy_source_id: "uuv_buoy_localizer"
+    active_buoy_endpoint_id: "start_buoy"
 task2_pipeline_detector:
   ros__parameters:
     use_gui: false
