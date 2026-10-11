@@ -31,14 +31,14 @@ ROS 2 Humble underwater ROV autonomy stack: ArduSub SITL + Gazebo Harmonic + MAV
 
 ## Build / run (shell is zsh!)
 
-- ROS `setup.bash` uses `BASH_SOURCE`, which is unset in zsh → sourcing it resolves the prefix to CWD and errors. Always run ROS commands via: `bash -c 'source /opt/ros/humble/setup.bash && source install/setup.bash && <cmd>'` (from workspace root; install is symlink-install).
+- ROS `setup.bash` uses `BASH_SOURCE`, which is unset in zsh → sourcing it resolves the prefix to CWD and errors. Always run ROS commands via: `bash -c 'source /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash && source install/setup.bash && <cmd>'` (from workspace root; install is symlink-install).
 - Focused dual-architecture build: `colcon build --packages-select banyu_msgs banyu_guidance banyu_vehicle_interface banyu_vehicle_execution banyu_communication banyu_mission banyu_detection banyu_bringup` (from workspace root; build `banyu_msgs` before dependents).
 - Unit tests: `banyu_vehicle_execution` has gtest coverage (`build/banyu_vehicle_execution/test_vehicle_execution`). When running tests while simulation/bringup nodes are active on the host, always isolate the DDS domain (e.g. `ROS_DOMAIN_ID=42 ./build/banyu_vehicle_execution/test_vehicle_execution`) to prevent live vehicle pose or status traffic from leaking into test fixtures and failing watchdog assertions.
 - Mission launch: `ros2 launch banyu_bringup mission.launch.py mode:=por` or `ros2 launch banyu_bringup mission.launch.py mode:=task2`; full-sim launch-description sanity check: `ros2 launch banyu_bringup proof_of_readiness.launch.py --show-args`.
 
 ## Mission manager gotchas (`banyu_mission`)
 
-- Uses **core `behaviortree_cpp`** (apt `ros-humble-behaviortree-cpp`; headers at `/opt/ros/humble/include/behaviortree_cpp`). `behaviortree_ros2` is NOT packaged for Humble and unnecessary — do not add it. **Fix the deb's multiarch bug before building:** `sudo ln -sf x86_64-linux-gnu/libbehaviortree_cpp.so /opt/ros/humble/lib/libbehaviortree_cpp.so` — the deb's `ament_cmake_export_libraries` searches only `lib/` but the library lives at `lib/x86_64-linux-gnu/`.
+- Uses **core `behaviortree_cpp`** (apt `ros-${ROS_DISTRO}-behaviortree-cpp`, headers at `/opt/ros/${ROS_DISTRO}/include/behaviortree_cpp`). `behaviortree_ros2` is unnecessary — do not add it. (Note: On Humble, a multiarch symlink `libbehaviortree_cpp.so` was needed; Jazzy provides this out of the box).
 - BT4 API differs from v3: `NodeStatus` is `enum class`; `BehaviorTreeFactory` has **no `setup()`**; register with `factory.registerNodeType<T>("ID", extraArgs...)`; run via `tree.tickWhileRunning()` in a `std::thread`; Groot2 monitor via `Groot2Publisher` (default port param 1666).
 - `shared_from_this()` in the ctor throws `bad_weak_ptr` — `BanyuMission` uses two-phase init: `main()` calls `node->initialize()` after `std::make_shared`.
 - The selected tree is `por_mission.xml` for POR or `banyu_mission.xml` for Task 2. Both use a reactive interrupt branch over a plain memory `Sequence` for mission phases; see the implementation-reference flow above. `AbortedOrTeleop` reacts to `/banyu/mission/abort`.
