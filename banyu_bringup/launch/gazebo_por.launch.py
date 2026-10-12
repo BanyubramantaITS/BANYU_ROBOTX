@@ -1,4 +1,5 @@
 import os
+import xml.etree.ElementTree as ET
 
 import xacro
 from ament_index_python.packages import get_package_share_directory
@@ -36,6 +37,25 @@ def generate_launch_description():
         "proof_of_readiness.world",
     )
 
+    # `gz sim` shares its transport with any other running instance, so `create` must be
+    # told which world to spawn into instead of letting it pick the first world it finds.
+    _world_name = ET.parse(_world_file).getroot().find("world").get("name")
+
+    # Gazebo resolves `model://<pkg>/...` and `model://<model>/...` mesh URIs through this
+    # variable; set it here so it cannot go stale with the caller's shell environment.
+    _gz_resource_path = os.pathsep.join(
+        filter(
+            None,
+            [
+                os.path.dirname(_banyu_sim_pkg_share),
+                os.path.join(_banyu_sim_pkg_share, "models"),
+                os.path.dirname(_bluerov2_gz_pkg_share),
+                os.path.join(_bluerov2_gz_pkg_share, "models"),
+                os.environ.get("GZ_SIM_RESOURCE_PATH", ""),
+            ],
+        )
+    )
+
     _bluerov2_heavy_file = os.path.join(
         _bluerov2_gz_pkg_share, "models", "bluerov2_heavy", "model.xacro"
     )
@@ -47,6 +67,8 @@ def generate_launch_description():
         package="ros_gz_sim",
         name="spawn_bluerov2_heavy",
         arguments=[
+            "-world",
+            _world_name,
             "-string",
             bluerov2_heavy_xml,
             "-name",
@@ -69,6 +91,7 @@ def generate_launch_description():
 
     ros_gz_sim_launch = ExecuteProcess(
         cmd=["gz", "sim", "-v3", "-r", _world_file],
+        additional_env={"GZ_SIM_RESOURCE_PATH": _gz_resource_path},
         output="both",
         condition=IfCondition(LaunchConfiguration("use_sim")),
     )
@@ -81,7 +104,16 @@ def generate_launch_description():
         executable="create",
         package="ros_gz_sim",
         name="spawn_por_pool",
-        arguments=["-z", "-2.5", "-string", _por_pool_xml, "-name", "pool"],
+        arguments=[
+            "-world",
+            _world_name,
+            "-z",
+            "-2.5",
+            "-string",
+            _por_pool_xml,
+            "-name",
+            "pool",
+        ],
         condition=IfCondition(LaunchConfiguration("use_sim")),
     )
 
@@ -91,7 +123,7 @@ def generate_launch_description():
         executable="create",
         package="ros_gz_sim",
         name="spawn_gate",
-        arguments=["-string", _gate_xml, "-name", "gate", "-x", "-4"],
+        arguments=["-world", _world_name, "-string", _gate_xml, "-name", "gate", "-x", "-4"],
         condition=IfCondition(LaunchConfiguration("use_sim")),
     )
 
@@ -104,6 +136,8 @@ def generate_launch_description():
         package="ros_gz_sim",
         name="spawn_buoy",
         arguments=[
+            "-world",
+            _world_name,
             "-string",
             _buoy_xml,
             "-name",
