@@ -50,7 +50,7 @@ ROS 2 Jazzy underwater ROV autonomy stack: ArduSub SITL + Gazebo Harmonic + MAVR
 
 ## Mission manager gotchas (`banyu_mission`)
 
-- Uses **core `behaviortree_cpp`** (apt `ros-jazzy-behaviortree-cpp`, 4.x). `behaviortree_ros2` is unnecessary — do not add it. (Humble only: the deb installs the library under `lib/x86_64-linux-gnu/`; symlink it into `/opt/ros/humble/lib/` before building.)
+- Uses **core `behaviortree_cpp`** (apt `ros-${ROS_DISTRO}-behaviortree-cpp`, headers at `/opt/ros/${ROS_DISTRO}/include/behaviortree_cpp`). `behaviortree_ros2` is unnecessary — do not add it. (Note: On Humble, a multiarch symlink `libbehaviortree_cpp.so` was needed; Jazzy provides this out of the box).
 - BT4 API differs from v3: `NodeStatus` is `enum class`; `BehaviorTreeFactory` has **no `setup()`**; register with `factory.registerNodeType<T>("ID", extraArgs...)`; run via `tree.tickWhileRunning()` in a `std::thread`; Groot2 monitor via `Groot2Publisher` (default port param 1666).
 - `shared_from_this()` in the ctor throws `bad_weak_ptr` — `BanyuMission` uses two-phase init: `main()` calls `node->initialize()` after `std::make_shared`.
 - The selected tree is `por_mission.xml` for POR or `banyu_mission.xml` for Task 2. Both use a reactive interrupt branch over a plain memory `Sequence` for mission phases; see the implementation-reference flow above. `AbortedOrTeleop` reacts to `/banyu/mission/abort`.
