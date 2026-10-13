@@ -65,6 +65,13 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    use_dvl_arg = DeclareLaunchArgument(
+        name="use_dvl",
+        default_value="False",
+        description="Whether DVL is equipped and should be used for EKF3 depth switching",
+        choices=["True", "False"],
+    )
+
     set_use_sim_time = SetUseSimTime(
         True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
@@ -109,6 +116,7 @@ def generate_launch_description():
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "use_ardusub_sitl": LaunchConfiguration("use_ardusub_sitl"),
             "fcu_url": LaunchConfiguration("fcu_url"),
+            "use_dvl": LaunchConfiguration("use_dvl"),
         }.items(),
     )
 
@@ -133,6 +141,7 @@ def generate_launch_description():
             fcu_url_arg,
             tier_arg,
             debug_arg,
+            use_dvl_arg,
             set_use_sim_time,
             gazebo_por_launch,
             gazebo_main_launch,

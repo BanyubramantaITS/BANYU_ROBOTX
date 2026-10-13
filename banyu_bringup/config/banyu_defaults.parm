@@ -1,6 +1,12 @@
 # BANYU curated ArduSub parameters for SITL.
 # Values mirror the working auto-dumped defaults in mav.parm (same names/types).
-# Applied via sim_vehicle.py --add-param-file (or --defaults on the bare binary).
+# BlueROV2 Heavy frame (vectored 6DOF: 8 thrusters).
+FRAME_CONFIG 2
+ATC_RAT_RLL_P 0.6
+ATC_RAT_RLL_I 0.15
+ATC_RAT_PIT_P 0.6
+ATC_RAT_PIT_I 0.15
+
 # Mission speeds (m/s).
 WP_SPD 1.0
 WP_SPD_UP 2.5

@@ -24,7 +24,10 @@ BT::NodeStatus TransitToPinger::step(const Snapshot&) {
     close_pings_ = ping->elevation_cos < kCloseElevationCos ? close_pings_ + 1 : 0;
     RCLCPP_INFO(logger(), "transit: bearing %+.0f deg, elevation %.0f deg", ping->bearing * 180 / M_PI,
                 std::acos(std::min<double>(ping->elevation_cos, 1.0)) * 180 / M_PI);
-    if (close_pings_ >= 2) return BT::NodeStatus::SUCCESS;
+    if (close_pings_ >= 2) {
+      sendSticks(*ctx_, 0, 0, 0.0);
+      return BT::NodeStatus::SUCCESS;
+    }
   }
   if (last_) {
     const double speed = last_->elevation_cos > kSlowElevationCos ? 0.6 : 0.15;

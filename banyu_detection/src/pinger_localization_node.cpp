@@ -42,7 +42,7 @@ class PingerLocalization : public rclcpp::Node {
     obs.left = u->left;
     obs.bearing = u->bearing();
     obs.elevation_cos = u->elevationCos();
-    obs.horizontal_range = banyu_detection::horizontalRange(*u, depth_ - pinger_depth_);
+    obs.horizontal_range = banyu_detection::horizontalRange(*u, std::abs(depth_ - pinger_depth_));
     pub_->publish(obs);
   }
 

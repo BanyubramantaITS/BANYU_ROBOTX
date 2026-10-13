@@ -40,6 +40,13 @@ def generate_launch_description():
         description="FCU connection URL (udp://127.0.0.1:14551@ for SITL or udp://192.168.2.1:14550@ for real ROV). SITL keeps 14550 free for QGC.",
     )
 
+    use_dvl_arg = DeclareLaunchArgument(
+        name="use_dvl",
+        default_value="False",
+        description="Whether DVL is equipped and should be used for EKF3 depth switching",
+        choices=["True", "False"],
+    )
+
     set_use_sim_time = SetUseSimTime(
         True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
@@ -148,6 +155,7 @@ def generate_launch_description():
         executable="ekf_source_switch.py",
         name="ekf_source_switch",
         output="screen",
+        condition=IfCondition(LaunchConfiguration("use_dvl")),
     )
 
     return LaunchDescription(
@@ -156,6 +164,7 @@ def generate_launch_description():
             use_ardusub_sitl_arg,
             use_sim_time_arg,
             fcu_url_arg,
+            use_dvl_arg,
             set_use_sim_time,
             ardusub_launch,
             ardusub_sitl_launch,

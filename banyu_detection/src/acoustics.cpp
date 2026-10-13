@@ -41,7 +41,7 @@ std::optional<PingerVector> pingerVector(const std::vector<double>& arrivals, co
 
 double horizontalRange(const PingerVector& u, double height_below_pinger) {
   const double c = std::min(u.elevationCos(), 0.999);
-  return std::max(height_below_pinger, 0.5) * c / std::sqrt(1 - c * c);
+  return std::max(std::fabs(height_below_pinger), 0.5) * c / std::sqrt(1 - c * c);
 }
 
 }  // namespace banyu_detection

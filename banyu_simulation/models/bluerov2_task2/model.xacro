@@ -115,7 +115,7 @@
   <gazebo>
     <plugin filename="BanyuHydrophoneArray" name="banyu::HydrophoneArray">
       <pinger_model>pinger_green</pinger_model>
-      <acoustic_offset>0 0 -0.186</acoustic_offset>
+      <acoustic_offset>0 0 -1.0</acoustic_offset>
       <hydrophone>0.15 0 -0.1</hydrophone>
       <hydrophone>-0.15 0 -0.1</hydrophone>
       <hydrophone>0 0.15 -0.1</hydrophone>
