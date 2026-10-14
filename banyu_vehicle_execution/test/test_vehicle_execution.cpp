@@ -1142,36 +1142,17 @@ TEST_F(VehicleExecutionNodeTest, NodeStartsAndDeclaresPreviewSink)
   EXPECT_FALSE(node->telemetry().gps_valid);
 }
 
-TEST_F(VehicleExecutionNodeTest, TelemetryUpdatesAndLeaseValidation)
+TEST_F(VehicleExecutionNodeTest, GoalActivationImmediate)
 {
   rclcpp::NodeOptions options;
-  options.append_parameter_override("control.require_lease", true);
   auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
 
   const auto goal_id = identity(5, "/banyu/actions/align_heading", 1);
   const auto req = node->requestGoal(goal_id);
   ASSERT_EQ(req.admission, GoalAdmission::Activated);
-  EXPECT_TRUE(node->arbiter().zeroLatched());
-
-  auto lease_pub =
-    node->create_publisher<banyu_msgs::msg::ActionLease>("/banyu/execution/lease", 10);
-  spinFor(node, 5);
-
-  auto lease_msg = std::make_shared<banyu_msgs::msg::ActionLease>();
-  lease_msg->header.stamp = node->now();
-  std::copy(goal_id.uuid.begin(), goal_id.uuid.end(), lease_msg->goal_id.uuid.begin());
-  lease_msg->owner = "/banyu/actions/align_heading";
-  lease_msg->generation = 1;
-  lease_msg->active = true;
-  lease_msg->expires_at = node->now() + rclcpp::Duration::from_seconds(2.0);
-
-  for (int i = 0; i < 50 && node->arbiter().zeroLatched(); ++i) {
-    lease_pub->publish(*lease_msg);
-    rclcpp::spin_some(node);
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-
   EXPECT_FALSE(node->arbiter().zeroLatched());
+  ASSERT_TRUE(node->arbiter().activeGoal().has_value());
+  EXPECT_EQ(node->arbiter().activeGoal()->goal.owner, "/banyu/actions/align_heading");
 }
 
 TEST_F(VehicleExecutionNodeTest, OperatorTakeoverFaultsActiveGoals)

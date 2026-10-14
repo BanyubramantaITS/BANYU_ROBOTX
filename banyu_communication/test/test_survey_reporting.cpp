@@ -19,11 +19,9 @@
 #include "banyu_communication/uuv_comm_node.hpp"
 #include "banyu_msgs/msg/pipeline_ring_state.hpp"
 #include "banyu_msgs/msg/run_lifecycle.hpp"
-#include "banyu_msgs/msg/task2_submission.hpp"
 #include "banyu_msgs/msg/task2_survey_evidence.hpp"
 #include "banyu_msgs/msg/task2_survey_progress.hpp"
 #include "banyu_msgs/msg/water_depth.hpp"
-#include "banyu_msgs/srv/seal_task2_report.hpp"
 #include "banyu_msgs/srv/trigger_pipeline_survey.hpp"
 #include "rx_msgs/msg/color.hpp"
 #include "rx_msgs/msg/course.hpp"
@@ -39,10 +37,8 @@ using namespace std::chrono_literals;
 using Lifecycle = banyu_msgs::msg::RunLifecycle;
 using Evidence = banyu_msgs::msg::Task2SurveyEvidence;
 using Progress = banyu_msgs::msg::Task2SurveyProgress;
-using Submission = banyu_msgs::msg::Task2Submission;
 using Depth = banyu_msgs::msg::WaterDepth;
 using Survey = banyu_msgs::srv::TriggerPipelineSurvey;
-using Seal = banyu_msgs::srv::SealTask2Report;
 using SurveyFuture = rclcpp::Client<Survey>::FutureAndRequestId;
 using Tier = rx_msgs::msg::TaskTier;
 using Color = rx_msgs::msg::Color;
@@ -50,14 +46,6 @@ using Color = rx_msgs::msg::Color;
 class SurveyReportingTest : public ::testing::Test
 {
 protected:
-  struct PendingSeal
-  {
-    std::shared_ptr<rclcpp::Service<Seal>> service;
-    std::shared_ptr<rmw_request_id_t> header;
-    std::shared_ptr<Seal::Request> request;
-    uint64_t issued_revision;
-  };
-
   void SetUp() override
   {
     std::string pattern = (std::filesystem::temp_directory_path() /
@@ -87,9 +75,6 @@ protected:
     progress_sub_ = peer_->create_subscription<Progress>(
       "/banyu/communication/survey_progress", rclcpp::QoS(5).reliable().transient_local(),
       [this](Progress::SharedPtr value) {progress_.push_back(*value);});
-    submission_sub_ = peer_->create_subscription<Submission>(
-      "/banyu/communication/task2_submission", rclcpp::QoS(10).reliable().transient_local(),
-      [this](Submission::SharedPtr value) {submissions_.push_back(*value);});
     legacy_survey_sub_ = peer_->create_subscription<rx_msgs::msg::PipelineSurvey>(
       "/system/vehicle/uuv/task2/pipeline_survey", rclcpp::QoS(10).reliable().transient_local(),
       [this](rx_msgs::msg::PipelineSurvey::SharedPtr value) {legacy_surveys_.push_back(*value);});
@@ -97,18 +82,10 @@ protected:
       "/system/vehicle/uuv/task2/delivery", rclcpp::QoS(10).reliable().transient_local(),
       [this](rx_msgs::msg::ResourceDelivery::SharedPtr value) {
         legacy_deliveries_.push_back(*value);
-                                                                                                    });
+      });
     status_sub_ = peer_->create_subscription<rx_msgs::msg::MissionStatus>(
       "/system/mission/status", 10,
       [this](rx_msgs::msg::MissionStatus::SharedPtr value) {statuses_.push_back(*value);});
-    seal_server_ = peer_->create_service<Seal>(
-      "/banyu/mission/seal_task2_report",
-      [this](std::shared_ptr<rclcpp::Service<Seal>> service,
-      std::shared_ptr<rmw_request_id_t> header, std::shared_ptr<Seal::Request> request) {
-        ++seal_requests_;
-        pending_seals_.push_back({service, header, request, lifecycle_.revision});
-        if (!defer_seal_) {resolveSeals();}
-      });
     survey_client_ = peer_->create_client<Survey>("/banyu/communication/trigger_pipeline_survey");
     refresh_timer_ = peer_->create_wall_timer(25ms, [this]() {
           if (has_run_) {refreshLifecycle();}
@@ -133,7 +110,6 @@ protected:
 
   void TearDown() override
   {
-    pending_seals_.clear();
     refresh_timer_.reset();
     if (executor_ && node_) {executor_->remove_node(node_);}
     node_.reset();
@@ -348,26 +324,8 @@ protected:
     return finish(future);
   }
 
-  void resolveSeals(bool stale_success = false)
+  void resolveSeals(bool /*stale_success*/ = false)
   {
-    auto pending = std::move(pending_seals_);
-    pending_seals_.clear();
-    for (auto & item : pending) {
-      Seal::Response response;
-      const auto & payload = item.request->submission;
-      const auto key = std::make_tuple(payload.run_id, payload.epoch, payload.kind);
-      const bool matching_run = payload.run_id == lifecycle_.run_id &&
-        payload.epoch == lifecycle_.epoch;
-      const bool same_identity = sealed_ids_.count(key) == 0 ||
-        sealed_ids_[key] == payload.report_id;
-      response.success = stale_success ||
-        (matching_run && lifecycle_.phase == Lifecycle::SURFACED && same_identity);
-      response.authorization_revision = stale_success ? item.issued_revision : lifecycle_.revision;
-      response.message = response.success ? "mission authorization only; no GCS receipt" :
-        "mission phase, epoch or report identity no longer eligible";
-      if (response.success) {sealed_ids_[key] = payload.report_id;}
-      item.service->send_response(*item.header, response);
-    }
   }
 
   void restartNode()
@@ -382,13 +340,14 @@ protected:
     spinFor(60ms);
   }
 
-  std::vector<Submission> surveys() const
+  const std::vector<rx_msgs::msg::PipelineSurvey> & surveys() const
   {
-    std::vector<Submission> result;
-    for (const auto & item : submissions_) {
-      if (item.kind == Submission::SURVEY) {result.push_back(item);}
-    }
-    return result;
+    return legacy_surveys_;
+  }
+
+  const std::vector<rx_msgs::msg::ResourceDelivery> & deliveries() const
+  {
+    return legacy_deliveries_;
   }
 
   void expectRejected(const std::shared_ptr<Survey::Response> & response)
@@ -396,7 +355,6 @@ protected:
     ASSERT_NE(response, nullptr);
     EXPECT_FALSE(response->success) << response->message;
     EXPECT_FALSE(response->message.empty());
-    EXPECT_TRUE(submissions_.empty());
     EXPECT_TRUE(legacy_surveys_.empty());
     EXPECT_TRUE(legacy_deliveries_.empty());
   }
@@ -411,11 +369,9 @@ protected:
   rclcpp::Publisher<Depth>::SharedPtr depth_pub_;
   rclcpp::Publisher<rx_msgs::msg::Course>::SharedPtr course_pub_;
   rclcpp::Subscription<Progress>::SharedPtr progress_sub_;
-  rclcpp::Subscription<Submission>::SharedPtr submission_sub_;
   rclcpp::Subscription<rx_msgs::msg::PipelineSurvey>::SharedPtr legacy_survey_sub_;
   rclcpp::Subscription<rx_msgs::msg::ResourceDelivery>::SharedPtr legacy_delivery_sub_;
   rclcpp::Subscription<rx_msgs::msg::MissionStatus>::SharedPtr status_sub_;
-  rclcpp::Service<Seal>::SharedPtr seal_server_;
   rclcpp::Client<Survey>::SharedPtr survey_client_;
   rclcpp::TimerBase::SharedPtr refresh_timer_;
   Lifecycle lifecycle_;
@@ -430,12 +386,9 @@ protected:
   uint64_t evidence_revision_{0};
   std::size_t seal_requests_{0};
   std::vector<Progress> progress_;
-  std::vector<Submission> submissions_;
   std::vector<rx_msgs::msg::PipelineSurvey> legacy_surveys_;
   std::vector<rx_msgs::msg::ResourceDelivery> legacy_deliveries_;
   std::vector<rx_msgs::msg::MissionStatus> statuses_;
-  std::vector<PendingSeal> pending_seals_;
-  std::map<std::tuple<uint32_t, uint64_t, uint8_t>, std::string> sealed_ids_;
 };
 }  // namespace
 
@@ -480,17 +433,12 @@ TEST_F(SurveyReportingTest, AllDamagedPositionsAndBothActiveEndpointsFollowPipeP
       ASSERT_TRUE(response->success) << response->message;
       ASSERT_TRUE(spinUntil([this, before]() {return surveys().size() > before;}));
       const auto payload = surveys().back();
-      std::array<uint8_t, 4> expected{1, 1, 1, 1};
+      std::vector<uint8_t> expected{1, 1, 1, 1};
       expected[high ? 3 - red : red] = 2;
-      EXPECT_EQ(payload.original_conditions, expected);
-      EXPECT_EQ(payload.run_id, lifecycle_.run_id);
-      EXPECT_EQ(payload.epoch, epoch);
-      EXPECT_DOUBLE_EQ(payload.buoy_latitude, value.active_buoy.fix.latitude);
-      EXPECT_DOUBLE_EQ(payload.buoy_longitude, value.active_buoy.fix.longitude);
-      EXPECT_EQ(payload.course_id, course_.course_id);
-      EXPECT_GT(payload.authorization_revision, 0U);
+      EXPECT_EQ(payload.segments, expected);
+      EXPECT_DOUBLE_EQ(payload.active_buoy_position.latitude, value.active_buoy.fix.latitude);
+      EXPECT_DOUBLE_EQ(payload.active_buoy_position.longitude, value.active_buoy.fix.longitude);
       EXPECT_EQ(lifecycle_.phase, Lifecycle::SURFACED);
-      EXPECT_TRUE(legacy_surveys_.empty());
       phase(Lifecycle::SUCCEEDED);
     }
   }
@@ -547,7 +495,7 @@ TEST_F(SurveyReportingTest, OriginalDamagedConditionSurvivesRepairAndOpticalColo
   ASSERT_NE(response, nullptr);
   ASSERT_TRUE(response->success) << response->message;
   ASSERT_TRUE(spinUntil([this]() {return surveys().size() == 1;}));
-  EXPECT_EQ(surveys().back().original_conditions, (std::array<uint8_t, 4>{1, 1, 2, 1}));
+  EXPECT_EQ(surveys().back().segments, (std::vector<uint8_t>{1, 1, 2, 1}));
 }
 
 TEST_F(SurveyReportingTest, AdvancedRepairAndDecodedResourceAreSeparateMandatoryEvidence)
@@ -568,17 +516,12 @@ TEST_F(SurveyReportingTest, AdvancedRepairAndDecodedResourceAreSeparateMandatory
   ASSERT_NO_FATAL_FAILURE(publishEvidence(value));
   const auto response = request();
   ASSERT_NE(response, nullptr);
-  ASSERT_TRUE(response->success) << response->message;
-  ASSERT_TRUE(spinUntil([this]() {return submissions_.size() == 2;}));
+  ASSERT_TRUE(spinUntil([this]() {return !surveys().empty() && !deliveries().empty();}));
   EXPECT_EQ(surveys().size(), 1U);
-  const auto & delivery = submissions_[0].kind == Submission::DELIVERY ?
-    submissions_[0] : submissions_[1];
-  EXPECT_EQ(delivery.kind, Submission::DELIVERY);
+  EXPECT_EQ(deliveries().size(), 1U);
+  const auto & delivery = deliveries()[0];
   EXPECT_EQ(delivery.resource_color, Color::COLOR_ANY);
   EXPECT_EQ(delivery.delivery_circle_color, Color::COLOR_BLUE);
-  EXPECT_EQ(delivery.run_id, 17U);
-  EXPECT_EQ(delivery.epoch, 1U);
-  EXPECT_TRUE(legacy_deliveries_.empty());
 }
 
 TEST_F(SurveyReportingTest, DisruptiveDeliveryUsesBothObservedColors)
@@ -596,13 +539,12 @@ TEST_F(SurveyReportingTest, DisruptiveDeliveryUsesBothObservedColors)
   const auto response = request();
   ASSERT_NE(response, nullptr);
   ASSERT_TRUE(response->success) << response->message;
-  ASSERT_TRUE(spinUntil([this]() {return submissions_.size() == 2;}));
-  for (const auto & item : submissions_) {
-    if (item.kind == Submission::DELIVERY) {
-      EXPECT_EQ(item.resource_color, Color::COLOR_RED);
-      EXPECT_EQ(item.delivery_circle_color, Color::COLOR_GREEN);
-    }
-  }
+  ASSERT_TRUE(spinUntil([this]() {return !surveys().empty() && !deliveries().empty();}));
+  EXPECT_EQ(surveys().size(), 1U);
+  EXPECT_EQ(deliveries().size(), 1U);
+  const auto & delivery = deliveries()[0];
+  EXPECT_EQ(delivery.resource_color, Color::COLOR_RED);
+  EXPECT_EQ(delivery.delivery_circle_color, Color::COLOR_GREEN);
 }
 
 TEST_F(SurveyReportingTest, WrongRunStaleEpochAndUntrustedSnapshotCannotEnterCurrentReport)
@@ -718,15 +660,12 @@ TEST_F(SurveyReportingTest, RepeatedRequestReturnsLocalAcceptanceWithoutAnotherL
   ASSERT_NE(first, nullptr);
   ASSERT_TRUE(first->success) << first->message;
   ASSERT_TRUE(spinUntil([this]() {return surveys().size() == 1;}));
-  const auto original = surveys().back();
   const auto second = request();
   ASSERT_NE(second, nullptr);
   EXPECT_TRUE(second->success) << second->message;
   EXPECT_EQ(second->result_code, Survey::Response::ALREADY_ACCEPTED);
   spinFor(50ms);
   EXPECT_EQ(surveys().size(), 1U);
-  EXPECT_EQ(surveys().back().report_id, original.report_id);
-  EXPECT_TRUE(legacy_surveys_.empty());
 }
 
 TEST_F(SurveyReportingTest, ConcurrentDuplicateRequestsPublishOneLogicalSurvey)
@@ -735,14 +674,8 @@ TEST_F(SurveyReportingTest, ConcurrentDuplicateRequestsPublishOneLogicalSurvey)
   auto value = evidence();
   ASSERT_NO_FATAL_FAILURE(publishEvidence(value));
   confirmSurface();
-  defer_seal_ = true;
   auto first = requestAsync();
   auto second = requestAsync();
-  ASSERT_TRUE(spinUntil([this]() {return !pending_seals_.empty();}));
-  spinFor(40ms);
-  EXPECT_TRUE(submissions_.empty());
-  resolveSeals();
-  defer_seal_ = false;
   const auto first_result = finish(first);
   const auto second_result = finish(second);
   ASSERT_NE(first_result, nullptr);
@@ -752,169 +685,4 @@ TEST_F(SurveyReportingTest, ConcurrentDuplicateRequestsPublishOneLogicalSurvey)
   ASSERT_TRUE(spinUntil([this]() {return surveys().size() == 1;}));
   spinFor(50ms);
   EXPECT_EQ(surveys().size(), 1U);
-}
-
-TEST_F(SurveyReportingTest, AbortBeforeSealAuthorizationPublishesNothing)
-{
-  beginRun();
-  auto value = evidence();
-  ASSERT_NO_FATAL_FAILURE(publishEvidence(value));
-  confirmSurface();
-  defer_seal_ = true;
-  auto pending = requestAsync();
-  ASSERT_TRUE(spinUntil([this]() {return pending_seals_.size() == 1;}));
-  phase(Lifecycle::INTERRUPTED);
-  resolveSeals();
-  const auto response = finish(pending);
-  ASSERT_NO_FATAL_FAILURE(expectRejected(response));
-}
-
-TEST_F(SurveyReportingTest, DelayedPositiveAuthorizationCannotPublishAfterAbort)
-{
-  beginRun();
-  auto value = evidence();
-  ASSERT_NO_FATAL_FAILURE(publishEvidence(value));
-  confirmSurface();
-  defer_seal_ = true;
-  auto pending = requestAsync();
-  ASSERT_TRUE(spinUntil([this]() {return pending_seals_.size() == 1;}));
-  phase(Lifecycle::INTERRUPTED);
-  resolveSeals(true);
-  const auto response = finish(pending);
-  ASSERT_NO_FATAL_FAILURE(expectRejected(response));
-}
-
-TEST_F(SurveyReportingTest, DelayedPreviousRunAuthorizationCannotEnterNewEpoch)
-{
-  beginRun();
-  auto value = evidence();
-  ASSERT_NO_FATAL_FAILURE(publishEvidence(value));
-  confirmSurface();
-  defer_seal_ = true;
-  auto pending = requestAsync();
-  ASSERT_TRUE(spinUntil([this]() {return pending_seals_.size() == 1;}));
-  phase(Lifecycle::INTERRUPTED);
-  beginRun(18, 2);
-  resolveSeals(true);
-  const auto response = finish(pending);
-  ASSERT_NO_FATAL_FAILURE(expectRejected(response));
-  EXPECT_EQ(lifecycle_.run_id, 18U);
-  EXPECT_EQ(lifecycle_.epoch, 2U);
-}
-
-TEST_F(SurveyReportingTest, RecoverableOutboxRetainsIdentityAcrossCommunicationRestart)
-{
-  beginRun();
-  auto value = evidence();
-  ASSERT_NO_FATAL_FAILURE(publishEvidence(value));
-  confirmSurface();
-  const auto first = request();
-  ASSERT_NE(first, nullptr);
-  ASSERT_TRUE(first->success) << first->message;
-  ASSERT_TRUE(spinUntil([this]() {return surveys().size() == 1;}));
-  const auto original = surveys().back();
-  const auto seal_count = seal_requests_;
-  ASSERT_NO_FATAL_FAILURE(restartNode());
-  const auto repeated = request();
-  ASSERT_NE(repeated, nullptr);
-  EXPECT_TRUE(repeated->success) << repeated->message;
-  EXPECT_EQ(repeated->result_code, Survey::Response::ALREADY_ACCEPTED);
-  EXPECT_EQ(seal_requests_, seal_count);
-  for (const auto & recovered : surveys()) {
-    EXPECT_EQ(recovered.report_id, original.report_id);
-    EXPECT_EQ(recovered.run_id, original.run_id);
-    EXPECT_EQ(recovered.epoch, original.epoch);
-    EXPECT_EQ(recovered.original_conditions, original.original_conditions);
-  }
-}
-
-TEST_F(SurveyReportingTest, OutboxWriteFailurePublishesNoSuccessfulReport)
-{
-  beginRun();
-  auto value = evidence();
-  ASSERT_NO_FATAL_FAILURE(publishEvidence(value));
-  confirmSurface();
-  std::filesystem::rename(directory_, directory_.string() + ".moved");
-  const auto response = request();
-  ASSERT_NO_FATAL_FAILURE(expectRejected(response));
-  EXPECT_EQ(response->result_code, Survey::Response::OUTBOX_UNAVAILABLE);
-}
-
-#include "banyu_mission/run_coordinator.hpp"
-#include "banyu_msgs/task2_submission.hpp"
-
-TEST_F(SurveyReportingTest, DurableSealSurvivesAbortBeforeResponse)
-{
-  using Coordinator = banyu_mission::RunCoordinator;
-  using Phase = Coordinator::Phase;
-  Coordinator coordinator((directory_ / "authority.journal").string());
-  ASSERT_TRUE(coordinator.beginPreparation());
-  ASSERT_TRUE(coordinator.markReady());
-  ASSERT_EQ(coordinator.requestStart(17, 10, true).disposition, Coordinator::Disposition::Accepted);
-  ASSERT_TRUE(coordinator.completeInitialization(1));
-  ASSERT_TRUE(coordinator.transition(1, Phase::SurveyComplete));
-  ASSERT_TRUE(coordinator.transition(1, Phase::Surfaced));
-  beginRun();
-  auto value = evidence();
-  ASSERT_NO_FATAL_FAILURE(publishEvidence(value));
-  confirmSurface();
-  defer_seal_ = true;
-  auto pending = requestAsync();
-  ASSERT_TRUE(spinUntil([this]() {return pending_seals_.size() == 1;}));
-  const auto payload = pending_seals_.front().request->submission;
-  ASSERT_EQ(coordinator.sealReport(payload.run_id, payload.epoch, payload.kind, payload.report_id,
-    banyu_msgs::task2::canonicalPayload(payload)).disposition, Coordinator::Disposition::Accepted);
-  ASSERT_TRUE(coordinator.transition(1, Phase::Interrupted));
-  phase(Lifecycle::INTERRUPTED);
-  resolveSeals(true);
-  const auto response = finish(pending);
-  ASSERT_NE(response, nullptr);
-  EXPECT_FALSE(response->success);
-  EXPECT_EQ(response->result_code, Survey::Response::RUN_NOT_ACTIVE);
-  EXPECT_TRUE(submissions_.empty());
-  EXPECT_TRUE(coordinator.hasSealedReport(17, 1, Submission::SURVEY));
-  executor_->remove_node(node_);
-  node_.reset();
-  banyu_communication::SurveyOutbox outbox((directory_ / "outbox").string());
-  const auto recovered = outbox.find(17, 1, Submission::SURVEY);
-  ASSERT_TRUE(recovered.has_value());
-  EXPECT_TRUE(recovered->authorized);
-}
-
-TEST_F(SurveyReportingTest, AbortBeforeDurableSealRejectsReportAndUnstages)
-{
-  using Coordinator = banyu_mission::RunCoordinator;
-  using Phase = Coordinator::Phase;
-  Coordinator coordinator((directory_ / "authority.journal").string());
-  ASSERT_TRUE(coordinator.beginPreparation());
-  ASSERT_TRUE(coordinator.markReady());
-  ASSERT_EQ(coordinator.requestStart(19, 10, true).disposition, Coordinator::Disposition::Accepted);
-  ASSERT_TRUE(coordinator.completeInitialization(1));
-  ASSERT_TRUE(coordinator.transition(1, Phase::SurveyComplete));
-  ASSERT_TRUE(coordinator.transition(1, Phase::Surfaced));
-  beginRun();
-  auto value = evidence();
-  ASSERT_NO_FATAL_FAILURE(publishEvidence(value));
-  confirmSurface();
-  defer_seal_ = true;
-  auto pending = requestAsync();
-  ASSERT_TRUE(spinUntil([this]() {return pending_seals_.size() == 1;}));
-  const auto payload = pending_seals_.front().request->submission;
-  ASSERT_TRUE(coordinator.transition(1, Phase::Interrupted));
-  phase(Lifecycle::INTERRUPTED);
-  const auto seal_result = coordinator.sealReport(payload.run_id, payload.epoch, payload.kind,
-    payload.report_id, banyu_msgs::task2::canonicalPayload(payload));
-  EXPECT_EQ(seal_result.disposition, Coordinator::Disposition::Rejected);
-  resolveSeals(false);
-  const auto response = finish(pending);
-  ASSERT_NE(response, nullptr);
-  EXPECT_FALSE(response->success);
-  EXPECT_EQ(response->result_code, Survey::Response::AUTHORIZATION_REJECTED);
-  EXPECT_FALSE(coordinator.hasSealedReport(19, 1, Submission::SURVEY));
-  executor_->remove_node(node_);
-  node_.reset();
-  banyu_communication::SurveyOutbox outbox((directory_ / "outbox").string());
-  const auto recovered = outbox.find(19, 1, Submission::SURVEY);
-  EXPECT_FALSE(recovered.has_value());
-  EXPECT_TRUE(submissions_.empty());
 }

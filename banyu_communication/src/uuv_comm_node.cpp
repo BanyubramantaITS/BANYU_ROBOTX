@@ -9,7 +9,6 @@
 #include <vector>
 #include <cstdlib>
 #include <filesystem>
-#include "banyu_msgs/task2_submission.hpp"
 
 #include <rx_msgs/msg/pipeline_segment_status.hpp>
 #include <rx_msgs/msg/robot_state.hpp>
@@ -91,37 +90,18 @@ UuvCommNode::UuvCommNode(const rclcpp::NodeOptions & options)
   guard_config.sources = declare_parameter<std::vector<std::string>>(
     "survey.depth_sources", {"pressure_depth"});
   surface_guard_ = std::make_unique<SurfaceGuard>(guard_config);
-  const char * user_directory = std::getenv("HOME");
-  auto outbox_path = declare_parameter<std::string>("survey.outbox_path",
-    std::string(user_directory ? user_directory : "/tmp") + "/.ros/banyu/uuv_reports.outbox");
-  if (user_directory && outbox_path.rfind("~/", 0) == 0) {
-    outbox_path = std::string(user_directory) + outbox_path.substr(1);
-  }
-  if (outbox_path.empty()) {throw std::invalid_argument("A durable report outbox is required");}
-  std::error_code directory_error;
-  std::filesystem::create_directories(std::filesystem::path(outbox_path).parent_path(),
-      directory_error);
-  if (directory_error) {
-    RCLCPP_ERROR(get_logger(), "Cannot provision report outbox: %s",
-        directory_error.message().c_str());
-  }
-  survey_outbox_ = std::make_unique<SurveyOutbox>(outbox_path);
-  publish_legacy_copies_ = declare_parameter<bool>("survey.publish_legacy_copies", false);
+  const auto survey_topic = declare_parameter<std::string>(
+    "topics.pipeline_survey", "/system/vehicle/uuv/task2/pipeline_survey");
+  const auto delivery_topic = declare_parameter<std::string>(
+    "topics.delivery", "/system/vehicle/uuv/task2/delivery");
   survey_pub_ = create_publisher<rx_msgs::msg::PipelineSurvey>(
-    "/system/vehicle/uuv/task2/pipeline_survey", rclcpp::QoS(1).reliable().transient_local());
+    survey_topic, rclcpp::QoS(10).reliable().transient_local());
   delivery_pub_ = create_publisher<rx_msgs::msg::ResourceDelivery>(
-    "/system/vehicle/uuv/task2/delivery", rclcpp::QoS(1).reliable().transient_local());
-  submission_pub_ = create_publisher<banyu_msgs::msg::Task2Submission>(
-    declare_parameter<std::string>("topics.task2_submission",
-      "/banyu/communication/task2_submission"),
-    rclcpp::QoS(32).reliable().transient_local());
+    delivery_topic, rclcpp::QoS(10).reliable().transient_local());
   survey_progress_pub_ = create_publisher<banyu_msgs::msg::Task2SurveyProgress>(
     declare_parameter<std::string>("topics.survey_progress",
       "/banyu/communication/survey_progress"),
     rclcpp::QoS(1).reliable().transient_local());
-  seal_client_ = create_client<banyu_msgs::srv::SealTask2Report>(
-    declare_parameter<std::string>("services.seal_task2_report",
-      "/banyu/mission/seal_task2_report"));
 
   using std::placeholders::_1;
   command_sub_ = create_subscription<rx_msgs::msg::Command>(
@@ -166,7 +146,6 @@ UuvCommNode::UuvCommNode(const rclcpp::NodeOptions & options)
 UuvCommNode::~UuvCommNode()
 {
   if (heartbeat_timer_) {heartbeat_timer_->cancel();}
-  if (seal_client_) {seal_client_->prune_pending_requests();}
 }
 
 uint8_t UuvCommNode::robotStateLocked() const
@@ -423,7 +402,6 @@ void UuvCommNode::lifecycleCallback(const banyu_msgs::msg::RunLifecycle::SharedP
       survey_ledger_->beginRun(msg->run_id, msg->epoch, accepted_ns);
       surface_guard_->beginRun(msg->run_id, msg->epoch);
       evidence_revision_ = 0;
-      recovered_outbox_ = false;
     }
     notify = !lifecycle_received_ || msg->event != Lifecycle::SNAPSHOT ||
       msg->run_id != lifecycle_.run_id || msg->phase != lifecycle_.phase ||
@@ -434,27 +412,6 @@ void UuvCommNode::lifecycleCallback(const banyu_msgs::msg::RunLifecycle::SharedP
     run_id_ = msg->run_id;
     current_task_ = msg->phase >= Lifecycle::ACTIVE && msg->phase <= Lifecycle::SURFACED ?
       msg->current_task : rx_msgs::msg::RxTask::TASK_NONE;
-    if (current_task_ == rx_msgs::msg::RxTask::TASK_UNKNOWN) {
-      current_task_ = rx_msgs::msg::RxTask::TASK_NONE;
-    }
-    if (msg->phase == Lifecycle::INTERRUPTED || msg->phase == Lifecycle::FAILED) {
-      for (auto it = pending_surveys_.begin(); it != pending_surveys_.end(); ) {
-        auto & pending = it->second;
-        if (pending->completed) {
-          it = pending_surveys_.erase(it);
-        } else if (pending->seal_request_id == 0) {
-          survey_outbox_->unstage(pending->survey.report_id);
-          if (pending->delivery) {
-            survey_outbox_->unstage(pending->delivery->report_id);
-          }
-          finishSurvey(pending, false, TriggerPipelineSurvey::Response::RUN_NOT_ACTIVE,
-            "MISSION_ABORTED_BEFORE_SEAL");
-          it = pending_surveys_.erase(it);
-        } else {
-          ++it;
-        }
-      }
-    }
   }
   if (notify) {
     publishMissionStatus(msg->reason.empty() ? "Mission lifecycle updated" : msg->reason,
@@ -506,28 +463,6 @@ void UuvCommNode::publishSurveyProgress()
   progress.survey_complete = lifecycleFreshLocked() && survey_ledger_->complete();
   progress.reason = survey_ledger_->reason();
   survey_progress_pub_->publish(progress);
-  if (!recovered_outbox_ && lifecycleFreshLocked()) {
-    for (const auto & entry : survey_outbox_->entries()) {
-      if (entry.authorized && entry.submission.run_id == run_id_ &&
-        entry.submission.epoch == lifecycle_.epoch &&
-        (lifecycle_.phase == banyu_msgs::msg::RunLifecycle::SURFACED ||
-        lifecycle_.phase == banyu_msgs::msg::RunLifecycle::SUCCEEDED))
-      {
-        publishSubmission(entry.submission);
-      }
-    }
-    recovered_outbox_ = true;
-  }
-  std::vector<std::shared_ptr<PendingSurvey>> expired;
-  for (const auto & item : pending_surveys_) {
-    if (std::chrono::steady_clock::now() - item.second->started > std::chrono::seconds(3)) {
-      expired.push_back(item.second);
-    }
-  }
-  for (const auto & pending : expired) {
-    finishSurvey(pending, false, TriggerPipelineSurvey::Response::AUTHORIZATION_REJECTED,
-      "MISSION_SEAL_TIMEOUT: staged report retained; forwarding unconfirmed");
-  }
 }
 
 void UuvCommNode::surveyCallback(
@@ -548,28 +483,24 @@ void UuvCommNode::surveyCallback(
       response.report_id = request->report_id;
       service->send_response(*header, response);
     };
-  const auto existing = survey_outbox_->find(request->run_id, request->epoch,
-    banyu_msgs::msg::Task2Submission::SURVEY);
-  if (existing && existing->submission.report_id != request->report_id) {
-    reply(Response::AUTHORIZATION_REJECTED, "REPORT_ID_CONFLICT: logical report already staged");
-    return;
-  }
-  if (existing && existing->authorized) {
-    const auto delivery = survey_outbox_->find(request->run_id, request->epoch,
-      banyu_msgs::msg::Task2Submission::DELIVERY);
-    if (existing->submission.tier == 2 || (delivery && delivery->authorized)) {
-      reply(Response::ALREADY_ACCEPTED,
-        "Previously accepted into durable local outbox; GCS forwarding unconfirmed", true);
-      return;
-    }
-  }
-  using Lifecycle = banyu_msgs::msg::RunLifecycle;
+
   if (request->run_id == 0 || request->epoch == 0 || request->run_id != run_id_ ||
     request->epoch != lifecycle_.epoch)
-  {reply(Response::WRONG_RUN, "WRONG_RUN: accepted run/epoch required"); return;}
+  {
+    reply(Response::WRONG_RUN, "WRONG_RUN: accepted run/epoch required");
+    return;
+  }
+  if (submitted_runs_.count(request->run_id) > 0) {
+    reply(Response::ALREADY_ACCEPTED, "Previously submitted report for this run", true);
+    return;
+  }
+  using Lifecycle = banyu_msgs::msg::RunLifecycle;
   if (!lifecycleFreshLocked() || !lifecycle_.autonomous_ready ||
     lifecycle_.phase < Lifecycle::ACTIVE || lifecycle_.phase > Lifecycle::SURFACED)
-  {reply(Response::RUN_NOT_ACTIVE, "RUN_NOT_ACTIVE: fresh eligible mission required"); return;}
+  {
+    reply(Response::RUN_NOT_ACTIVE, "RUN_NOT_ACTIVE: fresh eligible mission required");
+    return;
+  }
   if (!survey_ledger_->complete()) {
     reply(Response::SURVEY_INVALID, survey_ledger_->reason());
     return;
@@ -584,147 +515,28 @@ void UuvCommNode::surveyCallback(
     reply(Response::SURFACE_TELEMETRY_STALE, surface_guard_->reason());
     return;
   }
-  const auto pending_it = pending_surveys_.find(request->report_id);
-  if (pending_it != pending_surveys_.end()) {
-    pending_it->second->waiters.push_back({std::move(service), std::move(header)});
-    return;
-  }
-  if (!seal_client_->service_is_ready()) {
-    reply(Response::AUTHORIZATION_REJECTED, "MISSION_SEAL_UNAVAILABLE");
-    return;
-  }
-  auto pending = std::make_shared<PendingSurvey>();
+
+  SurveyLedger::Report report;
   try {
-    pending->survey = survey_ledger_->build(request->report_id);
+    report = survey_ledger_->build(request->report_id);
   } catch (const std::exception & error) {
     reply(Response::SURVEY_INVALID, error.what());
     return;
   }
-  if (!banyu_msgs::task2::validSubmission(pending->survey)) {
-    reply(Response::SURVEY_INVALID, "INVALID_REPORT_ID_OR_PAYLOAD");
-    return;
-  }
-  const auto staged = survey_outbox_->stage(pending->survey);
-  if (!staged.success) {reply(Response::OUTBOX_UNAVAILABLE, staged.message); return;}
-  if (pending->survey.tier > 2) {
-    pending->delivery = pending->survey;
-    pending->delivery->kind = banyu_msgs::msg::Task2Submission::DELIVERY;
-    pending->delivery->report_id += "-delivery";
-    const auto delivery_stage = survey_outbox_->stage(*pending->delivery);
-    if (!delivery_stage.success) {
-      reply(Response::OUTBOX_UNAVAILABLE, delivery_stage.message); return;
-    }
-  }
-  pending->waiters.push_back({std::move(service), std::move(header)});
-  pending->started = std::chrono::steady_clock::now();
-  pending_surveys_[request->report_id] = pending;
-  requestSeal(pending, false);
-}
 
-void UuvCommNode::requestSeal(const std::shared_ptr<PendingSurvey> & pending, bool delivery)
-{
-  auto request = std::make_shared<banyu_msgs::srv::SealTask2Report::Request>();
-  request->submission = delivery ? *pending->delivery : pending->survey;
-  const auto report_id = request->submission.report_id;
-  const auto future = seal_client_->async_send_request(request,
-      [this, pending, delivery, report_id](
-        rclcpp::Client<banyu_msgs::srv::SealTask2Report>::SharedFuture future) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        try {
-          const auto response = future.get();
-          if (!response->success || response->authorization_revision == 0) {
-            survey_outbox_->unstage(report_id);
-            if (!pending->completed) {
-              finishSurvey(pending, false, TriggerPipelineSurvey::Response::AUTHORIZATION_REJECTED,
-                "MISSION_SEAL_REJECTED: " + response->message);
-            }
-            return;
-          }
-          using Lifecycle = banyu_msgs::msg::RunLifecycle;
-          const bool lifecycle_transitioned =
-          pending->survey.run_id != run_id_ || pending->survey.epoch != lifecycle_.epoch ||
-          !lifecycleFreshLocked() ||
-          (lifecycle_.phase != Lifecycle::SURFACED && lifecycle_.phase != Lifecycle::SUCCEEDED);
+  auto survey = report.toPipelineSurvey();
+  survey.header.stamp = now();
+  survey.header.frame_id = "uuv";
+  survey_pub_->publish(survey);
 
-          const auto result = survey_outbox_->authorize(report_id,
-            response->authorization_revision);
-          if (!result.success || !result.entry) {
-            if (!pending->completed) {
-              finishSurvey(pending, false, TriggerPipelineSurvey::Response::OUTBOX_UNAVAILABLE,
-                result.message);
-            }
-            return;
-          }
-
-          if (lifecycle_transitioned) {
-            if (!pending->completed) {
-              finishSurvey(pending, false, TriggerPipelineSurvey::Response::RUN_NOT_ACTIVE,
-                "RUN_NOT_ACTIVE: mission state changed after seal completed; report preserved in outbox");
-            }
-            return;
-          }
-
-          publishSubmission(result.entry->submission);
-          if (!delivery && pending->delivery) {
-            requestSeal(pending, true);
-          } else if (!pending->completed) {
-            finishSurvey(pending, true, TriggerPipelineSurvey::Response::ACCEPTED,
-              "Accepted into durable local outbox; GCS forwarding unconfirmed");
-          }
-        } catch (const std::exception & error) {
-          survey_outbox_->unstage(report_id);
-          if (!pending->completed) {
-            finishSurvey(pending, false, TriggerPipelineSurvey::Response::AUTHORIZATION_REJECTED,
-              "MISSION_SEAL_FAILED: " + std::string(error.what()));
-          }
-        }
-    });
-  pending->seal_request_id = future.request_id;
-}
-
-void UuvCommNode::finishSurvey(
-  const std::shared_ptr<PendingSurvey> & pending,
-  bool success, uint8_t code, const std::string & message)
-{
-  if (pending->completed) {return;}
-  pending->completed = true;
-  if (pending->seal_request_id != 0) {
-    seal_client_->remove_pending_request(pending->seal_request_id);
-  }
-  for (const auto & waiter : pending->waiters) {
-    TriggerPipelineSurvey::Response response;
-    response.success = success;
-    response.result_code = code;
-    response.message = message;
-    response.report_id = pending->survey.report_id;
-    waiter.service->send_response(*waiter.header, response);
-  }
-  pending_surveys_.erase(pending->survey.report_id);
-}
-
-void UuvCommNode::publishSubmission(const banyu_msgs::msg::Task2Submission & value)
-{
-  auto submission = value;
-  submission.header.stamp = now();
-  submission.header.frame_id = "uuv";
-  submission_pub_->publish(submission);
-  if (!publish_legacy_copies_) {return;}
-  if (submission.kind == banyu_msgs::msg::Task2Submission::SURVEY) {
-    rx_msgs::msg::PipelineSurvey survey;
-    survey.header = submission.header;
-    survey.active_buoy_position.latitude = submission.buoy_latitude;
-    survey.active_buoy_position.longitude = submission.buoy_longitude;
-    survey.segments.assign(submission.original_conditions.begin(),
-        submission.original_conditions.end());
-    survey_pub_->publish(survey);
-  } else {
-    rx_msgs::msg::ResourceDelivery delivery;
-    delivery.header = submission.header;
-    delivery.task = rx_msgs::msg::RxTask::TASK_INFRA_SURVEY_REPAIR;
-    delivery.resource_color = submission.resource_color;
-    delivery.delivery_circle_color = submission.delivery_circle_color;
+  if (report.tier > 2) {
+    auto delivery = report.toResourceDelivery();
+    delivery.header = survey.header;
     delivery_pub_->publish(delivery);
   }
+
+  submitted_runs_.insert(request->run_id);
+  reply(Response::ACCEPTED, "Report published to GCS", true);
 }
 
 }  // namespace banyu_communication

@@ -1,25 +1,11 @@
 #include "banyu_communication/survey_reporting.hpp"
 
 #include <algorithm>
-#include <cerrno>
 #include <cmath>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <iomanip>
 #include <limits>
 #include <set>
-#include <sstream>
 #include <stdexcept>
 #include <utility>
-
-#include <fcntl.h>
-#include <sys/file.h>
-#include <unistd.h>
-
-#include "banyu_msgs/task2_submission.hpp"
 
 namespace banyu_communication
 {
@@ -41,46 +27,15 @@ bool historicalStamp(int64_t stamp, int64_t start, int64_t now)
   return stamp > 0 && stamp >= start && stamp <= now;
 }
 
-std::string ioError(const std::string & operation)
+bool validReportId(const std::string & report_id)
 {
-  return operation + ": " + std::strerror(errno);
-}
-
-bool writeAtomic(const std::string & path, const std::string & contents, std::string & error)
-{
-  const auto temporary_name = path + ".tmp.XXXXXX";
-  std::vector<char> temporary(temporary_name.begin(), temporary_name.end());
-  temporary.push_back('\0');
-  const int fd = ::mkstemp(temporary.data());
-  if (fd == -1) {error = ioError("create outbox entry"); return false;}
-  bool success = true;
-  std::size_t offset = 0;
-  while (offset < contents.size()) {
-    const auto written = ::write(fd, contents.data() + offset, contents.size() - offset);
-    if (written < 0 && errno == EINTR) {continue;}
-    if (written <= 0) {error = ioError("write outbox entry"); success = false; break;}
-    offset += static_cast<std::size_t>(written);
+  if (report_id.empty() || report_id.size() > 128) {return false;}
+  for (const char character : report_id) {
+    if (!((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+      (character >= '0' && character <= '9') || character == '-' || character == '_' ||
+      character == '.')) {return false;}
   }
-  if (success && ::fsync(fd) != 0) {error = ioError("sync outbox entry"); success = false;}
-  if (::close(fd) != 0 && success) {error = ioError("close outbox entry"); success = false;}
-  if (!success) {::unlink(temporary.data()); return false;}
-  if (::rename(temporary.data(), path.c_str()) != 0) {
-    error = ioError("commit outbox entry");
-    ::unlink(temporary.data());
-    return false;
-  }
-  const auto parent = std::filesystem::path(path).parent_path();
-  const int directory = ::open(parent.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-  if (directory == -1) {error = ioError("open outbox directory"); return false;}
-  success = ::fsync(directory) == 0;
-  if (!success) {error = ioError("sync outbox directory");}
-  ::close(directory);
-  return success;
-}
-
-bool parseSubmission(const std::string & payload, banyu_msgs::msg::Task2Submission & submission)
-{
-  return banyu_msgs::task2::parseSubmission(payload, submission);
+  return true;
 }
 }  // namespace
 
@@ -189,8 +144,9 @@ std::string SurveyLedger::ingest(
   if (value.rings.size() > 4) {
     return fail("SURVEY_INCOMPLETE observed=" + std::to_string(value.rings.size()) + " expected=4");
   }
-  std::set<uint32_t> identities;
+
   std::vector<double> current_progress;
+  std::set<uint32_t> identities;
   std::string snapshot_failure;
 
   for (const auto & ring : value.rings) {
@@ -246,7 +202,6 @@ std::string SurveyLedger::ingest(
         }
         continue;
       }
-      // Qualified node already recorded: freeze first qualified condition.
     }
   }
 
@@ -298,21 +253,23 @@ std::string SurveyLedger::ingest(
   return {};
 }
 
-banyu_msgs::msg::Task2Submission SurveyLedger::build(const std::string & report_id) const
+SurveyLedger::Report SurveyLedger::build(const std::string & report_id) const
 {
   if (!complete_) {throw std::logic_error(reason_);}
-  banyu_msgs::msg::Task2Submission submission;
-  submission.schema_version = 1;
-  submission.run_id = run_id_;
-  submission.epoch = epoch_;
-  submission.report_id = report_id;
-  submission.kind = banyu_msgs::msg::Task2Submission::SURVEY;
-  submission.course_id = course_id_;
-  submission.tier = evidence_.tier;
-  submission.buoy_latitude = evidence_.active_buoy.fix.latitude;
-  submission.buoy_longitude = evidence_.active_buoy.fix.longitude;
-  submission.resource_color = submission.tier == 2 ? 0 : evidence_.resource_color;
-  submission.delivery_circle_color = submission.tier == 2 ? 0 : evidence_.delivery_circle_color;
+  if (!validReportId(report_id)) {
+    throw std::invalid_argument("Invalid report identity: " + report_id);
+  }
+  Report report;
+  report.run_id = run_id_;
+  report.epoch = epoch_;
+  report.report_id = report_id;
+  report.course_id = course_id_;
+  report.tier = evidence_.tier;
+  report.buoy_latitude = evidence_.active_buoy.fix.latitude;
+  report.buoy_longitude = evidence_.active_buoy.fix.longitude;
+  report.resource_color = report.tier == 2 ? 0 : evidence_.resource_color;
+  report.delivery_circle_color = report.tier == 2 ? 0 : evidence_.delivery_circle_color;
+
   std::vector<banyu_msgs::msg::Task2RingRecord> ordered;
   for (const auto & ring : originals_) {
     ordered.push_back(ring.second);
@@ -322,13 +279,28 @@ banyu_msgs::msg::Task2Submission SurveyLedger::build(const std::string & report_
       return ascending ? first.pipeline_progress_m<second.pipeline_progress_m :
              first.pipeline_progress_m> second.pipeline_progress_m;
     });
-  for (std::size_t i = 0; i < ordered.size(); ++i) {
-    submission.original_conditions[i] = ordered[i].color == 1 ? 2 : 1;
+  for (std::size_t i = 0; i < 4 && i < ordered.size(); ++i) {
+    report.original_conditions[i] = ordered[i].color == 1 ? 2 : 1;
   }
-  if (!banyu_msgs::task2::validSubmission(submission)) {
-    throw std::invalid_argument("Invalid report identity or submission");
-  }
-  return submission;
+  return report;
+}
+
+rx_msgs::msg::PipelineSurvey SurveyLedger::Report::toPipelineSurvey() const
+{
+  rx_msgs::msg::PipelineSurvey survey;
+  survey.active_buoy_position.latitude = buoy_latitude;
+  survey.active_buoy_position.longitude = buoy_longitude;
+  survey.segments.assign(original_conditions.begin(), original_conditions.end());
+  return survey;
+}
+
+rx_msgs::msg::ResourceDelivery SurveyLedger::Report::toResourceDelivery() const
+{
+  rx_msgs::msg::ResourceDelivery delivery;
+  delivery.task = rx_msgs::msg::RxTask::TASK_INFRA_SURVEY_REPAIR;
+  delivery.resource_color = resource_color;
+  delivery.delivery_circle_color = delivery_circle_color;
+  return delivery;
 }
 
 SurfaceGuard::SurfaceGuard()
@@ -422,171 +394,6 @@ bool SurfaceGuard::ready(int64_t source_now_ns, int64_t steady_now_ns)
   }
   reason_.clear();
   return true;
-}
-
-SurveyOutbox::SurveyOutbox(std::string directory)
-: directory_(std::move(directory))
-{
-  if (directory_.empty()) {error_ = "outbox directory is required"; return;}
-  std::error_code error;
-  std::filesystem::create_directories(directory_, error);
-  if (error) {error_ = error.message(); return;}
-  owner_fd_ = ::open((directory_ + "/.owner.lock").c_str(),
-      O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
-  if (owner_fd_ == -1) {error_ = ioError("open outbox owner lock"); return;}
-  if (::flock(owner_fd_, LOCK_EX | LOCK_NB) != 0) {
-    error_ = ioError("acquire outbox ownership");
-    ::close(owner_fd_);
-    owner_fd_ = -1;
-    return;
-  }
-  load();
-}
-
-SurveyOutbox::~SurveyOutbox()
-{
-  if (owner_fd_ != -1) {::close(owner_fd_);}
-}
-
-std::string SurveyOutbox::canonicalPayload(const banyu_msgs::msg::Task2Submission & submission)
-{
-  return banyu_msgs::task2::canonicalPayload(submission);
-}
-
-std::string SurveyOutbox::fileName(const banyu_msgs::msg::Task2Submission & submission) const
-{
-  return directory_ + "/run-" + std::to_string(submission.run_id) + "-epoch-" +
-         std::to_string(submission.epoch) + "-kind-" + std::to_string(submission.kind) + ".report";
-}
-
-bool SurveyOutbox::persist(const Entry & entry, std::string & error) const
-{
-  std::ostringstream output;
-  output << "BANYU_SURVEY_OUTBOX_V1\n" << std::quoted(canonicalPayload(entry.submission)) <<
-    '\n' << entry.authorized << ' ' << entry.submission.authorization_revision << '\n';
-  return writeAtomic(fileName(entry.submission), output.str(), error);
-}
-
-SurveyOutbox::Result SurveyOutbox::stage(const banyu_msgs::msg::Task2Submission & submission)
-{
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (!error_.empty()) {return {false, false, "OUTBOX_UNAVAILABLE: " + error_, std::nullopt};}
-  if (!banyu_msgs::task2::validSubmission(submission)) {
-    return {false, false, "INVALID_SUBMISSION", std::nullopt};
-  }
-  const auto key = std::make_tuple(submission.run_id, submission.epoch, submission.kind);
-  const auto existing = entries_.find(key);
-  if (existing != entries_.end()) {
-    if (canonicalPayload(existing->second.submission) != canonicalPayload(submission)) {
-      return {false, false, "REPORT_CONFLICT", existing->second};
-    }
-    return {true, true, "REPORT_ALREADY_STAGED", existing->second};
-  }
-  for (const auto & entry : entries_) {
-    if (entry.second.submission.report_id == submission.report_id) {
-      return {false, false, "REPORT_ID_REUSED", std::nullopt};
-    }
-  }
-  Entry entry{submission, false};
-  entry.submission.authorization_revision = 0;
-  if (!persist(entry, error_)) {
-    return {false, false, "OUTBOX_UNAVAILABLE: " + error_, std::nullopt};
-  }
-  entries_.emplace(key, entry);
-  return {true, false, "REPORT_STAGED_NOT_AUTHORIZED", entry};
-}
-
-SurveyOutbox::Result SurveyOutbox::authorize(
-  const std::string & report_id, uint64_t authorization_revision)
-{
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (!error_.empty()) {return {false, false, "OUTBOX_UNAVAILABLE: " + error_, std::nullopt};}
-  if (authorization_revision == 0) {
-    return {false, false, "INVALID_AUTHORIZATION_REVISION", std::nullopt};
-  }
-  for (auto & value : entries_) {
-    if (value.second.submission.report_id != report_id) {continue;}
-    if (value.second.authorized) {return {true, true, "REPORT_ALREADY_AUTHORIZED", value.second};}
-    auto entry = value.second;
-    entry.authorized = true;
-    entry.submission.authorization_revision = authorization_revision;
-    if (!persist(entry, error_)) {
-      return {false, false, "OUTBOX_UNAVAILABLE: " + error_, std::nullopt};
-    }
-    value.second = entry;
-    return {true, false, "REPORT_AUTHORIZED_LOCAL_ACCEPTANCE", entry};
-  }
-  return {false, false, "REPORT_NOT_STAGED", std::nullopt};
-}
-
-SurveyOutbox::Result SurveyOutbox::unstage(const std::string & report_id)
-{
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (!error_.empty()) {return {false, false, "OUTBOX_UNAVAILABLE: " + error_, std::nullopt};}
-  for (auto it = entries_.begin(); it != entries_.end(); ++it) {
-    if (it->second.submission.report_id != report_id) {continue;}
-    if (it->second.authorized) {
-      return {false, false, "CANNOT_UNSTAGE_AUTHORIZED_REPORT", it->second};
-    }
-    const auto path = fileName(it->second.submission);
-    ::unlink(path.c_str());
-    const auto removed = it->second;
-    entries_.erase(it);
-    return {true, false, "REPORT_UNSTAGED", removed};
-  }
-  return {false, false, "REPORT_NOT_STAGED", std::nullopt};
-}
-
-std::optional<SurveyOutbox::Entry> SurveyOutbox::find(
-  uint32_t run_id, uint64_t epoch, uint8_t kind) const
-{
-  std::lock_guard<std::mutex> lock(mutex_);
-  const auto entry = entries_.find(std::make_tuple(run_id, epoch, kind));
-  return entry == entries_.end() ? std::nullopt : std::optional<Entry>(entry->second);
-}
-
-std::vector<SurveyOutbox::Entry> SurveyOutbox::entries() const
-{
-  std::lock_guard<std::mutex> lock(mutex_);
-  std::vector<Entry> result;
-  for (const auto & entry : entries_) {
-    result.push_back(entry.second);
-  }
-  return result;
-}
-
-void SurveyOutbox::load()
-{
-  std::error_code error;
-  const auto finish_error = [this](const std::string & message) {
-      entries_.clear();
-      error_ = message;
-    };
-  std::set<std::string> report_ids;
-  for (const auto & file : std::filesystem::directory_iterator(directory_, error)) {
-    if (file.path().extension() != ".report") {continue;}
-    if (file.is_symlink(error) || !file.is_regular_file(error) || error ||
-      file.file_size(error) > 100000 || error)
-    {finish_error("invalid outbox entry file"); return;}
-    std::ifstream input(file.path());
-    std::string format;
-    std::string payload;
-    unsigned authorized = 0;
-    Entry entry;
-    if (!(input >> format >> std::quoted(payload) >> authorized >>
-      entry.submission.authorization_revision) || format != "BANYU_SURVEY_OUTBOX_V1" ||
-      authorized > 1 || !parseSubmission(payload, entry.submission) ||
-      ((authorized == 1) != (entry.submission.authorization_revision != 0)))
-    {finish_error("invalid outbox entry contents"); return;}
-    input >> std::ws;
-    entry.authorized = authorized == 1;
-    const auto key = std::make_tuple(
-      entry.submission.run_id, entry.submission.epoch, entry.submission.kind);
-    if (!input.eof() || std::filesystem::path(fileName(entry.submission)) != file.path() ||
-      !report_ids.insert(entry.submission.report_id).second || !entries_.emplace(key, entry).second)
-    {finish_error("inconsistent outbox entry identity"); return;}
-  }
-  if (error) {finish_error("read outbox directory: " + error.message());}
 }
 
 }  // namespace banyu_communication

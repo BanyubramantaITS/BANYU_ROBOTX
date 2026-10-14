@@ -20,7 +20,7 @@ target_compile_features(banyu_survey_core PUBLIC cxx_std_17)
 target_include_directories(banyu_survey_core PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   "$<INSTALL_INTERFACE:include>")
-ament_target_dependencies(banyu_survey_core banyu_msgs)
+ament_target_dependencies(banyu_survey_core banyu_msgs rx_msgs)
 
 add_executable(uuv_comm_node src/uuv_comm_node.cpp)
 target_link_libraries(uuv_comm_node banyu_survey_core)
@@ -29,16 +29,9 @@ target_include_directories(uuv_comm_node PRIVATE include)
 ament_target_dependencies(uuv_comm_node
   rclcpp std_msgs sensor_msgs geometry_msgs std_srvs mavros_msgs banyu_msgs rx_msgs)
 
-add_executable(gcs_submission_adapter src/gcs_submission_adapter.cpp)
-target_link_libraries(gcs_submission_adapter banyu_survey_core)
-target_compile_features(gcs_submission_adapter PUBLIC cxx_std_17)
-target_include_directories(gcs_submission_adapter PRIVATE include)
-ament_target_dependencies(gcs_submission_adapter
-  rclcpp std_msgs sensor_msgs geometry_msgs std_srvs mavros_msgs banyu_msgs rx_msgs)
-
 install(DIRECTORY include/
   DESTINATION include)
-install(TARGETS uuv_comm_node gcs_submission_adapter DESTINATION lib/${PROJECT_NAME})
+install(TARGETS uuv_comm_node DESTINATION lib/${PROJECT_NAME})
 install(TARGETS banyu_survey_core EXPORT export_banyu_survey_core
   ARCHIVE DESTINATION lib LIBRARY DESTINATION lib)
 ament_export_targets(export_banyu_survey_core HAS_LIBRARY_TARGET)
@@ -72,19 +65,8 @@ if(BUILD_TESTING)
   ament_target_dependencies(test_survey_reporting
     rclcpp std_msgs sensor_msgs geometry_msgs std_srvs mavros_msgs banyu_msgs rx_msgs banyu_mission)
 
-  ament_add_gtest(test_gcs_submission_adapter
-    test/test_gcs_submission_adapter.cpp src/gcs_submission_adapter.cpp
-    TIMEOUT 60
-    ENV ROS_DOMAIN_ID=42)
-  target_compile_definitions(test_gcs_submission_adapter PRIVATE BANYU_COMMUNICATION_NO_MAIN)
-  target_compile_features(test_gcs_submission_adapter PUBLIC cxx_std_17)
-  target_include_directories(test_gcs_submission_adapter PRIVATE include)
-  target_link_libraries(test_gcs_submission_adapter banyu_survey_core ${banyu_mission_LIBRARIES})
-  ament_target_dependencies(test_gcs_submission_adapter
-    rclcpp std_msgs sensor_msgs geometry_msgs std_srvs mavros_msgs banyu_msgs rx_msgs banyu_mission)
-
   ament_add_gtest(test_mission_report_integration
-    test/test_mission_report_integration.cpp src/uuv_comm_node.cpp src/gcs_submission_adapter.cpp
+    test/test_mission_report_integration.cpp src/uuv_comm_node.cpp
     TIMEOUT 60
     ENV ROS_DOMAIN_ID=42)
   target_compile_definitions(test_mission_report_integration PRIVATE BANYU_COMMUNICATION_NO_MAIN)
@@ -94,16 +76,6 @@ if(BUILD_TESTING)
   ament_target_dependencies(test_mission_report_integration
     rclcpp std_msgs sensor_msgs geometry_msgs std_srvs mavros_msgs banyu_msgs rx_msgs banyu_mission)
 
-  ament_add_gtest(test_production_mission_boundary
-    test/test_production_mission_boundary.cpp src/uuv_comm_node.cpp src/gcs_submission_adapter.cpp
-    TIMEOUT 60
-    ENV ROS_DOMAIN_ID=42)
-  target_compile_definitions(test_production_mission_boundary PRIVATE BANYU_COMMUNICATION_NO_MAIN)
-  target_compile_features(test_production_mission_boundary PUBLIC cxx_std_17)
-  target_include_directories(test_production_mission_boundary PRIVATE include)
-  target_link_libraries(test_production_mission_boundary banyu_survey_core ${banyu_mission_LIBRARIES})
-  ament_target_dependencies(test_production_mission_boundary
-    rclcpp std_msgs sensor_msgs geometry_msgs std_srvs mavros_msgs banyu_msgs rx_msgs banyu_mission)
 
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)

@@ -15,7 +15,6 @@
 #include "ament_index_cpp/get_package_share_directory.hpp"
 #include "banyu_mission/action/register_actions.hpp"
 #include "banyu_mission/condition/register_conditions.hpp"
-#include "banyu_msgs/task2_submission.hpp"
 
 namespace banyu_mission
 {
@@ -141,34 +140,20 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
     "topics.execution_readiness", "/banyu/execution/readiness");
   const auto survey_progress_topic = declare_parameter<std::string>(
     "topics.survey_progress", "/banyu/communication/survey_progress");
-  const auto seal_service = declare_parameter<std::string>(
-    "services.seal_task2_report", "/banyu/mission/seal_task2_report");
   const auto tier = declare_parameter<int>("mission.task2_tier", 2);
   if (tier < 2 || tier > 4) {throw std::invalid_argument("Invalid declared Task 2 tier");}
   task2_tier_ = static_cast<uint8_t>(tier);
   const auto reset_services = declare_parameter<std::vector<std::string>>(
     "run.reset_services", {"/banyu/pipeline/reset_tracker", "/banyu/pipeline/reset_end"});
-  const char * user_directory = std::getenv("HOME");
-  const std::string default_journal = std::string(user_directory ? user_directory : "/tmp") +
-    "/.ros/banyu/uuv_run.journal";
-  auto journal_path = declare_parameter<std::string>("run.journal_path", default_journal);
-  if (user_directory && journal_path.rfind("~/", 0) == 0) {
-    journal_path = std::string(user_directory) + journal_path.substr(1);
-  }
   if (mission_mode_ == "task2") {
-    if (journal_path.empty() || !finite(preparation_timeout_s_) || preparation_timeout_s_ <= 0.0 ||
+    if (!finite(preparation_timeout_s_) || preparation_timeout_s_ <= 0.0 ||
       !finite(reset_timeout_s_) || reset_timeout_s_ <= 0.0 || reset_services.empty() ||
       !finite(execution_readiness_timeout_s_) || execution_readiness_timeout_s_ <= 0.0)
     {
       throw std::invalid_argument(
-          "Task 2 requires a journal, reset consumers and positive deadlines");
+          "Task 2 requires reset consumers and positive deadlines");
     }
-    std::error_code error;
-    std::filesystem::create_directories(std::filesystem::path(journal_path).parent_path(), error);
-    if (error) {
-      RCLCPP_ERROR(get_logger(), "Cannot provision run journal: %s", error.message().c_str());
-    }
-    run_ = std::make_unique<RunCoordinator>(journal_path);
+    run_ = std::make_unique<RunCoordinator>();
     std::random_device random;
     std::ostringstream identity;
     identity << std::hex << random() << random() << random() << random();
@@ -214,31 +199,7 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
         survey_progress_ = *progress;
         survey_progress_received_at_ = std::chrono::steady_clock::now();
       });
-    report_seal_service_ = create_service<banyu_msgs::srv::SealTask2Report>(
-      seal_service,
-      [this](const std::shared_ptr<banyu_msgs::srv::SealTask2Report::Request> request,
-      std::shared_ptr<banyu_msgs::srv::SealTask2Report::Response> response) {
-        std::lock_guard<std::recursive_mutex> lock(control_mutex_);
-        const auto & report = request->submission;
-        if (!banyu_msgs::task2::validSubmission(report) || report.tier != task2_tier_) {
-          response->message = "INVALID_SUBMISSION_OR_DECLARED_TIER";
-          return;
-        }
-        const bool sealed = run_->hasSealedReport(report.run_id, report.epoch, report.kind);
-        const auto context = run_->snapshot();
-        if (!sealed && (context.run_id != report.run_id || context.epoch != report.epoch ||
-        context.phase != RunCoordinator::Phase::Surfaced || !autonomousReady() ||
-        state_->lifecycle() != MissionState::Lifecycle::Active || !surveyEvidenceReady()))
-        {response->message = "RUN_NOT_ELIGIBLE_FOR_REPORT"; return;}
-        const auto result = run_->sealReport(report.run_id, report.epoch, report.kind,
-          report.report_id, banyu_msgs::task2::canonicalPayload(report));
-        response->success = result.disposition != RunCoordinator::Disposition::Rejected;
-        response->message = result.reason;
-        if (response->success) {
-          publishLifecycle();
-          response->authorization_revision = lifecycle_revision_;
-        }
-      });
+
     pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
       readiness_pose_topic, rclcpp::SensorDataQoS(),
       [this](geometry_msgs::msg::PoseStamped::SharedPtr pose) {
@@ -825,12 +786,9 @@ void BanyuMission::tickLoop(int tick_period_ms)
           terminateRun(false, "AUTONOMY_INTERRUPTED", !operatorHasControl());
         } else if (!operatorHasControl()) {fallbackToSurface();}
       } else if (status == BT::NodeStatus::SUCCESS) {
-        if (run_ && (!run_->hasSealedReport(run_->snapshot().run_id, run_->snapshot().epoch, 1) ||
-          (task2_tier_ > 2 && !run_->hasSealedReport(run_->snapshot().run_id,
-          run_->snapshot().epoch, 2)) ||
-          !run_->transition(run_->snapshot().epoch, RunCoordinator::Phase::Succeeded,
-          "MISSION_COMPLETED")))
-        {terminateRun(true, "REPORT_COMPLETION_NOT_VERIFIED", false);} else {
+        if (run_ && !run_->transition(run_->snapshot().epoch, RunCoordinator::Phase::Succeeded,
+          "MISSION_COMPLETED"))
+        {terminateRun(true, "MISSION_COMPLETION_TRANSITION_FAILED", false);} else {
           state_->markSucceeded();
           if (run_) {publishLifecycle(banyu_msgs::msg::RunLifecycle::TERMINAL);}
         }

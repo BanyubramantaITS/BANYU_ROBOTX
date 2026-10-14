@@ -1,22 +1,24 @@
 #ifndef BANYU_COMMUNICATION__SURVEY_REPORTING_HPP_
 #define BANYU_COMMUNICATION__SURVEY_REPORTING_HPP_
 
+#include <array>
 #include <cstdint>
 #include <map>
 #include <mutex>
 #include <optional>
 #include <string>
-#include <tuple>
 #include <vector>
 
-#include "banyu_msgs/msg/task2_submission.hpp"
+#include "banyu_msgs/msg/task2_ring_record.hpp"
 #include "banyu_msgs/msg/task2_survey_evidence.hpp"
 #include "banyu_msgs/msg/water_depth.hpp"
+#include "rx_msgs/msg/pipeline_survey.hpp"
+#include "rx_msgs/msg/resource_delivery.hpp"
+#include "rx_msgs/msg/rx_task.hpp"
 
 namespace banyu_communication
 {
 
-// Ledger and guard calls are serialized by their owning node; clocks are injected.
 class SurveyLedger
 {
 public:
@@ -31,6 +33,23 @@ public:
     uint8_t tier{2};
   };
 
+  struct Report
+  {
+    uint32_t run_id{0};
+    uint64_t epoch{0};
+    std::string report_id;
+    std::string course_id;
+    uint8_t tier{2};
+    double buoy_latitude{0.0};
+    double buoy_longitude{0.0};
+    std::array<uint8_t, 4> original_conditions{};
+    uint8_t resource_color{0};
+    uint8_t delivery_circle_color{0};
+
+    rx_msgs::msg::PipelineSurvey toPipelineSurvey() const;
+    rx_msgs::msg::ResourceDelivery toResourceDelivery() const;
+  };
+
   SurveyLedger();
   explicit SurveyLedger(Config config);
   void beginRun(uint32_t run_id, uint64_t epoch, int64_t source_start_ns);
@@ -38,7 +57,7 @@ public:
   std::string ingest(const banyu_msgs::msg::Task2SurveyEvidence & evidence, int64_t source_now_ns);
   bool complete() const {return complete_;}
   std::string reason() const {return reason_;}
-  banyu_msgs::msg::Task2Submission build(const std::string & report_id) const;
+  Report build(const std::string & report_id) const;
 
 private:
   Config config_;
@@ -90,44 +109,6 @@ private:
   std::string calibration_id_;
   std::string source_id_;
   std::string reason_{"SURFACE_TELEMETRY_MISSING"};
-};
-
-class SurveyOutbox
-{
-public:
-  struct Entry
-  {
-    banyu_msgs::msg::Task2Submission submission;
-    bool authorized{false};
-  };
-
-  struct Result
-  {
-    bool success{false};
-    bool duplicate{false};
-    std::string message;
-    std::optional<Entry> entry;
-  };
-
-  explicit SurveyOutbox(std::string directory);
-  ~SurveyOutbox();
-  Result stage(const banyu_msgs::msg::Task2Submission & submission);
-  Result authorize(const std::string & report_id, uint64_t authorization_revision);
-  Result unstage(const std::string & report_id);
-  std::optional<Entry> find(uint32_t run_id, uint64_t epoch, uint8_t kind) const;
-  std::vector<Entry> entries() const;
-  static std::string canonicalPayload(const banyu_msgs::msg::Task2Submission & submission);
-
-private:
-  using Key = std::tuple<uint32_t, uint64_t, uint8_t>;
-  bool persist(const Entry & entry, std::string & error) const;
-  void load();
-  std::string fileName(const banyu_msgs::msg::Task2Submission & submission) const;
-  std::string directory_;
-  std::string error_;
-  int owner_fd_{-1};
-  mutable std::mutex mutex_;
-  std::map<Key, Entry> entries_;
 };
 
 }  // namespace banyu_communication

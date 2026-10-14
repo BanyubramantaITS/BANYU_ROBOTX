@@ -14,10 +14,7 @@ banyu_mission:
       execution_readiness_timeout_s: 1.0
       run_reset_timeout_s: 3.0
     run:
-      journal_path: "~/.ros/banyu/uuv_run.journal"
       reset_services: ["/banyu/pipeline/reset_tracker", "/banyu/pipeline/reset_end"]
-    services:
-      seal_task2_report: "/banyu/mission/seal_task2_report"
     mission:
       task2_tier: 2
       surface_depth_m: 0.0
@@ -106,8 +103,6 @@ vehicle_execution_node:
       require_run_authorization: false
       run_lifecycle_timeout_s: 1.0
       enable_mavros_publish: true
-      require_lease: true
-      lease_timeout_s: 1.5
       publish_rate_hz: 20.0
       require_guided: true
       max_linear_speed: 1.2
@@ -122,7 +117,6 @@ vehicle_execution_node:
       pose: "/mavros/local_position/pose"
       gps: "/mavros/global_position/raw/fix"
       detection: "/banyu/detection"
-      lease: "/banyu/execution/lease"
       preview_target: "/banyu/execution/preview_target"
       mavros_target: "/mavros/setpoint_raw/local"
     actions:

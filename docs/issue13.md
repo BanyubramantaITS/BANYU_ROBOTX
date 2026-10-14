@@ -36,7 +36,7 @@ Stack: Gazebo Harmonic + ArduSub SITL + MAVROS + the full Task 2 launch on domai
 
 - Course → UUV (boundary, 25 kHz pinger); heartbeat at 2.000 Hz (0.1 ms jitter) with GPS position, depth, attitude, `TASK_INFRA_SURVEY_REPAIR` during the run and `TASK_NONE` after; `STATE_AUTO` while ArduSub reports CRITICAL.
 - `RunStart` → run ACTIVE in ~120 ms; duplicate start ignored; restarted RoboCommand session (seq 1) accepted after re-preparation; Task 4 `IncidentAck` with the original `command_seq`; no ACK for moving-object; no false readiness.
-- `PipelineSurvey` delivered to RoboCommand from the real `uuv_comm_node`/`gcs_submission_adapter` with injected evidence (`sos_gcs_mock.py`).
+- `PipelineSurvey` delivered to RoboCommand from the real `uuv_comm_node` with injected evidence (`sos_gcs_mock.py`).
 - Full simulated mission (run 102, started by RoboCommand `RunStart` seq 17): surface GPS transit → dive → acquire → follow → red-ring repair (one center/probe/acknowledge) → all four rings recorded in order (RED, GREEN, GREEN, GREEN at 1.39/2.55/3.20/4.39 m from the active-buoy end) → end of pipe → `SURVEY_COMPLETE` → surfaced → `SUCCEEDED / MISSION_COMPLETED`. RoboCommand received exactly one `RxReport.pipeline_survey` (active buoy lat/lon, segments `DAMAGED, INTACT, INTACT, INTACT`) 164 s after the start, and heartbeats returned to `TASK_NONE` after the run.
 
 Open findings for the GCS team (spec: `docs/gcs_ros_bridge_spec.md`): command forwarding, stale-heartbeat policy, sequence persistence across GCS restarts and one-shot survey de-duplication are missing from `GcsReporter`; the reference bridge implements all four.

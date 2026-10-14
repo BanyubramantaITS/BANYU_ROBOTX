@@ -14,7 +14,6 @@
 namespace
 {
 using banyu_communication::SurveyLedger;
-using banyu_communication::SurveyOutbox;
 using banyu_communication::SurfaceGuard;
 constexpr int64_t kSecond = 1000000000LL;
 
@@ -86,14 +85,6 @@ void initialize(SurveyLedger & ledger)
   ledger.setCourse("course-a", 25000);
 }
 
-banyu_msgs::msg::Task2Submission submission()
-{
-  SurveyLedger ledger(ledgerConfig());
-  initialize(ledger);
-  EXPECT_TRUE(ledger.ingest(evidence(), 11 * kSecond).empty());
-  return ledger.build("run-13-epoch-1-survey");
-}
-
 SurfaceGuard::Config guardConfig()
 {
   SurfaceGuard::Config config;
@@ -124,28 +115,7 @@ void surfaceSamples(SurfaceGuard & guard, int64_t offset = 0)
   }
 }
 
-class OutboxFixture : public ::testing::Test
-{
-protected:
-  void SetUp() override
-  {
-    const auto pattern = (std::filesystem::temp_directory_path() / "banyu-outbox-XXXXXX").string();
-    std::vector<char> value(pattern.begin(), pattern.end());
-    value.push_back('\0');
-    const auto result = ::mkdtemp(value.data());
-    ASSERT_NE(result, nullptr);
-    directory_ = result;
-  }
 
-  void TearDown() override
-  {
-    std::error_code error;
-    std::filesystem::remove_all(directory_, error);
-    std::filesystem::remove_all(directory_ + ".moved", error);
-  }
-
-  std::string directory_;
-};
 }  // namespace
 
 TEST(SurveyLedger, ReportsAllRedPositionsFromBothObservedActiveEndpoints)
@@ -412,127 +382,6 @@ TEST(SurfaceGuard, GapFromFirstSampleAndNewRunCannotCarryOverDwell)
   EXPECT_FALSE(guard.ready(12400000000LL, 2400000000LL));
 }
 
-TEST_F(OutboxFixture, StageIsDurableButNotAuthorizationAndSemanticRetryIsIdempotent)
-{
-  auto value = submission();
-  {
-    SurveyOutbox outbox(directory_);
-    const auto result = outbox.stage(value);
-    ASSERT_TRUE(result.success);
-    ASSERT_TRUE(result.entry);
-    EXPECT_FALSE(result.entry->authorized);
-    EXPECT_EQ(result.entry->submission.authorization_revision, 0u);
-    value.header.stamp = stamp(99 * kSecond);
-    value.authorization_revision = 100;
-    EXPECT_TRUE(outbox.stage(value).duplicate);
-    auto alternative = value;
-    alternative.report_id = "alternate-id";
-    EXPECT_FALSE(outbox.stage(alternative).success);
-  }
-  {
-    SurveyOutbox recovered(directory_);
-    const auto staged = recovered.find(13, 1, 1);
-    ASSERT_TRUE(staged);
-    EXPECT_FALSE(staged->authorized);
-    const auto accepted = recovered.authorize(value.report_id, 5);
-    ASSERT_TRUE(accepted.success);
-    EXPECT_TRUE(accepted.entry->authorized);
-    EXPECT_TRUE(recovered.authorize(value.report_id, 99).duplicate);
-  }
-  SurveyOutbox recovered(directory_);
-  const auto authorized = recovered.find(13, 1, 1);
-  ASSERT_TRUE(authorized);
-  EXPECT_TRUE(authorized->authorized);
-  EXPECT_EQ(authorized->submission.authorization_revision, 5u);
-  EXPECT_EQ(authorized->submission.run_id, 13u);
-}
-
-TEST_F(OutboxFixture, IdentityCannotBeReusedOrPayloadChangedAcrossRuns)
-{
-  SurveyOutbox outbox(directory_);
-  auto value = submission();
-  ASSERT_TRUE(outbox.stage(value).success);
-  value.original_conditions[0] = 2;
-  EXPECT_FALSE(outbox.stage(value).success);
-  value = submission();
-  value.run_id = 14;
-  value.epoch = 2;
-  EXPECT_FALSE(outbox.stage(value).success);
-  EXPECT_FALSE(outbox.authorize("missing", 1).success);
-  EXPECT_FALSE(outbox.authorize(submission().report_id, 0).success);
-  EXPECT_EQ(outbox.entries().size(), 1u);
-}
-
-TEST_F(OutboxFixture, ConcurrentStagesProduceOneImmutableLogicalEntry)
-{
-  SurveyOutbox outbox(directory_);
-  const auto value = submission();
-  std::vector<SurveyOutbox::Result> results(12);
-  std::vector<std::thread> threads;
-  for (std::size_t i = 0; i < results.size(); ++i) {
-    threads.emplace_back([&, i]() {results[i] = outbox.stage(value);});
-  }
-  for (auto & thread : threads) {
-    thread.join();
-                                               }
-  std::size_t first = 0;
-  for (const auto & result : results) {
-    EXPECT_TRUE(result.success);
-    first += result.duplicate ? 0 : 1;
-  }
-  EXPECT_EQ(first, 1u);
-  EXPECT_EQ(outbox.entries().size(), 1u);
-}
-
-TEST_F(OutboxFixture, CompetingOwnerAndStorageFailureCannotAuthorizeReports)
-{
-  SurveyOutbox owner(directory_);
-  ASSERT_TRUE(owner.stage(submission()).success);
-  SurveyOutbox competing(directory_);
-  EXPECT_FALSE(competing.stage(submission()).success);
-  std::filesystem::rename(directory_, directory_ + ".moved");
-  EXPECT_FALSE(owner.authorize(submission().report_id, 5).success);
-  const auto entry = owner.find(13, 1, 1);
-  ASSERT_TRUE(entry);
-  EXPECT_FALSE(entry->authorized);
-}
-
-TEST_F(OutboxFixture, CorruptRecoveryFailsClosedRatherThanPublishingDefaultPayload)
-{
-  {
-    SurveyOutbox outbox(directory_);
-    ASSERT_TRUE(outbox.stage(submission()).success);
-  }
-  {
-    std::ofstream corrupt(directory_ + "/run-13-epoch-1-kind-1.report");
-    corrupt << "truncated entry";
-  }
-  SurveyOutbox recovered(directory_);
-  EXPECT_TRUE(recovered.entries().empty());
-  EXPECT_FALSE(recovered.stage(submission()).success);
-  EXPECT_FALSE(recovered.authorize(submission().report_id, 5).success);
-}
-
-TEST_F(OutboxFixture, UnstageRemovesStagedFileAndRejectsAuthorizedUnstage)
-{
-  SurveyOutbox outbox(directory_);
-  const auto value = submission();
-  ASSERT_TRUE(outbox.stage(value).success);
-  EXPECT_EQ(outbox.entries().size(), 1u);
-
-  const auto unstage_res = outbox.unstage(value.report_id);
-  EXPECT_TRUE(unstage_res.success);
-  EXPECT_EQ(outbox.entries().size(), 0u);
-  EXPECT_FALSE(outbox.find(value.run_id, value.epoch, value.kind).has_value());
-
-  ASSERT_TRUE(outbox.stage(value).success);
-  ASSERT_TRUE(outbox.authorize(value.report_id, 1).success);
-
-  const auto auth_unstage = outbox.unstage(value.report_id);
-  EXPECT_FALSE(auth_unstage.success);
-  EXPECT_EQ(auth_unstage.message, "CANNOT_UNSTAGE_AUTHORIZED_REPORT");
-  EXPECT_EQ(outbox.entries().size(), 1u);
-}
 
 TEST(SurveyLedger, MixedValidInvalidSnapshotPreservesOriginalRed)
 {

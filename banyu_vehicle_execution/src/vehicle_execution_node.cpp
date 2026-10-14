@@ -32,8 +32,6 @@ VehicleExecutionNode::VehicleExecutionNode(const rclcpp::NodeOptions & options)
 void VehicleExecutionNode::initParameters()
 {
   required_zero_cycles_ = declare_parameter<int64_t>("control.required_zero_cycles", 2);
-  require_lease_ = declare_parameter<bool>("control.require_lease", true);
-  lease_timeout_s_ = declare_parameter<double>("control.lease_timeout_s", 1.5);
   enable_mavros_publish_ = declare_parameter<bool>("control.enable_mavros_publish", false);
   require_guided_ = declare_parameter<bool>("control.require_guided", true);
   require_run_authorization_ = declare_parameter<bool>("control.require_run_authorization", false);
@@ -77,8 +75,6 @@ void VehicleExecutionNode::initSubscribers()
     "topics.detection", "/banyu/detection");
   const auto guidance_intent_topic = declare_parameter<std::string>(
     "topics.guidance_intent", "/banyu/guidance/velocity_intent");
-  const auto lease_topic = declare_parameter<std::string>(
-    "topics.lease", "/banyu/execution/lease");
   const auto lifecycle_topic = declare_parameter<std::string>(
     "topics.run_lifecycle", "/banyu/mission/run_lifecycle");
 
@@ -117,9 +113,6 @@ void VehicleExecutionNode::initSubscribers()
     guidance_intent_topic, rclcpp::QoS(10),
     std::bind(&VehicleExecutionNode::handleGuidanceIntent, this, std::placeholders::_1));
 
-  lease_sub_ = create_subscription<banyu_msgs::msg::ActionLease>(
-    lease_topic, rclcpp::QoS(10),
-    std::bind(&VehicleExecutionNode::handleLease, this, std::placeholders::_1));
   run_lifecycle_sub_ = create_subscription<banyu_msgs::msg::RunLifecycle>(
     lifecycle_topic, rclcpp::QoS(1).reliable().transient_local(),
     std::bind(&VehicleExecutionNode::handleRunLifecycle, this, std::placeholders::_1));
@@ -274,11 +267,8 @@ GoalRequest VehicleExecutionNode::requestGoal(const GoalIdentity & identity)
       return {};
     }
   }
-  std::optional<Lease> initial_lease = std::nullopt;
-  if (!require_lease_) {
-    const auto now = steady_clock_.now();
-    initial_lease = Lease{identity, now, now + std::chrono::hours(24), true};
-  }
+  const auto now = steady_clock_.now();
+  const Lease initial_lease{identity, now, now + std::chrono::hours(24), true};
 
   auto req = arbiter_.requestGoal(identity, initial_lease);
   if (req.admission == GoalAdmission::Pending) {
@@ -406,17 +396,6 @@ void VehicleExecutionNode::timerCallback()
     }
   }
 
-  // Check lease expiration
-  const auto active_before_lease_check = arbiter_.activeGoal();
-  arbiter_.checkLease();
-  if (active_before_lease_check && !arbiter_.activeGoal() &&
-    arbiter_.stopReason() == StopReason::LeaseLoss)
-  {
-    auto it = server_map_.find(active_before_lease_check->goal.owner);
-    if (it != server_map_.end()) {
-      it->second->abortActive("Action lease expired");
-    }
-  }
 
   MotionIntent intent = zeroIntent();
   bool readiness_output_selected = false;
@@ -872,69 +851,5 @@ void VehicleExecutionNode::handleGuidanceIntent(
   telemetry_.guidance_yaw_control_active = msg->yaw_control_active;
 }
 
-void VehicleExecutionNode::handleLease(const banyu_msgs::msg::ActionLease::SharedPtr msg)
-{
-  if (require_run_authorization_ && (msg->run_id != run_lifecycle_.run_id ||
-    msg->epoch != run_lifecycle_.epoch))
-  {
-    return;
-  }
-  GoalIdentity identity;
-  std::copy(msg->goal_id.uuid.begin(), msg->goal_id.uuid.end(), identity.uuid.begin());
-  identity.owner = msg->owner;
-  identity.generation = msg->generation;
-  identity.run_id = msg->run_id;
-  identity.epoch = msg->epoch;
-
-  const auto now = steady_clock_.now();
-  double timeout_s = lease_timeout_s_;
-  if (msg->expires_at.sec > 0 || msg->expires_at.nanosec > 0) {
-    const auto ros_now = this->now();
-    const auto expires = rclcpp::Time(msg->expires_at, ros_now.get_clock_type());
-    if (expires > ros_now) {
-      timeout_s = (expires - ros_now).seconds();
-    }
-  }
-  const auto deadline = now + std::chrono::duration_cast<std::chrono::nanoseconds>(
-    std::chrono::duration<double>(std::max(0.01, timeout_s)));
-
-  const auto matches = [&identity](const GoalIdentity & target) {
-      return target.uuid == identity.uuid &&
-             target.generation == identity.generation &&
-             (target.owner == identity.owner ||
-             target.owner.find(identity.owner) != std::string::npos ||
-             identity.owner.find(target.owner) != std::string::npos);
-    };
-
-  const auto & active_opt = arbiter_.activeGoal();
-  if (active_opt.has_value() && matches(active_opt->goal)) {
-    const auto active_handle = *active_opt;
-    Lease lease{active_handle.goal, now, deadline, msg->active};
-    if (msg->active) {
-      arbiter_.establishLease(active_handle, lease);
-    } else {
-      arbiter_.leaseLost(active_handle);
-      auto it = server_map_.find(active_handle.goal.owner);
-      if (it != server_map_.end()) {
-        it->second->abortActive("Action lease revoked");
-      }
-    }
-  } else {
-    const auto & pending_opt = arbiter_.pendingGoal();
-    if (pending_opt.has_value() && matches(pending_opt->goal)) {
-      const auto pending_handle = *pending_opt;
-      Lease lease{pending_handle.goal, now, deadline, msg->active};
-      if (msg->active) {
-        arbiter_.establishLease(pending_handle, lease);
-      } else {
-        arbiter_.leaseLost(pending_handle);
-        auto it = server_map_.find(pending_handle.goal.owner);
-        if (it != server_map_.end()) {
-          it->second->abortPending("Action lease revoked");
-        }
-      }
-    }
-  }
-}
 
 }  // namespace banyu_vehicle_execution

@@ -13,7 +13,6 @@
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "mavros_msgs/msg/position_target.hpp"
-#include "banyu_msgs/msg/action_lease.hpp"
 #include "banyu_msgs/msg/run_lifecycle.hpp"
 #include "banyu_msgs/msg/execution_readiness.hpp"
 #include "banyu_msgs/msg/water_depth.hpp"
@@ -78,7 +77,6 @@ private:
   void handleRingObs(const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg);
   void handleDetection(const banyu_msgs::msg::Detection::SharedPtr msg);
   void handleGuidanceIntent(const banyu_guidance::msg::VelocityIntent::SharedPtr msg);
-  void handleLease(const banyu_msgs::msg::ActionLease::SharedPtr msg);
   void handleRunLifecycle(const banyu_msgs::msg::RunLifecycle::SharedPtr msg);
   bool lifecycleFresh() const;
   bool runMotionAuthorized() const;
@@ -95,8 +93,6 @@ private:
   GoalArbiter arbiter_;
   IntentLimits limits_{kHardMaxLinearComponent, kHardMaxYawRate};
 
-  bool require_lease_{true};
-  double lease_timeout_s_{1.5};
   bool enable_mavros_publish_{false};
   bool require_guided_{true};
   bool status_ever_received_{false};
@@ -137,7 +133,6 @@ private:
   rclcpp::Subscription<banyu_msgs::msg::PipelineRingObservation>::SharedPtr ring_obs_sub_;
   rclcpp::Subscription<banyu_msgs::msg::Detection>::SharedPtr detection_sub_;
   rclcpp::Subscription<banyu_guidance::msg::VelocityIntent>::SharedPtr guidance_intent_sub_;
-  rclcpp::Subscription<banyu_msgs::msg::ActionLease>::SharedPtr lease_sub_;
   rclcpp::Subscription<banyu_msgs::msg::RunLifecycle>::SharedPtr run_lifecycle_sub_;
 
   rclcpp::Publisher<mavros_msgs::msg::PositionTarget>::SharedPtr preview_target_pub_;

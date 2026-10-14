@@ -15,9 +15,7 @@
 #include <banyu_msgs/msg/run_lifecycle.hpp>
 #include <banyu_msgs/msg/task2_survey_evidence.hpp>
 #include <banyu_msgs/msg/task2_survey_progress.hpp>
-#include <banyu_msgs/msg/task2_submission.hpp>
 #include <banyu_msgs/msg/water_depth.hpp>
-#include <banyu_msgs/srv/seal_task2_report.hpp>
 #include <banyu_msgs/msg/vehicle_status.hpp>
 #include <banyu_msgs/srv/trigger_pipeline_survey.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
@@ -69,25 +67,6 @@ private:
     std::shared_ptr<rclcpp::Service<TriggerPipelineSurvey>> service,
     std::shared_ptr<rmw_request_id_t> header,
     std::shared_ptr<TriggerPipelineSurvey::Request> request);
-  struct SurveyWaiter
-  {
-    std::shared_ptr<rclcpp::Service<TriggerPipelineSurvey>> service;
-    std::shared_ptr<rmw_request_id_t> header;
-  };
-  struct PendingSurvey
-  {
-    banyu_msgs::msg::Task2Submission survey;
-    std::optional<banyu_msgs::msg::Task2Submission> delivery;
-    std::vector<SurveyWaiter> waiters;
-    std::chrono::steady_clock::time_point started;
-    bool completed{false};
-    int64_t seal_request_id{0};
-  };
-  void requestSeal(const std::shared_ptr<PendingSurvey> & pending, bool delivery);
-  void finishSurvey(
-    const std::shared_ptr<PendingSurvey> & pending,
-    bool success, uint8_t code, const std::string & message);
-  void publishSubmission(const banyu_msgs::msg::Task2Submission & submission);
   uint8_t robotStateLocked() const;
   bool lifecycleFreshLocked() const;
 
@@ -119,11 +98,8 @@ private:
   uint32_t pinger_freq_hz_{0};
   std::unique_ptr<SurveyLedger> survey_ledger_;
   std::unique_ptr<SurfaceGuard> surface_guard_;
-  std::unique_ptr<SurveyOutbox> survey_outbox_;
-  std::map<std::string, std::shared_ptr<PendingSurvey>> pending_surveys_;
-  bool publish_legacy_copies_{false};
+  std::set<uint32_t> submitted_runs_;
   uint64_t evidence_revision_{0};
-  bool recovered_outbox_{false};
 
   rclcpp::Publisher<rx_msgs::msg::Heartbeat>::SharedPtr heartbeat_pub_;
   rclcpp::Publisher<rx_msgs::msg::MissionStatus>::SharedPtr mission_status_pub_;
@@ -131,7 +107,6 @@ private:
   rclcpp::Publisher<rx_msgs::msg::ReadinessReport>::SharedPtr readiness_pub_;
   rclcpp::Publisher<rx_msgs::msg::PipelineSurvey>::SharedPtr survey_pub_;
   rclcpp::Publisher<rx_msgs::msg::ResourceDelivery>::SharedPtr delivery_pub_;
-  rclcpp::Publisher<banyu_msgs::msg::Task2Submission>::SharedPtr submission_pub_;
   rclcpp::Publisher<banyu_msgs::msg::Task2SurveyProgress>::SharedPtr survey_progress_pub_;
   rclcpp::Subscription<rx_msgs::msg::Command>::SharedPtr command_sub_;
   rclcpp::Subscription<rx_msgs::msg::Course>::SharedPtr course_sub_;
@@ -143,7 +118,6 @@ private:
   rclcpp::Subscription<banyu_msgs::msg::RunLifecycle>::SharedPtr lifecycle_sub_;
   rclcpp::Subscription<banyu_msgs::msg::Task2SurveyEvidence>::SharedPtr evidence_sub_;
   rclcpp::Subscription<banyu_msgs::msg::WaterDepth>::SharedPtr water_depth_sub_;
-  rclcpp::Client<banyu_msgs::srv::SealTask2Report>::SharedPtr seal_client_;
   rclcpp::Service<TriggerPipelineSurvey>::SharedPtr survey_service_;
   rclcpp::TimerBase::SharedPtr heartbeat_timer_;
 };

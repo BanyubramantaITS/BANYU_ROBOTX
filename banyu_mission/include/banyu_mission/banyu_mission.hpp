@@ -21,7 +21,6 @@
 #include "banyu_msgs/msg/run_lifecycle.hpp"
 #include "banyu_msgs/msg/execution_readiness.hpp"
 #include "banyu_msgs/msg/task2_survey_progress.hpp"
-#include "banyu_msgs/srv/seal_task2_report.hpp"
 #include "banyu_msgs/srv/reset_task2.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "rx_msgs/msg/command.hpp"
@@ -105,7 +104,6 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
   rclcpp::Subscription<banyu_msgs::msg::ExecutionReadiness>::SharedPtr execution_readiness_sub_;
   rclcpp::Subscription<banyu_msgs::msg::Task2SurveyProgress>::SharedPtr survey_progress_sub_;
-  rclcpp::Service<banyu_msgs::srv::SealTask2Report>::SharedPtr report_seal_service_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr preparation_service_;
   std::unique_ptr<BT::StatusChangeLogger> tree_logger_;
   std::unique_ptr<BT::Groot2Publisher> groot_publisher_;

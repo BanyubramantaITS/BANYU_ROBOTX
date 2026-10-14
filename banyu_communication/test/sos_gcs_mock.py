@@ -26,7 +26,7 @@ from banyu_msgs.msg import (
     VehicleStatus,
     WaterDepth,
 )
-from banyu_msgs.srv import SealTask2Report, TriggerPipelineSurvey
+from banyu_msgs.srv import TriggerPipelineSurvey
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from mavros_msgs.msg import State
 import rclpy
@@ -54,27 +54,18 @@ RUN_ID = 'run-sos-e2e'
 OUTBOX_DIR = '/tmp/banyu_mock_test_outbox'
 MISSION_START_SERVICE = '/banyu/mission/start'
 MISSION_ABORT_SERVICE = '/banyu/mission/abort'
-SEAL_SERVICE = '/banyu/mission/seal_task2_report'
 SURVEY_SERVICE = '/banyu/communication/trigger_pipeline_survey'
 BRIDGE_COMMAND = [
     'ros2', 'run', 'banyu_communication', 'uuv_comm_node', '--ros-args',
     '-p', 'heartbeat_rate_hz:=2.0',
-    '-p', 'survey.publish_legacy_copies:=false',
     '-p', 'survey.surface_hold_s:=0.2',
-    '-p', f'survey.outbox_path:={OUTBOX_DIR}/reports.outbox',
-    '-p', 'topics.task2_submission:=/banyu/communication/task2_submission',
+    '-p', 'topics.pipeline_survey:=/system/vehicle/uuv/task2/pipeline_survey',
+    '-p', 'topics.delivery:=/system/vehicle/uuv/task2/delivery',
     '-p', 'anchor_latitude:=33.0',
     '-p', 'anchor_longitude:=-118.0',
     '-p', 'anchor_altitude_hae_m:=4.0',
     '-p', 'active_buoy_latitude:=33.1',
     '-p', 'active_buoy_longitude:=-118.1',
-]
-ADAPTER_COMMAND = [
-    'ros2', 'run', 'banyu_communication', 'gcs_submission_adapter', '--ros-args',
-    '-p', f'journal_path:={OUTBOX_DIR}/adapter.journal',
-    '-p', 'topics.task2_submission:=/banyu/communication/task2_submission',
-    '-p', 'topics.pipeline_survey:=/system/vehicle/uuv/task2/pipeline_survey',
-    '-p', 'topics.delivery:=/system/vehicle/uuv/task2/delivery',
 ]
 
 
@@ -155,8 +146,6 @@ class TeamGcsMock(Node):
             Trigger, MISSION_START_SERVICE, self.start_mission)
         self.abort_server = self.create_service(
             Trigger, MISSION_ABORT_SERVICE, self.abort_mission)
-        self.seal_server = self.create_service(
-            SealTask2Report, SEAL_SERVICE, self.seal_report)
         self.survey_client = self.create_client(TriggerPipelineSurvey, SURVEY_SERVICE)
         self.telemetry_timer = self.create_timer(0.05, self.publish_telemetry)
 
@@ -185,14 +174,6 @@ class TeamGcsMock(Node):
         response.success = True
         response.message = 'mock mission aborted'
         self.get_logger().info('/banyu/mission/abort called: mock mission aborted')
-        return response
-
-    def seal_report(self, request, response):
-        """Mock seal authorization from banyu_mission."""
-        response.success = True
-        response.authorization_revision = 1
-        response.message = 'AUTHORIZED'
-        self.get_logger().info('/banyu/mission/seal_task2_report called: report sealed')
         return response
 
     def check_running(self):
@@ -571,7 +552,6 @@ def main(argv=None):
     os.makedirs(OUTBOX_DIR, exist_ok=True)
     node = None
     process = None
-    adapter_process = None
     try:
         rclpy.init(args=[])
         node = TeamGcsMock(args.timeout)
@@ -579,13 +559,10 @@ def main(argv=None):
             node.get_logger().info('Using an existing UUV stack on ROS_DOMAIN_ID=42')
         else:
             node.get_logger().info(
-                'Starting uuv_comm_node and gcs_submission_adapter on ROS_DOMAIN_ID=42')
+                'Starting uuv_comm_node on ROS_DOMAIN_ID=42')
             process = subprocess.Popen(
                 BRIDGE_COMMAND, env=os.environ.copy(), start_new_session=True)
-            adapter_process = subprocess.Popen(
-                ADAPTER_COMMAND, env=os.environ.copy(), start_new_session=True)
             node.bridge_process = process
-            node.adapter_process = adapter_process
         node.run_verification()
         node.get_logger().info('All six Team GCS communication checks passed')
         return 0
@@ -596,8 +573,6 @@ def main(argv=None):
         print(f'FAIL: {error}', file=sys.stderr)
         return 1
     finally:
-        if adapter_process is not None:
-            stop_bridge(adapter_process)
         if process is not None:
             stop_bridge(process)
         if node is not None:

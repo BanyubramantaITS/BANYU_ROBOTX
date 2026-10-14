@@ -36,7 +36,6 @@ public:
     Snapshot snapshot;
   };
 
-  // An empty path permits volatile use in fixtures; production supplies a journal.
   explicit RunCoordinator(std::string journal_path = {});
   ~RunCoordinator();
 
@@ -60,23 +59,13 @@ private:
   };
   using Seals = std::map<std::tuple<uint32_t, uint64_t, uint8_t>, Seal>;
   bool transitionLocked(uint64_t epoch, Phase phase, const std::string & reason);
-  bool persist(
-    const Snapshot & snapshot, const std::map<uint32_t, uint32_t> & accepted_runs,
-    std::string & error, const Seals * seals = nullptr,
-    const std::map<uint32_t, uint64_t> * accepted_epochs = nullptr) const;
-  void loadJournal();
-  bool lockJournal();
 
   mutable std::mutex mutex_;
   Snapshot snapshot_;
   std::map<uint32_t, uint32_t> accepted_runs_;
-  // Epoch of each accepted run; RoboCommand sequences restart per session so they cannot order runs.
   std::map<uint32_t, uint64_t> accepted_epochs_;
   Seals seals_;
   uint32_t max_accepted_sequence_{0};
-  std::string journal_path_;
-  std::string journal_error_;
-  int journal_lock_fd_{-1};
 };
 
 }  // namespace banyu_mission
