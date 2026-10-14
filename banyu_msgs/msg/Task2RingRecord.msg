@@ -1,5 +1,11 @@
 # Source frame identifier for the accepted ring observation.
 uint64 frame_sequence
+uint32 run_id
+uint64 epoch
+uint32 node_id
+bool ordering_verified
+bool physical_identity_verified
+float64 pipeline_progress_m
 
 # Ring color using PipelineRingObservation constants.
 uint8 color

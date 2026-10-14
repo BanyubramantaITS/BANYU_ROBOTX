@@ -63,13 +63,22 @@ ament_target_dependencies(vehicle_execution_node
   unique_identifier_msgs)
 
 install(DIRECTORY include/ DESTINATION include)
+
+add_executable(calibrated_depth_node src/calibrated_depth_node.cpp)
+target_compile_features(calibrated_depth_node PUBLIC cxx_std_17)
+target_link_libraries(calibrated_depth_node ${PROJECT_NAME})
+ament_target_dependencies(calibrated_depth_node
+  rclcpp
+  banyu_msgs
+  std_msgs)
+
 install(TARGETS ${PROJECT_NAME}
   EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)
 
-install(TARGETS vehicle_execution_node
+install(TARGETS vehicle_execution_node calibrated_depth_node
   DESTINATION lib/${PROJECT_NAME})
 
 ament_export_include_directories(include)
@@ -101,6 +110,18 @@ if(BUILD_TESTING)
     sensor_msgs
     std_msgs
     unique_identifier_msgs)
+
+  ament_add_gtest(test_run_authorization test/test_run_authorization.cpp)
+  target_link_libraries(test_run_authorization ${PROJECT_NAME})
+  target_compile_features(test_run_authorization PUBLIC cxx_std_17)
+  ament_target_dependencies(test_run_authorization rclcpp rclcpp_action banyu_msgs)
+
+  ament_add_gtest(test_calibrated_depth_node test/test_calibrated_depth_node.cpp src/calibrated_depth_node.cpp)
+  target_compile_definitions(test_calibrated_depth_node PRIVATE BANYU_VEHICLE_EXECUTION_NO_MAIN)
+  target_link_libraries(test_calibrated_depth_node ${PROJECT_NAME})
+  target_compile_features(test_calibrated_depth_node PUBLIC cxx_std_17)
+  target_include_directories(test_calibrated_depth_node PRIVATE include)
+  ament_target_dependencies(test_calibrated_depth_node rclcpp banyu_msgs std_msgs)
 
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)

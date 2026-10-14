@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Switch ArduSub's EKF3 source set on depth: GPS on the surface, DVL below.
+"""
+Switch ArduSub's EKF3 source set on depth: GPS on the surface, DVL below.
 
 EKF3 carries three source sets (EK3_SRC1_*, EK3_SRC2_*, EK3_SRC3_*) and can be
 told which is active over MAVLink, Lua or an RC aux switch -- but *nothing in
@@ -30,7 +31,8 @@ SET_DIVE = 2  # -> EK3_SRC2_*
 
 
 def desired_set(depth, current, dive_depth, surface_depth):
-    """Which source set should be active at this depth.
+    """
+    Which source set should be active at this depth.
 
     `depth` is metres below the surface, positive down. The two thresholds form
     a hysteresis band; inside it the current set is held, so a vehicle bobbing

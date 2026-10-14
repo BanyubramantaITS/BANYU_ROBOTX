@@ -5,6 +5,12 @@
 #include <limits>
 #include <utility>
 #include <vector>
+#include <cstdlib>
+#include <filesystem>
+#include <random>
+#include <sstream>
+#include "rx_msgs/msg/rx_task.hpp"
+#include "rx_msgs/msg/vehicle_type.hpp"
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 #include "banyu_mission/action/register_actions.hpp"
@@ -16,11 +22,30 @@ namespace banyu_mission
 namespace
 {
 constexpr double kPi = 3.14159265358979323846;
+// Under sim time this node's clock can lag a fresh source stamp while its executor is busy;
+// tolerate that much skew, matching VehicleStatusTracker, without accepting real future stamps.
+constexpr double kMaxFutureStampS = 0.5;
 
 bool finite(double value)
 {
   return std::isfinite(value);
 }
+
+class WaitSurveyComplete : public BT::StatefulActionNode
+{
+public:
+  WaitSurveyComplete(
+    const std::string & name, const BT::NodeConfig & config,
+    std::function<BT::NodeStatus()> check)
+  : StatefulActionNode(name, config), check_(std::move(check)) {}
+  static BT::PortsList providedPorts() {return {};}
+  BT::NodeStatus onStart() override {return check_();}
+  BT::NodeStatus onRunning() override {return check_();}
+  void onHalted() override {}
+
+private:
+  std::function<BT::NodeStatus()> check_;
+};
 
 class MissionTreeLogger : public BT::StatusChangeLogger
 {
@@ -68,16 +93,25 @@ void registerMissionNodes(
   BT::BehaviorTreeFactory & factory,
   const rclcpp::Node::SharedPtr & node,
   const std::shared_ptr<MissionState> & state,
-  std::function<void()> on_abort)
+  std::function<void()> on_abort,
+  std::function<BT::NodeStatus()> on_survey_complete,
+  std::function<BT::NodeStatus()> on_surface_success)
 {
   registerConditionNodes(factory, state);
   registerActionNodes(factory, node, state, std::move(on_abort));
+  if (!on_survey_complete) {on_survey_complete = []() {return BT::NodeStatus::FAILURE;};}
+  if (!on_surface_success) {on_surface_success = []() {return BT::NodeStatus::FAILURE;};}
+  factory.registerNodeType<WaitSurveyComplete>("WaitSurveyComplete", on_survey_complete);
+  factory.registerSimpleAction("ConfirmSurfaceAction",
+    [on_surface_success](BT::TreeNode &) {return on_surface_success();});
 }
 
 BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
 : rclcpp::Node("banyu_mission", options), state_(std::make_shared<MissionState>(this))
 {
   const auto mission_mode = declare_parameter<std::string>("mission_mode", "task2");
+  mission_mode_ = mission_mode;
+  state_->requireRunContext(mission_mode == "task2");
   state_->configure(
     declare_parameter<double>("timing.gps_timeout_s", 5.0),
     declare_parameter<double>("timing.pipeline_timeout_s", 1.0),
@@ -92,11 +126,131 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
   set_mode_service_ = declare_parameter<std::string>("services.set_mode", "/mavros/set_mode");
   set_mode_client_ = create_client<mavros_msgs::srv::SetMode>(set_mode_service_);
 
+  preparation_timeout_s_ = declare_parameter<double>("timing.preparation_timeout_s", 30.0);
+  reset_timeout_s_ = declare_parameter<double>("timing.run_reset_timeout_s", 3.0);
+  execution_readiness_timeout_s_ = declare_parameter<double>(
+    "timing.execution_readiness_timeout_s", 1.0);
+  const auto lifecycle_topic = declare_parameter<std::string>(
+    "topics.run_lifecycle", "/banyu/mission/run_lifecycle");
+  const auto command_topic = declare_parameter<std::string>(
+    "topics.run_command", "/system/mission/command");
+  const auto readiness_pose_topic = declare_parameter<std::string>(
+    "topics.readiness_pose", "/mavros/local_position/pose");
+  const auto execution_readiness_topic = declare_parameter<std::string>(
+    "topics.execution_readiness", "/banyu/execution/readiness");
+  const auto survey_progress_topic = declare_parameter<std::string>(
+    "topics.survey_progress", "/banyu/communication/survey_progress");
+  const auto tier = declare_parameter<int>("mission.task2_tier", 2);
+  if (tier < 2 || tier > 4) {throw std::invalid_argument("Invalid declared Task 2 tier");}
+  task2_tier_ = static_cast<uint8_t>(tier);
+  const auto reset_services = declare_parameter<std::vector<std::string>>(
+    "run.reset_services", {"/banyu/pipeline/reset_tracker", "/banyu/pipeline/reset_end"});
+  if (mission_mode_ == "task2") {
+    if (!finite(preparation_timeout_s_) || preparation_timeout_s_ <= 0.0 ||
+      !finite(reset_timeout_s_) || reset_timeout_s_ <= 0.0 || reset_services.empty() ||
+      !finite(execution_readiness_timeout_s_) || execution_readiness_timeout_s_ <= 0.0)
+    {
+      throw std::invalid_argument(
+          "Task 2 requires reset consumers and positive deadlines");
+    }
+    run_ = std::make_unique<RunCoordinator>();
+    std::random_device random;
+    std::ostringstream identity;
+    identity << std::hex << random() << random() << random() << random();
+    authority_instance_ = identity.str();
+    lifecycle_pub_ = create_publisher<banyu_msgs::msg::RunLifecycle>(
+      lifecycle_topic, rclcpp::QoS(1).reliable().transient_local());
+    command_sub_ = create_subscription<rx_msgs::msg::Command>(
+      command_topic, rclcpp::QoS(10).reliable(),
+      std::bind(&BanyuMission::commandCallback, this, std::placeholders::_1));
+    execution_readiness_sub_ = create_subscription<banyu_msgs::msg::ExecutionReadiness>(
+      execution_readiness_topic, rclcpp::QoS(1).reliable(),
+      [this](banyu_msgs::msg::ExecutionReadiness::SharedPtr evidence) {
+        std::lock_guard<std::recursive_mutex> lock(control_mutex_);
+        const auto context = run_->snapshot();
+        if (evidence->authority_instance != authority_instance_ ||
+        evidence->run_id != context.run_id || evidence->epoch != context.epoch ||
+        evidence->lifecycle_revision == 0 || evidence->lifecycle_revision > lifecycle_revision_ ||
+        evidence->header.stamp.nanosec >= 1000000000u ||
+        (evidence->header.stamp.sec == 0 && evidence->header.stamp.nanosec == 0)) {return;}
+        const double age = (now() - rclcpp::Time(evidence->header.stamp,
+          get_clock()->get_clock_type())).seconds();
+        if (age < -kMaxFutureStampS || age > execution_readiness_timeout_s_ ||
+        evidence->lifecycle_revision < execution_readiness_.lifecycle_revision) {return;}
+        execution_readiness_ = *evidence;
+        execution_received_at_ = std::chrono::steady_clock::now();
+        if (evidence->holding && context.phase == RunCoordinator::Phase::Ready) {
+          preparation_hold_seen_ = true;
+        }
+      });
+    survey_progress_sub_ = create_subscription<banyu_msgs::msg::Task2SurveyProgress>(
+      survey_progress_topic, rclcpp::QoS(1).reliable().transient_local(),
+      [this](banyu_msgs::msg::Task2SurveyProgress::SharedPtr progress) {
+        std::lock_guard<std::recursive_mutex> lock(control_mutex_);
+        const auto context = run_->snapshot();
+        if (progress->authority_instance != authority_instance_ ||
+        progress->run_id != context.run_id || progress->epoch != context.epoch ||
+        progress->header.stamp.nanosec >= 1000000000u ||
+        (progress->header.stamp.sec == 0 && progress->header.stamp.nanosec == 0)) {return;}
+        const double age = (now() - rclcpp::Time(progress->header.stamp,
+          get_clock()->get_clock_type())).seconds();
+        if (age < -kMaxFutureStampS || age > 2.0) {return;}
+        if (progress->evidence_revision < survey_progress_.evidence_revision) {return;}
+        survey_progress_ = *progress;
+        survey_progress_received_at_ = std::chrono::steady_clock::now();
+      });
+
+    pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
+      readiness_pose_topic, rclcpp::SensorDataQoS(),
+      [this](geometry_msgs::msg::PoseStamped::SharedPtr pose) {
+        std::lock_guard<std::recursive_mutex> lock(control_mutex_);
+        pose_valid_ = pose->header.frame_id == "map" && finite(pose->pose.position.x) &&
+        finite(pose->pose.position.y) && finite(pose->pose.position.z) &&
+        (pose->header.stamp.sec != 0 || pose->header.stamp.nanosec != 0);
+        const double source_age = (now() - rclcpp::Time(pose->header.stamp,
+          get_clock()->get_clock_type())).seconds();
+        pose_valid_ = pose_valid_ && source_age >= -kMaxFutureStampS && source_age <= 1.0;
+        pose_received_at_ = std::chrono::steady_clock::now();
+      });
+    for (const auto & service : reset_services) {
+      reset_consumers_.push_back({create_client<banyu_msgs::srv::ResetTask2>(service), {}, false});
+    }
+    preparation_service_ = create_service<std_srvs::srv::Trigger>(
+      "/banyu/mission/prepare_autonomy",
+      [this](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+      std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+        std::lock_guard<std::recursive_mutex> lock(control_mutex_);
+        const auto vehicle = state_->snapshot();
+        response->success = initialized_ && mission_config_valid_ &&
+        vehicle.fcu_connected && vehicle.fcu_status_fresh && vehicle.rc_fresh &&
+        !vehicle.operator_takeover && vehicle.gps_available && run_->beginPreparation();
+        response->message =
+        response->success ? "Autonomy preparation accepted; position hold only" :
+        "Preparation rejected: configuration, safety, GPS, journal or active run";
+        if (response->success) {
+          start_commands_.clear();
+          execution_readiness_ = banyu_msgs::msg::ExecutionReadiness{};
+          execution_received_at_ = {};
+          preparation_hold_seen_ = false;
+          state_->prepareAutonomy();
+          preparation_tree_->haltTree();
+          preparation_started_ = std::chrono::steady_clock::now();
+          publishLifecycle();
+        }
+      });
+  }
+
   start_service_ = create_service<std_srvs::srv::Trigger>(
     "/banyu/mission/start",
     [this](const std::shared_ptr<rmw_request_id_t>,
     const std::shared_ptr<std_srvs::srv::Trigger::Request>,
     std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+      std::lock_guard<std::recursive_mutex> lock(control_mutex_);
+      if (mission_mode_ == "task2") {
+        response->success = false;
+        response->message = "GCS_START_REQUIRED: use a validated CMD_RUN_START";
+        return;
+      }
       const bool config_ok = mission_config_valid_.load();
       if (!config_ok) {
         response->success = false;
@@ -117,6 +271,13 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
     [this](const std::shared_ptr<rmw_request_id_t>,
     const std::shared_ptr<std_srvs::srv::Trigger::Request>,
     std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+      std::lock_guard<std::recursive_mutex> lock(control_mutex_);
+      if (run_) {
+        terminateRun(false, "MISSION_ABORT_REQUESTED", !operatorHasControl());
+        response->success = true;
+        response->message = "mission abort accepted";
+        return;
+      }
       state_->requestAbort();
       fallbackToSurface();
       response->success = true;
@@ -136,12 +297,258 @@ BanyuMission::~BanyuMission()
     tree_logger_.reset();
     groot_publisher_.reset();
     if (tree_) {tree_->haltTree();}
+    if (preparation_tree_) {preparation_tree_->haltTree();}
   }
 }
 
 MissionState::Lifecycle BanyuMission::lifecycle() const
 {
   return state_->lifecycle();
+}
+
+bool BanyuMission::autonomousReady() const
+{
+  const auto vehicle = state_->snapshot();
+  const auto phase = run_ ? run_->snapshot().phase : RunCoordinator::Phase::Idle;
+  const bool underway = phase == RunCoordinator::Phase::Active ||
+    phase == RunCoordinator::Phase::SurveyComplete || phase == RunCoordinator::Phase::Surfaced;
+  return mission_config_valid_ && vehicle.fcu_connected && vehicle.fcu_status_fresh &&
+         vehicle.rc_fresh && vehicle.armed && !vehicle.operator_takeover &&
+         (underway || vehicle.gps_available) && vehicle.mode == "GUIDED" && pose_valid_ &&
+         std::chrono::steady_clock::now() - pose_received_at_ < std::chrono::seconds(1);
+}
+
+std::string BanyuMission::autonomyNotReadyReason() const
+{
+  const auto vehicle = state_->snapshot();
+  const auto phase = run_ ? run_->snapshot().phase : RunCoordinator::Phase::Idle;
+  const bool underway = phase == RunCoordinator::Phase::Active ||
+    phase == RunCoordinator::Phase::SurveyComplete || phase == RunCoordinator::Phase::Surfaced;
+  if (!mission_config_valid_) {return "mission config invalid";}
+  if (!vehicle.fcu_connected || !vehicle.fcu_status_fresh) {return "FCU disconnected or stale";}
+  if (!vehicle.rc_fresh) {return "RC/deadman stale";}
+  if (!vehicle.armed) {return "disarmed";}
+  if (vehicle.operator_takeover) {return "operator takeover";}
+  if (!underway && !vehicle.gps_available) {return "GPS unavailable";}
+  if (vehicle.mode != "GUIDED") {return "mode " + vehicle.mode;}
+  if (!pose_valid_) {return "pose invalid or stamp older than 1 s";}
+  if (std::chrono::steady_clock::now() - pose_received_at_ >= std::chrono::seconds(1)) {
+    return "pose not received for 1 s";
+  }
+  return "ready";
+}
+
+bool BanyuMission::operatorHasControl() const
+{
+  const auto vehicle = state_->snapshot();
+  return vehicle.operator_takeover || (vehicle.fcu_connected && vehicle.fcu_status_fresh &&
+         !vehicle.mode.empty() && vehicle.mode != "GUIDED");
+}
+
+bool BanyuMission::executionHolding() const
+{
+  const auto context = run_->snapshot();
+  return execution_readiness_.holding &&
+         execution_readiness_.authority_instance == authority_instance_ &&
+         execution_readiness_.run_id == context.run_id &&
+         execution_readiness_.epoch == context.epoch &&
+         execution_received_at_.time_since_epoch().count() != 0 &&
+         std::chrono::duration<double>(std::chrono::steady_clock::now() -
+         execution_received_at_).count() <= execution_readiness_timeout_s_;
+}
+
+bool BanyuMission::surveyEvidenceReady() const
+{
+  const auto context = run_->snapshot();
+  return survey_progress_.survey_complete &&
+         survey_progress_.authority_instance == authority_instance_ &&
+         survey_progress_.run_id == context.run_id && survey_progress_.epoch == context.epoch &&
+         survey_progress_received_at_.time_since_epoch().count() != 0 &&
+         std::chrono::steady_clock::now() - survey_progress_received_at_ < std::chrono::seconds(2);
+}
+
+void BanyuMission::publishLifecycle(
+  uint8_t event, const std::string & reason, uint32_t requested_run_id)
+{
+  if (!run_ || !lifecycle_pub_) {return;}
+  const auto context = run_->snapshot();
+  banyu_msgs::msg::RunLifecycle message;
+  message.header.stamp = now();
+  message.accepted_at = accepted_run_at_;
+  message.header.frame_id = "uuv";
+  message.run_id = context.run_id;
+  message.epoch = context.epoch;
+  message.command_seq = context.command_seq;
+  message.phase = static_cast<uint8_t>(context.phase);
+  const bool active = context.phase == RunCoordinator::Phase::Active ||
+    context.phase == RunCoordinator::Phase::SurveyComplete ||
+    context.phase == RunCoordinator::Phase::Surfaced;
+  message.current_task = active ? rx_msgs::msg::RxTask::TASK_INFRA_SURVEY_REPAIR :
+    rx_msgs::msg::RxTask::TASK_NONE;
+  message.reason = reason.empty() ? context.reason : reason;
+  message.event = event;
+  message.requested_run_id = requested_run_id;
+  message.revision = ++lifecycle_revision_;
+  message.authority_instance = authority_instance_;
+  message.autonomous_ready = autonomousReady() &&
+    (active || (context.phase == RunCoordinator::Phase::Ready && executionHolding()) ||
+    context.phase == RunCoordinator::Phase::Initializing);
+  lifecycle_pub_->publish(message);
+  lifecycle_published_at_ = std::chrono::steady_clock::now();
+}
+
+void BanyuMission::commandCallback(const rx_msgs::msg::Command::SharedPtr command)
+{
+  std::lock_guard<std::recursive_mutex> lock(control_mutex_);
+  using Command = rx_msgs::msg::Command;
+  using Lifecycle = banyu_msgs::msg::RunLifecycle;
+  if (!run_ || (command->target_vehicle != rx_msgs::msg::VehicleType::TYPE_UUV &&
+    command->target_vehicle != rx_msgs::msg::VehicleType::TYPE_UNKNOWN)) {return;}
+  if (command->command_type == Command::CMD_MISSION_DONE) {
+    const auto context = run_->snapshot();
+    const bool live = context.phase >= RunCoordinator::Phase::Initializing &&
+      context.phase <= RunCoordinator::Phase::Surfaced;
+    if (!live || command->run_id != context.run_id ||
+      command->command_seq <= context.command_seq || command->command_seq <= last_stop_sequence_)
+    {
+      publishLifecycle(Lifecycle::SNAPSHOT, "STOP_REJECTED: stale sequence or run identity");
+      return;
+    }
+    last_stop_sequence_ = command->command_seq;
+    terminateRun(false, "GCS_STOP_REQUESTED", !operatorHasControl());
+    return;
+  }
+  if (command->command_type != Command::CMD_RUN_START) {return;}
+  const auto seen = start_commands_.find(command->command_seq);
+  if (seen != start_commands_.end() && seen->second != command->run_id) {
+    publishLifecycle(Lifecycle::START_REJECTED, "COMMAND_REPLAY: conflicting run identity",
+      command->run_id);
+    return;
+  }
+  if (command->command_seq != 0) {start_commands_.emplace(command->command_seq, command->run_id);}
+  const auto result = run_->requestStart(
+    command->run_id, command->command_seq,
+    initialized_ && autonomousReady() && executionHolding());
+  if (result.disposition == RunCoordinator::Disposition::Rejected) {
+    publishLifecycle(Lifecycle::START_REJECTED, result.reason, command->run_id);
+  } else if (result.disposition == RunCoordinator::Disposition::Duplicate) {
+    publishLifecycle(Lifecycle::START_DUPLICATE, result.reason, command->run_id);
+  } else {
+    initialization_started_ = std::chrono::steady_clock::now();
+    accepted_run_at_ = now();
+    survey_progress_ = banyu_msgs::msg::Task2SurveyProgress{};
+    survey_progress_received_at_ = {};
+    for (auto & consumer : reset_consumers_) {
+      consumer.client->prune_pending_requests();
+      consumer.future = {};
+      consumer.acknowledged = false;
+    }
+    last_fallback_time_ = rclcpp::Time(0, 0, get_clock()->get_clock_type());
+    publishLifecycle(Lifecycle::START_ACCEPTED, result.reason, command->run_id);
+  }
+}
+
+void BanyuMission::tickTask2Preparation()
+{
+  const auto phase = run_->snapshot().phase;
+  if (phase == RunCoordinator::Phase::Ready &&
+    (!autonomousReady() || (preparation_hold_seen_ && !executionHolding())))
+  {
+    run_->cancelPreparation("READINESS_LOST: explicit preparation required");
+    preparation_tree_->haltTree();
+    publishLifecycle(banyu_msgs::msg::RunLifecycle::TERMINAL);
+    return;
+  }
+  if (phase != RunCoordinator::Phase::Preparing) {return;}
+  if (std::chrono::duration<double>(std::chrono::steady_clock::now() -
+    preparation_started_).count() > preparation_timeout_s_ || state_->snapshot().operator_takeover)
+  {
+    run_->cancelPreparation("PREPARATION_TIMEOUT_OR_TAKEOVER");
+    preparation_tree_->haltTree();
+    publishLifecycle(banyu_msgs::msg::RunLifecycle::TERMINAL);
+    return;
+  }
+  const auto result = preparation_tree_->tickExactlyOnce();
+  if (result == BT::NodeStatus::FAILURE) {
+    run_->cancelPreparation("PREPARATION_FAILED");
+    preparation_tree_->haltTree();
+    publishLifecycle(banyu_msgs::msg::RunLifecycle::TERMINAL);
+  } else if (result == BT::NodeStatus::SUCCESS && autonomousReady()) {
+    run_->markReady();
+    publishLifecycle();
+  }
+}
+
+void BanyuMission::tickRunInitialization()
+{
+  const auto context = run_->snapshot();
+  if (context.phase != RunCoordinator::Phase::Initializing) {return;}
+  if (!autonomousReady()) {
+    terminateRun(true, "READINESS_LOST_DURING_INITIALIZATION", false);
+    return;
+  }
+  if (std::chrono::duration<double>(std::chrono::steady_clock::now() -
+    initialization_started_).count() > reset_timeout_s_)
+  {
+    terminateRun(true, "RUN_RESET_TIMEOUT", false);
+    return;
+  }
+  bool complete = true;
+  for (auto & consumer : reset_consumers_) {
+    if (consumer.acknowledged) {continue;}
+    complete = false;
+    if (!consumer.future.valid()) {
+      if (consumer.client->service_is_ready()) {
+        auto request = std::make_shared<banyu_msgs::srv::ResetTask2::Request>();
+        request->run_id = context.run_id;
+        request->epoch = context.epoch;
+        consumer.future = consumer.client->async_send_request(request).future.share();
+      }
+    } else if (consumer.future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+      try {
+        const auto response = consumer.future.get();
+        if (!response->success) {
+          terminateRun(true, "RUN_RESET_REJECTED: " + response->message, false);
+          return;
+        }
+        consumer.acknowledged = true;
+      } catch (const std::exception & error) {
+        terminateRun(true, "RUN_RESET_FAILED: " + std::string(error.what()), false);
+        return;
+      }
+    }
+  }
+  if (complete) {
+    if (!state_->acceptRun(context.run_id, context.epoch) ||
+      !run_->completeInitialization(context.epoch))
+    {terminateRun(true, "RUN_INITIALIZATION_FAILED", false); return;}
+    preparation_tree_->haltTree();
+    tree_->haltTree();
+    publishLifecycle();
+  }
+}
+
+void BanyuMission::terminateRun(bool failure, const std::string & reason, bool recover)
+{
+  const auto context = run_->snapshot();
+  if (context.phase == RunCoordinator::Phase::Preparing ||
+    context.phase == RunCoordinator::Phase::Ready)
+  {run_->cancelPreparation(reason);} else {
+    run_->transition(context.epoch, failure ? RunCoordinator::Phase::Failed :
+      RunCoordinator::Phase::Interrupted, reason);
+  }
+  state_->requestAbort();
+  if (failure) {state_->markFailed();} else {state_->markInterrupted();}
+  if (tree_) {tree_->haltTree();}
+  if (preparation_tree_) {preparation_tree_->haltTree();}
+  for (auto & consumer : reset_consumers_) {
+    consumer.client->prune_pending_requests();
+    consumer.future = {};
+  }
+  publishLifecycle(banyu_msgs::msg::RunLifecycle::TERMINAL, reason);
+  if (recover && !operatorHasControl() &&
+    context.phase != RunCoordinator::Phase::Idle)
+  {fallbackToSurface();}
 }
 
 std::string BanyuMission::xmlPath()
@@ -196,6 +603,8 @@ void BanyuMission::initialize()
   const auto heading_rad = declare_parameter<double>(
     "mission.heading_rad", std::numeric_limits<double>::quiet_NaN());
   const auto acquire_timeout_s = declare_parameter<double>("mission.acquire_timeout_s", 15.0);
+  const auto traverse_timeout_s =
+    declare_parameter<double>("mission.traverse_timeout_s", 600.0);
   const auto search_span = declare_parameter<double>("mission.search_span_rad", 2.0 * kPi);
   const auto sweep_rate = declare_parameter<double>("mission.sweep_rate_rad_s", 0.2);
   const auto ring_tolerance = declare_parameter<double>("mission.ring_tolerance", 0.08);
@@ -216,7 +625,8 @@ void BanyuMission::initialize()
   }
   mission_config_valid_ = mission_config_valid_ && positive(gps_tolerance) &&
     positive(heading_tolerance) && nonnegative(inspection_depth) && positive(depth_tolerance) &&
-    positive(acquire_timeout_s) && (std::isnan(heading_rad) || finite(heading_rad)) &&
+    positive(acquire_timeout_s) && positive(traverse_timeout_s) &&
+    (std::isnan(heading_rad) || finite(heading_rad)) &&
     (std::isnan(end_latitude) || finite(end_latitude)) &&
     (std::isnan(end_longitude) || finite(end_longitude)) &&
     positive(search_span) && search_span <= 2.0 * kPi && positive(sweep_rate) &&
@@ -249,9 +659,32 @@ void BanyuMission::initialize()
     effective_heading = state_->missionHeading();
   }
 
-  auto self = shared_from_this();
+  auto self = rclcpp::Node::SharedPtr(this, [](rclcpp::Node *) {});
   factory_ = std::make_unique<BT::BehaviorTreeFactory>();
-  registerMissionNodes(*factory_, self, state_, [this]() {fallbackToSurface();});
+  registerMissionNodes(*factory_, self, state_, [this]() {
+      if (!run_ && !operatorHasControl()) {fallbackToSurface();}
+    }, [this]() {
+      if (!run_ || state_->lifecycle() != MissionState::Lifecycle::Active) {
+        return BT::NodeStatus::FAILURE;
+      }
+      const auto context = run_->snapshot();
+      if (context.phase == RunCoordinator::Phase::SurveyComplete) {return BT::NodeStatus::SUCCESS;}
+      if (context.phase != RunCoordinator::Phase::Active) {return BT::NodeStatus::FAILURE;}
+      if (!state_->pipelineEnded() || !surveyEvidenceReady()) {return BT::NodeStatus::RUNNING;}
+      if (!run_->transition(context.epoch, RunCoordinator::Phase::SurveyComplete,
+        "ORIGINAL_SURVEY_AND_TIER_EVIDENCE_COMPLETE")) {return BT::NodeStatus::FAILURE;}
+      publishLifecycle();
+      return BT::NodeStatus::SUCCESS;
+    }, [this]() {
+      if (!run_ || state_->lifecycle() != MissionState::Lifecycle::Active || !autonomousReady()) {
+        return BT::NodeStatus::FAILURE;
+      }
+      const auto context = run_->snapshot();
+      if (!run_->transition(context.epoch, RunCoordinator::Phase::Surfaced,
+        "CURRENT_SURFACE_ACTION_SUCCEEDED")) {return BT::NodeStatus::FAILURE;}
+      publishLifecycle();
+      return BT::NodeStatus::SUCCESS;
+  });
   auto blackboard = BT::Blackboard::create();
   blackboard->set("target_latitude", target_latitude);
   blackboard->set("target_longitude", target_longitude);
@@ -265,6 +698,7 @@ void BanyuMission::initialize()
   blackboard->set("camera_name", camera);
   blackboard->set("heading_prior", effective_heading);
   blackboard->set("acquire_timeout_ms", static_cast<unsigned>(acquire_timeout_s * 1000.0));
+  blackboard->set("traverse_timeout_ms", static_cast<unsigned>(traverse_timeout_s * 1000.0));
   blackboard->set("search_span", search_span);
   blackboard->set("sweep_rate", sweep_rate);
   blackboard->set("ring_tolerance", ring_tolerance);
@@ -281,6 +715,12 @@ void BanyuMission::initialize()
   }
   factory_->registerBehaviorTreeFromFile(xmlPath());
   tree_ = std::make_shared<BT::Tree>(factory_->createTree("Main", blackboard));
+  if (run_) {
+    preparation_tree_ = std::make_shared<BT::Tree>(factory_->createTreeFromText(
+      "<root BTCPP_format=\"4\" main_tree_to_execute=\"PrepareAutonomy\">"
+      "<BehaviorTree ID=\"PrepareAutonomy\"><ArmAndSetGuided /></BehaviorTree></root>"));
+    publishLifecycle();
+  }
   tree_logger_ = std::make_unique<MissionTreeLogger>(*tree_, get_logger());
   int groot_port = 1666;
   get_parameter("groot_port", groot_port);
@@ -293,9 +733,26 @@ void BanyuMission::initialize()
 void BanyuMission::tickLoop(int tick_period_ms)
 {
   bool started_log = false;
-  while (rclcpp::ok() && !stop_requested_.load()) {
+  while (rclcpp::ok(get_node_base_interface()->get_context()) && !stop_requested_.load()) {
+    std::unique_lock<std::recursive_mutex> control_lock(control_mutex_);
+    if (run_) {
+      tickTask2Preparation();
+      tickRunInitialization();
+      const auto phase = run_->snapshot().phase;
+      if ((phase == RunCoordinator::Phase::Active ||
+        phase == RunCoordinator::Phase::SurveyComplete ||
+        phase == RunCoordinator::Phase::Surfaced) && !autonomousReady())
+      {
+        const auto cause = autonomyNotReadyReason();
+        RCLCPP_WARN(get_logger(), "Autonomy readiness lost: %s", cause.c_str());
+        terminateRun(false, "AUTONOMY_READINESS_LOST: " + cause, !operatorHasControl());
+      }
+      if (std::chrono::steady_clock::now() - lifecycle_published_at_ >=
+        std::chrono::milliseconds(250)) {publishLifecycle();}
+    }
     if (state_->lifecycle() != MissionState::Lifecycle::Active) {
       started_log = false;
+      control_lock.unlock();
       std::this_thread::sleep_for(std::chrono::milliseconds(tick_period_ms));
       continue;
     }
@@ -325,19 +782,27 @@ void BanyuMission::tickLoop(int tick_period_ms)
           get_logger(),
           "Mission aborted/interrupted: fallback mode -> %s",
           fallback_mode_.c_str());
-        fallbackToSurface();
+        if (run_) {
+          terminateRun(false, "AUTONOMY_INTERRUPTED", !operatorHasControl());
+        } else if (!operatorHasControl()) {fallbackToSurface();}
       } else if (status == BT::NodeStatus::SUCCESS) {
-        state_->markSucceeded();
+        if (run_ && !run_->transition(run_->snapshot().epoch, RunCoordinator::Phase::Succeeded,
+          "MISSION_COMPLETED"))
+        {terminateRun(true, "MISSION_COMPLETION_TRANSITION_FAILED", false);} else {
+          state_->markSucceeded();
+          if (run_) {publishLifecycle(banyu_msgs::msg::RunLifecycle::TERMINAL);}
+        }
       } else {
         state_->markFailed();
         RCLCPP_ERROR(
           get_logger(),
           "Mission failed: fallback mode -> %s",
           fallback_mode_.c_str());
-        fallbackToSurface();
+        if (run_) {terminateRun(true, "EXECUTION_FAILED", true);} else {fallbackToSurface();}
       }
       started_log = false;
     }
+    control_lock.unlock();
     std::this_thread::sleep_for(std::chrono::milliseconds(tick_period_ms));
   }
 }

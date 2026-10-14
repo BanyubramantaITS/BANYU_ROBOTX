@@ -123,6 +123,7 @@ private:
     max_line_residual_px_ = declare_parameter<double>("max_line_residual_px", 10.0);
     max_heading_error_rad_ = declare_parameter<double>("max_heading_error_rad", M_PI_2);
     lookahead_y_ratio_ = declare_parameter<double>("lookahead_y_ratio", 0.65);
+    local_fit_band_ratio_ = declare_parameter<double>("local_fit_band_ratio", 0.2);
     lookahead_extrapolation_ratio_ =
       declare_parameter<double>("lookahead_extrapolation_ratio", 0.35);
     min_pipeline_confidence_ = declare_parameter<double>("min_pipeline_confidence", 0.20);
@@ -218,6 +219,7 @@ private:
     ring_association_distance_px_ = std::max(0.1, ring_association_distance_px_);
     ring_max_aspect_ratio_ = std::max(1.0, ring_max_aspect_ratio_);
     lookahead_y_ratio_ = std::clamp(lookahead_y_ratio_, 0.0, 1.0);
+    local_fit_band_ratio_ = std::clamp(local_fit_band_ratio_, 0.0, 0.5);
     lookahead_extrapolation_ratio_ = std::max(0.0, lookahead_extrapolation_ratio_);
     roi_y_min_ratio_ = std::clamp(roi_y_min_ratio_, 0.0, 1.0);
     roi_y_max_ratio_ = std::clamp(roi_y_max_ratio_, roi_y_min_ratio_, 1.0);
@@ -580,6 +582,33 @@ private:
     return mask;
   }
 
+  static bool fitPipelineLine(
+    const std::vector<cv::Point2f> & points, cv::Vec4f & line, double & length,
+    double & residual)
+  {
+    cv::fitLine(points, line, cv::DIST_L2, 0.0, 0.01, 0.01);
+    const double vx = line[0];
+    const double vy = line[1];
+    const double norm = std::hypot(vx, vy);
+    if (!std::isfinite(norm) || norm < 1.0e-6) {
+      return false;
+    }
+    double min_projection = std::numeric_limits<double>::max();
+    double max_projection = std::numeric_limits<double>::lowest();
+    double squared_residual = 0.0;
+    for (const cv::Point2f & point : points) {
+      const double dx = point.x - line[2];
+      const double dy = point.y - line[3];
+      min_projection = std::min(min_projection, dx * vx + dy * vy);
+      max_projection = std::max(max_projection, dx * vx + dy * vy);
+      const double perpendicular = dx * vy - dy * vx;
+      squared_residual += perpendicular * perpendicular;
+    }
+    length = max_projection - min_projection;
+    residual = std::sqrt(squared_residual / points.size());
+    return true;
+  }
+
   bool findPipeline(const cv::Mat & mask, const cv::Size & image_size, PipelineLine & best) const
   {
     cv::Mat labels;
@@ -631,30 +660,31 @@ private:
       }
 
       cv::Vec4f line;
-      cv::fitLine(points, line, cv::DIST_L2, 0.0, 0.01, 0.01);
-      const double vx = line[0];
-      const double vy = line[1];
-      const double norm = std::hypot(vx, vy);
-      if (!std::isfinite(norm) || norm < 1.0e-6) {
+      double length = 0.0;
+      double residual = 0.0;
+      if (!fitPipelineLine(points, line, length, residual)) {
         continue;
       }
-
-      double min_projection = std::numeric_limits<double>::max();
-      double max_projection = std::numeric_limits<double>::lowest();
-      double squared_residual = 0.0;
-      for (const cv::Point2f & point : points) {
-        const double dx = point.x - line[2];
-        const double dy = point.y - line[3];
-        min_projection = std::min(min_projection, dx * vx + dy * vy);
-        max_projection = std::max(max_projection, dx * vx + dy * vy);
-        const double perpendicular = dx * vy - dy * vx;
-        squared_residual += perpendicular * perpendicular;
+      if (residual > max_line_residual_px_ && local_fit_band_ratio_ > 0.0) {
+        // Bends and node housings make one line fit the whole blob badly; fit the straight
+        // segment inside a band around the lookahead row that guidance actually uses.
+        const double center_row = lookahead_y_ratio_ * image_size.height;
+        const double half_band = local_fit_band_ratio_ * image_size.height;
+        std::vector<cv::Point2f> local_points;
+        for (const cv::Point2f & point : points) {
+          if (std::abs(point.y - center_row) <= half_band) {
+            local_points.push_back(point);
+          }
+        }
+        if (local_points.size() >= 5) {
+          fitPipelineLine(local_points, line, length, residual);
+        }
       }
-      const double length = max_projection - min_projection;
-      const double residual = std::sqrt(squared_residual / points.size());
       if (length < min_line_length_px_ || residual > max_line_residual_px_) {
         continue;
       }
+      const double vx = line[0];
+      const double vy = line[1];
 
       double direction_x = vx;
       double direction_y = vy;
@@ -936,6 +966,7 @@ private:
   double min_line_length_px_ {18.0};
   double min_aspect_ratio_ {1.5};
   double max_line_residual_px_ {10.0};
+  double local_fit_band_ratio_ {0.2};
   double max_heading_error_rad_ {M_PI_2};
   double lookahead_y_ratio_ {0.65};
   double lookahead_extrapolation_ratio_ {0.35};

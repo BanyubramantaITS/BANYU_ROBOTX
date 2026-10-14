@@ -25,6 +25,7 @@ void VehicleStatusTracker::updateState(
 {
   state_received_ = true;
   state_connected_ = state.connected;
+  state_armed_ = state.armed;
   mode_ = state.mode;
   last_state_ = received_at;
 }
@@ -75,6 +76,7 @@ banyu_msgs::msg::VehicleStatus VehicleStatusTracker::status(const rclcpp::Time &
 
   result.fcu_status_fresh = isFresh(state_received_, now, last_state_, config_.fcu_timeout_s);
   result.fcu_connected = result.fcu_status_fresh && state_connected_;
+  result.armed = result.fcu_connected && state_armed_;
   result.rc_fresh = isFresh(rc_received_, now, last_rc_, config_.rc_timeout_s);
   result.operator_takeover = result.rc_fresh && rc_takeover_;
   result.mode = mode_;

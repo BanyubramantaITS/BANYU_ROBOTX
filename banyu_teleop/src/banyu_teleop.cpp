@@ -66,7 +66,8 @@ void BanyuTeleop::declareParameters()
   RCLCPP_INFO(this->get_logger(), "  Heave: axis %d, scale %.2f", _axisZ, _scaleZ);
   RCLCPP_INFO(this->get_logger(), "  Yaw: axis %d, scale %.2f", _axisR, _scaleR);
   RCLCPP_INFO(
-    this->get_logger(), "  Gain/Trim: D-pad axis %d (gain), axis %d (trim pitch/roll w/ shift)", _axisS,
+    this->get_logger(), "  Gain/Trim: D-pad axis %d (gain), axis %d (trim pitch/roll w/ shift)",
+      _axisS,
     _axisT);
   RCLCPP_INFO(this->get_logger(), "  Shift: btn %d", _btnShift);
   RCLCPP_INFO(this->get_logger(), "  Arm: btn %d, Disarm: btn %d", _btnArm, _btnDisarm);

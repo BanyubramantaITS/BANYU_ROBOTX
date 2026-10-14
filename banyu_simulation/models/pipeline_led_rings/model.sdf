@@ -59,20 +59,6 @@
           <emissive>1 0 0 1</emissive>
         </material>
       </visual>
-
-      <visual name="ring_4">
-        <pose>0 3.46 1.55 1.5708 0 0</pose>
-        <geometry>
-          <cylinder>
-            <radius>0.06</radius>
-            <length>0.04</length>
-          </cylinder>
-        </geometry>
-        <material>
-          <diffuse>0 1 0 1</diffuse>
-          <emissive>0 1 0 1</emissive>
-        </material>
-      </visual>
     </link>
   </model>
 </sdf>

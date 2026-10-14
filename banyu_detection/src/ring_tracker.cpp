@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <utility>
 
 namespace banyu_detection
 {
@@ -75,6 +77,15 @@ void RingTracker::beginExit()
   snapshot_.invisible_frames = 0;
 }
 
+void RingTracker::beginNewRingEntry()
+{
+  clearEntry();
+  snapshot_.phase = RingTrackerPhase::IDLE;
+  snapshot_.active_color = banyu_msgs::msg::PipelineRingObservation::COLOR_UNKNOWN;
+  snapshot_.consecutive_frames = 0;
+  snapshot_.invisible_frames = 0;
+}
+
 void RingTracker::beginDebounce()
 {
   clearEntry();
@@ -99,6 +110,9 @@ bool RingTracker::rearmAllowed(const RingTrackerInput & input) const
   if (!has_last_record_pose_) {
     return false;
   }
+  if (rearmed_) {
+    return true;
+  }
 
   const double dx = input.vehicle_pose_map.pose.position.x -
     last_record_pose_.pose.position.x;
@@ -110,8 +124,15 @@ bool RingTracker::rearmAllowed(const RingTrackerInput & input) const
   const bool spatially_separated = std::isfinite(spatial_separation) &&
     spatial_separation >= config_.minimum_rearm_distance_m;
   const bool progressed = input.has_path_distance && has_last_record_path_distance_ &&
-    input.path_distance_m > last_record_path_distance_ + config_.minimum_rearm_distance_m;
-  return spatially_separated || progressed;
+    std::abs(input.path_distance_m - last_record_path_distance_) >=
+    config_.minimum_rearm_distance_m;
+  const bool centerline_progressed = hasCenterline() && has_last_record_path_distance_ &&
+    std::abs(
+      projectOntoCenterline(
+        input.vehicle_pose_map.pose.position.x,
+        input.vehicle_pose_map.pose.position.y) -
+      last_record_path_distance_) >= config_.minimum_rearm_distance_m;
+  return spatially_separated || progressed || centerline_progressed;
 }
 
 bool RingTracker::validPoseForObservation(const RingTrackerInput & input) const
@@ -142,6 +163,137 @@ bool RingTracker::validPoseForObservation(const RingTrackerInput & input) const
          std::abs(source_seconds - pose_seconds) <= config_.pose_timestamp_tolerance_s;
 }
 
+void RingTracker::setCenterline(const std::vector<std::pair<double, double>> & waypoints)
+{
+  centerline_waypoints_ = waypoints;
+}
+
+bool RingTracker::hasCenterline() const
+{
+  return centerline_waypoints_.size() >= 2;
+}
+
+double RingTracker::projectOntoCenterline(double x, double y) const
+{
+  if (!hasCenterline()) {
+    return 0.0;
+  }
+
+  double best_dist_sq = std::numeric_limits<double>::max();
+  double best_arc_length = 0.0;
+  double cumulative_len = 0.0;
+
+  for (std::size_t i = 0; i + 1 < centerline_waypoints_.size(); ++i) {
+    const double x0 = centerline_waypoints_[i].first;
+    const double y0 = centerline_waypoints_[i].second;
+    const double x1 = centerline_waypoints_[i + 1].first;
+    const double y1 = centerline_waypoints_[i + 1].second;
+
+    const double vx = x1 - x0;
+    const double vy = y1 - y0;
+    const double seg_len_sq = vx * vx + vy * vy;
+    const double seg_len = std::sqrt(seg_len_sq);
+
+    if (seg_len_sq < 1e-9) {
+      continue;
+    }
+
+    const double wx = x - x0;
+    const double wy = y - y0;
+    const double t = std::clamp((wx * vx + wy * vy) / seg_len_sq, 0.0, 1.0);
+
+    const double proj_x = x0 + t * vx;
+    const double proj_y = y0 + t * vy;
+    const double dx = x - proj_x;
+    const double dy = y - proj_y;
+    const double dist_sq = dx * dx + dy * dy;
+
+    if (dist_sq < best_dist_sq) {
+      best_dist_sq = dist_sq;
+      best_arc_length = cumulative_len + t * seg_len;
+    }
+
+    cumulative_len += seg_len;
+  }
+
+  return best_arc_length;
+}
+
+bool RingTracker::cameraModelEnabled() const
+{
+  return config_.camera_height_m > 0.0 && config_.camera_half_vfov_rad > 0.0;
+}
+
+bool RingTracker::kind_is_visible(const banyu_msgs::msg::PipelineRingObservation & observation)
+{
+  return observation.visible && std::isfinite(observation.offset_y);
+}
+
+bool RingTracker::ringProgress(const RingTrackerInput & input, double & progress) const
+{
+  double x = input.vehicle_pose_map.pose.position.x;
+  double y = input.vehicle_pose_map.pose.position.y;
+  double ahead = 0.0;
+  if (cameraModelEnabled() && input.has_vehicle_pose && kind_is_visible(input.observation)) {
+    // Bottom camera pitched forward of vertical; image +y (down) is aft.
+    const double angle = config_.camera_tilt_from_vertical_rad -
+      config_.camera_half_vfov_rad * std::clamp(
+      static_cast<double>(input.observation.offset_y), -1.0, 1.0);
+    ahead = config_.camera_forward_m + config_.camera_height_m * std::tan(angle);
+    const auto & q = input.vehicle_pose_map.pose.orientation;
+    const double yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y),
+        1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+    x += ahead * std::cos(yaw);
+    y += ahead * std::sin(yaw);
+  }
+  if (hasCenterline() && input.has_vehicle_pose) {
+    progress = projectOntoCenterline(x, y);
+    return true;
+  }
+  if (input.has_path_distance && std::isfinite(input.path_distance_m)) {
+    progress = input.path_distance_m + ahead;
+    return true;
+  }
+  return false;
+}
+
+int RingTracker::findAssociatedRecord(
+  double progress_m,
+  const geometry_msgs::msg::PoseStamped & pose) const
+{
+  if (snapshot_.records.empty()) {
+    return -1;
+  }
+
+  int best_index = -1;
+  double min_dist = std::numeric_limits<double>::max();
+
+  for (std::size_t i = 0; i < snapshot_.records.size(); ++i) {
+    const auto & rec = snapshot_.records[i];
+    if (hasCenterline()) {
+      const double delta_progress = std::abs(progress_m - rec.pipeline_progress_m);
+      if (delta_progress <= config_.node_association_distance_m && delta_progress < min_dist) {
+        min_dist = delta_progress;
+        best_index = static_cast<int>(i);
+      }
+    } else {
+      const double dx = pose.pose.position.x - rec.vehicle_pose_map.pose.position.x;
+      const double dy = pose.pose.position.y - rec.vehicle_pose_map.pose.position.y;
+      const double dz = pose.pose.position.z - rec.vehicle_pose_map.pose.position.z;
+      const double spatial_dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+      if (std::isfinite(spatial_dist) &&
+        spatial_dist <= config_.node_association_distance_m &&
+        spatial_dist < min_dist)
+      {
+        min_dist = spatial_dist;
+        best_index = static_cast<int>(i);
+      }
+    }
+  }
+
+  return best_index;
+}
+
 RingTrackerUpdate RingTracker::ignoredUpdate() const
 {
   RingTrackerUpdate result;
@@ -154,11 +306,73 @@ RingTrackerUpdate RingTracker::ignoredUpdate() const
 RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
 {
   const auto & observation = input.observation;
+  double calculated_progress = 0.0;
+  const bool valid_progress = ringProgress(input, calculated_progress);
+
+  const int match_idx = findAssociatedRecord(
+    valid_progress ? calculated_progress : 0.0,
+    input.vehicle_pose_map);
+
+  if (match_idx >= 0) {
+    const auto & existing = snapshot_.records[match_idx];
+    banyu_msgs::msg::Task2RingRecord record = existing;
+
+    snapshot_.phase = RingTrackerPhase::TRACKING;
+    snapshot_.active_color = observation.color;
+    snapshot_.consecutive_frames = 1;
+    snapshot_.invisible_frames = 0;
+    snapshot_.has_last_state = true;
+    snapshot_.last_state.header = observation.header;
+    snapshot_.last_state.index = static_cast<uint32_t>(match_idx);
+    snapshot_.last_state.color = existing.color;
+    snapshot_.last_state.confidence = observation.confidence;
+    snapshot_.last_state.run_id = existing.run_id;
+    snapshot_.last_state.epoch = existing.epoch;
+    snapshot_.last_state.node_id = existing.node_id;
+    snapshot_.last_state.ordering_verified = existing.ordering_verified;
+
+    last_record_pose_ = input.vehicle_pose_map;
+    has_last_record_pose_ = true;
+    last_record_path_distance_ = existing.pipeline_progress_m;
+    has_last_record_path_distance_ = true;
+    rearmed_ = false;
+    clearEntry();
+
+    RingTrackerUpdate result;
+    result.phase = snapshot_.phase;
+    result.accepted = true;
+    result.consecutive_frames = snapshot_.consecutive_frames;
+    result.record_index = static_cast<std::size_t>(match_idx);
+    result.record = record;
+    return result;
+  }
+
+  if (snapshot_.records.size() >= 4) {
+    clearEntry();
+    return ignoredUpdate();
+  }
+
   banyu_msgs::msg::Task2RingRecord record;
+  record.run_id = input.run_id;
+  record.epoch = input.epoch;
+  record.node_id = static_cast<uint32_t>(snapshot_.records.size());
   record.frame_sequence = observation.frame_sequence;
   record.color = observation.color;
   record.confidence = observation.confidence;
   record.vehicle_pose_map = input.vehicle_pose_map;
+
+  if (valid_progress) {
+    record.pipeline_progress_m = calculated_progress;
+    record.physical_identity_verified = true;
+    record.ordering_verified = snapshot_.records.empty() ||
+      (calculated_progress > last_record_path_distance_);
+    last_record_path_distance_ = calculated_progress;
+    has_last_record_path_distance_ = true;
+  } else {
+    record.pipeline_progress_m = 0.0;
+    record.physical_identity_verified = false;
+    record.ordering_verified = false;
+  }
 
   snapshot_.records.push_back(record);
   snapshot_.phase = RingTrackerPhase::TRACKING;
@@ -170,20 +384,19 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
   snapshot_.last_state.index = static_cast<uint32_t>(snapshot_.records.size() - 1);
   snapshot_.last_state.color = observation.color;
   snapshot_.last_state.confidence = observation.confidence;
+  snapshot_.last_state.run_id = record.run_id;
+  snapshot_.last_state.epoch = record.epoch;
+  snapshot_.last_state.node_id = record.node_id;
+  snapshot_.last_state.ordering_verified = record.ordering_verified;
   if (observation.color == banyu_msgs::msg::PipelineRingObservation::COLOR_RED) {
     snapshot_.red_pending = true;
     snapshot_.repaired = false;
   }
 
-  if (input.has_path_distance && std::isfinite(input.path_distance_m)) {
-    last_record_path_distance_ = input.path_distance_m;
-    has_last_record_path_distance_ = true;
-  }
   last_record_pose_ = input.vehicle_pose_map;
   has_last_record_pose_ = true;
+  rearmed_ = false;
   clearEntry();
-  snapshot_.phase = RingTrackerPhase::TRACKING;
-  snapshot_.consecutive_frames = 1;
 
   RingTrackerUpdate result;
   result.phase = snapshot_.phase;
@@ -232,6 +445,28 @@ RingTrackerUpdate RingTracker::update(const RingTrackerInput & input)
   }
 
   const ObservationKind kind = classifyObservation(observation);
+  if (has_last_record_pose_ && validPoseForObservation(input)) {
+    const double dx = input.vehicle_pose_map.pose.position.x -
+      last_record_pose_.pose.position.x;
+    const double dy = input.vehicle_pose_map.pose.position.y -
+      last_record_pose_.pose.position.y;
+    const double dz = input.vehicle_pose_map.pose.position.z -
+      last_record_pose_.pose.position.z;
+    const double sep = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (std::isfinite(sep) && sep >= config_.minimum_rearm_distance_m) {
+      rearmed_ = true;
+    }
+    beyond_last_node_ = std::isfinite(sep) && sep > config_.node_association_distance_m;
+    double ring_progress = 0.0;
+    if (cameraModelEnabled() && has_last_record_path_distance_ &&
+      kind_is_visible(input.observation) && ringProgress(input, ring_progress))
+    {
+      beyond_last_node_ = std::abs(ring_progress - last_record_path_distance_) >
+        config_.node_association_distance_m;
+    }
+  } else {
+    beyond_last_node_ = false;
+  }
   if (kind == ObservationKind::MALFORMED_OR_UNCERTAIN) {
     if (snapshot_.phase == RingTrackerPhase::EXIT ||
       snapshot_.phase == RingTrackerPhase::DEBOUNCE)
@@ -242,6 +477,13 @@ RingTrackerUpdate RingTracker::update(const RingTrackerInput & input)
   }
   const bool visible = kind == ObservationKind::VISIBLE;
 
+  if (snapshot_.phase == RingTrackerPhase::TRACKING && visible && cameraModelEnabled() &&
+    beyond_last_node_)
+  {
+    // Consecutive same-color rings can be in view back to back; the estimated ring position
+    // tells them apart.
+    beginNewRingEntry();
+  }
   if (snapshot_.phase == RingTrackerPhase::TRACKING) {
     if (visible && sameColor(observation.color, snapshot_.active_color)) {
       snapshot_.consecutive_frames = std::min(
@@ -270,8 +512,14 @@ RingTrackerUpdate RingTracker::update(const RingTrackerInput & input)
       snapshot_.consecutive_frames = 1;
       return ignoredUpdate();
     }
-    snapshot_.invisible_frames = 0;
-    return ignoredUpdate();
+    // Rings can be closer than the camera footprint, so the next ring may be in view before
+    // the last one leaves. Once the vehicle is beyond the last node's association radius, a
+    // different color is a new ring and goes through normal entry confirmation.
+    if (!beyond_last_node_) {
+      snapshot_.invisible_frames = 0;
+      return ignoredUpdate();
+    }
+    beginNewRingEntry();
   }
 
   if (snapshot_.phase == RingTrackerPhase::DEBOUNCE) {
@@ -289,6 +537,8 @@ RingTrackerUpdate RingTracker::update(const RingTrackerInput & input)
       snapshot_.invisible_frames = 0;
       snapshot_.consecutive_frames = 1;
       return ignoredUpdate();
+    } else if (beyond_last_node_) {
+      beginNewRingEntry();
     } else {
       // Any visible frame interrupts absence, even when it is another color.
       beginExit();
@@ -322,7 +572,12 @@ RingTrackerUpdate RingTracker::update(const RingTrackerInput & input)
     observation.color == banyu_msgs::msg::PipelineRingObservation::COLOR_RED &&
     hasRecordedColor(banyu_msgs::msg::PipelineRingObservation::COLOR_RED))
   {
-    return ignoredUpdate();
+    double calculated_prog = 0.0;
+    ringProgress(input, calculated_prog);
+    const int match = findAssociatedRecord(calculated_prog, input.vehicle_pose_map);
+    if (match < 0) {
+      return ignoredUpdate();
+    }
   }
   return accept(input);
 }
@@ -355,6 +610,7 @@ void RingTracker::reset()
   has_last_record_path_distance_ = false;
   last_record_pose_ = geometry_msgs::msg::PoseStamped();
   has_last_record_pose_ = false;
+  rearmed_ = false;
   clearEntry();
 }
 

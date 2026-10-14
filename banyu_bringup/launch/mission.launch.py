@@ -8,20 +8,9 @@ from launch.substitutions import (
     AndSubstitution,
     EqualsSubstitution,
     LaunchConfiguration,
-    PythonExpression,
 )
-from launch_ros.actions import Node, SetUseSimTime
+from launch_ros.actions import Node, SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
-
-
-def _task2_report_max_attempts_substitution():
-    return PythonExpression(
-        [
-            "min(255, int('",
-            LaunchConfiguration("task2_report_max_retries"),
-            "') + 1)",
-        ]
-    )
 
 
 def generate_launch_description():
@@ -74,8 +63,16 @@ def generate_launch_description():
         description="Path to ROS 2 parameter YAML file for POR nodes",
     )
 
-    set_use_sim_time = SetUseSimTime(
-        True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
+    # SetUseSimTime only configures launch's own node; SetParameter reaches every launched node.
+    set_use_sim_time = SetParameter(
+        name="use_sim_time",
+        value=True,
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+                EqualsSubstitution(LaunchConfiguration("use_sim_time"), "True"),
+            )
+        ),
     )
 
     mode = LaunchConfiguration("mode")
@@ -203,10 +200,10 @@ def generate_launch_description():
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
 
-    task2_uav_report = Node(
+    task2_uuv_comm = Node(
         package="banyu_communication",
-        executable="uav_report_node",
-        name="uav_report",
+        executable="uuv_comm_node",
+        name="uuv_comm_node",
         parameters=[task2_params],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
@@ -225,6 +222,24 @@ def generate_launch_description():
         package="banyu_detection",
         executable="pipeline_end_node",
         name="pipeline_end_node",
+        parameters=[task2_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+    )
+
+    task2_calibrated_depth = Node(
+        package="banyu_vehicle_execution",
+        executable="calibrated_depth_node",
+        name="calibrated_depth_node",
+        parameters=[task2_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+    )
+
+    task2_survey_evidence = Node(
+        package="banyu_detection",
+        executable="survey_evidence_node",
+        name="survey_evidence_node",
         parameters=[task2_params],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
@@ -249,8 +264,10 @@ def generate_launch_description():
             task2_vehicle_status,
             task2_ring_tracker,
             task2_pipeline_guidance,
-            task2_uav_report,
+            task2_uuv_comm,
             task2_vehicle_execution,
             task2_pipeline_end,
+            task2_calibrated_depth,
+            task2_survey_evidence,
         ]
     )

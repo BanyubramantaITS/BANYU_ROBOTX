@@ -22,10 +22,15 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/PipelineRingObservation.msg"
   "msg/Task2RingRecord.msg"
   "msg/Task2Report.msg"
+  "msg/RunLifecycle.msg"
+  "msg/ExecutionReadiness.msg"
+  "msg/ActiveBuoyFix.msg"
+  "msg/Task2SurveyEvidence.msg"
+  "msg/WaterDepth.msg"
+  "msg/Task2SurveyProgress.msg"
+  "msg/PipelineEndState.msg"
+  "msg/PipelineEndCandidate.msg"
   "msg/VehicleStatus.msg"
-  "msg/ActionLease.msg"
-  "msg/MissionReport.msg"
-  "msg/MissionReportAck.msg"
   "action/NavigateSurfaceGps.action"
   "action/AlignHeading.action"
   "action/DiveToDepth.action"
@@ -43,22 +48,13 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/CenterOnRing.action"
   "action/HoldProbeOnRing.action"
   "action/Surface.action"
-  "action/SendMissionReport.action"
   "srv/AcknowledgeRingRepair.srv"
+  "srv/ResetTask2.srv"
+  "srv/TriggerPipelineSurvey.srv"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs unique_identifier_msgs
 )
 
 if(BUILD_TESTING)
-  find_package(ament_cmake_gtest REQUIRED)
-  ament_add_gtest(test_action_lease test/test_action_lease.cpp)
-  add_dependencies(test_action_lease ${PROJECT_NAME}__cpp)
-  target_include_directories(test_action_lease PRIVATE
-    "${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp")
-  ament_target_dependencies(test_action_lease
-    builtin_interfaces
-    std_msgs
-    unique_identifier_msgs)
-
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
   # comment the line when a copyright and license is added to all source files

@@ -1,4 +1,6 @@
 # Hold alignment continuously for the requested duration.
+uint32 run_id
+uint64 epoch
 float64 hold_duration_s
 float64 alignment_tolerance
 ---

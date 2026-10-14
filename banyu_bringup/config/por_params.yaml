@@ -2,7 +2,21 @@ banyu_mission:
   ros__parameters:
     mission_mode: "por"
     fallback_mode: "SURFACE"
+    topics:
+      pipeline_end_state: "/banyu/pipeline/end_state"
+      run_lifecycle: "/banyu/mission/run_lifecycle"
+      run_command: "/system/mission/command"
+      readiness_pose: "/mavros/local_position/pose"
+      execution_readiness: "/banyu/execution/readiness"
+      survey_progress: "/banyu/communication/survey_progress"
+    timing:
+      preparation_timeout_s: 30.0
+      execution_readiness_timeout_s: 1.0
+      run_reset_timeout_s: 3.0
+    run:
+      reset_services: ["/banyu/pipeline/reset_tracker", "/banyu/pipeline/reset_end"]
     mission:
+      task2_tier: 2
       surface_depth_m: 0.0
       surface_tolerance_m: 0.25
       # Continuous missing-prerequisite watchdog; not a fixed surface phase duration.
@@ -82,19 +96,27 @@ por_detection:
 vehicle_execution_node:
   ros__parameters:
     control:
+      require_calibrated_surface_depth: false
+      surface_hold_time_s: 1.0
+      surface_depth_timeout_s: 0.5
+      surface_max_depth_m: 0.2
+      require_run_authorization: false
+      run_lifecycle_timeout_s: 1.0
       enable_mavros_publish: true
-      require_lease: true
-      lease_timeout_s: 1.5
       publish_rate_hz: 20.0
       require_guided: true
       max_linear_speed: 1.2
       max_yaw_rate: 0.8
+    surface:
+      depth_sources: ["pressure_depth"]
     topics:
+      water_depth: "/banyu/vehicle/water_depth"
+      run_lifecycle: "/banyu/mission/run_lifecycle"
+      execution_readiness: "/banyu/execution/readiness"
       status: "/banyu/vehicle_status"
       pose: "/mavros/local_position/pose"
       gps: "/mavros/global_position/raw/fix"
       detection: "/banyu/detection"
-      lease: "/banyu/execution/lease"
       preview_target: "/banyu/execution/preview_target"
       mavros_target: "/mavros/setpoint_raw/local"
     actions:

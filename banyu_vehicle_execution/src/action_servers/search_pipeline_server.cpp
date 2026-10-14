@@ -1,5 +1,6 @@
 #include "banyu_vehicle_execution/action_servers/search_pipeline_server.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 
@@ -11,15 +12,21 @@ SearchPipelineServer::SearchPipelineServer(
   const std::string & action_name,
   ActionServerCoordinator * coordinator,
   double default_sweep_rate,
-  double min_confidence)
+  double min_confidence,
+  double retrace_distance_m,
+  double retrace_speed)
 : TypedActionServer(node, action_name, coordinator),
-  default_sweep_rate_(default_sweep_rate), min_confidence_(min_confidence)
+  default_sweep_rate_(default_sweep_rate), min_confidence_(min_confidence),
+  retrace_distance_m_(std::max(0.0, retrace_distance_m)), retrace_speed_(std::abs(retrace_speed))
 {
 }
 
 void SearchPipelineServer::onGoalStarted()
 {
   sweep_progress_rad_ = 0.0;
+  retrace_started_ = false;
+  retrace_done_ = retrace_distance_m_ <= 0.0 || retrace_speed_ <= 0.0;
+  retrace_elapsed_s_ = 0.0;
 }
 
 MotionIntent SearchPipelineServer::tick(
@@ -36,7 +43,26 @@ MotionIntent SearchPipelineServer::tick(
   const auto goal = active_handle_->get_goal();
   const double sweep_rate = (goal->sweep_rate_rad_s != 0.0) ?
     goal->sweep_rate_rad_s : default_sweep_rate_;
-  sweep_progress_rad_ += std::abs(sweep_rate) * dt;
+  // The pipe is usually lost by overrunning an end or a bend, which a sweep in place cannot
+  // see past the camera footprint; retrace along the entry heading before sweeping.
+  bool retracing = false;
+  if (!retrace_done_ && telemetry.pose_valid) {
+    if (!retrace_started_) {
+      retrace_started_ = true;
+      retrace_origin_x_ = telemetry.pos_x;
+      retrace_origin_y_ = telemetry.pos_y;
+      retrace_heading_ = telemetry.yaw;
+    }
+    retrace_elapsed_s_ += dt;
+    const double travelled = std::hypot(
+      telemetry.pos_x - retrace_origin_x_, telemetry.pos_y - retrace_origin_y_);
+    retrace_done_ = travelled >= retrace_distance_m_ ||
+      retrace_elapsed_s_ >= 2.0 * retrace_distance_m_ / retrace_speed_;
+    retracing = !retrace_done_;
+  }
+  if (!retracing) {
+    sweep_progress_rad_ += std::abs(sweep_rate) * dt;
+  }
 
   const bool is_tracked = telemetry.pipeline_obs_valid &&
     telemetry.pipeline_status == banyu_msgs::msg::PipelineObservation::TRACKED;
@@ -76,6 +102,11 @@ MotionIntent SearchPipelineServer::tick(
     return zeroIntent();
   }
 
+  if (retracing) {
+    const auto local_intent = bodyFluToLocalEnu(
+      MotionIntent::bodyFlu(-retrace_speed_, 0.0, 0.0, 0.0), retrace_heading_);
+    return local_intent.value_or(zeroIntent());
+  }
   return MotionIntent::localEnu(0.0, 0.0, 0.0, sweep_rate);
 }
 

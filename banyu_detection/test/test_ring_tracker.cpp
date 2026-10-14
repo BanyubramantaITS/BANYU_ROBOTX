@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <limits>
 
 namespace
@@ -260,4 +261,255 @@ TEST(RingTracker, MalformedGapCannotEnableRearm) {
   EXPECT_EQ(tracker.records().size(), 1U);
 }
 
+TEST(RingTracker, BentPipelineCenterlineMonotonicProgression) {
+  banyu_detection::RingTracker tracker(trackerConfig(1, 1, 1));
+  tracker.setCenterline({
+      {0.0, 0.0},
+      {10.0, 0.0},
+      {10.0, 5.0},
+      {0.0, 5.0}
+  });
+  EXPECT_TRUE(tracker.hasCenterline());
+
+  // Segment 0: (0,0) to (10,0)
+  EXPECT_NEAR(tracker.projectOntoCenterline(2.0, 0.0), 2.0, 1e-4);
+  // Segment 1: (10,0) to (10,5)
+  EXPECT_NEAR(tracker.projectOntoCenterline(10.0, 2.0), 12.0, 1e-4);
+  // Segment 2: (10,5) to (0,5)
+  EXPECT_NEAR(tracker.projectOntoCenterline(8.0, 5.0), 17.0, 1e-4);
+  EXPECT_NEAR(tracker.projectOntoCenterline(2.0, 5.0), 23.0, 1e-4);
+}
+
+TEST(RingTracker, BackwardRevisitReusesNodeIdentityAndPreservesCount) {
+  banyu_detection::RingTracker tracker(trackerConfig(1, 1, 1));
+  tracker.setCenterline({
+      {0.0, 0.0},
+      {10.0, 0.0}
+  });
+
+  auto make_input = [](uint64_t seq, uint8_t color, double x, bool visible = true) {
+      banyu_detection::RingTrackerInput input;
+      input.observation = ring(seq, color, visible);
+      input.has_vehicle_pose = true;
+      input.vehicle_pose_map.header.frame_id = "map";
+      input.vehicle_pose_map.header.stamp = input.observation.header.stamp;
+      input.vehicle_pose_map.pose.position.x = x;
+      input.vehicle_pose_map.pose.position.y = 0.0;
+      input.vehicle_pose_map.pose.orientation.w = 1.0;
+      return input;
+    };
+
+  // 1. Accept first ring (GREEN) at x=1.0
+  auto u1 = tracker.update(make_input(1, banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN,
+      1.0));
+  ASSERT_TRUE(u1.accepted);
+  EXPECT_EQ(u1.record.node_id, 0U);
+  EXPECT_EQ(u1.record.color, banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN);
+  EXPECT_TRUE(u1.record.physical_identity_verified);
+  EXPECT_TRUE(u1.record.ordering_verified);
+  EXPECT_EQ(tracker.records().size(), 1U);
+
+  // Exit and debounce Ring 0
+  EXPECT_FALSE(tracker.update(make_input(2, banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN,
+      1.0, false)).accepted);
+  EXPECT_FALSE(tracker.update(make_input(3, banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN,
+      1.0, false)).accepted);
+
+  // 2. Accept second ring (RED) at x=3.0
+  auto u2 = tracker.update(make_input(4, banyu_msgs::msg::PipelineRingObservation::COLOR_RED, 3.0));
+  ASSERT_TRUE(u2.accepted);
+  EXPECT_EQ(u2.record.node_id, 1U);
+  EXPECT_EQ(u2.record.color, banyu_msgs::msg::PipelineRingObservation::COLOR_RED);
+  EXPECT_TRUE(u2.record.physical_identity_verified);
+  EXPECT_TRUE(u2.record.ordering_verified);
+  EXPECT_EQ(tracker.records().size(), 2U);
+
+  // Exit and debounce Ring 1
+  EXPECT_FALSE(tracker.update(make_input(5, banyu_msgs::msg::PipelineRingObservation::COLOR_RED,
+      3.0, false)).accepted);
+  EXPECT_FALSE(tracker.update(make_input(6, banyu_msgs::msg::PipelineRingObservation::COLOR_RED,
+      3.0, false)).accepted);
+
+  // 3. Vehicle backs up to x=1.0 and revisits Ring 0
+  auto u3 = tracker.update(make_input(7, banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN,
+      1.0));
+  ASSERT_TRUE(u3.accepted);
+  EXPECT_EQ(u3.record.node_id, 0U);
+  EXPECT_EQ(u3.record.color, banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN);
+  EXPECT_TRUE(u3.record.physical_identity_verified);
+  // Records count must NOT increase (no 3rd node manufactured on revisit)
+  EXPECT_EQ(tracker.records().size(), 2U);
+}
+
+TEST(RingTracker, PostRepairRevisitPreservesFirstQualifiedCondition) {
+  banyu_detection::RingTracker tracker(trackerConfig(1, 1, 1));
+  tracker.setCenterline({
+      {0.0, 0.0},
+      {10.0, 0.0}
+  });
+
+  auto make_input = [](uint64_t seq, uint8_t color, double x, bool visible = true) {
+      banyu_detection::RingTrackerInput input;
+      input.observation = ring(seq, color, visible);
+      input.has_vehicle_pose = true;
+      input.vehicle_pose_map.header.frame_id = "map";
+      input.vehicle_pose_map.header.stamp = input.observation.header.stamp;
+      input.vehicle_pose_map.pose.position.x = x;
+      input.vehicle_pose_map.pose.position.y = 0.0;
+      input.vehicle_pose_map.pose.orientation.w = 1.0;
+      return input;
+    };
+
+  // Ring 0 is originally RED
+  auto u1 = tracker.update(make_input(1, banyu_msgs::msg::PipelineRingObservation::COLOR_RED, 1.0));
+  ASSERT_TRUE(u1.accepted);
+  EXPECT_EQ(u1.record.node_id, 0U);
+  EXPECT_EQ(u1.record.color, banyu_msgs::msg::PipelineRingObservation::COLOR_RED);
+  EXPECT_TRUE(tracker.redPending());
+
+  // Explicit repair succeeds
+  EXPECT_TRUE(tracker.markRedRepaired());
+  EXPECT_TRUE(tracker.repaired());
+
+  // Vehicle exits ring
+  EXPECT_FALSE(tracker.update(make_input(2, banyu_msgs::msg::PipelineRingObservation::COLOR_RED,
+      1.0, false)).accepted);
+  EXPECT_FALSE(tracker.update(make_input(3, banyu_msgs::msg::PipelineRingObservation::COLOR_RED,
+      1.0, false)).accepted);
+
+  // Move away
+  EXPECT_FALSE(tracker.update(make_input(4, banyu_msgs::msg::PipelineRingObservation::COLOR_UNKNOWN,
+      2.0, false)).accepted);
+
+  // Return to x=1.0: physically repaired, so observation is now GREEN
+  auto u2 = tracker.update(make_input(5, banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN,
+      1.0));
+  ASSERT_TRUE(u2.accepted);
+  EXPECT_EQ(u2.record.node_id, 0U);
+  // Crucial: original condition remains RED
+  EXPECT_EQ(u2.record.color, banyu_msgs::msg::PipelineRingObservation::COLOR_RED);
+  EXPECT_EQ(tracker.records().size(), 1U);
+}
+
+TEST(RingTracker, PhysicalIdentityUnverifiedWithoutProgression) {
+  banyu_detection::RingTracker tracker(trackerConfig(1, 1, 1));
+  // No centerline configured, and input does NOT supply has_path_distance
+  banyu_detection::RingTrackerInput input;
+  input.observation = ring(1, banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN);
+  input.has_vehicle_pose = true;
+  input.vehicle_pose_map.header.frame_id = "map";
+  input.vehicle_pose_map.header.stamp = input.observation.header.stamp;
+  input.vehicle_pose_map.pose.position.x = 1.0;
+  input.vehicle_pose_map.pose.orientation.w = 1.0;
+  input.has_path_distance = false;
+
+  auto update = tracker.update(input);
+  ASSERT_TRUE(update.accepted);
+  EXPECT_FALSE(update.record.physical_identity_verified);
+  EXPECT_FALSE(update.record.ordering_verified);
+}
+
+TEST(RingTracker, RejectManufacturingFifthNode) {
+  banyu_detection::RingTracker tracker(trackerConfig(1, 1, 1));
+  tracker.setCenterline({
+      {0.0, 0.0},
+      {20.0, 0.0}
+  });
+
+  auto make_input = [](uint64_t seq, uint8_t color, double x, bool visible = true) {
+      banyu_detection::RingTrackerInput input;
+      input.observation = ring(seq, color, visible);
+      input.has_vehicle_pose = true;
+      input.vehicle_pose_map.header.frame_id = "map";
+      input.vehicle_pose_map.header.stamp = input.observation.header.stamp;
+      input.vehicle_pose_map.pose.position.x = x;
+      input.vehicle_pose_map.pose.position.y = 0.0;
+      input.vehicle_pose_map.pose.orientation.w = 1.0;
+      return input;
+    };
+
+  uint64_t seq = 1;
+  const std::vector<double> positions = {1.0, 3.0, 5.0, 7.0};
+  for (double pos : positions) {
+    EXPECT_TRUE(tracker.update(make_input(seq++,
+        banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN, pos)).accepted);
+    EXPECT_FALSE(tracker.update(make_input(seq++,
+        banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN, pos, false)).accepted);
+    EXPECT_FALSE(tracker.update(make_input(seq++,
+        banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN, pos, false)).accepted);
+  }
+  EXPECT_EQ(tracker.records().size(), 4U);
+
+  // Now attempt to record a 5th node at x=9.0
+  auto u5 = tracker.update(make_input(seq++, banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN,
+      9.0));
+  EXPECT_FALSE(u5.accepted);
+  EXPECT_EQ(tracker.records().size(), 4U);
+}
+
 }  // namespace
+
+TEST(RingTracker, NextRingVisibleBeforePreviousLeavesIsAcceptedAfterMoving) {
+  auto config = trackerConfig(3, 2, 2);
+  config.minimum_rearm_distance_m = 0.25;
+  config.node_association_distance_m = 0.4;
+  banyu_detection::RingTracker tracker(config);
+  using Obs = banyu_msgs::msg::PipelineRingObservation;
+  uint64_t seq = 1;
+  for (int i = 0; i < 3; ++i) {
+    update(tracker, seq++, Obs::COLOR_RED, true, 0.0);
+  }
+  ASSERT_EQ(tracker.records().size(), 1U);
+  // Green comes into view while red is still tracked and never leaves the frame.
+  EXPECT_FALSE(update(tracker, seq++, Obs::COLOR_GREEN, true, 0.05).accepted);
+  EXPECT_FALSE(update(tracker, seq++, Obs::COLOR_GREEN, true, 0.1).accepted);
+  EXPECT_EQ(tracker.records().size(), 1U);  // not yet moved past the red record
+  bool accepted = false;
+  for (double distance = 0.3; distance <= 0.9; distance += 0.05) {
+    accepted = update(tracker, seq++, Obs::COLOR_GREEN, true, distance).accepted || accepted;
+  }
+  EXPECT_TRUE(accepted);
+  ASSERT_EQ(tracker.records().size(), 2U);
+  EXPECT_EQ(tracker.records().back().color, Obs::COLOR_GREEN);
+}
+
+TEST(RingTracker, CameraModelSeparatesSameColorRingsSeenBackToBack) {
+  auto config = trackerConfig(3, 2, 2);
+  config.minimum_rearm_distance_m = 0.25;
+  config.node_association_distance_m = 0.4;
+  config.camera_height_m = 1.7;
+  config.camera_forward_m = 0.2;
+  config.camera_tilt_from_vertical_rad = 0.227;
+  config.camera_half_vfov_rad = 0.408;
+  banyu_detection::RingTracker tracker(config);
+  using Obs = banyu_msgs::msg::PipelineRingObservation;
+  const std::vector<double> rings{1.0, 1.85};
+  uint64_t seq = 1;
+  for (double p = -0.6; p <= 2.2; p += 0.02) {
+    // Image row of each ring as seen from vehicle position p; feed the one nearest center.
+    double best_offset = 2.0;
+    for (double ring_position : rings) {
+      const double angle = std::atan((ring_position - p - 0.2) / 1.7);
+      const double offset = (0.227 - angle) / 0.408;
+      if (std::abs(offset) <= 1.0 && std::abs(offset) < std::abs(best_offset)) {
+        best_offset = offset;
+      }
+    }
+    banyu_detection::RingTrackerInput input;
+    const bool visible = std::abs(best_offset) <= 1.0;
+    input.observation = ring(seq, Obs::COLOR_GREEN, visible);
+    if (visible) {input.observation.offset_y = static_cast<float>(best_offset);}
+    input.has_path_distance = true;
+    input.path_distance_m = p;
+    input.has_vehicle_pose = true;
+    input.vehicle_pose_map.header.frame_id = "map";
+    input.vehicle_pose_map.header.stamp = input.observation.header.stamp;
+    input.vehicle_pose_map.pose.position.x = p;
+    input.vehicle_pose_map.pose.orientation.w = 1.0;
+    tracker.update(input);
+    ++seq;
+  }
+  ASSERT_EQ(tracker.records().size(), 2U);
+  EXPECT_NEAR(tracker.records()[0].pipeline_progress_m, 1.0, 0.1);
+  EXPECT_NEAR(tracker.records()[1].pipeline_progress_m, 1.85, 0.1);
+}

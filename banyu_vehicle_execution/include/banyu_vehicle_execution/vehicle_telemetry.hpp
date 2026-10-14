@@ -13,6 +13,37 @@
 namespace banyu_vehicle_execution
 {
 
+struct WaterDepthSample
+{
+  double depth_m{0.0};
+  rclcpp::Time stamp{};
+  std::chrono::steady_clock::time_point receipt_time{};
+  bool valid{false};
+  bool calibrated{false};
+  uint32_t run_id{0};
+  uint64_t epoch{0};
+  std::string datum;
+  std::string source_id;
+  std::string calibration_id;
+};
+
+struct WaterDepthTelemetry
+{
+  bool valid{false};
+  bool calibrated{false};
+  double depth_m{0.0};
+  rclcpp::Time stamp{};
+  uint32_t run_id{0};
+  uint64_t epoch{0};
+  std::string datum;
+  std::string source_id;
+  std::string calibration_id;
+  bool receipt_valid{false};
+  std::chrono::steady_clock::time_point receipt_time{};
+  uint64_t continuity_generation{0};
+  std::vector<WaterDepthSample> samples_since_last_tick{};
+};
+
 struct VehicleTelemetry
 {
   rclcpp::Time current_time{};
@@ -36,11 +67,19 @@ struct VehicleTelemetry
   bool depth_valid{false};
   rclcpp::Time depth_stamp{};
   double depth_m{0.0};
+  uint32_t current_run_id{0};
+  uint64_t current_run_epoch{0};
+  bool depth_receipt_valid{false};
+  std::chrono::steady_clock::time_point depth_receipt_time{};
+  uint64_t depth_continuity_generation{0};
+  std::vector<double> depth_samples_since_last_tick{};
+  WaterDepthTelemetry water_depth;
 
   // Vehicle status
   bool status_valid{false};
   rclcpp::Time status_stamp{};
   bool fcu_connected{false};
+  bool armed{false};
   bool fcu_status_fresh{false};
   bool rc_fresh{false};
   bool operator_takeover{false};
