@@ -45,7 +45,11 @@ bool RunCoordinator::beginPreparation()
   }
   snapshot_.phase = Phase::Preparing;
   snapshot_.reason.clear();
+  // RoboCommand may restart run_id and RxCommand.seq at 1 between runs ("Reset run ID & seq"),
+  // so each operator preparation opens a new run identity window. Epochs keep increasing, so
+  // evidence and reports from earlier runs still never match the new run.
   max_accepted_sequence_ = 0;
+  accepted_runs_.clear();
   return true;
 }
 

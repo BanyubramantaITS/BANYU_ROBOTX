@@ -72,7 +72,8 @@ UuvCommNode::UuvCommNode(const rclcpp::NodeOptions & options)
   ledger_config.evidence_sources = declare_parameter<std::vector<std::string>>(
     "survey.evidence_sources", {"pipeline_topology"});
   ledger_config.buoy_sources = declare_parameter<std::vector<std::string>>(
-    "survey.buoy_sources", {"uuv_buoy_localizer", "gcs_buoy_observer"});
+    "survey.buoy_sources",
+    {"usv_pipeline_buoys", "uuv_buoy_localizer", "gcs_buoy_observer"});
   ledger_config.minimum_confidence = declare_parameter<double>("survey.minimum_confidence", 0.2);
   ledger_config.maximum_buoy_uncertainty_m = declare_parameter<double>(
     "survey.maximum_buoy_uncertainty_m", 5.0);
@@ -490,7 +491,7 @@ void UuvCommNode::surveyCallback(
     reply(Response::WRONG_RUN, "WRONG_RUN: accepted run/epoch required");
     return;
   }
-  if (submitted_runs_.count(request->run_id) > 0) {
+  if (submitted_epochs_.count(request->epoch) > 0) {
     reply(Response::ALREADY_ACCEPTED, "Previously submitted report for this run", true);
     return;
   }
@@ -535,7 +536,7 @@ void UuvCommNode::surveyCallback(
     delivery_pub_->publish(delivery);
   }
 
-  submitted_runs_.insert(request->run_id);
+  submitted_epochs_.insert(request->epoch);
   reply(Response::ACCEPTED, "Report published to GCS", true);
 }
 

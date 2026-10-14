@@ -95,7 +95,8 @@ void registerMissionNodes(
   const std::shared_ptr<MissionState> & state,
   std::function<void()> on_abort,
   std::function<BT::NodeStatus()> on_survey_complete,
-  std::function<BT::NodeStatus()> on_surface_success)
+  std::function<BT::NodeStatus()> on_surface_success,
+  std::function<BT::NodeStatus()> on_lock_buoy_target)
 {
   registerConditionNodes(factory, state);
   registerActionNodes(factory, node, state, std::move(on_abort));
@@ -104,6 +105,9 @@ void registerMissionNodes(
   factory.registerNodeType<WaitSurveyComplete>("WaitSurveyComplete", on_survey_complete);
   factory.registerSimpleAction("ConfirmSurfaceAction",
     [on_surface_success](BT::TreeNode &) {return on_surface_success();});
+  if (!on_lock_buoy_target) {on_lock_buoy_target = []() {return BT::NodeStatus::SUCCESS;};}
+  factory.registerSimpleAction("LockBuoyTarget",
+    [on_lock_buoy_target](BT::TreeNode &) {return on_lock_buoy_target();});
 }
 
 BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
@@ -200,6 +204,16 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
         survey_progress_received_at_ = std::chrono::steady_clock::now();
       });
 
+    buoy_target_sub_ = create_subscription<banyu_msgs::msg::Task2BuoyTarget>(
+      declare_parameter<std::string>("topics.buoy_target", "/banyu/task2/buoy_target"),
+      rclcpp::QoS(1).reliable().transient_local(),
+      [this](banyu_msgs::msg::Task2BuoyTarget::SharedPtr target) {
+        std::lock_guard<std::recursive_mutex> lock(control_mutex_);
+        if (!finite(target->latitude) || !finite(target->longitude)) {return;}
+        buoy_target_ = *target;
+        if (!buoy_target_locked_) {applyBuoyTarget();}
+      });
+
     pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
       readiness_pose_topic, rclcpp::SensorDataQoS(),
       [this](geometry_msgs::msg::PoseStamped::SharedPtr pose) {
@@ -229,6 +243,7 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
         "Preparation rejected: configuration, safety, GPS, journal or active run";
         if (response->success) {
           start_commands_.clear();
+          last_stop_sequence_ = 0;
           execution_readiness_ = banyu_msgs::msg::ExecutionReadiness{};
           execution_received_at_ = {};
           preparation_hold_seen_ = false;
@@ -444,6 +459,8 @@ void BanyuMission::commandCallback(const rx_msgs::msg::Command::SharedPtr comman
       consumer.acknowledged = false;
     }
     last_fallback_time_ = rclcpp::Time(0, 0, get_clock()->get_clock_type());
+    buoy_target_locked_ = false;
+    applyBuoyTarget();
     publishLifecycle(Lifecycle::START_ACCEPTED, result.reason, command->run_id);
   }
 }
@@ -549,6 +566,27 @@ void BanyuMission::terminateRun(bool failure, const std::string & reason, bool r
   if (recover && !operatorHasControl() &&
     context.phase != RunCoordinator::Phase::Idle)
   {fallbackToSurface();}
+}
+
+void BanyuMission::applyBuoyTarget()
+{
+  if (!blackboard_ || !buoy_target_) {return;}
+  const auto & target = *buoy_target_;
+  blackboard_->set("target_latitude", target.latitude);
+  blackboard_->set("target_longitude", target.longitude);
+  const bool use_heading = target.heading_valid && finite(target.heading_enu_rad) &&
+    !explicit_heading_;
+  if (use_heading) {
+    const double heading = std::atan2(
+      std::sin(target.heading_enu_rad), std::cos(target.heading_enu_rad));
+    blackboard_->set("heading", heading);
+    blackboard_->set("heading_prior", heading);
+  }
+  const auto heading_text = use_heading ?
+    std::to_string(target.heading_enu_rad) + " rad" : std::string("unchanged");
+  RCLCPP_INFO(
+    get_logger(), "Task 2 target from USV PipelineBuoys seq=%u: %.7f, %.7f, heading %s",
+    target.source_seq, target.latitude, target.longitude, heading_text.c_str());
 }
 
 std::string BanyuMission::xmlPath()
@@ -684,8 +722,20 @@ void BanyuMission::initialize()
         "CURRENT_SURFACE_ACTION_SUCCEEDED")) {return BT::NodeStatus::FAILURE;}
       publishLifecycle();
       return BT::NodeStatus::SUCCESS;
+    }, [this]() {
+      std::lock_guard<std::recursive_mutex> lock(control_mutex_);
+      if (!buoy_target_locked_) {
+        buoy_target_locked_ = true;
+        RCLCPP_INFO(
+          get_logger(), "Buoy target locked at %.7f, %.7f (%s)",
+          blackboard_->get<double>("target_latitude"), blackboard_->get<double>("target_longitude"),
+          buoy_target_ ? "USV PipelineBuoys" : "configured");
+      }
+      return BT::NodeStatus::SUCCESS;
   });
   auto blackboard = BT::Blackboard::create();
+  blackboard_ = blackboard;
+  explicit_heading_ = !std::isnan(heading_rad);
   blackboard->set("target_latitude", target_latitude);
   blackboard->set("target_longitude", target_longitude);
   blackboard->set("start_latitude", start_latitude);
@@ -712,6 +762,9 @@ void BanyuMission::initialize()
 
   if (mission_mode == "por") {
     configurePorBlackboard(blackboard);
+  } else {
+    std::lock_guard<std::recursive_mutex> lock(control_mutex_);
+    applyBuoyTarget();
   }
   factory_->registerBehaviorTreeFromFile(xmlPath());
   tree_ = std::make_shared<BT::Tree>(factory_->createTree("Main", blackboard));

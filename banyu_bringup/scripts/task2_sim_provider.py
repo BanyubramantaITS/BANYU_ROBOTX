@@ -9,7 +9,6 @@ MAVROS datum, not a true buoy GPS receiver.
 import math
 
 from banyu_msgs.msg import (
-    ActiveBuoyFix,
     HydrophoneHeading,
     PipelineEndCandidate,
     PipelineRingState,
@@ -18,7 +17,7 @@ from banyu_msgs.msg import (
 import rclpy
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
-from rx_msgs.msg import Course
+from rx_msgs.msg import Course, LatLng, PipelineBuoys, VehicleType
 from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy,
@@ -124,8 +123,13 @@ class Task2SimProvider(Node):
         self.declare_parameter("pipeline_end_map_y", 13.86)
         self.declare_parameter("end_candidate_window_m", 0.8)
         self.declare_parameter("end_candidate_max_lateral_m", 1.0)
-        self.declare_parameter("active_buoy_source_id", "uuv_buoy_localizer")
-        self.declare_parameter("active_buoy_endpoint_id", "start_buoy")
+        # Stand-in for the USV: rx_msgs/PipelineBuoys with the start (GREEN) and end buoys.
+        self.declare_parameter("end_buoy_map_x", 55.0)
+        self.declare_parameter("end_buoy_map_y", 13.85)
+        self.declare_parameter("pipeline_buoys_start_label", "a")
+        self.declare_parameter("pipeline_buoys_report_active", True)
+        self.declare_parameter("pipeline_buoys_uncertainty_m", 1.0)
+        self.declare_parameter("pipeline_buoys_second_delay_s", 0.0)
 
         self.buoy_x = float(self.get_parameter("buoy_x").value)
         self.buoy_y = float(self.get_parameter("buoy_y").value)
@@ -172,8 +176,20 @@ class Task2SimProvider(Node):
         self.end_candidate_max_lateral_m = float(
             self.get_parameter("end_candidate_max_lateral_m").value
         )
-        self.active_buoy_source_id = str(self.get_parameter("active_buoy_source_id").value)
-        self.active_buoy_endpoint_id = str(self.get_parameter("active_buoy_endpoint_id").value)
+        self.end_buoy_map = (
+            float(self.get_parameter("end_buoy_map_x").value),
+            float(self.get_parameter("end_buoy_map_y").value),
+        )
+        self.start_buoy_label = str(
+            self.get_parameter("pipeline_buoys_start_label").value).strip().lower()
+        if self.start_buoy_label not in ("a", "b"):
+            raise ValueError("pipeline_buoys_start_label must be 'a' or 'b'")
+        self.report_active_buoy = bool(
+            self.get_parameter("pipeline_buoys_report_active").value)
+        self.buoys_uncertainty_m = float(
+            self.get_parameter("pipeline_buoys_uncertainty_m").value)
+        self.second_buoy_delay_s = float(
+            self.get_parameter("pipeline_buoys_second_delay_s").value)
         if math.hypot(self.pipeline_end[0] - self.pipeline_start[0],
                       self.pipeline_end[1] - self.pipeline_start[1]) < 0.5:
             raise ValueError("pipeline start and end must be at least 0.5 m apart")
@@ -234,8 +250,8 @@ class Task2SimProvider(Node):
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
-        self.active_buoy_pub = self.create_publisher(
-            ActiveBuoyFix, "/banyu/task2/active_buoy_fix", latched
+        self.pipeline_buoys_pub = self.create_publisher(
+            PipelineBuoys, "/system/vehicle/usv/task2/pipeline_buoys", latched
         )
         self.end_candidate_pub = self.create_publisher(
             PipelineEndCandidate, "/banyu/pipeline/end_candidate_state", 10
@@ -243,9 +259,13 @@ class Task2SimProvider(Node):
         self._lifecycle = None
         self._course = None
         self._start_buoy_fix = None
-        self._active_buoy_run = None
-        self._active_buoy_sent_s = 0.0
-        self._active_buoy_position = None
+        self._end_buoy_fix = None
+        # USV view of the buoys: fixed once observed, staged buoy A then both.
+        self._usv_buoys = None
+        self._usv_buoys_first_s = None
+        self._usv_buoys_seq = 0
+        self._usv_buoys_sent = None
+        self._usv_buoys_sent_s = 0.0
         self.create_subscription(
             RunLifecycle, "/banyu/mission/run_lifecycle", self._on_lifecycle, latched
         )
@@ -326,6 +346,7 @@ class Task2SimProvider(Node):
             route.poses.append(route_pose)
         self.route_pub.publish(route)
         self._maybe_publish_start_buoy_fix()
+        self._publish_pipeline_buoys()
         self._publish_run_fixtures()
 
     def _on_lifecycle(self, msg):
@@ -341,42 +362,6 @@ class Task2SimProvider(Node):
             return
         run = (lifecycle.run_id, lifecycle.epoch)
         stamp = self.get_clock().now().to_msg()
-        now_s = self.get_clock().now().nanoseconds * 1e-9
-        # Survey ingress only accepts recent buoy evidence, so re-assert the (fixed) ground
-        # truth position at about 1 Hz with fresh stamps while the run is active.
-        if self._start_buoy_fix is not None and self._active_buoy_run != run:
-            # One position per run: the live surfaced fix jitters with vehicle GPS, and the survey
-            # rejects an active buoy that moves after it was pinned.
-            self._active_buoy_position = self._start_buoy_fix
-        if self._start_buoy_fix is not None and (
-                self._active_buoy_run != run or now_s - self._active_buoy_sent_s >= 1.0):
-            buoy = ActiveBuoyFix()
-            buoy.header.stamp = stamp
-            buoy.header.frame_id = "map"
-            buoy.run_id, buoy.epoch = run
-            buoy.revision = 1
-            buoy.source_id = self.active_buoy_source_id
-            buoy.course_id = self._course.course_id if self._course else ""
-            buoy.endpoint_id = self.active_buoy_endpoint_id
-            buoy.fix = NavSatFix()
-            position = self._active_buoy_position
-            buoy.fix.header.frame_id = position.header.frame_id
-            buoy.fix.header.stamp = stamp
-            buoy.fix.status = position.status
-            buoy.fix.latitude = position.latitude
-            buoy.fix.longitude = position.longitude
-            buoy.fix.altitude = position.altitude
-            buoy.uncertainty_m = 1.0
-            buoy.green_confirmed = True
-            buoy.pinger_confirmed = False
-            buoy.pinger_freq_hz = self._course.pinger_freq_hz if self._course else 0
-            self.active_buoy_pub.publish(buoy)
-            if self._active_buoy_run != run:
-                self.get_logger().info(
-                    f"Simulated active buoy fix publishing for run {run[0]} epoch {run[1]}"
-                )
-            self._active_buoy_run = run
-            self._active_buoy_sent_s = now_s
         pose = self._latest_vehicle_pose
         if not self._valid_vehicle_pose(pose):
             return
@@ -385,6 +370,52 @@ class Task2SimProvider(Node):
         candidate.run_id, candidate.epoch = run
         candidate.candidate = self._near_pipeline_end(pose.pose.position)
         self.end_candidate_pub.publish(candidate)
+
+    def _publish_pipeline_buoys(self):
+        """Publish the buoys as the USV would: course-tagged, seq bumped on change, ~1 Hz."""
+        if self._course is None:
+            return
+        now_s = self.get_clock().now().nanoseconds * 1e-9
+        if self._usv_buoys is None:
+            if self._start_buoy_fix is None or self._end_buoy_fix is None:
+                return
+            self._usv_buoys = (self._start_buoy_fix, self._end_buoy_fix)
+            self._usv_buoys_first_s = now_s
+        start_fix, end_fix = self._usv_buoys
+        both = now_s - self._usv_buoys_first_s >= self.second_buoy_delay_s
+        start_is_a = self.start_buoy_label == "a"
+        first, second = (start_fix, end_fix) if start_is_a else (end_fix, start_fix)
+        if not both:
+            first, second = start_fix, None
+            start_is_a = True
+        if not self.report_active_buoy:
+            active = PipelineBuoys.ACTIVE_UNKNOWN
+        else:
+            active = PipelineBuoys.ACTIVE_A if start_is_a else PipelineBuoys.ACTIVE_B
+        content = (self._course.course_id, first.latitude, first.longitude,
+                   second.latitude if second else None, second.longitude if second else None,
+                   active)
+        if content == self._usv_buoys_sent and now_s - self._usv_buoys_sent_s < 1.0:
+            return
+        if content != self._usv_buoys_sent:
+            self._usv_buoys_seq += 1
+            self.get_logger().info(
+                f"Simulated USV PipelineBuoys seq={self._usv_buoys_seq}: "
+                f"{'both buoys' if second else 'buoy A only'}, active={active}")
+        msg = PipelineBuoys()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.course_id = self._course.course_id
+        msg.source_vehicle = VehicleType.TYPE_USV
+        msg.seq = self._usv_buoys_seq
+        msg.buoy_a = LatLng(latitude=first.latitude, longitude=first.longitude)
+        if second is not None:
+            msg.buoy_b = LatLng(latitude=second.latitude, longitude=second.longitude)
+        msg.buoy_b_valid = second is not None
+        msg.active_buoy = active
+        msg.uncertainty_m = self.buoys_uncertainty_m
+        self.pipeline_buoys_pub.publish(msg)
+        self._usv_buoys_sent = content
+        self._usv_buoys_sent_s = now_s
 
     def _near_pipeline_end(self, position):
         axis_x = self.pipeline_end[0] - self.pipeline_start[0]
@@ -481,32 +512,15 @@ class Task2SimProvider(Node):
             self._diagnose_gate("global-fix and map-pose source timestamps are skewed")
             return
 
-        east_m = self.start_buoy_map_x - vehicle_pose.pose.position.x
-        north_m = self.start_buoy_map_y - vehicle_pose.pose.position.y
-        latitude_rad = math.radians(global_fix.latitude)
-        if abs(math.cos(latitude_rad)) < 1.0e-12:
+        start = self._map_to_geodetic(
+            global_fix, vehicle_pose, self.start_buoy_map_x, self.start_buoy_map_y)
+        end = self._map_to_geodetic(
+            global_fix, vehicle_pose, self.end_buoy_map[0], self.end_buoy_map[1])
+        if start is None or end is None:
             return
-
-        # Use the same WGS84 radii of curvature as the mission's local-tangent
-        # conversion rather than treating the earth as a sphere.
-        buoy_latitude_rad = latitude_rad
-        for _ in range(2):
-            mean_latitude = (latitude_rad + buoy_latitude_rad) * 0.5
-            radius_n, radius_m = wgs84_radii(mean_latitude)
-            buoy_latitude_rad = latitude_rad + north_m / radius_m
-        mean_latitude = (latitude_rad + buoy_latitude_rad) * 0.5
-        radius_n, _ = wgs84_radii(mean_latitude)
-        buoy_longitude_rad = math.radians(global_fix.longitude) + east_m / (
-            radius_n * math.cos(mean_latitude)
-        )
-        if not -math.pi / 2.0 <= buoy_latitude_rad <= math.pi / 2.0:
-            return
-
-        buoy_latitude = math.degrees(buoy_latitude_rad)
-        buoy_longitude = math.degrees(buoy_longitude_rad)
-        buoy_longitude = (buoy_longitude + 180.0) % 360.0 - 180.0
-        if not math.isfinite(buoy_latitude) or not math.isfinite(buoy_longitude):
-            return
+        buoy_latitude, buoy_longitude = start
+        if self._end_buoy_fix is None:
+            self._end_buoy_fix = NavSatFix(latitude=end[0], longitude=end[1])
 
         buoy_fix = NavSatFix()
         buoy_fix.header = global_fix.header
@@ -542,6 +556,35 @@ class Task2SimProvider(Node):
                 "Task 2 start-buoy NavSatFix publishing while vehicle is surfaced"
             )
             self._start_buoy_fix_published = True
+
+    @staticmethod
+    def _map_to_geodetic(global_fix, vehicle_pose, map_x, map_y):
+        """Geodetic position of an ENU map point, from a synchronized vehicle fix and pose."""
+        east_m = map_x - vehicle_pose.pose.position.x
+        north_m = map_y - vehicle_pose.pose.position.y
+        latitude_rad = math.radians(global_fix.latitude)
+        if abs(math.cos(latitude_rad)) < 1.0e-12:
+            return None
+
+        # Use the same WGS84 radii of curvature as the mission's local-tangent
+        # conversion rather than treating the earth as a sphere.
+        point_latitude_rad = latitude_rad
+        for _ in range(2):
+            mean_latitude = (latitude_rad + point_latitude_rad) * 0.5
+            radius_n, radius_m = wgs84_radii(mean_latitude)
+            point_latitude_rad = latitude_rad + north_m / radius_m
+        mean_latitude = (latitude_rad + point_latitude_rad) * 0.5
+        radius_n, _ = wgs84_radii(mean_latitude)
+        point_longitude_rad = math.radians(global_fix.longitude) + east_m / (
+            radius_n * math.cos(mean_latitude)
+        )
+        if not -math.pi / 2.0 <= point_latitude_rad <= math.pi / 2.0:
+            return None
+        latitude = math.degrees(point_latitude_rad)
+        longitude = (math.degrees(point_longitude_rad) + 180.0) % 360.0 - 180.0
+        if not math.isfinite(latitude) or not math.isfinite(longitude):
+            return None
+        return latitude, longitude
 
     def _diagnose_gate(self, reason):
         if reason != self._last_gate_diagnostic:

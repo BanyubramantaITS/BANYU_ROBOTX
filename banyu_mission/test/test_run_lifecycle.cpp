@@ -18,6 +18,7 @@
 #include "banyu_msgs/action/navigate_surface_gps.hpp"
 #include "banyu_msgs/msg/execution_readiness.hpp"
 #include "banyu_msgs/msg/run_lifecycle.hpp"
+#include "banyu_msgs/msg/task2_buoy_target.hpp"
 #include "banyu_msgs/msg/vehicle_status.hpp"
 #include "banyu_msgs/srv/reset_task2.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
@@ -723,4 +724,73 @@ TEST_F(RunLifecycleTest, FutureAndStaleHoldSourceStampsCannotAuthorizeStart)
   std::lock_guard<std::mutex> lock(reset_mutex_);
   EXPECT_TRUE(tracker_requests_.empty());
   EXPECT_TRUE(end_requests_.empty());
+}
+
+// RoboCommand "Reset run ID & seq": after re-preparation run 13 / seq 1 starts a new epoch.
+TEST_F(RunLifecycleTest, ReusedRunIdAndSeqStartAgainAfterPreparation)
+{
+  ASSERT_NO_FATAL_FAILURE(start());
+  const auto first = lifecycle();
+  command(13, 11, rx_msgs::msg::Command::CMD_MISSION_DONE);
+  ASSERT_TRUE(waitUntil([this]() {return lifecycle().phase == Lifecycle::INTERRUPTED;}));
+
+  navigation_goals_.store(0);
+  ASSERT_NO_FATAL_FAILURE(prepare());
+  command(13, 1);
+  ASSERT_TRUE(waitUntil([this, &first]() {
+      const auto value = lifecycle();
+      return value.run_id == 13 && value.epoch > first.epoch && value.phase == Lifecycle::ACTIVE;
+    }));
+  const auto second = lifecycle();
+  EXPECT_EQ(second.command_seq, 1U);
+  ASSERT_TRUE(waitUntil([this]() {return navigation_goals_.load() == 1U;}));
+
+  // Within the new window a retransmission is still only a duplicate.
+  command(13, 1);
+  std::this_thread::sleep_for(150ms);
+  expectContextUnchanged(second);
+  EXPECT_EQ(navigation_goals_.load(), 1U);
+
+  // The stop sequence restarted with the window too.
+  command(13, 2, rx_msgs::msg::Command::CMD_MISSION_DONE);
+  ASSERT_TRUE(waitUntil([this]() {return lifecycle().phase == Lifecycle::INTERRUPTED;}));
+  EXPECT_EQ(lifecycle().epoch, second.epoch);
+}
+
+TEST_F(RunLifecycleTest, UsvBuoyTargetDrivesTransitAndRetargetsUntilLocked)
+{
+  auto target_pub = fixture_->create_publisher<banyu_msgs::msg::Task2BuoyTarget>(
+    "/banyu/task2/buoy_target", rclcpp::QoS(1).reliable().transient_local());
+  banyu_msgs::msg::Task2BuoyTarget target;
+  target.course_id = "course-a";
+  target.source_seq = 1;
+  target.latitude = 1.0011;
+  target.longitude = 2.0012;
+  target.heading_valid = true;
+  target.heading_enu_rad = 0.5;
+  target_pub->publish(target);
+  ASSERT_TRUE(waitUntil([&target_pub]() {return target_pub->get_subscription_count() > 0;}));
+  std::this_thread::sleep_for(200ms);
+
+  ASSERT_NO_FATAL_FAILURE(start());
+  const auto goal = [this](std::size_t index) {
+      std::lock_guard<std::mutex> lock(navigation_mutex_);
+      return navigation_handles_.at(index)->get_goal();
+    };
+  EXPECT_DOUBLE_EQ(goal(0)->target_latitude_deg, 1.0011);
+  EXPECT_DOUBLE_EQ(goal(0)->target_longitude_deg, 2.0012);
+
+  // A newer USV estimate about 3 m away re-sends the transit goal.
+  target.source_seq = 2;
+  target.latitude = 1.00113;
+  target_pub->publish(target);
+  ASSERT_TRUE(waitUntil([this]() {return navigation_goals_.load() == 2U;}));
+  EXPECT_DOUBLE_EQ(goal(1)->target_latitude_deg, 1.00113);
+
+  // Sub-metre jitter does not.
+  target.source_seq = 3;
+  target.latitude = 1.001132;
+  target_pub->publish(target);
+  std::this_thread::sleep_for(300ms);
+  EXPECT_EQ(navigation_goals_.load(), 2U);
 }

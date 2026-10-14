@@ -122,7 +122,8 @@ TEST(RunCoordinator, OperatorPreparationOpensNewSequenceWindow)
   EXPECT_EQ(accepted.snapshot.epoch, 2u);
   EXPECT_EQ(accepted.snapshot.run_id, 2u);
   const auto initializing = coordinator.snapshot();
-  EXPECT_EQ(coordinator.requestStart(900, 10, true).disposition, Disposition::Duplicate);
+  // The previous window's run cannot start while the new run is live.
+  EXPECT_EQ(coordinator.requestStart(900, 10, true).disposition, Disposition::Rejected);
   expectSame(coordinator.snapshot(), initializing);
 }
 
@@ -242,10 +243,42 @@ TEST(RunCoordinator, MaximumSequenceDoesNotBlockLaterPreparedRuns)
     Disposition::Accepted);
   ASSERT_TRUE(coordinator.transition(1, Phase::Interrupted));
   prepare(coordinator);
-  const auto ready = coordinator.snapshot();
-  EXPECT_EQ(coordinator.requestStart(13, 1, true).disposition, Disposition::Duplicate);
-  expectSame(coordinator.snapshot(), ready);
-  EXPECT_EQ(coordinator.requestStart(14, 1, true).disposition, Disposition::Accepted);
+  const auto accepted = coordinator.requestStart(14, 1, true);
+  EXPECT_EQ(accepted.disposition, Disposition::Accepted);
+  EXPECT_EQ(accepted.snapshot.epoch, 2u);
+}
+
+// RoboCommand "Reset run ID & seq": the next day starts again at run 1, seq 1.
+TEST(RunCoordinator, RoboCommandResetReusesRunIdAfterPreparation)
+{
+  Coordinator coordinator;
+  prepare(coordinator);
+  ASSERT_EQ(coordinator.requestStart(1, 1, true).disposition, Disposition::Accepted);
+  ASSERT_TRUE(coordinator.completeInitialization(1));
+  ASSERT_TRUE(coordinator.transition(1, Phase::SurveyComplete));
+  ASSERT_TRUE(coordinator.transition(1, Phase::Surfaced));
+  ASSERT_TRUE(coordinator.transition(1, Phase::Succeeded, "MISSION_COMPLETED"));
+  const auto finished = coordinator.snapshot();
+
+  // Without a new preparation the finished run's start stays a duplicate.
+  EXPECT_EQ(coordinator.requestStart(1, 1, true).disposition, Disposition::Duplicate);
+  expectSame(coordinator.snapshot(), finished);
+
+  prepare(coordinator);
+  const auto reused = coordinator.requestStart(1, 1, true);
+  ASSERT_EQ(reused.disposition, Disposition::Accepted);
+  EXPECT_EQ(reused.snapshot.run_id, 1u);
+  EXPECT_EQ(reused.snapshot.command_seq, 1u);
+  EXPECT_EQ(reused.snapshot.epoch, 2u);
+  const auto initializing = coordinator.snapshot();
+
+  // Retransmissions inside the new window are still duplicates or replays.
+  EXPECT_EQ(coordinator.requestStart(1, 1, true).disposition, Disposition::Duplicate);
+  EXPECT_EQ(coordinator.requestStart(2, 1, true).disposition, Disposition::Rejected);
+  expectSame(coordinator.snapshot(), initializing);
+
+  // Reports are sealed per epoch, so the reused run_id cannot collide with the first run.
+  EXPECT_FALSE(coordinator.hasSealedReport(1, 1, 1));
 }
 
 TEST(RunCoordinator, SealRequiresCurrentSurfacedRunAndImmutableIdentity)

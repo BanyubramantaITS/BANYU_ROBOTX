@@ -9,8 +9,10 @@ integration test against BANYU's UUV showed it lacks:
      heartbeats instead of replaying the last position (a dived UUV is not reachable).
   3. Restart safety: report/request sequences, declaration and run_id persist in --state-file, so a
      restarted GCS never restarts report seqs at 1 or re-declares the run.
-  4. One-shot reports: PipelineSurvey / ResourceDelivery are de-duplicated per run by payload hash,
-     because latched ROS topics re-deliver them to a restarted subscriber.
+  4. One-shot reports: PipelineSurvey / ResourceDelivery are de-duplicated per declared run by
+     payload hash, because latched ROS topics re-deliver them to a restarted subscriber.
+  5. Next run: /gcs_ros_bridge/new_run (std_srvs/Trigger) sends a new RunDeclaration, like the
+     nala2 OCS's /nala2_report/new_run. RoboCommand may then reuse run_id 1 ("Reset run ID & seq").
 
 It is a reference for the GCS team, not part of the vehicle stack. Run from the GCS repo venv with
 ROS sourced and ROS_DOMAIN_ID=10:
@@ -37,6 +39,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy  # noqa: E
 from rx_msgs.msg import (Command, Course, Heartbeat, IncidentAck, LatLng,  # noqa: E402
                          MissionStatus, PipelineSurvey, ReadinessReport, ResourceDelivery,
                          VehicleType)
+from std_srvs.srv import Trigger  # noqa: E402
 
 from report import GcsReporter  # noqa: E402
 from robocommand_ui.proto_helper import common_pb2, rx_common_pb2, rx_reports_pb2  # noqa: E402
@@ -146,6 +149,15 @@ class Bridge(Node):
                                  self.on_incident_ack, VOLATILE)
         self.create_subscription(ReadinessReport, '/system/vehicle/uuv/task4/readiness',
                                  self.on_readiness, VOLATILE)
+        self.create_service(Trigger, '/gcs_ros_bridge/new_run', self.on_new_run)
+
+    def on_new_run(self, _request, response):
+        response.success = self.reporter.declare()
+        response.message = (f'RunDeclaration seq={self.reporter.declaration_seq}'
+                            if response.success else 'not connected to the broker')
+        self.event('new_run', ok=response.success, declaration_seq=self.reporter.declaration_seq)
+        log.info('new_run: %s', response.message)
+        return response
 
     def event(self, kind, **data):
         if self.events:
@@ -219,8 +231,10 @@ class Bridge(Node):
                    message=m.message)
 
     def report_once(self, field, body, **info):
+        # The declaration seq separates runs even when RoboCommand reuses run_id after a reset.
         key = hashlib.sha256(
-            f'{self.reporter.run_id}:{field}:'.encode() + body.SerializeToString()).hexdigest()
+            f'{self.reporter.declaration_seq}:{self.reporter.run_id}:{field}:'.encode() +
+            body.SerializeToString()).hexdigest()
         with self._lock:
             if key in self.reporter.sent_reports:
                 log.info('%s %s already reported for run %s; skipping duplicate',

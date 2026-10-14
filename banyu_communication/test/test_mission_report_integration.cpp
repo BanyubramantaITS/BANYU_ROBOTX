@@ -252,7 +252,7 @@ protected:
     ev.active_buoy.run_id = active_run_id_;
     ev.active_buoy.epoch = active_epoch_;
     ev.active_buoy.revision = 1;
-    ev.active_buoy.source_id = "uuv_buoy_localizer";
+    ev.active_buoy.source_id = buoy_source_;
     ev.active_buoy.course_id = "course-integ-1";
     ev.active_buoy.endpoint_id = "low_end";
     ev.active_buoy.fix.header.stamp = ev.header.stamp;
@@ -315,6 +315,7 @@ protected:
   uint64_t lifecycle_revision_{0};
   uint64_t evidence_revision_{0};
   bool depth_enabled_{false};
+  std::string buoy_source_{"uuv_buoy_localizer"};
 };
 
 // Case 1: Valid start and reporting flow from real coordinator -> comm -> mock GCS
@@ -459,4 +460,44 @@ TEST_F(MissionReportIntegrationTest, DuplicateSurveyTriggerIsDeduplicated)
 
   // Still only 1 survey received
   EXPECT_EQ(received_surveys_.size(), 1u);
+}
+
+// Case 6: RoboCommand "Reset run ID & seq" between runs; run 1 / seq 1 is used twice.
+TEST_F(MissionReportIntegrationTest, RunIdResetAfterPreparationReportsAgain)
+{
+  const auto report = [this](const std::string & report_id) {
+      auto req = std::make_shared<banyu_msgs::srv::TriggerPipelineSurvey::Request>();
+      req->run_id = 1;
+      req->epoch = active_epoch_;
+      req->report_id = report_id;
+      auto future = survey_client_->async_send_request(req);
+      EXPECT_TRUE(spinUntil([&future]() {
+          return future.wait_for(0s) == std::future_status::ready;
+      }));
+      return future.get();
+    };
+
+  startRun(1, 1);
+  const auto first_epoch = active_epoch_;
+  feedEvidence();
+  surfaceVehicle();
+  auto first = report("task2-survey-1-" + std::to_string(first_epoch));
+  ASSERT_TRUE(first->success) << first->message;
+  ASSERT_TRUE(spinUntil([this]() {return received_surveys_.size() == 1u;}));
+  ASSERT_TRUE(coordinator_->transition(active_epoch_,
+    banyu_mission::RunCoordinator::Phase::Succeeded, "MISSION_COMPLETED"));
+  depth_enabled_ = false;
+  publishLifecycle(banyu_msgs::msg::RunLifecycle::TERMINAL);
+  spinFor(50ms);
+
+  // Next day: RoboCommand restarts at run 1, seq 1; the operator prepares the vehicle again.
+  buoy_source_ = "usv_pipeline_buoys";
+  startRun(1, 1);
+  EXPECT_GT(active_epoch_, first_epoch);
+  feedEvidence();
+  surfaceVehicle();
+  auto second = report("task2-survey-1-" + std::to_string(active_epoch_));
+  EXPECT_TRUE(second->success) << second->message;
+  EXPECT_EQ(second->result_code, banyu_msgs::srv::TriggerPipelineSurvey::Response::ACCEPTED);
+  ASSERT_TRUE(spinUntil([this]() {return received_surveys_.size() == 2u;}));
 }

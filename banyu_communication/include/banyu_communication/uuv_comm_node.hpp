@@ -98,7 +98,8 @@ private:
   uint32_t pinger_freq_hz_{0};
   std::unique_ptr<SurveyLedger> survey_ledger_;
   std::unique_ptr<SurfaceGuard> surface_guard_;
-  std::set<uint32_t> submitted_runs_;
+  // Keyed by epoch: RoboCommand may reuse a run_id after a run ID reset.
+  std::set<uint64_t> submitted_epochs_;
   uint64_t evidence_revision_{0};
 
   rclcpp::Publisher<rx_msgs::msg::Heartbeat>::SharedPtr heartbeat_pub_;
