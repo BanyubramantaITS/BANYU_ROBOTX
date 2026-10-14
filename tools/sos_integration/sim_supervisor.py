@@ -63,7 +63,12 @@ class SimSupervisor(Node):
 
 def main():
     rclpy.init()
-    rclpy.spin(SimSupervisor(sys.argv[1]))
+    log_path = sys.argv[1] if len(sys.argv) > 1 else '/tmp/sim_supervisor.jsonl'
+    print(f'[sim_supervisor] Logging to {log_path}')
+    try:
+        rclpy.spin(SimSupervisor(log_path))
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
+        pass
 
 
 if __name__ == '__main__':
