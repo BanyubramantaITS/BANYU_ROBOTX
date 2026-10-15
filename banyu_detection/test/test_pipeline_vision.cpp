@@ -7,9 +7,11 @@
 
 using namespace banyu_detection;
 
-namespace {
+namespace
+{
 // Camera noise: flat synthetic frames have no texture to find edges in, a real sensor always has.
-cv::Mat noisy(cv::Mat im) {
+cv::Mat noisy(cv::Mat im)
+{
   cv::RNG rng(1);
   cv::Mat noise(im.size(), CV_16SC3);
   rng.fill(noise, cv::RNG::NORMAL, 0, 1.5);
@@ -21,12 +23,15 @@ cv::Mat noisy(cv::Mat im) {
 }
 
 // Water veil, a faint pipe straight up the frame, one GREEN light node on it at row 100.
-cv::Mat syntheticFrame(cv::Scalar led = cv::Scalar(22, 89, 12)) {
+cv::Mat syntheticFrame(cv::Scalar led = cv::Scalar(22, 89, 12))
+{
   cv::Mat im(240, 320, CV_8UC3, cv::Scalar(2, 24, 1));
   im.colRange(150, 170).setTo(cv::Scalar(2, 32, 1));
   for (int k = 0; k < 8; ++k) {
     const double a = 2 * M_PI * k / 8;
-    cv::circle(im, cv::Point(160 + static_cast<int>(3 * std::cos(a)), 100 + static_cast<int>(3 * std::sin(a))), 1,
+    cv::circle(im,
+        cv::Point(160 + static_cast<int>(3 * std::cos(a)), 100 + static_cast<int>(3 * std::sin(a))),
+        1,
                led, -1);
   }
   return noisy(im);
@@ -45,6 +50,13 @@ TEST(PipelineVision, OneGreenNodeOnThePipe) {
   const auto lights = detectLights(im, pipeMask(im));
   ASSERT_EQ(lights.size(), 1u);
   EXPECT_EQ(lights[0].colour, banyu_detection::Light::kGreen);
+}
+
+TEST(PipelineVision, OneRedNodeOnThePipe) {
+  const cv::Mat im = syntheticFrame(cv::Scalar(10, 15, 95));
+  const auto lights = detectLights(im, pipeMask(im));
+  ASSERT_EQ(lights.size(), 1u);
+  EXPECT_EQ(lights[0].colour, banyu_detection::Light::kRed);
 }
 
 TEST(PipelineVision, BlueFlashOnThePipe) {

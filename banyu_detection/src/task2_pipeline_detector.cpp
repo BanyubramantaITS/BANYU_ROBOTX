@@ -367,7 +367,8 @@ private:
 
       // Primary: edge-pair pipe fitting from pipeline_vision
       const cv::Mat edge_mask = banyu_detection::pipeMask(image, probe_rect_);
-      const auto ahead_fit = banyu_detection::fitPipe(edge_mask, banyu_detection::aheadBand(image.rows));
+      const auto ahead_fit = banyu_detection::fitPipe(edge_mask,
+          banyu_detection::aheadBand(image.rows));
       const auto ahead_centroid = banyu_detection::pipeCentroid(edge_mask);
 
       bool pipeline_detected = false;
@@ -381,7 +382,8 @@ private:
           static_cast<float>(ahead_fit->lateral / (image.cols * 0.5f)), -1.0f, 1.0f);
         if (ahead_centroid.has_value()) {
           observation.offset_y = std::clamp(
-            static_cast<float>((ahead_centroid->y - image.rows * 0.5f) / (image.rows * 0.5f)), -1.0f, 1.0f);
+            static_cast<float>((ahead_centroid->y - image.rows * 0.5f) / (image.rows * 0.5f)),
+              -1.0f, 1.0f);
         } else {
           observation.offset_y = 0.0f;
         }
@@ -422,7 +424,9 @@ private:
       }
 
       // Detect light nodes on the pipeline (top-hat multi-color detection)
-      const auto lights = banyu_detection::detectLights(image, edge_mask);
+      const cv::Mat & lights_mask =
+        (!edge_mask.empty() && cv::countNonZero(edge_mask) > 0) ? edge_mask : pipeline_mask;
+      const auto lights = banyu_detection::detectLights(image, lights_mask);
       bool light_found = false;
 
       if (!lights.empty()) {
@@ -446,14 +450,16 @@ private:
         }
 
         ring.visible = true;
-        ring.color = (chosen->colour == banyu_detection::Light::kRed)
-          ? banyu_msgs::msg::PipelineRingObservation::COLOR_RED
-          : ((chosen->colour == banyu_detection::Light::kBlue)
-              ? banyu_msgs::msg::PipelineRingObservation::COLOR_BLUE
-              : banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN);
+        ring.color = (chosen->colour == banyu_detection::Light::kRed) ?
+          banyu_msgs::msg::PipelineRingObservation::COLOR_RED :
+          ((chosen->colour == banyu_detection::Light::kBlue) ?
+          banyu_msgs::msg::PipelineRingObservation::COLOR_BLUE :
+          banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN);
         ring.confidence = 0.9f;
-        ring.offset_x = std::clamp(static_cast<float>(normalizedX(chosen->x, image.cols)), -1.0f, 1.0f);
-        ring.offset_y = std::clamp(static_cast<float>(normalizedY(chosen->y, image.rows)), -1.0f, 1.0f);
+        ring.offset_x = std::clamp(static_cast<float>(normalizedX(chosen->x, image.cols)), -1.0f,
+            1.0f);
+        ring.offset_y = std::clamp(static_cast<float>(normalizedY(chosen->y, image.rows)), -1.0f,
+            1.0f);
         light_found = true;
       }
 
@@ -521,11 +527,12 @@ private:
           const cv::Point ring_pt(
             static_cast<int>((ring.offset_x * 0.5 + 0.5) * image.cols),
             static_cast<int>((ring.offset_y * 0.5 + 0.5) * image.rows));
-          const cv::Scalar ring_color = (ring.color == banyu_msgs::msg::PipelineRingObservation::COLOR_RED)
-            ? cv::Scalar(0, 0, 255)
-            : (ring.color == banyu_msgs::msg::PipelineRingObservation::COLOR_BLUE
-                ? cv::Scalar(255, 0, 0)
-                : cv::Scalar(0, 255, 0));
+          const cv::Scalar ring_color = (ring.color ==
+            banyu_msgs::msg::PipelineRingObservation::COLOR_RED) ?
+            cv::Scalar(0, 0, 255) :
+            (ring.color == banyu_msgs::msg::PipelineRingObservation::COLOR_BLUE ?
+            cv::Scalar(255, 0, 0) :
+            cv::Scalar(0, 255, 0));
           cv::circle(annotated, ring_pt, 20, ring_color, 2);
           cv::putText(
             annotated,

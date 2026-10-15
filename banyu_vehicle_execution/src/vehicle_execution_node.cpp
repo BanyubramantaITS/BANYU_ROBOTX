@@ -867,6 +867,10 @@ void VehicleExecutionNode::handleGuidanceIntent(
 void VehicleExecutionNode::handlePingerObs(
   const banyu_msgs::msg::PingerObservation::SharedPtr msg)
 {
+  if (!msg || !std::isfinite(msg->bearing) || !std::isfinite(msg->elevation_cos)) {
+    telemetry_.pinger_obs_valid = false;
+    return;
+  }
   telemetry_.pinger_obs_valid = true;
   telemetry_.pinger_obs_stamp = resolveStamp(msg->header.stamp);
   telemetry_.pinger_forward = msg->forward;
