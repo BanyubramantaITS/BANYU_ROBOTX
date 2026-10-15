@@ -116,7 +116,8 @@ MotionIntent SearchPipelineServer::tick(
     const double max_rate = (sweep_rate != 0.0) ? std::abs(sweep_rate) : default_sweep_rate_;
     const double pinger_yaw_rate = std::clamp(
       pinger_kp_ * telemetry.pinger_bearing_rad, -max_rate, max_rate);
-    const double forward = (std::abs(telemetry.pinger_bearing_rad) < 0.35) ? pinger_forward_speed_ : 0.0;
+    const double forward = (std::abs(telemetry.pinger_bearing_rad) <
+      0.35) ? pinger_forward_speed_ : 0.0;
     const auto local_intent = bodyFluToLocalEnu(
       MotionIntent::bodyFlu(forward, 0.0, 0.0, pinger_yaw_rate), telemetry.yaw);
     return local_intent.value_or(zeroIntent());
