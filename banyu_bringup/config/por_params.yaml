@@ -121,6 +121,8 @@ banyu_vehicle_status:
     rc_takeover_channel: 4
     rc_takeover_threshold: 1700
     autonomy_mode: "GUIDED"
+    default_operational_mode: 0
+    kill_switch_timeout_s: 1.0
 
 esp32_bridge_node:
   ros__parameters:
@@ -128,3 +130,34 @@ esp32_bridge_node:
     baud: 115200
     heartbeat_rate_hz: 10.0
     serial_timeout_s: 0.5
+
+esp32_serial_node:
+  ros__parameters:
+    port: "/dev/ttyUSB0"
+    baud: 115200
+    timer_period_s: 0.1
+    append_newline: false
+    default_trigger_cmd: "1"
+    trigger_on_cmd: "1"
+    trigger_off_cmd: "0"
+    trigger_service: "/banyu/trigger/fire"
+    set_trigger_service: "/banyu/trigger/set"
+    command_service: "/banyu/trigger/command"
+    command_topic: "/banyu/trigger/cmd"
+    monitor_topic: "/banyu/trigger/monitor"
+
+esp32_trigger_node:
+  ros__parameters:
+    port: "/dev/ttyUSB0"
+    baud: 115200
+    timer_period_s: 0.1
+    append_newline: false
+    default_trigger_cmd: "1"
+    trigger_on_cmd: "1"
+    trigger_off_cmd: "0"
+    trigger_service: "/banyu/trigger/fire"
+    set_trigger_service: "/banyu/trigger/set"
+    command_service: "/banyu/trigger/command"
+    command_topic: "/banyu/trigger/cmd"
+    monitor_topic: "/banyu/trigger/monitor"
+

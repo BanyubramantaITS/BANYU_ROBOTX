@@ -41,6 +41,16 @@ speed_t baudToSpeed(int baud)
   }
 }
 
+std::string trim(const std::string & str)
+{
+  const size_t first = str.find_first_not_of(" \t\r\n");
+  if (first == std::string::npos) {
+    return "";
+  }
+  const size_t last = str.find_last_not_of(" \t\r\n");
+  return str.substr(first, last - first + 1);
+}
+
 }  // namespace
 
 Esp32BridgeNode::Esp32BridgeNode(const rclcpp::NodeOptions & options)
@@ -83,10 +93,17 @@ Esp32BridgeNode::~Esp32BridgeNode()
   closeSerialPort();
 }
 
+bool Esp32BridgeNode::isPortOpen() const
+{
+  std::lock_guard<std::mutex> lock(serial_mutex_);
+  return serial_fd_ >= 0;
+}
+
 bool Esp32BridgeNode::openSerialPort()
 {
   closeSerialPort();
 
+  std::lock_guard<std::mutex> lock(serial_mutex_);
   serial_fd_ = open(port_.c_str(), O_RDWR | O_NOCTTY);
   if (serial_fd_ < 0) {
     return false;
@@ -95,7 +112,8 @@ bool Esp32BridgeNode::openSerialPort()
   struct termios tty;
   if (tcgetattr(serial_fd_, &tty) != 0) {
     RCLCPP_ERROR(get_logger(), "tcgetattr failed on '%s': %s", port_.c_str(), strerror(errno));
-    closeSerialPort();
+    close(serial_fd_);
+    serial_fd_ = -1;
     return false;
   }
 
@@ -124,7 +142,8 @@ bool Esp32BridgeNode::openSerialPort()
   tcflush(serial_fd_, TCIFLUSH);
   if (tcsetattr(serial_fd_, TCSANOW, &tty) != 0) {
     RCLCPP_ERROR(get_logger(), "tcsetattr failed on '%s': %s", port_.c_str(), strerror(errno));
-    closeSerialPort();
+    close(serial_fd_);
+    serial_fd_ = -1;
     return false;
   }
 
@@ -137,6 +156,7 @@ bool Esp32BridgeNode::openSerialPort()
 
 void Esp32BridgeNode::closeSerialPort()
 {
+  std::lock_guard<std::mutex> lock(serial_mutex_);
   if (serial_fd_ >= 0) {
     close(serial_fd_);
     serial_fd_ = -1;
@@ -145,6 +165,7 @@ void Esp32BridgeNode::closeSerialPort()
 
 void Esp32BridgeNode::heartbeatCallback()
 {
+  std::lock_guard<std::mutex> lock(serial_mutex_);
   if (serial_fd_ >= 0) {
     const ssize_t written = write(serial_fd_, "H\n", 2);
     if (written < 0) {
@@ -156,27 +177,67 @@ void Esp32BridgeNode::heartbeatCallback()
   }
 }
 
+void Esp32BridgeNode::processIncomingBytes(const char * data, size_t length)
+{
+  rx_buffer_.append(data, length);
+
+  size_t delim_pos = 0;
+  while ((delim_pos = rx_buffer_.find_first_of("\r\n")) != std::string::npos) {
+    const std::string line = rx_buffer_.substr(0, delim_pos);
+    const size_t next = rx_buffer_.find_first_not_of("\r\n", delim_pos);
+    if (next != std::string::npos) {
+      rx_buffer_.erase(0, next);
+    } else {
+      rx_buffer_.clear();
+    }
+
+    const std::string trimmed = trim(line);
+    if (trimmed == "0" || trimmed == "1" || trimmed == "2") {
+      std_msgs::msg::UInt8 msg;
+      msg.data = static_cast<uint8_t>(trimmed[0] - '0');
+      kill_switch_pub_->publish(msg);
+    }
+  }
+
+  if (rx_buffer_.size() == 1) {
+    const char c = rx_buffer_[0];
+    if (c == '0' || c == '1' || c == '2') {
+      std_msgs::msg::UInt8 msg;
+      msg.data = static_cast<uint8_t>(c - '0');
+      kill_switch_pub_->publish(msg);
+      rx_buffer_.clear();
+    }
+  }
+
+  if (rx_buffer_.size() > 1024) {
+    rx_buffer_.clear();
+  }
+}
+
 void Esp32BridgeNode::readerLoop()
 {
   char buf[64];
   while (is_running_ && rclcpp::ok()) {
-    if (serial_fd_ < 0) {
+    int current_fd = -1;
+    {
+      std::lock_guard<std::mutex> lock(serial_mutex_);
+      current_fd = serial_fd_;
+    }
+
+    if (current_fd < 0) {
       if (!openSerialPort()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         continue;
       }
+      {
+        std::lock_guard<std::mutex> lock(serial_mutex_);
+        current_fd = serial_fd_;
+      }
     }
 
-    const ssize_t bytes_read = read(serial_fd_, buf, sizeof(buf));
+    const ssize_t bytes_read = read(current_fd, buf, sizeof(buf));
     if (bytes_read > 0) {
-      for (ssize_t i = 0; i < bytes_read; ++i) {
-        const char c = buf[i];
-        if (c == '0' || c == '1' || c == '2') {
-          std_msgs::msg::UInt8 msg;
-          msg.data = static_cast<uint8_t>(c - '0');
-          kill_switch_pub_->publish(msg);
-        }
-      }
+      processIncomingBytes(buf, static_cast<size_t>(bytes_read));
     } else if (bytes_read < 0) {
       if (errno != EAGAIN && errno != EINTR) {
         RCLCPP_WARN_THROTTLE(
@@ -190,11 +251,3 @@ void Esp32BridgeNode::readerLoop()
 }
 
 }  // namespace banyu_vehicle_interface
-
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<banyu_vehicle_interface::Esp32BridgeNode>());
-  rclcpp::shutdown();
-  return 0;
-}

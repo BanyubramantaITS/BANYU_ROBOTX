@@ -74,6 +74,13 @@ def generate_launch_description():
         description="Path to ROS 2 parameter YAML file for POR nodes",
     )
 
+    enable_esp32_trigger_arg = DeclareLaunchArgument(
+        name="enable_esp32_trigger",
+        default_value="False",
+        description="Whether to launch the ESP32 trigger node",
+        choices=["True", "False"],
+    )
+
     set_use_sim_time = SetUseSimTime(
         True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
     )
@@ -150,7 +157,17 @@ def generate_launch_description():
         package="banyu_vehicle_interface",
         executable="vehicle_status_node",
         name="banyu_vehicle_status",
-        parameters=[por_params],
+        parameters=[
+            por_params,
+            {
+                "default_operational_mode": ParameterValue(
+                    PythonExpression(
+                        ["2 if '", LaunchConfiguration("use_sim"), "' == 'True' else 0"]
+                    ),
+                    value_type=int,
+                ),
+            },
+        ],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "por")),
     )
@@ -180,7 +197,17 @@ def generate_launch_description():
         package="banyu_vehicle_interface",
         executable="vehicle_status_node",
         name="banyu_vehicle_status",
-        parameters=[task2_params],
+        parameters=[
+            task2_params,
+            {
+                "default_operational_mode": ParameterValue(
+                    PythonExpression(
+                        ["2 if '", LaunchConfiguration("use_sim"), "' == 'True' else 0"]
+                    ),
+                    value_type=int,
+                ),
+            },
+        ],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -243,6 +270,15 @@ def generate_launch_description():
         condition=UnlessCondition(LaunchConfiguration("use_sim")),
     )
 
+    esp32_trigger = Node(
+        package="banyu_vehicle_interface",
+        executable="esp32_trigger_node",
+        name="esp32_trigger_node",
+        parameters=[active_params],
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("enable_esp32_trigger")),
+    )
+
     return LaunchDescription(
         [
             mode_arg,
@@ -251,6 +287,7 @@ def generate_launch_description():
             debug_arg,
             task2_params_arg,
             por_params_arg,
+            enable_esp32_trigger_arg,
             set_use_sim_time,
             por_mission_manager,
             task2_mission_manager,
@@ -266,5 +303,6 @@ def generate_launch_description():
             task2_vehicle_execution,
             task2_pipeline_end,
             esp32_bridge,
+            esp32_trigger,
         ]
     )

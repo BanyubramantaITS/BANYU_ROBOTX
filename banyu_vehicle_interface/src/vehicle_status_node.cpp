@@ -54,6 +54,10 @@ private:
       "rc_takeover_threshold", config.rc_takeover_threshold);
     config.autonomy_mode = declare_parameter<std::string>(
       "autonomy_mode", config.autonomy_mode);
+    config.default_operational_mode = declare_parameter<int>(
+      "default_operational_mode", config.default_operational_mode);
+    config.kill_switch_timeout_s = declare_parameter<double>(
+      "kill_switch_timeout_s", config.kill_switch_timeout_s);
     return config;
   }
 

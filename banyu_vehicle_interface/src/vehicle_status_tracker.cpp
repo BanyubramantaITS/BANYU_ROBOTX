@@ -18,6 +18,8 @@ VehicleStatusTracker::VehicleStatusTracker(Config config, rclcpp::Node * node)
   config_.fcu_timeout_s = std::max(0.0, config_.fcu_timeout_s);
   config_.rc_timeout_s = std::max(0.0, config_.rc_timeout_s);
   config_.gps_timeout_s = std::max(0.0, config_.gps_timeout_s);
+  config_.kill_switch_timeout_s = std::max(0.0, config_.kill_switch_timeout_s);
+  current_hw_mode_ = static_cast<uint8_t>(std::clamp(config_.default_operational_mode, 0, 2));
 
   if (node_ != nullptr) {
     kill_switch_sub_ = node_->create_subscription<std_msgs::msg::UInt8>(
@@ -74,13 +76,20 @@ void VehicleStatusTracker::killSwitchCallback(const std_msgs::msg::UInt8::Shared
   if (!msg) {
     return;
   }
-  updateKillSwitch(msg->data);
+  const auto now = node_ ? node_->now() : rclcpp::Time(0, 0, RCL_ROS_TIME);
+  updateKillSwitch(msg->data, now);
 }
 
-void VehicleStatusTracker::updateKillSwitch(uint8_t mode)
+void VehicleStatusTracker::updateKillSwitch(uint8_t mode, const rclcpp::Time & received_at)
 {
+  const uint8_t previous_mode = current_hw_mode_;
+  const bool first_message = !kill_switch_received_;
   current_hw_mode_ = mode;
-  if (current_hw_mode_ == 0 && arming_client_) {
+  kill_switch_received_ = true;
+  last_kill_switch_ = received_at;
+
+  // Only trigger disarm request on transition to mode 0 or upon first explicit hardware disarm report
+  if (current_hw_mode_ == 0 && (previous_mode != 0 || first_message) && arming_client_) {
     auto request = std::make_shared<mavros_msgs::srv::CommandBool::Request>();
     request->value = false;
     arming_client_->async_send_request(request);
@@ -111,18 +120,27 @@ banyu_msgs::msg::VehicleStatus VehicleStatusTracker::status(const rclcpp::Time &
   result.gps_fresh = isFresh(gps_received_, now, last_gps_, config_.gps_timeout_s) && gps_valid_;
   result.gps_valid = gps_received_ && gps_valid_;
 
-  result.operational_mode = current_hw_mode_;
-  result.hardware_kill_active = (current_hw_mode_ == 0);
+  uint8_t effective_mode = current_hw_mode_;
+  if (kill_switch_received_ && config_.kill_switch_timeout_s > 0.0 &&
+    last_kill_switch_.nanoseconds() > 0)
+  {
+    if (!isFresh(true, now, last_kill_switch_, config_.kill_switch_timeout_s)) {
+      effective_mode = 0;
+    }
+  }
+
+  result.operational_mode = effective_mode;
+  result.hardware_kill_active = (effective_mode == 0);
 
   if (!result.fcu_connected || !result.rc_fresh) {
     result.authority = "UNKNOWN";
-  } else if (current_hw_mode_ == 0) {
+  } else if (effective_mode == 0) {
     result.authority = "DISARMED";
   } else if (result.operator_takeover) {
     result.authority = "OPERATOR";
-  } else if (current_hw_mode_ == 1) {
+  } else if (effective_mode == 1) {
     result.authority = "MANUAL";
-  } else if (current_hw_mode_ == 2 && result.mode == config_.autonomy_mode) {
+  } else if (effective_mode == 2 && result.mode == config_.autonomy_mode) {
     result.authority = "AUTONOMY";
   } else {
     result.authority = "MANUAL";

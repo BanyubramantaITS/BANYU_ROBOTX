@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -18,6 +19,9 @@ public:
   explicit Esp32BridgeNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~Esp32BridgeNode() override;
 
+  bool isPortOpen() const;
+  void processIncomingBytes(const char * data, size_t length);
+
 private:
   bool openSerialPort();
   void closeSerialPort();
@@ -30,7 +34,9 @@ private:
   double serial_timeout_s_;
 
   int serial_fd_{-1};
+  mutable std::mutex serial_mutex_;
   std::atomic<bool> is_running_{false};
+  std::string rx_buffer_;
 
   rclcpp::Publisher<std_msgs::msg::UInt8>::SharedPtr kill_switch_pub_;
   rclcpp::TimerBase::SharedPtr heartbeat_timer_;

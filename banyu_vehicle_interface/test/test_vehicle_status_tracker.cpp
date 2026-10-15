@@ -173,4 +173,47 @@ TEST(VehicleStatusTrackerTest, InvalidGpsIsNotValid)
   EXPECT_FALSE(result.gps_fresh);
 }
 
+TEST(VehicleStatusTrackerTest, ConfigurableDefaultOperationalMode)
+{
+  auto config = testConfig();
+  config.default_operational_mode = 2;
+  VehicleStatusTracker tracker(config);
+  tracker.updateState(state(true, "GUIDED"), timeAt(0.0));
+  tracker.updateRc(rc(1500), timeAt(0.0));
+
+  const auto result = tracker.status(timeAt(0.1));
+  EXPECT_EQ(result.operational_mode, 2);
+  EXPECT_FALSE(result.hardware_kill_active);
+  EXPECT_EQ(result.authority, "AUTONOMY");
+}
+
+TEST(VehicleStatusTrackerTest, KillSwitchFreshnessTimeoutFailsafe)
+{
+  auto config = testConfig();
+  config.kill_switch_timeout_s = 0.5;
+  VehicleStatusTracker tracker(config);
+  tracker.updateState(state(true, "GUIDED"), timeAt(0.0));
+  tracker.updateRc(rc(1500), timeAt(0.0));
+
+  // Receive hardware kill switch mode 2 at t=0.1
+  tracker.updateKillSwitch(2, timeAt(0.1));
+  auto active_res = tracker.status(timeAt(0.2));
+  EXPECT_EQ(active_res.operational_mode, 2);
+  EXPECT_FALSE(active_res.hardware_kill_active);
+  EXPECT_EQ(active_res.authority, "AUTONOMY");
+
+  // Timeout at t=0.7 (>0.5s elapsed without update)
+  auto stale_res = tracker.status(timeAt(0.7));
+  EXPECT_EQ(stale_res.operational_mode, 0);
+  EXPECT_TRUE(stale_res.hardware_kill_active);
+  EXPECT_EQ(stale_res.authority, "DISARMED");
+
+  // Reconnect at t=0.8
+  tracker.updateKillSwitch(2, timeAt(0.8));
+  auto recovered_res = tracker.status(timeAt(0.9));
+  EXPECT_EQ(recovered_res.operational_mode, 2);
+  EXPECT_FALSE(recovered_res.hardware_kill_active);
+  EXPECT_EQ(recovered_res.authority, "AUTONOMY");
+}
+
 }  // namespace banyu_vehicle_interface

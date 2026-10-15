@@ -22,9 +22,11 @@ public:
     double fcu_timeout_s{5.0};
     double rc_timeout_s{3.0};
     double gps_timeout_s{5.0};
+    double kill_switch_timeout_s{1.0};
     int rc_takeover_channel{4};
     int rc_takeover_threshold{1700};
     std::string autonomy_mode{"GUIDED"};
+    int default_operational_mode{0};
   };
 
   VehicleStatusTracker();
@@ -34,7 +36,9 @@ public:
   void updateState(const mavros_msgs::msg::State & state, const rclcpp::Time & received_at);
   void updateRc(const mavros_msgs::msg::RCIn & rc, const rclcpp::Time & received_at);
   void updateGps(const sensor_msgs::msg::NavSatFix & gps, const rclcpp::Time & received_at);
-  void updateKillSwitch(uint8_t mode);
+  void updateKillSwitch(
+    uint8_t mode,
+    const rclcpp::Time & received_at = rclcpp::Time(0, 0, RCL_ROS_TIME));
 
   void killSwitchCallback(const std_msgs::msg::UInt8::SharedPtr msg);
 
@@ -51,6 +55,8 @@ private:
   rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr kill_switch_sub_;
   rclcpp::Client<mavros_msgs::srv::CommandBool>::SharedPtr arming_client_;
   uint8_t current_hw_mode_{0};
+  bool kill_switch_received_{false};
+  rclcpp::Time last_kill_switch_;
 
   bool state_received_{false};
   bool state_connected_{false};

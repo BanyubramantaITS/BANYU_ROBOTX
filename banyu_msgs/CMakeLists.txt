@@ -45,6 +45,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/Surface.action"
   "action/SendMissionReport.action"
   "srv/AcknowledgeRingRepair.srv"
+  "srv/TriggerCommand.srv"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs unique_identifier_msgs
 )
 
