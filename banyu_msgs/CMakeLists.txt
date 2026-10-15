@@ -8,18 +8,51 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(builtin_interfaces REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(unique_identifier_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Detection.msg"
-  "msg/PipelineSurveyReport.msg"
-  "msg/PipeFit.msg"
-  "msg/LightNode.msg"
-  "msg/PipeObservation.msg"
+  "msg/HydrophoneHeading.msg"
+  "msg/PipelineRingState.msg"
+  "msg/PipelineObservation.msg"
+  "msg/PipelineRingObservation.msg"
+  "msg/Task2RingRecord.msg"
+  "msg/Task2Report.msg"
+  "msg/RunLifecycle.msg"
+  "msg/ExecutionReadiness.msg"
+  "msg/ActiveBuoyFix.msg"
+  "msg/Task2SurveyEvidence.msg"
+  "msg/WaterDepth.msg"
+  "msg/Task2SurveyProgress.msg"
+  "msg/PipelineEndState.msg"
+  "msg/PipelineEndCandidate.msg"
+  "msg/VehicleStatus.msg"
   "msg/PingerObservation.msg"
-  "msg/ResourceDeliveryRequest.msg"
-  DEPENDENCIES std_msgs geometry_msgs
+  "action/NavigateSurfaceGps.action"
+  "action/AlignHeading.action"
+  "action/DiveToDepth.action"
+  "action/AcquirePipeline.action"
+  "action/SearchPipeline.action"
+  "action/AcquireGate.action"
+  "action/SearchMarker.action"
+  "action/SearchGate.action"
+  "action/AlignGate.action"
+  "action/AlignMarker.action"
+  "action/PassGate.action"
+  "action/OrbitMarker.action"
+  "action/TurnAround.action"
+  "action/FollowPipeline.action"
+  "action/CenterOnRing.action"
+  "action/HoldProbeOnRing.action"
+  "action/Surface.action"
+  "srv/AcknowledgeRingRepair.srv"
+  "srv/ResetTask2.srv"
+  "srv/TriggerPipelineSurvey.srv"
+  DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs unique_identifier_msgs
 )
 
 if(BUILD_TESTING)

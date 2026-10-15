@@ -1,0 +1,19 @@
+# Search uses the named camera and optionally starts from an ENU heading prior.
+uint32 run_id
+uint64 epoch
+string camera_name
+bool use_heading_prior
+float64 heading_prior_rad
+float64 search_span_rad
+float64 sweep_rate_rad_s
+---
+bool success
+string reason
+bool found
+string pipeline_id
+float64 found_heading_rad
+---
+builtin_interfaces/Time stamp
+float64 current_heading_rad
+float64 sweep_progress_rad
+bool pipeline_visible

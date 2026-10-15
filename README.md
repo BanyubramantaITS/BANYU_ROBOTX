@@ -3,21 +3,20 @@
 ## Installation
 
 Install these packages:
-* [ROS 2 Humble](https://docs.ros.org/en/humble/Installation.html)
+* [ROS 2 Jazzy](https://docs.ros.org/en/jazzy/Installation.html) (or Humble)
 * [Gazebo Harmonic](https://gazebosim.org/docs/harmonic/install)
-* **`ros_gz` for Gazebo Harmonic (MANDATORY)**:
+* **Gazebo APT repository**:
   ```bash
+  sudo wget https://packages.osrfoundation.org/gazebo.gpg -O /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/gazebo-stable.list > /dev/null
   sudo apt-get update
-  sudo apt-get install -y ros-humble-ros-gzharmonic
   ```
-  > [!CAUTION]
-  > You **MUST** install `ros-humble-ros-gzharmonic`. 
-  > Using the default `ros-humble-ros-gz` will cause transport protocol incompatibility errors and break camera streaming and robot control topics.
-* [ArduSub](https://ardupilot.org/dev/docs/building-setup-linux.html)
-* BehaviorTree.CPP multiarch symlink (if required on Ubuntu 22.04):
+* **`ros_gz` and dependencies**:
   ```bash
-  sudo ln -sf /opt/ros/humble/lib/x86_64-linux-gnu/libbehaviortree_cpp.so /opt/ros/humble/lib/libbehaviortree_cpp.so
+  rosdep install --from-paths src -i -r -y
   ```
+  *(In Jazzy, `ros-jazzy-ros-gz` natively targets Gazebo Harmonic)*
+* [ArduSub](https://ardupilot.org/dev/docs/building-setup-linux.html)
 
 Build ArduSub for SITL:
 ```sh

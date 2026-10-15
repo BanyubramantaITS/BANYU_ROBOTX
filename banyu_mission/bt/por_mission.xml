@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4" main_tree_to_execute="Main">
+  <BehaviorTree ID="Main">
+    <ReactiveFallback name="por_mission_root">
+      <Sequence name="interrupt_sequence">
+        <AutonomyInterrupted />
+        <HandleAbortOrTeleop />
+      </Sequence>
+      <Sequence name="por_mission_phases">
+        <!-- Action timeout_s values are continuous missing-prerequisite watchdog windows. -->
+        <Sequence name="mission_preflight">
+          <RequireMissionStarted />
+          <ArmAndSetGuided />
+        </Sequence>
+        <AcquireGate target_depth_m="{gate_depth_m}" depth_tolerance_m="{gate_depth_tolerance_m}"
+          timeout_s="{acquire_gate_timeout_s}" />
+        <AlignGate deadband_x="{gate_align_deadband_x}" deadband_y="{gate_align_deadband_y}"
+          gain_x="{gate_align_gain_x}" gain_y="{gate_align_gain_y}"
+          max_speed_y="{gate_align_max_speed_y}" max_speed_z="{gate_align_max_speed_z}"
+          hold_time_s="{gate_align_hold_time_s}" timeout_s="{gate_align_timeout_s}" />
+        <PassGate return_leg="false" speed_mps="{gate_pass_speed_mps}"
+          target_distance_m="{gate_pass_target_distance_m}"
+          minimum_distance_m="{gate_pass_minimum_distance_m}"
+          blind_duration_s="{gate_pass_blind_duration_s}"
+          timeout_s="{gate_pass_timeout_s}" />
+        <SearchMarker search_speed_mps="{marker_search_speed_mps}"
+          timeout_s="{marker_search_timeout_s}" />
+        <AlignMarker deadband_x="{marker_align_deadband_x}" deadband_y="{marker_align_deadband_y}"
+          gain_x="{marker_align_gain_x}" gain_y="{marker_align_gain_y}"
+          max_speed_y="{marker_align_max_speed_y}" max_speed_z="{marker_align_max_speed_z}"
+          minimum_distance_m="{marker_align_minimum_distance_m}"
+          standoff_min_m="{marker_align_standoff_min_m}" standoff_max_m="{marker_align_standoff_max_m}"
+          hold_time_s="{marker_align_hold_time_s}" timeout_s="{marker_align_timeout_s}" />
+        <OrbitMarker orbit_speed_mps="{orbit_speed_mps}" radius_m="{orbit_radius_m}"
+          range_gain="{orbit_range_gain}" max_range_speed_mps="{orbit_max_range_speed_mps}"
+          yaw_gain="{orbit_yaw_gain}" max_yaw_rate_rad_s="{orbit_max_yaw_rate_rad_s}"
+          vertical_gain="{orbit_vertical_gain}" max_vertical_speed_mps="{orbit_max_vertical_speed_mps}"
+          angle_rad="{orbit_angle_rad}" timeout_s="{orbit_timeout_s}" />
+        <TurnAround turn_yaw_rate_rad_s="{turn_yaw_rate_rad_s}"
+          capture_gain="{turn_capture_gain}" capture_deadband="{turn_capture_deadband}"
+          max_angle_rad="{turn_max_angle_rad}" timeout_s="{turn_timeout_s}" />
+        <SearchGate search_speed_mps="{gate_search_speed_mps}" timeout_s="{gate_search_timeout_s}" />
+        <AlignGate deadband_x="{gate_align_deadband_x}" deadband_y="{gate_align_deadband_y}"
+          gain_x="{gate_align_gain_x}" gain_y="{gate_align_gain_y}"
+          max_speed_y="{gate_align_max_speed_y}" max_speed_z="{gate_align_max_speed_z}"
+          hold_time_s="{gate_align_hold_time_s}" timeout_s="{gate_align_timeout_s}" />
+        <PassGate return_leg="true" speed_mps="{return_gate_pass_speed_mps}"
+          target_distance_m="{return_gate_pass_target_distance_m}"
+          minimum_distance_m="{return_gate_pass_minimum_distance_m}"
+          blind_duration_s="{return_gate_pass_blind_duration_s}"
+          timeout_s="{return_gate_pass_timeout_s}" />
+        <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}"
+          watchdog_timeout_s="{surface_watchdog_timeout_s}" />
+      </Sequence>
+    </ReactiveFallback>
+  </BehaviorTree>
+</root>

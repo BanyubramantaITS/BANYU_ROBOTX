@@ -1,0 +1,18 @@
+# Depth is metres positive downward; heading follows the ENU convention.
+uint32 run_id
+uint64 epoch
+float64 target_depth_m
+float64 target_heading_rad
+float64 depth_tolerance_m
+float64 heading_tolerance_rad
+---
+bool success
+string reason
+float64 final_depth_m
+float64 final_heading_rad
+---
+builtin_interfaces/Time stamp
+float64 current_depth_m
+float64 current_heading_rad
+float64 depth_error_m
+float64 heading_error_rad

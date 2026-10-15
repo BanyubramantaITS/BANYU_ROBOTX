@@ -1,0 +1,19 @@
+# camera_name identifies the image source; heading prior is ENU radians.
+uint32 run_id
+uint64 epoch
+string camera_name
+bool use_heading_prior
+float64 heading_prior_rad
+float64 heading_prior_tolerance_rad
+---
+bool success
+string reason
+bool acquired
+string pipeline_id
+float64 pipeline_heading_rad
+---
+builtin_interfaces/Time stamp
+bool pipeline_visible
+float64 confidence
+float64 distance_m
+float64 heading_error_rad

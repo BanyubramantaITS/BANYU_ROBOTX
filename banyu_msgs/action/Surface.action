@@ -1,0 +1,16 @@
+# Target depth is metres positive downward; zero is the water surface.
+uint32 run_id
+uint64 epoch
+float64 target_depth_m
+float64 depth_tolerance_m
+# Optional continuous missing-prerequisite watchdog; zero disables it.
+float64 watchdog_timeout_s
+---
+bool success
+string reason
+float64 final_depth_m
+float64 final_error_m
+---
+builtin_interfaces/Time stamp
+float64 current_depth_m
+float64 depth_error_m

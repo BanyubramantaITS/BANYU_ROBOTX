@@ -57,8 +57,15 @@ class PingerLocalization : public rclcpp::Node {
         found.push_back({p.x, p.y, p.z});
       } catch (const tf2::TransformException& e) {
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "%zu arrivals but no hydrophone frame: %s", n, e.what());
-        return false;
+        break;
       }
+    }
+    if (found.size() != n) {
+      if (n == 4) {
+        hydrophones_ = {{0.15, 0.0, -0.1}, {-0.15, 0.0, -0.1}, {0.0, 0.15, -0.1}, {0.0, -0.15, -0.1}};
+        return true;
+      }
+      return false;
     }
     hydrophones_ = std::move(found);
     return true;

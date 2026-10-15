@@ -77,9 +77,10 @@ Both halves are documented in
  
 > [!IMPORTANT]
 > **Gazebo Harmonic Bridge Requirement**:
-> Ensure `ros-humble-ros-gzharmonic` is installed. The default ROS 2 Humble bridge package (`ros-humble-ros-gz`) targets Fortress and is incompatible with Gazebo Harmonic.
+> In ROS 2 Jazzy, `ros-jazzy-ros-gz` natively bridges Gazebo Harmonic. (If using ROS 2 Humble, install `ros-humble-ros-gzharmonic`).
+> Ensure official Gazebo Harmonic packages and rosdeps are installed:
 > ```bash
-> sudo apt-get install -y ros-humble-ros-gzharmonic
+> rosdep install --from-paths src -i -r -y
 > ```
 
 Build the packages in your ROS 2 workspace:

@@ -1,0 +1,23 @@
+# Strafe around the marker and complete after an integrated full revolution.
+float64 orbit_speed_mps
+float64 radius_m
+float64 range_gain
+float64 max_range_speed_mps
+float64 yaw_gain
+float64 max_yaw_rate_rad_s
+float64 vertical_gain
+float64 max_vertical_speed_mps
+float64 angle_rad
+# Continuous missing-prerequisite watchdog window; not a fixed action duration.
+float64 timeout_s
+---
+bool success
+string reason
+float64 accumulated_yaw_rad
+float64 final_distance_m
+---
+builtin_interfaces/Time stamp
+bool marker_visible
+float64 distance_m
+float64 accumulated_yaw_rad
+float64 detection_age_s

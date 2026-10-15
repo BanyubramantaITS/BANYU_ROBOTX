@@ -24,7 +24,7 @@
 # Process-level params of the mavros executable (declared in its main).
 mavros:
   ros__parameters:
-    use_sim_time: true
+    # use_sim_time is passed by sitl_mavros.launch.py (sim time only with use_sim).
     gcs_url: ""
     tgt_system: 1
     tgt_component: 1

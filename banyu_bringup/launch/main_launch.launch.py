@@ -9,10 +9,12 @@ from launch.actions import (
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
+    AndSubstitution,
     EqualsSubstitution,
     LaunchConfiguration,
+    PythonExpression,
 )
-from launch_ros.actions import SetUseSimTime
+from launch_ros.actions import SetParameter
 
 
 def generate_launch_description():
@@ -21,8 +23,8 @@ def generate_launch_description():
     mode_arg = DeclareLaunchArgument(
         name="mode",
         default_value="por",
-        description="Which competition simulation to launch: 'por' (proof of readiness) or 'mission' (main mission).",
-        choices=["por", "mission"],
+        description="Which competition simulation to launch: 'por' or 'task2'.",
+        choices=["por", "task2"],
     )
 
     use_sim_arg = DeclareLaunchArgument(
@@ -41,14 +43,17 @@ def generate_launch_description():
     use_ardusub_sitl_arg = DeclareLaunchArgument(
         name="use_ardusub_sitl",
         default_value="True",
-        description="Use sim_vehicle.py wrapper (True) or bare ardusub binary (False) for simulation",
+        description="Whether to start the ArduSub SITL binary alongside Gazebo",
         choices=["True", "False"],
     )
 
     fcu_url_arg = DeclareLaunchArgument(
         name="fcu_url",
         default_value="udp://127.0.0.1:14551@",
-        description="FCU connection URL (udp://127.0.0.1:14551@ for SITL or udp://192.168.2.1:14550@ for real ROV). SITL keeps 14550 free for QGC.",
+        description=(
+            "FCU connection URL (udp://127.0.0.1:14551@ for SITL or "
+            "udp://192.168.2.1:14550@ for real ROV). SITL keeps 14550 free for QGC."
+        ),
     )
 
     tier_arg = DeclareLaunchArgument(
@@ -58,6 +63,7 @@ def generate_launch_description():
                     "or 'disruptive' (as advanced, and the tin colour).",
         choices=["core", "advanced", "disruptive"],
     )
+
     debug_arg = DeclareLaunchArgument(
         name="debug",
         default_value="False",
@@ -68,19 +74,54 @@ def generate_launch_description():
     use_dvl_arg = DeclareLaunchArgument(
         name="use_dvl",
         default_value="False",
-        description="Whether DVL is equipped and should be used for EKF3 depth switching",
+        description=(
+            "Enable DVL transport, source switching, and Task 2 DVL readiness "
+            "checks. False leaves the estimator on its configured source set."
+        ),
         choices=["True", "False"],
     )
 
-    set_use_sim_time = SetUseSimTime(
-        True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
+    task2_params_arg = DeclareLaunchArgument(
+        name="task2_params_file",
+        default_value=os.path.join(
+            _banyu_bringup_share, "config", "task2_params.yaml"
+        ),
+        description="Path to ROS 2 parameter YAML file for Task 2 nodes",
+    )
+
+    por_params_arg = DeclareLaunchArgument(
+        name="por_params_file",
+        default_value=os.path.join(
+            _banyu_bringup_share, "config", "por_params.yaml"
+        ),
+        description="Path to ROS 2 parameter YAML file for POR nodes",
+    )
+
+    # SetUseSimTime only configures launch's own node; SetParameter reaches every launched node.
+    set_use_sim_time = SetParameter(
+        name="use_sim_time",
+        value=True,
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+                EqualsSubstitution(LaunchConfiguration("use_sim_time"), "True"),
+            )
+        ),
+    )
+
+    task2_spawn_x = PythonExpression(
+        ["'0' if '", LaunchConfiguration("mode"), "' == 'task2' else '-7'"]
+    )
+    task2_spawn_y = PythonExpression(
+        ["'0' if '", LaunchConfiguration("mode"), "' == 'task2' else '0'"]
+    )
+    task2_spawn_z = PythonExpression(
+        ["'-0.06' if '", LaunchConfiguration("mode"), "' == 'task2' else '-2'"]
     )
 
     gazebo_por_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(
-                _banyu_bringup_share, "launch", "utils", "gazebo_por.launch.py"
-            )
+            os.path.join(_banyu_bringup_share, "launch", "gazebo_por.launch.py")
         ),
         condition=IfCondition(EqualsSubstitution(LaunchConfiguration("mode"), "por")),
         launch_arguments={
@@ -91,25 +132,22 @@ def generate_launch_description():
 
     gazebo_main_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(
-                _banyu_bringup_share, "launch", "utils", "gazebo_main.launch.py"
-            )
+            os.path.join(_banyu_bringup_share, "launch", "gazebo_main.launch.py")
         ),
-        condition=IfCondition(
-            EqualsSubstitution(LaunchConfiguration("mode"), "mission")
-        ),
+        condition=IfCondition(EqualsSubstitution(LaunchConfiguration("mode"), "task2")),
         launch_arguments={
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "tier": LaunchConfiguration("tier"),
+            "spawn_x": task2_spawn_x,
+            "spawn_y": task2_spawn_y,
+            "spawn_z": task2_spawn_z,
         }.items(),
     )
 
     sitl_mavros_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(
-                _banyu_bringup_share, "launch", "utils", "sitl_mavros.launch.py"
-            )
+            os.path.join(_banyu_bringup_share, "launch", "sitl_mavros.launch.py")
         ),
         launch_arguments={
             "use_sim": LaunchConfiguration("use_sim"),
@@ -122,13 +160,15 @@ def generate_launch_description():
 
     mission_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(_banyu_bringup_share, "launch", "utils", "mission.launch.py")
+            os.path.join(_banyu_bringup_share, "launch", "mission.launch.py")
         ),
         launch_arguments={
+            "mode": LaunchConfiguration("mode"),
+            "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
-            "debug_arg": LaunchConfiguration("debug"),
-            "mission_mode": LaunchConfiguration("mode"),
-            "tier": LaunchConfiguration("tier"),
+            "debug": LaunchConfiguration("debug"),
+            "task2_params_file": LaunchConfiguration("task2_params_file"),
+            "por_params_file": LaunchConfiguration("por_params_file"),
         }.items(),
     )
 
@@ -142,6 +182,8 @@ def generate_launch_description():
             tier_arg,
             debug_arg,
             use_dvl_arg,
+            task2_params_arg,
+            por_params_arg,
             set_use_sim_time,
             gazebo_por_launch,
             gazebo_main_launch,

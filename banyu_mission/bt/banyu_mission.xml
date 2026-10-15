@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4" main_tree_to_execute="Main">
+  <BehaviorTree ID="Main">
+    <ReactiveFallback name="mission_root">
+      <Sequence name="interrupt_sequence">
+        <AutonomyInterrupted />
+        <HandleAbortOrTeleop />
+      </Sequence>
+      <Sequence name="mission_phases">
+        <SubTree ID="MissionPreflight" _autoremap="true" />
+        <SubTree ID="SurfaceTransitToStart" _autoremap="true" />
+        <SubTree ID="DiveAndAcquirePipeline" _autoremap="true" />
+        <SubTree ID="TraversePipeline" _autoremap="true" />
+        <SubTree ID="SurfaceAndReport" _autoremap="true" />
+      </Sequence>
+    </ReactiveFallback>
+  </BehaviorTree>
+
+  <BehaviorTree ID="MissionPreflight">
+    <Sequence>
+      <RequireMissionStarted />
+      <RequireVehicleReady />
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="SurfaceTransitToStart">
+    <Sequence>
+      <NavigateSurfaceGps target_latitude="{target_latitude}" target_longitude="{target_longitude}"
+        start_latitude="{start_latitude}" start_longitude="{start_longitude}"
+        tolerance="{gps_tolerance}" />
+      <AlignHeading target_heading="{heading}" tolerance="{heading_tolerance}" />
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="DiveAndAcquirePipeline">
+    <Sequence>
+      <DiveToDepth target_depth="{inspection_depth}" target_heading="{heading}"
+        depth_tolerance="{depth_tolerance}" heading_tolerance="{heading_tolerance}" />
+      <!-- A pass can cross the pipe at an angle and miss it; fall back to a search sweep. -->
+      <RetryUntilSuccessful num_attempts="3">
+        <Fallback>
+          <Timeout msec="{acquire_timeout_ms}">
+            <AcquirePipeline camera_name="{camera_name}" use_heading_prior="true"
+              heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}" />
+          </Timeout>
+          <SubTree ID="ReacquirePipeline" _autoremap="true" />
+        </Fallback>
+      </RetryUntilSuccessful>
+    </Sequence>
+  </BehaviorTree>
+
+  <!-- Repeats repair/reacquire/follow until the pipeline ends; a failed pass or the overall
+       traverse timeout ends the traversal and the trailing PipelineEnded reports a failure. -->
+  <BehaviorTree ID="TraversePipeline">
+    <Sequence>
+      <ForceSuccess>
+        <Timeout msec="{traverse_timeout_ms}">
+          <KeepRunningUntilFailure>
+            <WhileDoElse>
+              <PipelineActive />
+              <ReactiveFallback name="traverse_reactive">
+                <Sequence name="repair_red_ring">
+                  <RedRingPending />
+                  <SubTree ID="RepairRedRing" _autoremap="true" />
+                  <AcknowledgeRedRing />
+                </Sequence>
+                <Sequence name="reacquire_lost_pipeline">
+                  <PipelineLost />
+                  <SubTree ID="ReacquirePipeline" _autoremap="true" />
+                </Sequence>
+                <FollowPipeline enable="true" />
+              </ReactiveFallback>
+              <AlwaysFailure />
+            </WhileDoElse>
+          </KeepRunningUntilFailure>
+        </Timeout>
+      </ForceSuccess>
+      <PipelineEnded />
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="RepairRedRing">
+    <Sequence>
+      <CenterOnRing ring_color="red" tolerance="{ring_tolerance}" />
+      <HoldProbeOnRing hold_duration="{hold_duration}" alignment_tolerance="{ring_tolerance}" />
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="ReacquirePipeline">
+    <Sequence>
+      <SearchPipeline camera_name="{camera_name}" use_heading_prior="true"
+        heading_prior="{heading_prior}" search_span="{search_span}" sweep_rate="{sweep_rate}" />
+      <Timeout msec="{acquire_timeout_ms}">
+        <AcquirePipeline camera_name="{camera_name}" use_heading_prior="false"
+          heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}" />
+      </Timeout>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="SurfaceAndReport">
+    <Sequence>
+      <Timeout msec="5000">
+        <WaitSurveyComplete />
+      </Timeout>
+      <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}" />
+      <ConfirmSurfaceAction />
+      <Timeout msec="5000">
+        <PublishPipelineSurvey />
+      </Timeout>
+    </Sequence>
+  </BehaviorTree>
+</root>

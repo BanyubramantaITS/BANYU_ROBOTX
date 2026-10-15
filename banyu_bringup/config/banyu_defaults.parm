@@ -24,6 +24,11 @@ SR1_EXTRA1 5
 # EKF failsafe: 0 = never failsafe (keep teleop control authority).
 FS_EKF_ACTION 0
 
+# GCS failsafe: 0 = Disabled.
+# A tetherless AUV intentionally loses wireless/GCS link to dock when submerged.
+# Mission abort and failure fallback to SURFACE is managed onboard by banyu_mission.
+FS_GCS_ENABLE 0
+
 # --- Navigation sources: GPS on the surface, DVL underwater ---
 # Names/values verified against libraries/AP_VisualOdom/AP_VisualOdom.cpp and
 # libraries/AP_NavEKF/AP_NavEKF_Source.h. Overview: banyu_bringup/README.md.
