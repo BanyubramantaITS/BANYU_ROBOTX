@@ -7,6 +7,7 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(banyu_msgs REQUIRED)
 find_package(mavros_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -27,10 +28,19 @@ target_compile_features(vehicle_status_node PUBLIC cxx_std_17)
 target_link_libraries(vehicle_status_node vehicle_status_tracker)
 ament_target_dependencies(vehicle_status_node rclcpp)
 
+add_executable(esp32_bridge_node src/esp32_bridge_node.cpp)
+target_compile_features(esp32_bridge_node PUBLIC cxx_std_17)
+target_include_directories(esp32_bridge_node PUBLIC
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+  "$<INSTALL_INTERFACE:include>")
+ament_target_dependencies(esp32_bridge_node
+  rclcpp
+  std_msgs)
+
 install(DIRECTORY include/
   DESTINATION include)
 
-install(TARGETS vehicle_status_tracker vehicle_status_node
+install(TARGETS vehicle_status_tracker vehicle_status_node esp32_bridge_node
   EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -41,7 +51,7 @@ install(EXPORT export_${PROJECT_NAME}
 
 ament_export_include_directories(include)
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
-ament_export_dependencies(rclcpp banyu_msgs mavros_msgs sensor_msgs)
+ament_export_dependencies(rclcpp std_msgs banyu_msgs mavros_msgs sensor_msgs)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)

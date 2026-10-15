@@ -1456,6 +1456,7 @@ TEST_F(VehicleExecutionNodeTest, MavrosPublicationGatedByStatusAndGuidedMode)
   // Send valid GUIDED status
   status.header.stamp = node->now();
   status.mode = "GUIDED";
+  status.operational_mode = 2;
   status_pub->publish(status);
   spinFor(node, 10);
 

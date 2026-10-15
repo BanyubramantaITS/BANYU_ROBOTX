@@ -230,6 +230,19 @@ def generate_launch_description():
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
 
+    active_params = PythonExpression([
+        "'", por_params, "' if '", mode, "' == 'por' else '", task2_params, "'"
+    ])
+
+    esp32_bridge = Node(
+        package="banyu_vehicle_interface",
+        executable="esp32_bridge_node",
+        name="esp32_bridge_node",
+        parameters=[active_params],
+        output="screen",
+        condition=UnlessCondition(LaunchConfiguration("use_sim")),
+    )
+
     return LaunchDescription(
         [
             mode_arg,
@@ -252,5 +265,6 @@ def generate_launch_description():
             task2_uav_report,
             task2_vehicle_execution,
             task2_pipeline_end,
+            esp32_bridge,
         ]
     )

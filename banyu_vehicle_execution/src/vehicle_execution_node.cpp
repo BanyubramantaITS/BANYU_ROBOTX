@@ -378,12 +378,18 @@ void VehicleExecutionNode::timerCallback()
 
     if (enable_mavros_publish_ && mavros_target_pub_) {
       const bool takeover = telemetry_.status_valid && telemetry_.operator_takeover;
-      const bool status_ready = telemetry_.status_valid &&
+      bool status_ready = telemetry_.status_valid &&
         telemetry_.fcu_connected &&
         telemetry_.fcu_status_fresh &&
         telemetry_.mode == "GUIDED";
 
-      if (!takeover && (!require_guided_ || status_ready)) {
+      if (telemetry_.status_valid && telemetry_.operational_mode != 2) {
+        status_ready = false;
+      }
+
+      if (!takeover && (!require_guided_ || status_ready) &&
+        (!telemetry_.status_valid || telemetry_.operational_mode == 2))
+      {
         mavros_target_pub_->publish(target);
       }
     }
@@ -451,6 +457,8 @@ void VehicleExecutionNode::handleStatus(const banyu_msgs::msg::VehicleStatus::Sh
   telemetry_.operator_takeover = msg->operator_takeover;
   telemetry_.mode = msg->mode;
   telemetry_.authority = msg->authority;
+  telemetry_.operational_mode = msg->operational_mode;
+  telemetry_.hardware_kill_active = msg->hardware_kill_active;
 }
 
 void VehicleExecutionNode::handlePipelineObs(

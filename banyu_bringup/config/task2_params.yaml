@@ -158,3 +158,10 @@ pipeline_end_node:
     observation_topic: "/banyu/pipeline/observation"
     candidate_topic: "/banyu/pipeline/end_candidate"
     end_topic: "/banyu/pipeline/end"
+
+esp32_bridge_node:
+  ros__parameters:
+    port: "/dev/ttyUSB0"
+    baud: 115200
+    heartbeat_rate_hz: 10.0
+    serial_timeout_s: 0.5

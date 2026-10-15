@@ -12,7 +12,7 @@ class VehicleStatusNode : public rclcpp::Node
 {
 public:
   VehicleStatusNode()
-  : Node("banyu_vehicle_status"), tracker_(loadConfig())
+  : Node("banyu_vehicle_status"), tracker_(loadConfig(), this)
   {
     const auto state_topic = declare_parameter<std::string>("state_topic", "/mavros/state");
     const auto rc_topic = declare_parameter<std::string>("rc_topic", "/mavros/rc/in");

@@ -121,3 +121,10 @@ banyu_vehicle_status:
     rc_takeover_channel: 4
     rc_takeover_threshold: 1700
     autonomy_mode: "GUIDED"
+
+esp32_bridge_node:
+  ros__parameters:
+    port: "/dev/ttyUSB0"
+    baud: 115200
+    heartbeat_rate_hz: 10.0
+    serial_timeout_s: 0.5

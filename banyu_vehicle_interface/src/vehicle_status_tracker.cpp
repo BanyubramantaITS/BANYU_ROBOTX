@@ -8,16 +8,28 @@ namespace banyu_vehicle_interface
 {
 
 VehicleStatusTracker::VehicleStatusTracker()
-: VehicleStatusTracker(Config{})
+: VehicleStatusTracker(Config{}, nullptr)
 {
 }
 
-VehicleStatusTracker::VehicleStatusTracker(Config config)
-: config_(std::move(config))
+VehicleStatusTracker::VehicleStatusTracker(Config config, rclcpp::Node * node)
+: config_(std::move(config)), node_(node)
 {
   config_.fcu_timeout_s = std::max(0.0, config_.fcu_timeout_s);
   config_.rc_timeout_s = std::max(0.0, config_.rc_timeout_s);
   config_.gps_timeout_s = std::max(0.0, config_.gps_timeout_s);
+
+  if (node_ != nullptr) {
+    kill_switch_sub_ = node_->create_subscription<std_msgs::msg::UInt8>(
+      "/banyu/hardware/kill_switch", rclcpp::QoS(10),
+      std::bind(&VehicleStatusTracker::killSwitchCallback, this, std::placeholders::_1));
+    arming_client_ = node_->create_client<mavros_msgs::srv::CommandBool>("/mavros/cmd/arming");
+  }
+}
+
+VehicleStatusTracker::VehicleStatusTracker(rclcpp::Node * node)
+: VehicleStatusTracker(Config{}, node)
+{
 }
 
 void VehicleStatusTracker::updateState(
@@ -57,6 +69,24 @@ void VehicleStatusTracker::updateGps(
   last_gps_ = received_at;
 }
 
+void VehicleStatusTracker::killSwitchCallback(const std_msgs::msg::UInt8::SharedPtr msg)
+{
+  if (!msg) {
+    return;
+  }
+  updateKillSwitch(msg->data);
+}
+
+void VehicleStatusTracker::updateKillSwitch(uint8_t mode)
+{
+  current_hw_mode_ = mode;
+  if (current_hw_mode_ == 0 && arming_client_) {
+    auto request = std::make_shared<mavros_msgs::srv::CommandBool::Request>();
+    request->value = false;
+    arming_client_->async_send_request(request);
+  }
+}
+
 bool VehicleStatusTracker::isFresh(
   bool received, const rclcpp::Time & now, const rclcpp::Time & last_received,
   double timeout_s)
@@ -81,11 +111,18 @@ banyu_msgs::msg::VehicleStatus VehicleStatusTracker::status(const rclcpp::Time &
   result.gps_fresh = isFresh(gps_received_, now, last_gps_, config_.gps_timeout_s) && gps_valid_;
   result.gps_valid = gps_received_ && gps_valid_;
 
+  result.operational_mode = current_hw_mode_;
+  result.hardware_kill_active = (current_hw_mode_ == 0);
+
   if (!result.fcu_connected || !result.rc_fresh) {
     result.authority = "UNKNOWN";
+  } else if (current_hw_mode_ == 0) {
+    result.authority = "DISARMED";
   } else if (result.operator_takeover) {
     result.authority = "OPERATOR";
-  } else if (result.mode == config_.autonomy_mode) {
+  } else if (current_hw_mode_ == 1) {
+    result.authority = "MANUAL";
+  } else if (current_hw_mode_ == 2 && result.mode == config_.autonomy_mode) {
     result.authority = "AUTONOMY";
   } else {
     result.authority = "MANUAL";

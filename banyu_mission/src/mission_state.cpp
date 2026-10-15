@@ -249,6 +249,8 @@ MissionState::Snapshot MissionState::snapshot() const
   value.ring_color = ring_color_;
   value.mode = mode_;
   value.authority = authority_;
+  value.operational_mode = operational_mode_;
+  value.hardware_kill_active = hardware_kill_active_;
   return value;
 }
 
@@ -259,24 +261,31 @@ bool MissionState::autonomyInterrupted() const
     return false;
   }
   std::lock_guard<std::mutex> lock(mutex_);
-  if (value.abort_requested || value.operator_takeover || value.manual_interrupt) {
+  if (value.abort_requested || value.operator_takeover || value.manual_interrupt ||
+    (status_received_ &&
+    (value.operational_mode == 0 || value.operational_mode == 1 || value.hardware_kill_active)))
+  {
     RCLCPP_WARN(
       node_->get_logger(),
-      "Autonomy interrupted: abort=%d, takeover=%d, manual_interrupt=%d",
-      value.abort_requested, value.operator_takeover, value.manual_interrupt);
+      "Autonomy interrupted: abort=%d, takeover=%d, manual_interrupt=%d, op_mode=%u, hw_kill=%d",
+      value.abort_requested, value.operator_takeover, value.manual_interrupt,
+      value.operational_mode, value.hardware_kill_active);
     return true;
   }
 
   if (autonomy_engaged_) {
     const bool mode_ok = (value.mode == autonomy_mode_ &&
       (autonomy_authority_.empty() || value.authority == autonomy_authority_));
-    const bool ready = value.fcu_connected && value.fcu_status_fresh && value.rc_fresh && mode_ok;
+    const bool op_mode_ok = !status_received_ ||
+      (value.operational_mode == 2 && !value.hardware_kill_active);
+    const bool ready = value.fcu_connected && value.fcu_status_fresh && value.rc_fresh && mode_ok &&
+      op_mode_ok;
     if (!ready) {
       RCLCPP_WARN(
         node_->get_logger(),
-        "Autonomy interrupted: connected=%d, state_fresh=%d, rc_fresh=%d, mode_ok=%d (mode=%s expected=%s)",
+        "Autonomy interrupted: connected=%d, state_fresh=%d, rc_fresh=%d, mode_ok=%d, op_mode_ok=%d (mode=%s expected=%s)",
         value.fcu_connected, value.fcu_status_fresh, value.rc_fresh,
-        mode_ok, value.mode.c_str(), autonomy_mode_.c_str());
+        mode_ok, op_mode_ok, value.mode.c_str(), autonomy_mode_.c_str());
       return true;
     }
   }
@@ -288,6 +297,11 @@ bool MissionState::vehicleReady() const
 {
   const auto value = snapshot();
   std::lock_guard<std::mutex> lock(mutex_);
+  if (status_received_ &&
+    (value.operational_mode == 0 || value.operational_mode == 1 || value.hardware_kill_active))
+  {
+    return false;
+  }
   const bool mode_ok = !autonomy_engaged_ ||
     (value.mode == autonomy_mode_ &&
     (autonomy_authority_.empty() || value.authority == autonomy_authority_));
@@ -327,6 +341,9 @@ void MissionState::stateCallback(const banyu_msgs::msg::VehicleStatus::SharedPtr
   authority_ = msg->authority;
   gps_valid_ = msg->gps_valid && msg->gps_fresh;
   manual_interrupt_ = msg->operator_takeover;
+  status_received_ = true;
+  operational_mode_ = msg->operational_mode;
+  hardware_kill_active_ = msg->hardware_kill_active;
   last_state_ = node_->now();
 }
 

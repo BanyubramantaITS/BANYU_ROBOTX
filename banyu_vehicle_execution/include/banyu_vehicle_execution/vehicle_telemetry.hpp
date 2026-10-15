@@ -46,6 +46,8 @@ struct VehicleTelemetry
   bool operator_takeover{false};
   std::string mode{};
   std::string authority{};
+  uint8_t operational_mode{0};
+  bool hardware_kill_active{false};
 
   // Pipeline observation
   bool pipeline_obs_valid{false};

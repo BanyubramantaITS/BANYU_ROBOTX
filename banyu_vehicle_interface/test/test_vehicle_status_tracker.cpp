@@ -92,6 +92,7 @@ TEST(VehicleStatusTrackerTest, MalformedRcDoesNotRefreshDeadman)
 TEST(VehicleStatusTrackerTest, HighRcTakeoverWinsOverAutonomy)
 {
   VehicleStatusTracker tracker(testConfig());
+  tracker.updateKillSwitch(2);
   tracker.updateState(state(true, "GUIDED"), timeAt(0.0));
   tracker.updateRc(rc(1800), timeAt(0.0));
 
@@ -103,12 +104,59 @@ TEST(VehicleStatusTrackerTest, HighRcTakeoverWinsOverAutonomy)
 TEST(VehicleStatusTrackerTest, PublishesCurrentMode)
 {
   VehicleStatusTracker tracker(testConfig());
+  tracker.updateKillSwitch(1);
   tracker.updateState(state(true, "MANUAL"), timeAt(0.0));
   tracker.updateRc(rc(1500), timeAt(0.0));
 
   const auto result = tracker.status(timeAt(0.1));
   EXPECT_EQ(result.mode, "MANUAL");
   EXPECT_EQ(result.authority, "MANUAL");
+}
+
+TEST(VehicleStatusTrackerTest, DefaultKillSwitchIsDisarmed)
+{
+  VehicleStatusTracker tracker(testConfig());
+  tracker.updateState(state(true, "GUIDED"), timeAt(0.0));
+  tracker.updateRc(rc(1500), timeAt(0.0));
+
+  const auto result = tracker.status(timeAt(0.1));
+  EXPECT_EQ(result.operational_mode, 0);
+  EXPECT_TRUE(result.hardware_kill_active);
+  EXPECT_EQ(result.authority, "DISARMED");
+}
+
+TEST(VehicleStatusTrackerTest, KillSwitchTransitions)
+{
+  VehicleStatusTracker tracker(testConfig());
+  tracker.updateState(state(true, "GUIDED"), timeAt(0.0));
+  tracker.updateRc(rc(1500), timeAt(0.0));
+
+  // Switch to Manual (1)
+  tracker.updateKillSwitch(1);
+  auto manual_res = tracker.status(timeAt(0.1));
+  EXPECT_EQ(manual_res.operational_mode, 1);
+  EXPECT_FALSE(manual_res.hardware_kill_active);
+  EXPECT_EQ(manual_res.authority, "MANUAL");
+
+  // Switch to Autonomous (2) with GUIDED FCU
+  tracker.updateKillSwitch(2);
+  auto auto_res = tracker.status(timeAt(0.2));
+  EXPECT_EQ(auto_res.operational_mode, 2);
+  EXPECT_FALSE(auto_res.hardware_kill_active);
+  EXPECT_EQ(auto_res.authority, "AUTONOMY");
+
+  // Switch to Autonomous (2) with non-GUIDED FCU
+  tracker.updateState(state(true, "STABILIZE"), timeAt(0.3));
+  auto not_guided_res = tracker.status(timeAt(0.3));
+  EXPECT_EQ(not_guided_res.operational_mode, 2);
+  EXPECT_EQ(not_guided_res.authority, "MANUAL");
+
+  // Switch to Disarmed (0)
+  tracker.updateKillSwitch(0);
+  auto disarm_res = tracker.status(timeAt(0.4));
+  EXPECT_EQ(disarm_res.operational_mode, 0);
+  EXPECT_TRUE(disarm_res.hardware_kill_active);
+  EXPECT_EQ(disarm_res.authority, "DISARMED");
 }
 
 TEST(VehicleStatusTrackerTest, InvalidGpsIsNotValid)
