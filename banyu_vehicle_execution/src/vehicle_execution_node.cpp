@@ -113,6 +113,12 @@ void VehicleExecutionNode::initSubscribers()
     guidance_intent_topic, rclcpp::QoS(10),
     std::bind(&VehicleExecutionNode::handleGuidanceIntent, this, std::placeholders::_1));
 
+  const auto pinger_obs_topic = declare_parameter<std::string>(
+    "topics.pinger_obs", "/banyu/pinger/observation");
+  pinger_obs_sub_ = create_subscription<banyu_msgs::msg::PingerObservation>(
+    pinger_obs_topic, rclcpp::SensorDataQoS(),
+    std::bind(&VehicleExecutionNode::handlePingerObs, this, std::placeholders::_1));
+
   run_lifecycle_sub_ = create_subscription<banyu_msgs::msg::RunLifecycle>(
     lifecycle_topic, rclcpp::QoS(1).reliable().transient_local(),
     std::bind(&VehicleExecutionNode::handleRunLifecycle, this, std::placeholders::_1));
@@ -204,8 +210,15 @@ void VehicleExecutionNode::initActionServers()
     declare_parameter<double>("control.search_retrace_distance_m", 1.5);
   const double search_retrace_speed = declare_parameter<double>("control.search_retrace_speed",
       0.2);
+  const double search_pinger_timeout_s =
+    declare_parameter<double>("control.search_pinger_timeout_s", 3.0);
+  const double search_pinger_kp =
+    declare_parameter<double>("control.search_pinger_kp", 0.8);
+  const double search_pinger_forward_speed =
+    declare_parameter<double>("control.search_pinger_forward_speed", 0.25);
   auto search_server = std::make_shared<SearchPipelineServer>(
-    this, search_action, this, 0.2, 0.3, search_retrace_distance_m, search_retrace_speed);
+    this, search_action, this, 0.2, 0.3, search_retrace_distance_m, search_retrace_speed,
+    search_pinger_timeout_s, search_pinger_kp, search_pinger_forward_speed);
   auto follow_server = std::make_shared<FollowPipelineServer>(
     this, follow_action, this);
   auto center_server = std::make_shared<CenterOnRingServer>(
@@ -851,5 +864,20 @@ void VehicleExecutionNode::handleGuidanceIntent(
   telemetry_.guidance_yaw_control_active = msg->yaw_control_active;
 }
 
+void VehicleExecutionNode::handlePingerObs(
+  const banyu_msgs::msg::PingerObservation::SharedPtr msg)
+{
+  if (!msg || !std::isfinite(msg->bearing) || !std::isfinite(msg->elevation_cos)) {
+    telemetry_.pinger_obs_valid = false;
+    return;
+  }
+  telemetry_.pinger_obs_valid = true;
+  telemetry_.pinger_obs_stamp = resolveStamp(msg->header.stamp);
+  telemetry_.pinger_forward = msg->forward;
+  telemetry_.pinger_left = msg->left;
+  telemetry_.pinger_bearing_rad = msg->bearing;
+  telemetry_.pinger_elevation_cos = msg->elevation_cos;
+  telemetry_.pinger_horizontal_range_m = msg->horizontal_range;
+}
 
 }  // namespace banyu_vehicle_execution

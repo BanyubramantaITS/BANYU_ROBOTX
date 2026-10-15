@@ -17,6 +17,8 @@
 #include <string>
 #include <vector>
 
+#include "banyu_detection/pipeline_vision.hpp"
+
 namespace task2_pipeline_detector
 {
 
@@ -97,6 +99,12 @@ private:
     ring_observation_topic_ = declare_parameter<std::string>(
       "ring_observation_topic",
       "/banyu/pipeline/ring_observation");
+
+    const auto rect = declare_parameter<std::vector<int64_t>>("probe_rect", std::vector<int64_t>{});
+    if (rect.size() == 4) {
+      probe_rect_ = cv::Rect(static_cast<int>(rect[0]), static_cast<int>(rect[1]),
+                             static_cast<int>(rect[2]), static_cast<int>(rect[3]));
+    }
 
     gray_threshold_ = declare_parameter<int>("gray_threshold", 170);
     hsv_value_threshold_ = declare_parameter<int>("hsv_value_threshold", 150);
@@ -357,6 +365,40 @@ private:
         throw std::runtime_error("converted image is empty");
       }
 
+      // Primary: edge-pair pipe fitting from pipeline_vision
+      const cv::Mat edge_mask = banyu_detection::pipeMask(image, probe_rect_);
+      const auto ahead_fit = banyu_detection::fitPipe(edge_mask,
+          banyu_detection::aheadBand(image.rows));
+      const auto ahead_centroid = banyu_detection::pipeCentroid(edge_mask);
+
+      bool pipeline_detected = false;
+      PipelineLine pipeline;
+
+      if (ahead_fit.has_value()) {
+        observation.status = banyu_msgs::msg::PipelineObservation::TRACKED;
+        observation.heading_error_rad = std::clamp(
+          ahead_fit->angle, static_cast<float>(-M_PI_2), static_cast<float>(M_PI_2));
+        observation.offset_x = std::clamp(
+          static_cast<float>(ahead_fit->lateral / (image.cols * 0.5f)), -1.0f, 1.0f);
+        if (ahead_centroid.has_value()) {
+          observation.offset_y = std::clamp(
+            static_cast<float>((ahead_centroid->y - image.rows * 0.5f) / (image.rows * 0.5f)),
+              -1.0f, 1.0f);
+        } else {
+          observation.offset_y = 0.0f;
+        }
+        const int inliers = cv::countNonZero(edge_mask);
+        observation.confidence = std::clamp(static_cast<float>(inliers / 300.0f), 0.35f, 1.0f);
+        pipeline_detected = true;
+
+        pipeline.line = cv::Vec4f(std::sin(ahead_fit->angle), -std::cos(ahead_fit->angle),
+                                  image.cols * 0.5f + ahead_fit->lateral, image.rows * 0.5f);
+        pipeline.heading = ahead_fit->angle;
+        pipeline.offset_x = observation.offset_x;
+        pipeline.offset_y = observation.offset_y;
+        pipeline.confidence = observation.confidence;
+      }
+
       cv::Mat hsv;
       cv::Mat gray;
       cv::Mat blurred;
@@ -368,40 +410,85 @@ private:
         getSliderValue();
       }
 
-      const cv::Mat pipeline_mask = makePipelineMask(gray, hsv);
-      PipelineLine pipeline;
-      if (findPipeline(pipeline_mask, image.size(), pipeline)) {
-        observation.status = banyu_msgs::msg::PipelineObservation::TRACKED;
-        observation.offset_x = static_cast<float>(pipeline.offset_x);
-        observation.offset_y = static_cast<float>(pipeline.offset_y);
-        observation.heading_error_rad = static_cast<float>(pipeline.heading);
-        observation.confidence = static_cast<float>(pipeline.confidence);
+      cv::Mat pipeline_mask;
+      if (!pipeline_detected) {
+        pipeline_mask = makePipelineMask(gray, hsv);
+        if (findPipeline(pipeline_mask, image.size(), pipeline)) {
+          observation.status = banyu_msgs::msg::PipelineObservation::TRACKED;
+          observation.offset_x = static_cast<float>(pipeline.offset_x);
+          observation.offset_y = static_cast<float>(pipeline.offset_y);
+          observation.heading_error_rad = static_cast<float>(pipeline.heading);
+          observation.confidence = static_cast<float>(pipeline.confidence);
+          pipeline_detected = true;
+        }
       }
 
-      RingCandidate best_red;
-      bool found_red = false;
-      RingCandidate best_green;
-      bool found_green = false;
+      // Detect light nodes on the pipeline (top-hat multi-color detection)
+      const cv::Mat & lights_mask =
+        (!edge_mask.empty() && cv::countNonZero(edge_mask) > 0) ? edge_mask : pipeline_mask;
+      const auto lights = banyu_detection::detectLights(image, lights_mask);
+      bool light_found = false;
+
+      if (!lights.empty()) {
+        const banyu_detection::Light * chosen = nullptr;
+        for (const auto & l : lights) {
+          if (l.colour == banyu_detection::Light::kRed) {
+            chosen = &l;
+            break;
+          }
+        }
+        if (!chosen) {
+          for (const auto & l : lights) {
+            if (l.colour == banyu_detection::Light::kBlue) {
+              chosen = &l;
+              break;
+            }
+          }
+        }
+        if (!chosen) {
+          chosen = &lights.front();
+        }
+
+        ring.visible = true;
+        ring.color = (chosen->colour == banyu_detection::Light::kRed) ?
+          banyu_msgs::msg::PipelineRingObservation::COLOR_RED :
+          ((chosen->colour == banyu_detection::Light::kBlue) ?
+          banyu_msgs::msg::PipelineRingObservation::COLOR_BLUE :
+          banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN);
+        ring.confidence = 0.9f;
+        ring.offset_x = std::clamp(static_cast<float>(normalizedX(chosen->x, image.cols)), -1.0f,
+            1.0f);
+        ring.offset_y = std::clamp(static_cast<float>(normalizedY(chosen->y, image.rows)), -1.0f,
+            1.0f);
+        light_found = true;
+      }
+
       cv::Mat red_mask;
       cv::Mat green_mask;
+      if (!light_found) {
+        RingCandidate best_red;
+        bool found_red = false;
+        RingCandidate best_green;
+        bool found_green = false;
 
-      findRings(
-        hsv, pipeline, (observation.status == banyu_msgs::msg::PipelineObservation::TRACKED),
-        best_red, found_red, best_green,
-        found_green, red_mask, green_mask);
+        findRings(
+          hsv, pipeline, pipeline_detected,
+          best_red, found_red, best_green,
+          found_green, red_mask, green_mask);
 
-      if (found_red) {
-        ring.visible = true;
-        ring.color = static_cast<uint8_t>(best_red.color);
-        ring.confidence = static_cast<float>(best_red.confidence);
-        ring.offset_x = static_cast<float>(normalizedX(best_red.center.x, image.cols));
-        ring.offset_y = static_cast<float>(normalizedY(best_red.center.y, image.rows));
-      } else if (found_green) {
-        ring.visible = true;
-        ring.color = static_cast<uint8_t>(best_green.color);
-        ring.confidence = static_cast<float>(best_green.confidence);
-        ring.offset_x = static_cast<float>(normalizedX(best_green.center.x, image.cols));
-        ring.offset_y = static_cast<float>(normalizedY(best_green.center.y, image.rows));
+        if (found_red) {
+          ring.visible = true;
+          ring.color = static_cast<uint8_t>(best_red.color);
+          ring.confidence = static_cast<float>(best_red.confidence);
+          ring.offset_x = static_cast<float>(normalizedX(best_red.center.x, image.cols));
+          ring.offset_y = static_cast<float>(normalizedY(best_red.center.y, image.rows));
+        } else if (found_green) {
+          ring.visible = true;
+          ring.color = static_cast<uint8_t>(best_green.color);
+          ring.confidence = static_cast<float>(best_green.confidence);
+          ring.offset_x = static_cast<float>(normalizedX(best_green.center.x, image.cols));
+          ring.offset_y = static_cast<float>(normalizedY(best_green.center.y, image.rows));
+        }
       }
 
       if (use_gui_) {
@@ -436,29 +523,28 @@ private:
               0, 0, 255), 2);
         }
 
-        if (found_red) {
-          cv::circle(annotated, best_red.center, 20, cv::Scalar(0, 0, 255), 2);
+        if (ring.visible) {
+          const cv::Point ring_pt(
+            static_cast<int>((ring.offset_x * 0.5 + 0.5) * image.cols),
+            static_cast<int>((ring.offset_y * 0.5 + 0.5) * image.rows));
+          const cv::Scalar ring_color = (ring.color ==
+            banyu_msgs::msg::PipelineRingObservation::COLOR_RED) ?
+            cv::Scalar(0, 0, 255) :
+            (ring.color == banyu_msgs::msg::PipelineRingObservation::COLOR_BLUE ?
+            cv::Scalar(255, 0, 0) :
+            cv::Scalar(0, 255, 0));
+          cv::circle(annotated, ring_pt, 20, ring_color, 2);
           cv::putText(
-            annotated, "RED RING",
-            cv::Point(
-              static_cast<int>(best_red.center.x) - 30,
-              static_cast<int>(best_red.center.y) - 25),
-            cv::FONT_HERSHEY_SIMPLEX, 0.55, cv::Scalar(0, 0, 255), 2);
-        }
-        if (found_green) {
-          cv::circle(annotated, best_green.center, 20, cv::Scalar(0, 255, 0), 2);
-          cv::putText(
-            annotated, "GREEN RING",
-            cv::Point(
-              static_cast<int>(best_green.center.x) - 30,
-              static_cast<int>(best_green.center.y) - 25),
-            cv::FONT_HERSHEY_SIMPLEX, 0.55, cv::Scalar(0, 255, 0), 2);
+            annotated,
+            ring.color == banyu_msgs::msg::PipelineRingObservation::COLOR_RED ? "RED RING" : "RING",
+            cv::Point(ring_pt.x - 30, ring_pt.y - 25),
+            cv::FONT_HERSHEY_SIMPLEX, 0.55, ring_color, 2);
         }
 
         cv::imshow("Original Frame", image);
-        cv::imshow("Pipeline Mask", pipeline_mask);
-        cv::imshow("Red Ring Mask", red_mask);
-        cv::imshow("Green Ring Mask", green_mask);
+        cv::imshow("Pipeline Mask", pipeline_mask.empty() ? edge_mask : pipeline_mask);
+        if (!red_mask.empty()) {cv::imshow("Red Ring Mask", red_mask);}
+        if (!green_mask.empty()) {cv::imshow("Green Ring Mask", green_mask);}
         cv::imshow("Annotated", annotated);
         cv::waitKey(1);
       }
@@ -1001,6 +1087,7 @@ private:
   double ring_max_aspect_ratio_ {4.5};
   double ring_min_confidence_ {0.15};
 
+  cv::Rect probe_rect_{};
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_sub_;
   rclcpp::Publisher<banyu_msgs::msg::PipelineObservation>::SharedPtr observation_pub_;

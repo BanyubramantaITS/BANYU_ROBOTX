@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<sdf version="1.8">
+  <model name="robotx_color_indicator_red">
+    <static>true</static>
+    <link name="indicator_link">
+      <visual name="core">
+        <pose>0 0 0.0675 0 0 0</pose>
+        <geometry><cylinder><radius>0.0352</radius><length>0.135</length></cylinder></geometry>
+        <material><ambient>0.96 0.96 0.96 1</ambient><diffuse>1.0 1.0 1.0 1</diffuse></material>
+      </visual>
+
+      <visual name="fin_0">
+        <pose>0.0461 0.0 0.0675 0 0 0</pose>
+        <geometry><box><size>0.0352 0.004 0.108</size></box></geometry>
+        <material><ambient>0.910 0.157 0.169 1</ambient><diffuse>0.910 0.157 0.169 1</diffuse><emissive>0.910 0.157 0.169 1</emissive></material>
+      </visual>
+      <visual name="fin_1">
+        <pose>0.0326 0.0326 0.0675 0 0 0.7854</pose>
+        <geometry><box><size>0.0352 0.004 0.108</size></box></geometry>
+        <material><ambient>0.910 0.157 0.169 1</ambient><diffuse>0.910 0.157 0.169 1</diffuse><emissive>0.910 0.157 0.169 1</emissive></material>
+      </visual>
+      <visual name="fin_2">
+        <pose>0.0 0.0461 0.0675 0 0 1.5708</pose>
+        <geometry><box><size>0.0352 0.004 0.108</size></box></geometry>
+        <material><ambient>0.910 0.157 0.169 1</ambient><diffuse>0.910 0.157 0.169 1</diffuse><emissive>0.910 0.157 0.169 1</emissive></material>
+      </visual>
+      <visual name="fin_3">
+        <pose>-0.0326 0.0326 0.0675 0 0 2.3562</pose>
+        <geometry><box><size>0.0352 0.004 0.108</size></box></geometry>
+        <material><ambient>0.910 0.157 0.169 1</ambient><diffuse>0.910 0.157 0.169 1</diffuse><emissive>0.910 0.157 0.169 1</emissive></material>
+      </visual>
+      <visual name="fin_4">
+        <pose>-0.0461 0.0 0.0675 0 0 3.1416</pose>
+        <geometry><box><size>0.0352 0.004 0.108</size></box></geometry>
+        <material><ambient>0.910 0.157 0.169 1</ambient><diffuse>0.910 0.157 0.169 1</diffuse><emissive>0.910 0.157 0.169 1</emissive></material>
+      </visual>
+      <visual name="fin_5">
+        <pose>-0.0326 -0.0326 0.0675 0 0 3.9270</pose>
+        <geometry><box><size>0.0352 0.004 0.108</size></box></geometry>
+        <material><ambient>0.910 0.157 0.169 1</ambient><diffuse>0.910 0.157 0.169 1</diffuse><emissive>0.910 0.157 0.169 1</emissive></material>
+      </visual>
+      <visual name="fin_6">
+        <pose>0.0 -0.0461 0.0675 0 0 4.7124</pose>
+        <geometry><box><size>0.0352 0.004 0.108</size></box></geometry>
+        <material><ambient>0.910 0.157 0.169 1</ambient><diffuse>0.910 0.157 0.169 1</diffuse><emissive>0.910 0.157 0.169 1</emissive></material>
+      </visual>
+      <visual name="fin_7">
+        <pose>0.0326 -0.0326 0.0675 0 0 5.4978</pose>
+        <geometry><box><size>0.0352 0.004 0.108</size></box></geometry>
+        <material><ambient>0.910 0.157 0.169 1</ambient><diffuse>0.910 0.157 0.169 1</diffuse><emissive>0.910 0.157 0.169 1</emissive></material>
+      </visual>
+    </link>
+  </model>
+</sdf>

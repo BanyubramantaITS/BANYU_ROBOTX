@@ -43,9 +43,7 @@ def generate_launch_description():
     use_ardusub_sitl_arg = DeclareLaunchArgument(
         name="use_ardusub_sitl",
         default_value="True",
-        description=(
-            "Use sim_vehicle.py wrapper (True) or bare ardusub binary (False) for simulation"
-        ),
+        description="Whether to start the ArduSub SITL binary alongside Gazebo",
         choices=["True", "False"],
     )
 
@@ -56,6 +54,14 @@ def generate_launch_description():
             "FCU connection URL (udp://127.0.0.1:14551@ for SITL or "
             "udp://192.168.2.1:14550@ for real ROV). SITL keeps 14550 free for QGC."
         ),
+    )
+
+    tier_arg = DeclareLaunchArgument(
+        name="tier",
+        default_value="advanced",
+        description="RobotX Task 2 tier: 'core' (survey + report, no probe), 'advanced' (repair + resource request) "
+                    "or 'disruptive' (as advanced, and the tin colour).",
+        choices=["core", "advanced", "disruptive"],
     )
 
     debug_arg = DeclareLaunchArgument(
@@ -132,6 +138,7 @@ def generate_launch_description():
         launch_arguments={
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
+            "tier": LaunchConfiguration("tier"),
             "spawn_x": task2_spawn_x,
             "spawn_y": task2_spawn_y,
             "spawn_z": task2_spawn_z,
@@ -146,8 +153,8 @@ def generate_launch_description():
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "use_ardusub_sitl": LaunchConfiguration("use_ardusub_sitl"),
-            "use_dvl": LaunchConfiguration("use_dvl"),
             "fcu_url": LaunchConfiguration("fcu_url"),
+            "use_dvl": LaunchConfiguration("use_dvl"),
         }.items(),
     )
 
@@ -172,6 +179,7 @@ def generate_launch_description():
             use_sim_time_arg,
             use_ardusub_sitl_arg,
             fcu_url_arg,
+            tier_arg,
             debug_arg,
             use_dvl_arg,
             task2_params_arg,

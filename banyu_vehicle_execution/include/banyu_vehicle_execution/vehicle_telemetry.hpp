@@ -113,6 +113,15 @@ struct VehicleTelemetry
   double guidance_yaw_rate_rad_s{0.0};
   bool guidance_yaw_control_active{false};
 
+  // Pinger observation
+  bool pinger_obs_valid{false};
+  rclcpp::Time pinger_obs_stamp{};
+  double pinger_forward{0.0};
+  double pinger_left{0.0};
+  double pinger_bearing_rad{0.0};
+  double pinger_elevation_cos{0.0};
+  double pinger_horizontal_range_m{0.0};
+
   // Best POR detection. The stamp is the receipt/header stamp used by the
   // execution watchdog; controllers must not command from stale imagery.
   bool detection_valid{false};

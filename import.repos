@@ -7,6 +7,10 @@ repositories:
     type: git
     url: git@github.com:BanyubramantaITS/bluerov2_gz.git
     version: banyu
+  banyu-robotx-models:
+    type: git
+    url: git@github.com:someguy609/banyu-robotx-models.git
+    version: main
   RobotX-SoS-communication-ITSN:
     type: git
     url: https://github.com/Barunastra-ITS/RobotX-SoS-communication-ITSN.git

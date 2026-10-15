@@ -16,6 +16,8 @@ find_package(std_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(banyu_msgs REQUIRED)
 find_package(rx_msgs REQUIRED)
+find_package(ros_gz_interfaces REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -34,13 +36,29 @@ target_include_directories(perception_state_machines PUBLIC
 )
 ament_target_dependencies(perception_state_machines rclcpp banyu_msgs geometry_msgs std_msgs)
 
+# Task 2 vision algorithms and acoustics ported from main_mission_sim
+add_library(banyu_task2_perception STATIC
+    src/pipeline_vision.cpp
+    src/acoustics.cpp
+)
+target_include_directories(banyu_task2_perception PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(banyu_task2_perception ${OpenCV_LIBS})
+set_target_properties(banyu_task2_perception PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 add_executable(por_detection src/por_detection.cpp)
 ament_target_dependencies(por_detection rclcpp cv_bridge OpenCV sensor_msgs banyu_msgs)
-
 target_include_directories(por_detection PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 add_executable(task2_pipeline_detector src/task2_pipeline_detector.cpp)
+target_link_libraries(task2_pipeline_detector banyu_task2_perception)
 ament_target_dependencies(task2_pipeline_detector rclcpp cv_bridge OpenCV sensor_msgs banyu_msgs)
+
+add_executable(pinger_localization src/pinger_localization_node.cpp)
+target_link_libraries(pinger_localization banyu_task2_perception)
+ament_target_dependencies(pinger_localization rclcpp sensor_msgs ros_gz_interfaces banyu_msgs tf2_ros)
 
 add_executable(ring_tracker_node src/ring_tracker_main.cpp)
 ament_target_dependencies(ring_tracker_node rclcpp sensor_msgs geometry_msgs banyu_msgs)
@@ -54,18 +72,24 @@ add_executable(survey_evidence_node src/survey_evidence_node.cpp)
 ament_target_dependencies(survey_evidence_node rclcpp sensor_msgs banyu_msgs rx_msgs)
 target_include_directories(survey_evidence_node PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-install(TARGETS por_detection task2_pipeline_detector ring_tracker_node pipeline_end_node survey_evidence_node
+install(TARGETS
+    por_detection
+    task2_pipeline_detector
+    pinger_localization
+    ring_tracker_node
+    pipeline_end_node
+    survey_evidence_node
     DESTINATION lib/${PROJECT_NAME}
 )
 
-install(TARGETS perception_state_machines
-    EXPORT perception_state_machinesTargets
+install(TARGETS perception_state_machines banyu_task2_perception
+    EXPORT banyu_detectionTargets
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib
     RUNTIME DESTINATION bin
 )
 
-install(EXPORT perception_state_machinesTargets
+install(EXPORT banyu_detectionTargets
     DESTINATION share/${PROJECT_NAME}/cmake
     NAMESPACE banyu_detection::
 )
@@ -75,8 +99,9 @@ install(DIRECTORY include/
 )
 
 ament_export_include_directories(include)
+ament_export_libraries(perception_state_machines banyu_task2_perception)
 ament_export_dependencies(rclcpp banyu_msgs geometry_msgs std_msgs)
-ament_export_targets(perception_state_machinesTargets HAS_LIBRARY_TARGET)
+ament_export_targets(banyu_detectionTargets HAS_LIBRARY_TARGET)
 
 install(DIRECTORY config
     DESTINATION share/${PROJECT_NAME}
@@ -85,14 +110,15 @@ install(DIRECTORY config
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
-  # the following line skips the linter which checks for copyrights
-  # comment the line when a copyright and license is added to all source files
   set(ament_cmake_copyright_FOUND TRUE)
-  # the following line skips cpplint (only works in a git repo)
-  # comment the line when this package is in a git repo and when
-  # a copyright and license is added to all source files
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  ament_add_gtest(test_pipeline_vision test/test_pipeline_vision.cpp)
+  target_link_libraries(test_pipeline_vision banyu_task2_perception)
+
+  ament_add_gtest(test_acoustics test/test_acoustics.cpp)
+  target_link_libraries(test_acoustics banyu_task2_perception)
 
   ament_add_gtest(test_pipeline_end_confirmer
       test/test_pipeline_end_confirmer.cpp)

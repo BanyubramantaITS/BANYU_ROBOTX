@@ -245,6 +245,15 @@ def generate_launch_description():
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
 
+    task2_pinger_localization = Node(
+        package="banyu_detection",
+        executable="pinger_localization",
+        name="pinger_localization",
+        parameters=[task2_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+    )
+
     return LaunchDescription(
         [
             mode_arg,
@@ -269,5 +278,6 @@ def generate_launch_description():
             task2_pipeline_end,
             task2_calibrated_depth,
             task2_survey_evidence,
+            task2_pinger_localization,
         ]
     )
