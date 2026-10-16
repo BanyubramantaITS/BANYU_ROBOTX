@@ -1,0 +1,8 @@
+# Ring index accepted by the mission protocol.
+uint32 ring_index
+uint32 run_id
+uint64 epoch
+---
+bool success
+string reason
+uint32 accepted_ring_index

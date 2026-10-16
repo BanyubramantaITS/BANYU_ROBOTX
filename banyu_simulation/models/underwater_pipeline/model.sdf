@@ -1,0 +1,281 @@
+<?xml version="1.0" ?>
+<sdf version="1.8">
+  <model name="underwater_pipeline">
+    <static>true</static>
+    <link name="pipeline_link">
+      
+      <!-- ==================== MAIN 3" PVC PIPELINE ==================== -->
+      <!-- Center is at X = 2.25 m, Y = 0.0 m, Z = 0.12 m (length 5.3 m, OD 0.089 m) -->
+      <visual name="main_pipe_visual">
+        <pose>2.25 0 0.12 0 1.5707963 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.0445</radius>
+            <length>5.3</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.85 0.85 0.85 1.0</ambient>
+          <diffuse>0.88 0.88 0.86 1.0</diffuse>
+          <specular>0.4 0.4 0.4 1.0</specular>
+        </material>
+      </visual>
+
+      <collision name="main_pipe_collision">
+        <pose>2.25 0 0.12 0 1.5707963 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.0445</radius>
+            <length>5.3</length>
+          </cylinder>
+        </geometry>
+      </collision>
+
+      <!-- PVC Couplers between segments -->
+      <visual name="coupler_1_visual">
+        <pose>0.75 0 0.12 0 1.5707963 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.049</radius>
+            <length>0.10</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.8 0.8 0.8 1.0</ambient>
+          <diffuse>0.82 0.82 0.80 1.0</diffuse>
+          <specular>0.3 0.3 0.3 1.0</specular>
+        </material>
+      </visual>
+
+      <visual name="coupler_2_visual">
+        <pose>2.25 0 0.12 0 1.5707963 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.049</radius>
+            <length>0.10</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.8 0.8 0.8 1.0</ambient>
+          <diffuse>0.82 0.82 0.80 1.0</diffuse>
+          <specular>0.3 0.3 0.3 1.0</specular>
+        </material>
+      </visual>
+
+      <visual name="coupler_3_visual">
+        <pose>3.75 0 0.12 0 1.5707963 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.049</radius>
+            <length>0.10</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.8 0.8 0.8 1.0</ambient>
+          <diffuse>0.82 0.82 0.80 1.0</diffuse>
+          <specular>0.3 0.3 0.3 1.0</specular>
+        </material>
+      </visual>
+
+      <!-- Pipeline End Caps -->
+      <visual name="end_cap_left_visual">
+        <pose>-0.40 0 0.12 0 1.5707963 0</pose>
+        <geometry>
+          <sphere>
+            <radius>0.0445</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <ambient>0.85 0.85 0.85 1.0</ambient>
+          <diffuse>0.88 0.88 0.86 1.0</diffuse>
+        </material>
+      </visual>
+
+      <visual name="end_cap_right_visual">
+        <pose>4.90 0 0.12 0 1.5707963 0</pose>
+        <geometry>
+          <sphere>
+            <radius>0.0445</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <ambient>0.85 0.85 0.85 1.0</ambient>
+          <diffuse>0.88 0.88 0.86 1.0</diffuse>
+        </material>
+      </visual>
+
+      <!-- ==================== 2" PVC BASE SUPPORT FRAMES ==================== -->
+      <!-- Base Support 1 at X = 0.0 m -->
+      <visual name="base_1_transverse_visual">
+        <pose>0.0 0 0.03 1.5707963 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.030</radius>
+            <length>0.70</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.78 0.78 0.78 1.0</ambient>
+          <diffuse>0.80 0.80 0.78 1.0</diffuse>
+        </material>
+      </visual>
+      <visual name="base_1_riser_visual">
+        <pose>0.0 0 0.075 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.030</radius>
+            <length>0.09</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.78 0.78 0.78 1.0</ambient>
+          <diffuse>0.80 0.80 0.78 1.0</diffuse>
+        </material>
+      </visual>
+
+      <!-- Base Support 2 at X = 2.25 m -->
+      <visual name="base_2_transverse_visual">
+        <pose>2.25 0 0.03 1.5707963 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.030</radius>
+            <length>0.70</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.78 0.78 0.78 1.0</ambient>
+          <diffuse>0.80 0.80 0.78 1.0</diffuse>
+        </material>
+      </visual>
+      <visual name="base_2_riser_visual">
+        <pose>2.25 0 0.075 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.030</radius>
+            <length>0.09</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.78 0.78 0.78 1.0</ambient>
+          <diffuse>0.80 0.80 0.78 1.0</diffuse>
+        </material>
+      </visual>
+
+      <!-- Base Support 3 at X = 4.5 m -->
+      <visual name="base_3_transverse_visual">
+        <pose>4.5 0 0.03 1.5707963 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.030</radius>
+            <length>0.70</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.78 0.78 0.78 1.0</ambient>
+          <diffuse>0.80 0.80 0.78 1.0</diffuse>
+        </material>
+      </visual>
+      <visual name="base_3_riser_visual">
+        <pose>4.5 0 0.075 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.030</radius>
+            <length>0.09</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.78 0.78 0.78 1.0</ambient>
+          <diffuse>0.80 0.80 0.78 1.0</diffuse>
+        </material>
+      </visual>
+
+      <!-- Base Collisions -->
+      <collision name="base_1_collision">
+        <pose>0.0 0 0.03 1.5707963 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.030</radius>
+            <length>0.70</length>
+          </cylinder>
+        </geometry>
+      </collision>
+      <collision name="base_2_collision">
+        <pose>2.25 0 0.03 1.5707963 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.030</radius>
+            <length>0.70</length>
+          </cylinder>
+        </geometry>
+      </collision>
+      <collision name="base_3_collision">
+        <pose>4.5 0 0.03 1.5707963 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.030</radius>
+            <length>0.70</length>
+          </cylinder>
+        </geometry>
+      </collision>
+
+      <!-- ==================== NODE MOUNTING SADDLES & CABLE STRAPS ==================== -->
+      <!-- Clamps at X = 0.0, 1.5, 3.0, 4.5 m holding the nodes -->
+      <visual name="clamp_1_visual">
+        <pose>0.0 0 0.12 0 1.5707963 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.0465</radius>
+            <length>0.08</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.15 0.15 0.18 1.0</ambient>
+          <diffuse>0.2 0.2 0.22 1.0</diffuse>
+        </material>
+      </visual>
+
+      <visual name="clamp_2_visual">
+        <pose>1.5 0 0.12 0 1.5707963 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.0465</radius>
+            <length>0.08</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.15 0.15 0.18 1.0</ambient>
+          <diffuse>0.2 0.2 0.22 1.0</diffuse>
+        </material>
+      </visual>
+
+      <visual name="clamp_3_visual">
+        <pose>3.0 0 0.12 0 1.5707963 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.0465</radius>
+            <length>0.08</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.15 0.15 0.18 1.0</ambient>
+          <diffuse>0.2 0.2 0.22 1.0</diffuse>
+        </material>
+      </visual>
+
+      <visual name="clamp_4_visual">
+        <pose>4.5 0 0.12 0 1.5707963 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.0465</radius>
+            <length>0.08</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.15 0.15 0.18 1.0</ambient>
+          <diffuse>0.2 0.2 0.22 1.0</diffuse>
+        </material>
+      </visual>
+
+    </link>
+  </model>
+</sdf>

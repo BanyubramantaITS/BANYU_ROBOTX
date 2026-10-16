@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Bridge the Gazebo DVL sensor into ArduSub as VISION_POSITION_DELTA.
+"""
+Bridge the Gazebo DVL sensor into ArduSub as VISION_POSITION_DELTA.
 
 Why this exists rather than a ros_gz_bridge + MAVROS chain:
 

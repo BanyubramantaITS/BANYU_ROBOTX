@@ -1,0 +1,19 @@
+# WGS84 target and mission start coordinate. Latitude/longitude are degrees.
+uint32 run_id
+uint64 epoch
+float64 target_latitude_deg
+float64 target_longitude_deg
+float64 start_latitude_deg
+float64 start_longitude_deg
+float64 tolerance_m
+---
+bool success
+string reason
+float64 final_latitude_deg
+float64 final_longitude_deg
+float64 final_error_m
+---
+builtin_interfaces/Time stamp
+float64 current_latitude_deg
+float64 current_longitude_deg
+float64 distance_remaining_m

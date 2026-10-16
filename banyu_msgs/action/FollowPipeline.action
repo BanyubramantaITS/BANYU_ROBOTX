@@ -1,0 +1,15 @@
+# enable starts or stops pipeline following; status is implementation-neutral.
+uint32 run_id
+uint64 epoch
+bool enable
+---
+bool success
+string reason
+bool enabled
+string final_status
+---
+builtin_interfaces/Time stamp
+bool following
+string status
+float64 lateral_error_m
+float64 distance_error_m

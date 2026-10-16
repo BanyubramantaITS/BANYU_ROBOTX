@@ -1,0 +1,215 @@
+<?xml version="1.0"?>
+<!-- RobotX 2026 RoboBuoy (handbook 3.5.1) carrying a Color Indicator
+     (handbook 3.5.3), built to the official build guides:
+     robonation.gitbook.io/robotx-2026-team-handbook/robotx-2026-or-task-build-guides
+       /robobuoy-build-guide and /color-indicator-build-guide
+
+     RoboBuoy, from the BOM: a 3/4" Schedule 40 PVC frame. Four 15.25" pipes
+     and 90 degree elbows make the square base; jumbo pool noodles (3"
+     diameter) slide onto those legs and are the flotation; two 12" verticals
+     rise from snap-on saddle tees at the middle of the base legs; four white
+     corrugated panels (17" x 12", 0.157" thick) close the sides, one of them
+     hinged as an access door; four 10.6" pipes, two 45 degree elbows and a
+     cross hang below as the anchor point.
+ 
+     Task 2 buoys carry CIRCLES on their side panels (Task 1 gets diamonds,
+     course markers get letters). Not modelled: the panel graphics need a
+     texture, and they are there for surface systems to read. The UUV
+     identifies this buoy by the Color Indicator on top, which is modelled.
+ 
+     Color Indicator: a 3D-printed cylinder, "visible 360 degrees radially on a
+     horizontal plane only", actuated to swap between RED and GREEN. The build
+     guide's filament list is the giveaway for its construction - Fire Engine
+     Red and Grass Green for the FINS, Brightest White for the base and top -
+     so it is a white body with coloured fins presented around it, not a solid
+     coloured drum. Dimensions (128 mm across, 135 mm tall) are from the
+     handbook p.89 render; the build guide gives none.
+ 
+     GREEN indicator = the active buoy = the survey start point, and the only
+     one whose pinger is pinging (handbook p.64). RED is the far-end buoy.
+ 
+     Spawn at z=0: the base frame straddles the waterline.
+ 
+     ponytail: static. Making it float means tuning buoyancy on a landmark, and
+     the world's graded-buoyancy plugin is enabled for bluerov2_heavy alone.
+     ponytail: the pinger is a visual stub - nothing simulates acoustics, so
+     the UUV finds this buoy by its indicator, which is the handbook's other
+     permitted route ("Identify GREEN indicator OR home to acoustic pinger"). -->
+<sdf version="1.9" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="color" default="green" />
+  <xacro:arg name="name" default="robobuoy" />
+
+  <xacro:property name="rgb"
+    value="${'0.910 0.157 0.169' if '$(arg color)' == 'red' else '0.031 0.580 0.016'}" />
+
+  <xacro:property name="inch" value="0.0254" />
+
+  <!-- Frame. 15.25" base legs; 3/4" Sch40 PVC is 1.050" OD. -->
+  <xacro:property name="leg" value="${15.25 * inch}" />
+  <xacro:property name="half" value="${leg / 2}" />
+  <xacro:property name="pipe_r" value="${1.050 * inch / 2}" />
+  <xacro:property name="post" value="${12.0 * inch}" />
+
+  <!-- Panels: 17" x 12", 0.157" thick, standing on the base frame. -->
+  <xacro:property name="panel_w" value="${17.0 * inch}" />
+  <xacro:property name="panel_h" value="${12.0 * inch}" />
+  <xacro:property name="panel_t" value="${0.157 * inch}" />
+  <xacro:property name="panel_z" value="${panel_h / 2}" />
+
+  <!-- Jumbo pool noodle, 3" diameter, threaded onto the base legs. -->
+  <xacro:property name="noodle_r" value="${3.0 * inch / 2}" />
+
+  <!-- Color Indicator, handbook p.89: 128 mm across, 135 mm tall, sat on top
+       of the panels. -->
+  <xacro:property name="ind_r" value="0.064" />
+  <xacro:property name="ind_h" value="0.135" />
+  <xacro:property name="ind_z" value="${panel_h + ind_h / 2}" />
+
+  <xacro:property name="pinger_z" value="-1.0" />
+
+  <!-- One side of the square base: a PVC leg with a noodle over it. -->
+  <xacro:macro name="base_leg" params="tag x y yaw">
+    <visual name="leg_${tag}">
+      <pose>${x} ${y} 0 0 1.5707963 ${yaw}</pose>
+      <geometry>
+        <cylinder><radius>${pipe_r}</radius><length>${leg}</length></cylinder>
+      </geometry>
+      <material>
+        <ambient>0.88 0.88 0.86 1</ambient>
+        <diffuse>0.92 0.92 0.90 1</diffuse>
+      </material>
+    </visual>
+    <visual name="noodle_${tag}">
+      <pose>${x} ${y} 0 0 1.5707963 ${yaw}</pose>
+      <geometry>
+        <cylinder><radius>${noodle_r}</radius><length>${leg * 0.86}</length></cylinder>
+      </geometry>
+      <material>
+        <ambient>0.13 0.35 0.62 1</ambient>
+        <diffuse>0.16 0.42 0.74 1</diffuse>
+      </material>
+    </visual>
+  </xacro:macro>
+
+  <!-- One white corrugated side panel. -->
+  <xacro:macro name="side_panel" params="tag x y yaw">
+    <visual name="panel_${tag}">
+      <pose>${x} ${y} ${panel_z} 0 0 ${yaw}</pose>
+      <geometry>
+        <box><size>${panel_t} ${panel_w} ${panel_h}</size></box>
+      </geometry>
+      <material>
+        <ambient>0.90 0.90 0.90 1</ambient>
+        <diffuse>0.95 0.95 0.95 1</diffuse>
+      </material>
+    </visual>
+  </xacro:macro>
+
+  <!-- One coloured fin of the Color Indicator, stood off the white core. -->
+  <xacro:macro name="fin" params="tag angle">
+    <visual name="fin_${tag}">
+      <pose>${ind_r * 0.72 * cos(angle)} ${ind_r * 0.72 * sin(angle)} ${ind_z}
+            0 0 ${angle}</pose>
+      <geometry>
+        <box><size>${ind_r * 0.55} 0.004 ${ind_h * 0.80}</size></box>
+      </geometry>
+      <material>
+        <ambient>${rgb} 1</ambient>
+        <diffuse>${rgb} 1</diffuse>
+        <emissive>${rgb} 1</emissive>
+      </material>
+    </visual>
+  </xacro:macro>
+
+  <model name="$(arg name)">
+    <static>true</static>
+    <link name="buoy">
+
+      <xacro:base_leg tag="n" x="${half}"  y="0"        yaw="1.5707963" />
+      <xacro:base_leg tag="s" x="${-half}" y="0"        yaw="1.5707963" />
+      <xacro:base_leg tag="e" x="0"        y="${half}"  yaw="0" />
+      <xacro:base_leg tag="w" x="0"        y="${-half}" yaw="0" />
+
+      <!-- Two 12" verticals off the middle of opposite base legs; these carry
+           the panels. -->
+      <visual name="post_e">
+        <pose>0 ${half} ${post / 2} 0 0 0</pose>
+        <geometry>
+          <cylinder><radius>${pipe_r}</radius><length>${post}</length></cylinder>
+        </geometry>
+        <material>
+          <ambient>0.88 0.88 0.86 1</ambient>
+          <diffuse>0.92 0.92 0.90 1</diffuse>
+        </material>
+      </visual>
+      <visual name="post_w">
+        <pose>0 ${-half} ${post / 2} 0 0 0</pose>
+        <geometry>
+          <cylinder><radius>${pipe_r}</radius><length>${post}</length></cylinder>
+        </geometry>
+        <material>
+          <ambient>0.88 0.88 0.86 1</ambient>
+          <diffuse>0.92 0.92 0.90 1</diffuse>
+        </material>
+      </visual>
+
+      <xacro:side_panel tag="n" x="${half}"  y="0"        yaw="0" />
+      <xacro:side_panel tag="s" x="${-half}" y="0"        yaw="0" />
+      <xacro:side_panel tag="e" x="0"        y="${half}"  yaw="1.5707963" />
+      <xacro:side_panel tag="w" x="0"        y="${-half}" yaw="1.5707963" />
+
+      <!-- Color Indicator: white core, coloured fins around it, 360 degrees
+           radially. -->
+      <visual name="indicator_core">
+        <pose>0 0 ${ind_z} 0 0 0</pose>
+        <geometry>
+          <cylinder><radius>${ind_r * 0.55}</radius><length>${ind_h}</length></cylinder>
+        </geometry>
+        <material>
+          <ambient>0.96 0.96 0.96 1</ambient>
+          <diffuse>1.0 1.0 1.0 1</diffuse>
+        </material>
+      </visual>
+      <xacro:fin tag="0" angle="0" />
+      <xacro:fin tag="1" angle="0.7853982" />
+      <xacro:fin tag="2" angle="1.5707963" />
+      <xacro:fin tag="3" angle="2.3561945" />
+      <xacro:fin tag="4" angle="3.1415927" />
+      <xacro:fin tag="5" angle="3.9269908" />
+      <xacro:fin tag="6" angle="4.7123890" />
+      <xacro:fin tag="7" angle="5.4977871" />
+
+      <!-- Anchor line and the pinger suspended below (handbook 3.5.4). -->
+      <visual name="pinger_line">
+        <pose>0 0 ${pinger_z / 2} 0 0 0</pose>
+        <geometry>
+          <cylinder><radius>0.005</radius><length>${-pinger_z}</length></cylinder>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1 1</ambient>
+          <diffuse>0.1 0.1 0.1 1</diffuse>
+        </material>
+      </visual>
+      <visual name="pinger">
+        <pose>0 0 ${pinger_z} 0 0 0</pose>
+        <geometry>
+          <cylinder><radius>0.03</radius><length>0.12</length></cylinder>
+        </geometry>
+        <material>
+          <ambient>0.2 0.2 0.22 1</ambient>
+          <diffuse>0.25 0.25 0.28 1</diffuse>
+        </material>
+      </visual>
+
+      <!-- Collision on the hull box only: the vehicle must not swim through
+           the buoy it is navigating to. -->
+      <collision name="hull">
+        <pose>0 0 ${panel_z} 0 0 0</pose>
+        <geometry>
+          <box><size>${leg} ${leg} ${panel_h}</size></box>
+        </geometry>
+      </collision>
+
+    </link>
+  </model>
+</sdf>

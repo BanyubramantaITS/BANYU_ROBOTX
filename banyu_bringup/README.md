@@ -28,9 +28,7 @@ Main bringup script for the Proof of Readiness task environment.
   ```
 
 - **No-DVL Negative Control** (see [Navigation Sources](#-navigation-sources-gps-on-the-surface-dvl-underwater)):
-  ```bash
-  ros2 launch banyu_bringup proof_of_readiness.launch.py use_dvl:=False
-  ```
+  comment out the `banyu::DvlMavlink` plugin in `banyu_simulation/worlds/main_world.world`.
 
 ---
 
@@ -41,7 +39,6 @@ Main bringup script for the Proof of Readiness task environment.
 | `use_sim` | `True` / `False` | `True` | Runs Gazebo simulation and SITL when `True`; skips sim for real ROV hardware when `False`. |
 | `use_sim_time` | `True` / `False` | `True` | Sets `use_sim_time` parameter for ROS 2 nodes. |
 | `use_ardusub_sitl` | `True` / `False` | `True` | Uses `sim_vehicle.py` SITL wrapper (UDP 14550 for QGC) when `True`; uses bare `ardusub` when `False`. |
-| `use_dvl` | `True` / `False` | `True` | Runs the DVL→MAVLink bridge. `False` is the negative control: at depth SRC2 then has no source at all. Sim only. |
 | `fcu_url` | string | `udp://127.0.0.1:14550@` | Target MAVLink FCU address (`udp://192.168.2.1:14550@` for physical BlueROV2). |
 
 ---
@@ -74,7 +71,7 @@ That is the entire reason to prefer this over a DVL-only setup.
 ### The DVL chain
 
 ```
-Gazebo DVL sensor  ──gz topic /dvl/velocity──▶  scripts/dvl_mavlink_bridge.py
+Gazebo DVL sensor  ──gz topic /dvl/velocity──▶  banyu::DvlMavlink (world system)
                                                           │
                                                  VISION_POSITION_DELTA
                                                   (UDP 127.0.0.1:14552)
@@ -86,7 +83,7 @@ Gazebo DVL sensor  ──gz topic /dvl/velocity──▶  scripts/dvl_mavlink_br
 Sim only. Real hardware runs the A50's own driver instead; everything downstream
 of `VISION_POSITION_DELTA` is unchanged.
 
-**Why a standalone script and not MAVROS:**
+**Why MAVLink straight to SITL and not MAVROS:**
 
 - **MAVROS cannot emit `VISION_POSITION_DELTA`.** None of its 40 plugins does,
   and that message is the *only* one that bootstraps EKF3 aiding from a DVL
@@ -95,14 +92,12 @@ of `VISION_POSITION_DELTA` is unchanged.
 - **`ros_gz_bridge` on Humble cannot carry `gz.msgs.DVLVelocityTracking`** — the
   mapping only exists from Jazzy.
 
-So it reads the gz topic directly via `gz-transport`'s Python bindings and
-speaks MAVLink straight to SITL on its own endpoint (`--out=udp:127.0.0.1:14552`,
-added to the `sim_vehicle.py` invocation — it cannot share MAVROS' 14551). It
-owns the entire frame conversion: Gazebo z-up body frame → ArduPilot FRD.
-
-Launched with `ExecuteProcess`, not `Node` — it is a plain process, and a launch
-`Node` action injects `--ros-args` which it rejects. Same reason `mavros_node`
-is an `ExecuteProcess`.
+So a gz-sim world system (`banyu_simulation/src/DvlMavlink.cc`, loaded by
+`main_world.world`) subscribes to the gz topic and speaks MAVLink straight to
+SITL on its own endpoint (`--out=udp:127.0.0.1:14552`, added to the
+`sim_vehicle.py` invocation — it cannot share MAVROS' 14551). It owns the entire
+frame conversion: Gazebo z-up body frame → ArduPilot FRD. Being part of the
+world, it runs whenever that world does; there is no separate process to launch.
 
 ### The switching node
 
@@ -270,7 +265,7 @@ reads green while proving nothing:
 
 ### Dependencies
 
-`dvl_mavlink_bridge.py` imports `gz.transport13`, `gz.msgs10` and `pymavlink` —
-all present with Gazebo Harmonic and MAVProxy installed.
-`ekf_source_switch.py` needs `rclpy`, `geometry_msgs` and `mavros_msgs`. Both
-are installed as programs by `CMakeLists.txt`.
+`banyu::DvlMavlink` builds against gz-transport13, gz-msgs10 and the header-only
+ROS `mavlink` package.
+`ekf_source_switch.py` needs `rclpy`, `geometry_msgs` and `mavros_msgs`. It is
+installed as a program by `CMakeLists.txt`.

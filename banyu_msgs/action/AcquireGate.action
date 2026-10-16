@@ -1,0 +1,15 @@
+# Descend/hold at the gate depth until a fresh gate detection is available.
+float64 target_depth_m
+float64 depth_tolerance_m
+# Continuous missing-prerequisite watchdog window; not a fixed action duration.
+float64 timeout_s
+---
+bool success
+string reason
+float64 final_depth_m
+bool gate_visible
+---
+builtin_interfaces/Time stamp
+float64 depth_m
+bool gate_visible
+float64 detection_age_s

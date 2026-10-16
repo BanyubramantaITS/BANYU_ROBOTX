@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<sdf version="1.11">
+  <model name="task2_start_buoy">
+    <static>true</static>
+    <link name="buoy">
+      <visual name="body">
+        <pose>0 0 0.35 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.35</radius>
+            <length>0.7</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <diffuse>1 1 1 1</diffuse>
+        </material>
+      </visual>
+
+      <visual name="top_indicator_green">
+        <pose>0 0 0.9 0 0 0</pose>
+        <geometry>
+          <sphere>
+            <radius>0.18</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <diffuse>0 1 0 1</diffuse>
+          <emissive>0 1 0 1</emissive>
+        </material>
+      </visual>
+
+      <visual name="pinger_cable">
+        <pose>0 0 -0.05 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.025</radius>
+            <length>0.7</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <diffuse>0.08 0.08 0.08 1</diffuse>
+        </material>
+      </visual>
+
+      <visual name="suspended_pinger">
+        <pose>0 0 -0.5 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.1</radius>
+            <length>0.22</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <diffuse>0.08 0.08 0.08 1</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

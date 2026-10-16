@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<sdf version="1.8">
+  <model name="robotx_pinger">
+    <static>true</static>
+    <link name="pinger_link">
+      <visual name="cable">
+        <pose>0 0 -0.5 0 0 0</pose>
+        <geometry><cylinder><radius>0.005</radius><length>1.0</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name="pinger_body">
+        <pose>0 0 -1.0 0 0 0</pose>
+        <geometry><cylinder><radius>0.03</radius><length>0.12</length></cylinder></geometry>
+        <material><ambient>0.2 0.2 0.22 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material>
+      </visual>
+    </link>
+  </model>
+</sdf>

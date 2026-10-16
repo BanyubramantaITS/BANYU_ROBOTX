@@ -1,6 +1,12 @@
 # BANYU curated ArduSub parameters for SITL.
 # Values mirror the working auto-dumped defaults in mav.parm (same names/types).
-# Applied via sim_vehicle.py --add-param-file (or --defaults on the bare binary).
+# BlueROV2 Heavy frame (vectored 6DOF: 8 thrusters).
+FRAME_CONFIG 2
+ATC_RAT_RLL_P 0.6
+ATC_RAT_RLL_I 0.15
+ATC_RAT_PIT_P 0.6
+ATC_RAT_PIT_I 0.15
+
 # Mission speeds (m/s).
 WP_SPD 1.0
 WP_SPD_UP 2.5
@@ -17,6 +23,11 @@ SR1_EXTRA1 5
 
 # EKF failsafe: 0 = never failsafe (keep teleop control authority).
 FS_EKF_ACTION 0
+
+# GCS failsafe: 0 = Disabled.
+# A tetherless AUV intentionally loses wireless/GCS link to dock when submerged.
+# Mission abort and failure fallback to SURFACE is managed onboard by banyu_mission.
+FS_GCS_ENABLE 0
 
 # --- Navigation sources: GPS on the surface, DVL underwater ---
 # Names/values verified against libraries/AP_VisualOdom/AP_VisualOdom.cpp and
