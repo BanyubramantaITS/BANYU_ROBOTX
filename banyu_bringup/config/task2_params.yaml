@@ -21,6 +21,7 @@ banyu_mission:
       readiness_pose: "/mavros/local_position/pose"
       execution_readiness: "/banyu/execution/readiness"
       survey_progress: "/banyu/communication/survey_progress"
+      buoy_target: "/banyu/task2/buoy_target"
     run:
       reset_services: ["/banyu/pipeline/reset_tracker", "/banyu/pipeline/reset_end"]
     services:
@@ -68,8 +69,13 @@ task2_sim_provider:
     pipeline_end_map_y: 13.86
     end_candidate_window_m: 0.5
     end_candidate_max_lateral_m: 1.0
-    active_buoy_source_id: "uuv_buoy_localizer"
-    active_buoy_endpoint_id: "start_buoy"
+    # Stands in for the USV: publishes rx_msgs/PipelineBuoys (start buoy = active/GREEN).
+    end_buoy_map_x: 55.0
+    end_buoy_map_y: 13.85
+    pipeline_buoys_start_label: "a"
+    pipeline_buoys_report_active: true
+    pipeline_buoys_uncertainty_m: 1.0
+    pipeline_buoys_second_delay_s: 0.0
 
 task2_pipeline_detector:
   ros__parameters:
@@ -185,7 +191,7 @@ uuv_comm_node:
     survey:
       task2_tier: 2
       evidence_sources: ["pipeline_topology"]
-      buoy_sources: ["uuv_buoy_localizer", "gcs_buoy_observer"]
+      buoy_sources: ["usv_pipeline_buoys", "uuv_buoy_localizer", "gcs_buoy_observer"]
       depth_sources: ["pressure_depth"]
       minimum_confidence: 0.2
       maximum_buoy_uncertainty_m: 5.0
@@ -207,6 +213,32 @@ uuv_comm_node:
     anchor_latitude: 33.810313
     anchor_longitude: -118.393866
     anchor_altitude_hae_m: 0.0
+
+# USV rx_msgs/PipelineBuoys (forwarded by the GCS) -> mission target and survey active buoy.
+pipeline_buoys_node:
+  ros__parameters:
+    source_id: "usv_pipeline_buoys"       # must be in uuv_comm_node survey.buoy_sources
+    endpoint_id: "start_buoy"             # the UUV always starts at the active buoy
+    default_uncertainty_m: 3.0            # used when the USV sends uncertainty_m = 0 (unknown)
+    require_inside_course: true
+    minimum_buoy_separation_m: 1.0
+    lock_depth_m: 1.0                     # deeper than this in a live run: ignore USV updates
+    publish_rate_hz: 1.0
+    # Survey evidence when no USV active buoy arrives. Disabled until the USV/GCS teams agree
+    # on the fallback; green_confirmed must stay false unless the active buoy is known.
+    fallback:
+      enabled: false
+      latitude: 33.810438
+      longitude: -118.393392
+      uncertainty_m: 3.0
+      green_confirmed: false
+    topics:
+      pipeline_buoys: "/system/vehicle/usv/task2/pipeline_buoys"
+      course: "/system/mission/course"
+      run_lifecycle: "/banyu/mission/run_lifecycle"
+      water_depth: "/banyu/vehicle/water_depth"
+      buoy_target: "/banyu/task2/buoy_target"
+      active_buoy_fix: "/banyu/task2/active_buoy_fix"
 
 vehicle_execution_node:
   ros__parameters:

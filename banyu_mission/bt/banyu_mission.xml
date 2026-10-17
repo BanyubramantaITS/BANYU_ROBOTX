@@ -28,6 +28,8 @@
       <NavigateSurfaceGps target_latitude="{target_latitude}" target_longitude="{target_longitude}"
         start_latitude="{start_latitude}" start_longitude="{start_longitude}"
         tolerance="{gps_tolerance}" />
+      <!-- From here the UUV dives at this buoy; later USV updates no longer move the target. -->
+      <LockBuoyTarget />
       <AlignHeading target_heading="{heading}" tolerance="{heading_tolerance}" />
     </Sequence>
   </BehaviorTree>

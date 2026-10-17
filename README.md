@@ -33,6 +33,9 @@ git clone git@github.com:BanyubramantaITS/BANYU_ROBOTX.git
 vcs import < BANYU_ROBOTX/import.repos
 ```
 
+`rx_msgs` comes from `import.repos` and tracks `main`; Task 2 needs at least commit `a2a1ccc`
+(`rx_msgs/PipelineBuoys`). Update an existing checkout with `vcs pull .` from `src/` and rebuild.
+
 Get dependencies:
 ```sh
 rosdep update

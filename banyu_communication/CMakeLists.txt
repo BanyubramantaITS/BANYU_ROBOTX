@@ -15,12 +15,12 @@ find_package(mavros_msgs REQUIRED)
 find_package(banyu_msgs REQUIRED)
 find_package(rx_msgs REQUIRED)
 
-add_library(banyu_survey_core src/survey_reporting.cpp)
+add_library(banyu_survey_core src/survey_reporting.cpp src/pipeline_buoys.cpp)
 target_compile_features(banyu_survey_core PUBLIC cxx_std_17)
 target_include_directories(banyu_survey_core PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   "$<INSTALL_INTERFACE:include>")
-ament_target_dependencies(banyu_survey_core banyu_msgs rx_msgs)
+ament_target_dependencies(banyu_survey_core banyu_msgs rx_msgs sensor_msgs)
 
 add_executable(uuv_comm_node src/uuv_comm_node.cpp)
 target_link_libraries(uuv_comm_node banyu_survey_core)
@@ -29,9 +29,15 @@ target_include_directories(uuv_comm_node PRIVATE include)
 ament_target_dependencies(uuv_comm_node
   rclcpp std_msgs sensor_msgs geometry_msgs std_srvs mavros_msgs banyu_msgs rx_msgs)
 
+add_executable(pipeline_buoys_node src/pipeline_buoys_node.cpp)
+target_link_libraries(pipeline_buoys_node banyu_survey_core)
+target_compile_features(pipeline_buoys_node PUBLIC cxx_std_17)
+target_include_directories(pipeline_buoys_node PRIVATE include)
+ament_target_dependencies(pipeline_buoys_node rclcpp banyu_msgs rx_msgs)
+
 install(DIRECTORY include/
   DESTINATION include)
-install(TARGETS uuv_comm_node DESTINATION lib/${PROJECT_NAME})
+install(TARGETS uuv_comm_node pipeline_buoys_node DESTINATION lib/${PROJECT_NAME})
 install(TARGETS banyu_survey_core EXPORT export_banyu_survey_core
   ARCHIVE DESTINATION lib LIBRARY DESTINATION lib)
 ament_export_targets(export_banyu_survey_core HAS_LIBRARY_TARGET)
@@ -55,6 +61,19 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_survey_reporting_core test/test_survey_reporting_core.cpp)
   target_link_libraries(test_survey_reporting_core banyu_survey_core)
+
+  ament_add_gtest(test_pipeline_buoys test/test_pipeline_buoys.cpp)
+  target_link_libraries(test_pipeline_buoys banyu_survey_core)
+
+  ament_add_gtest(test_pipeline_buoys_node
+    test/test_pipeline_buoys_node.cpp src/pipeline_buoys_node.cpp
+    TIMEOUT 60
+    ENV ROS_DOMAIN_ID=42)
+  target_compile_definitions(test_pipeline_buoys_node PRIVATE BANYU_COMMUNICATION_NO_MAIN)
+  target_compile_features(test_pipeline_buoys_node PUBLIC cxx_std_17)
+  target_include_directories(test_pipeline_buoys_node PRIVATE include)
+  target_link_libraries(test_pipeline_buoys_node banyu_survey_core)
+  ament_target_dependencies(test_pipeline_buoys_node rclcpp banyu_msgs rx_msgs)
 
   ament_add_gtest(test_survey_reporting
     test/test_survey_reporting.cpp src/uuv_comm_node.cpp ENV ROS_DOMAIN_ID=42)

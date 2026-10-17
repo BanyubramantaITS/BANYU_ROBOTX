@@ -2,7 +2,8 @@
 """Allowlist relay between the UUV domain (40) and the GCS domain (10).
 
 Test stand-in for the team's DDS Router: only the /system/... topics of the RobotX SoS
-interface cross, each in its documented direction. /banyu, /mavros, cameras and /tf stay
+interface cross, each in its documented direction. The USV's Task 2 PipelineBuoys feed is
+forwarded from the GCS domain (where the USV or mock_usv.py publishes it) to the UUV. /banyu, /mavros, cameras and /tf stay
 private to the UUV domain.
 
 Usage: python3 dds_relay.py [uuv_domain=40] [gcs_domain=10]
@@ -15,12 +16,14 @@ from rclpy.context import Context
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from rx_msgs.msg import (Command, Course, Heartbeat, IncidentAck, MissionStatus, PipelineSurvey,
-                         ReadinessReport, ResourceDelivery)
+from rx_msgs.msg import (Command, Course, Heartbeat, IncidentAck, MissionStatus, PipelineBuoys,
+                         PipelineSurvey, ReadinessReport, ResourceDelivery)
 
 VOLATILE = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
 LATCHED = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE,
                      durability=DurabilityPolicy.TRANSIENT_LOCAL)
+LATEST = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                    durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 UUV_TO_GCS = [
     ('/system/vehicle/uuv/heartbeat', Heartbeat, VOLATILE),
@@ -33,6 +36,7 @@ UUV_TO_GCS = [
 GCS_TO_UUV = [
     ('/system/mission/course', Course, LATCHED),
     ('/system/mission/command', Command, VOLATILE),
+    ('/system/vehicle/usv/task2/pipeline_buoys', PipelineBuoys, LATEST),
 ]
 
 

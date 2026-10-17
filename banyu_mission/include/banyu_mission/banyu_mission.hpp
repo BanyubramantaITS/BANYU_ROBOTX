@@ -8,6 +8,7 @@
 #include <thread>
 #include <chrono>
 #include <map>
+#include <optional>
 #include <vector>
 
 #include <functional>
@@ -20,6 +21,7 @@
 #include "banyu_mission/run_coordinator.hpp"
 #include "banyu_msgs/msg/run_lifecycle.hpp"
 #include "banyu_msgs/msg/execution_readiness.hpp"
+#include "banyu_msgs/msg/task2_buoy_target.hpp"
 #include "banyu_msgs/msg/task2_survey_progress.hpp"
 #include "banyu_msgs/srv/reset_task2.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
@@ -37,7 +39,8 @@ void registerMissionNodes(
   const std::shared_ptr<MissionState> & state,
   std::function<void()> on_abort = nullptr,
   std::function<BT::NodeStatus()> on_survey_complete = nullptr,
-  std::function<BT::NodeStatus()> on_surface_success = nullptr);
+  std::function<BT::NodeStatus()> on_surface_success = nullptr,
+  std::function<BT::NodeStatus()> on_lock_buoy_target = nullptr);
 
 class BanyuMission : public rclcpp::Node
 {
@@ -65,6 +68,7 @@ private:
   bool surveyEvidenceReady() const;
   bool operatorHasControl() const;
   void terminateRun(bool failure, const std::string & reason, bool recover);
+  void applyBuoyTarget();
 
   struct ResetConsumer
   {
@@ -104,6 +108,12 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
   rclcpp::Subscription<banyu_msgs::msg::ExecutionReadiness>::SharedPtr execution_readiness_sub_;
   rclcpp::Subscription<banyu_msgs::msg::Task2SurveyProgress>::SharedPtr survey_progress_sub_;
+  rclcpp::Subscription<banyu_msgs::msg::Task2BuoyTarget>::SharedPtr buoy_target_sub_;
+  // USV active buoy target; it replaces the configured target until LockBuoyTarget runs.
+  std::optional<banyu_msgs::msg::Task2BuoyTarget> buoy_target_;
+  bool buoy_target_locked_{false};
+  bool explicit_heading_{false};
+  BT::Blackboard::Ptr blackboard_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr preparation_service_;
   std::unique_ptr<BT::StatusChangeLogger> tree_logger_;
   std::unique_ptr<BT::Groot2Publisher> groot_publisher_;
