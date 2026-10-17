@@ -6,25 +6,37 @@ This package contains launch files and bringup configurations for running the **
 
 ## 🚀 Launch Files
 
-### `launch/proof_of_readiness.launch.py`
+### `launch/main_launch.launch.py`
 
-Main bringup script for the Proof of Readiness task environment.
+Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL, MAVROS, and the mission stack.
 
 #### Usage Commands
 
-- **Default Simulation Mode (Gazebo + SITL)**:
+- **Full Simulation — Proof of Readiness (POR)**:
   ```bash
-  ros2 launch banyu_bringup proof_of_readiness.launch.py
+  ros2 launch banyu_bringup main_launch.launch.py mode:=por
+  ```
+
+- **Full Simulation — Task 2 (Underwater Pipeline & Rings)**:
+  ```bash
+  ros2 launch banyu_bringup main_launch.launch.py mode:=task2
   ```
 
 - **Bare ArduSub SITL Mode**:
   ```bash
-  ros2 launch banyu_bringup proof_of_readiness.launch.py use_ardusub_sitl:=False
+  ros2 launch banyu_bringup main_launch.launch.py mode:=por use_ardusub_sitl:=False
   ```
 
-- **Real Hardware Mode**:
+- **Headless Mission Stack Only (No Gazebo GUI)**:
   ```bash
-  ros2 launch banyu_bringup proof_of_readiness.launch.py use_sim:=False fcu_url:=udp://192.168.2.1:14550@
+  ros2 launch banyu_bringup mission.launch.py mode:=por
+  # or Task 2 fixture mode:
+  ros2 launch banyu_bringup mission.launch.py mode:=task2 use_sim:=True
+  ```
+
+- **Real Hardware Mode (onboard BlueROV2)**:
+  ```bash
+  ros2 launch banyu_bringup mission.launch.py mode:=por use_sim:=False fcu_url:=udp://192.168.2.1:14550@
   ```
 
 - **No-DVL Negative Control** (see [Navigation Sources](#-navigation-sources-gps-on-the-surface-dvl-underwater)):
@@ -36,10 +48,11 @@ Main bringup script for the Proof of Readiness task environment.
 
 | Argument | Options | Default | Description |
 | :--- | :--- | :--- | :--- |
+| `mode` | `por` / `task2` | `por` | Selects which competition mission and world to launch (`por` or `task2`). |
 | `use_sim` | `True` / `False` | `True` | Runs Gazebo simulation and SITL when `True`; skips sim for real ROV hardware when `False`. |
 | `use_sim_time` | `True` / `False` | `True` | Sets `use_sim_time` parameter for ROS 2 nodes. |
 | `use_ardusub_sitl` | `True` / `False` | `True` | Uses `sim_vehicle.py` SITL wrapper (UDP 14550 for QGC) when `True`; uses bare `ardusub` when `False`. |
-| `fcu_url` | string | `udp://127.0.0.1:14550@` | Target MAVLink FCU address (`udp://192.168.2.1:14550@` for physical BlueROV2). |
+| `fcu_url` | string | `udp://127.0.0.1:14551@` | Target MAVLink FCU address (`udp://127.0.0.1:14551@` for SITL to reserve 14550 for QGC; `udp://192.168.2.1:14550@` for physical BlueROV2). |
 
 ---
 
@@ -89,8 +102,7 @@ of `VISION_POSITION_DELTA` is unchanged.
   and that message is the *only* one that bootstraps EKF3 aiding from a DVL
   alone. `VISION_SPEED_ESTIMATE` and `ODOMETRY`-twist land in
   `writeExtNavVelData()`, which is in neither `AID_NONE` exit branch.
-- **`ros_gz_bridge` on Humble cannot carry `gz.msgs.DVLVelocityTracking`** — the
-  mapping only exists from Jazzy.
+- **Direct MAVLink injection:** `banyu::DvlMavlink` converts `gz.msgs.DVLVelocityTracking` directly to `VISION_POSITION_DELTA` into SITL, avoiding extra ROS hop latency.
 
 So a gz-sim world system (`banyu_simulation/src/DvlMavlink.cc`, loaded by
 `main_world.world`) subscribes to the gz topic and speaks MAVLink straight to

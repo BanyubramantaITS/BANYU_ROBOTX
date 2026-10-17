@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.8)
 project(banyu_mission)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
+
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()

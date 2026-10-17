@@ -95,27 +95,33 @@ source install/setup.bash
 
 ## 🎮 Launch Usage
 
-Launch the Proof of Readiness simulation environment using `banyu_bringup`:
+Launch the simulation environment using `banyu_bringup`:
 
 ### 1. Default Simulation Mode (Gazebo + SITL + QGC)
-Launches Gazebo Sim with all models (pool, gate, buoy) and ArduSub SITL via `sim_vehicle.py`. **QGroundControl (QGC)** automatically connects via UDP port 14550.
+Launches Gazebo Sim with all models and ArduSub SITL via `sim_vehicle.py`. **QGroundControl (QGC)** automatically connects via UDP port 14550.
 
-```bash
-ros2 launch banyu_bringup proof_of_readiness.launch.py
-```
+- **Proof of Readiness (POR)**:
+  ```bash
+  ros2 launch banyu_bringup main_launch.launch.py mode:=por
+  ```
+
+- **Task 2 (Pipeline & Rings)**:
+  ```bash
+  ros2 launch banyu_bringup main_launch.launch.py mode:=task2
+  ```
 
 ### 2. Bare ArduSub SITL Mode
 Runs Gazebo Sim with the bare `ardusub` executable:
 
 ```bash
-ros2 launch banyu_bringup proof_of_readiness.launch.py use_ardusub_sitl:=False
+ros2 launch banyu_bringup main_launch.launch.py mode:=por use_ardusub_sitl:=False
 ```
 
 ### 3. Real ROV Hardware Mode
 Disables Gazebo Sim and SITL processes to run autonomy nodes connected to a physical ROV tether:
 
 ```bash
-ros2 launch banyu_bringup proof_of_readiness.launch.py use_sim:=False fcu_url:=udp://192.168.2.1:14550@
+ros2 launch banyu_bringup mission.launch.py mode:=por use_sim:=False fcu_url:=udp://192.168.2.1:14550@
 ```
 
 ---
@@ -124,10 +130,11 @@ ros2 launch banyu_bringup proof_of_readiness.launch.py use_sim:=False fcu_url:=u
 
 | Argument | Default | Description |
 | :--- | :--- | :--- |
+| `mode` | `por` | Competition mission: `por` (Proof of Readiness) or `task2` (Pipeline & Rings). |
 | `use_sim` | `True` | Set to `True` for Gazebo + SITL simulation; set to `False` for real hardware deployment. |
 | `use_sim_time` | `True` | Enables ROS 2 simulation time (`/clock`). |
 | `use_ardusub_sitl` | `True` | Set to `True` for `sim_vehicle.py` (with UDP 14550 for QGC); `False` for bare `ardusub`. |
-| `fcu_url` | `udp://127.0.0.1:14550@` | MAVLink FCU endpoint URL (`udp://192.168.2.1:14550@` for real ROV tether). |
+| `fcu_url` | `udp://127.0.0.1:14551@` | MAVLink FCU endpoint URL (`udp://127.0.0.1:14551@` for SITL; `udp://192.168.2.1:14550@` for real ROV tether). |
 
 ---
 
