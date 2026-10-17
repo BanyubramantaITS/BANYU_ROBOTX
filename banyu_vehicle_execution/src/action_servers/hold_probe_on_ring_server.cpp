@@ -10,8 +10,11 @@ namespace banyu_vehicle_execution
 HoldProbeOnRingServer::HoldProbeOnRingServer(
   rclcpp::Node * node,
   const std::string & action_name,
-  ActionServerCoordinator * coordinator)
-: TypedActionServer(node, action_name, coordinator)
+  ActionServerCoordinator * coordinator,
+  double ring_kp_sway,
+  double ring_kp_surge)
+: TypedActionServer(node, action_name, coordinator),
+  ring_kp_sway_(ring_kp_sway), ring_kp_surge_(ring_kp_surge)
 {
 }
 
@@ -75,6 +78,15 @@ MotionIntent HoldProbeOnRingServer::tick(
     return zeroIntent();
   }
 
+  // Keep centering while holding, as the alignment actions do: the vehicle coasts after
+  // CenterOnRing and a zero command would let the ring drift out of tolerance.
+  if (visible && telemetry.pose_valid) {
+    const double sway = -std::clamp(ring_kp_sway_ * offset_x, -0.5, 0.5);
+    const double surge = -std::clamp(ring_kp_surge_ * offset_y, -0.3, 0.3);
+    const auto local_intent = bodyFluToLocalEnu(
+      MotionIntent::bodyFlu(surge, sway, 0.0, 0.0), telemetry.yaw);
+    return local_intent.value_or(zeroIntent());
+  }
   return zeroIntent();
 }
 

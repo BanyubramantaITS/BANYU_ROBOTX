@@ -30,6 +30,26 @@ public:
   }
 
   RepairAcknowledgementResult acknowledgeRingRepair(uint32_t ring_index);
+  void reset();
+
+  void setCenterline(const std::vector<std::pair<double, double>> & waypoints)
+  {
+    tracker_.setCenterline(waypoints);
+  }
+  bool hasCenterline() const
+  {
+    return tracker_.hasCenterline();
+  }
+  double projectOntoCenterline(double x, double y) const
+  {
+    return tracker_.projectOntoCenterline(x, y);
+  }
+  int findAssociatedRecord(
+    double progress_m,
+    const geometry_msgs::msg::PoseStamped & pose) const
+  {
+    return tracker_.findAssociatedRecord(progress_m, pose);
+  }
 
   const RingTracker & tracker() const {return tracker_;}
 

@@ -1,0 +1,100 @@
+<?xml version="1.0"?>
+<!-- RobotX 2026 "Underwater Magnetically Activated Light" (handbook 3.5.6),
+     built to the official build guide:
+     robonation.gitbook.io/robotx-2026-team-handbook/robotx-2026-or-task-build-guides
+       /underwater-magnetically-activated-light-build-guide
+
+     It is an ABS electrical box, 4.9 x 4.9 x 3 in (125 x 125 x 75 mm, Amazon
+     B0BR52TF9M, IP67), clamped or cable-tied to the pipeline. Inside is a ring
+     of 16 WS2812B LEDs at full brightness, RED or GREEN, never both. The
+     magnetometer that the repair probe triggers sits at the centre of that
+     ring.
+ 
+     NOT a collar around the pipe. The first version of this model wrapped a
+     glowing cylinder around the pipe so it was visible from every side; the
+     real node is a box with the light on ONE face, which is what makes the
+     survey approach direction matter at all.
+ 
+     Two documented conflicts, both left as knobs rather than silently decided:
+ 
+     1. The handbook's own illustration (p.63) draws the lights as rings
+        encircling the pipe, visible from any angle. The build guide draws a
+        box. The build guide also says outright that it is "a prototype for
+        team testing, not the final competition design", so this may change.
+     2. Neither source gives the LED ring's diameter. `ring_od` defaults to the
+        45 mm of a stock 16-LED WS2812B/NeoPixel ring, which is the part the
+        BOM implies. That is SMALL: on the 320x240 front camera it spans about
+        12 px at 1 m and 4 px at 3 m, so the survey has to fly close. If the
+        real rings turn out bigger, this is the one number to change. -->
+<sdf version="1.9" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="color" default="green" />
+  <xacro:arg name="name" default="light_node" />
+  <xacro:arg name="ring_od" default="0.045" />
+
+  <!-- Handbook p.64 hex codes for the task's RED and GREEN. -->
+  <xacro:property name="rgb"
+    value="${'0.910 0.157 0.169' if '$(arg color)' == 'red' else '0.031 0.580 0.016'}" />
+
+  <!-- Enclosure, from the build guide. -->
+  <xacro:property name="bx" value="0.125" />
+  <xacro:property name="by" value="0.125" />
+  <xacro:property name="bz" value="0.075" />
+
+  <xacro:property name="ring_od" value="$(arg ring_od)" />
+  <!-- Stock 16-LED ring: 44.5 mm outer, 31.7 mm inner. Keep the proportion if
+       ring_od is overridden. -->
+  <xacro:property name="ring_id" value="${ring_od * 0.712}" />
+
+  <!-- The lit face is +x. The spawn pose therefore aims the light: yaw points
+       +x wherever the ring should face. -->
+  <model name="$(arg name)">
+    <static>true</static>
+    <link name="node">
+
+      <!-- ABS enclosure. Dark grey; the real boxes are grey or black ABS. -->
+      <visual name="enclosure">
+        <pose>${-bz / 2} 0 0 0 0 0</pose>
+        <geometry>
+          <box><size>${bz} ${bx} ${by}</size></box>
+        </geometry>
+        <material>
+          <ambient>0.18 0.18 0.20 1</ambient>
+          <diffuse>0.22 0.22 0.24 1</diffuse>
+        </material>
+      </visual>
+
+      <!-- Lit annulus on the lid, drawn as a bright ring disc with an unlit
+           centre where the magnetometer sits. Slightly proud of the lid so it
+           does not z-fight with it. -->
+      <visual name="led_ring">
+        <pose>0.002 0 0 0 1.5707963 0</pose>
+        <geometry>
+          <cylinder><radius>${ring_od / 2}</radius><length>0.004</length></cylinder>
+        </geometry>
+        <material>
+          <ambient>${rgb} 1</ambient>
+          <diffuse>${rgb} 1</diffuse>
+          <emissive>${rgb} 1</emissive>
+        </material>
+      </visual>
+
+      <!-- Magnetic switch at the centre of the ring: the point the UUV must
+           hold its probe against to "repair" the segment (Advanced tier). Dark
+           so the lit ring reads as a ring rather than a disc. -->
+      <visual name="magnet_switch">
+        <pose>0.004 0 0 0 1.5707963 0</pose>
+        <geometry>
+          <cylinder><radius>${ring_id / 2}</radius><length>0.004</length></cylinder>
+        </geometry>
+        <material>
+          <ambient>0.12 0.12 0.13 1</ambient>
+          <diffuse>0.12 0.12 0.13 1</diffuse>
+        </material>
+      </visual>
+
+      <!-- ponytail: no collision. The node is a detection target clamped to a
+           pipe that already has its own collision; giving it one only creates
+           a second thing for the vehicle to snag on at the same place. -->
+    </link>
+  </model>
+</sdf>

@@ -11,6 +11,7 @@
 #include "banyu_mission/action_nodes.hpp"
 #include "banyu_mission/banyu_mission.hpp"
 #include "banyu_mission/por_mission_config.hpp"
+#include "banyu_msgs/msg/pipeline_observation.hpp"
 #include "banyu_msgs/msg/pipeline_ring_state.hpp"
 #include "banyu_msgs/msg/vehicle_status.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -118,7 +119,7 @@ TEST_F(MissionTest, LoadsAndRegistersAllNodes)
   for (const auto & id : {"NavigateSurfaceGps", "AlignHeading", "DiveToDepth",
       "AcquirePipeline", "SearchPipeline", "FollowPipeline",
       "CenterOnRing", "HoldProbeOnRing", "Surface",
-      "SendMissionReport", "AutonomyInterrupted", "PipelineEnded", "ArmAndSetGuided"})
+      "PublishPipelineSurvey", "AutonomyInterrupted", "PipelineEnded", "ArmAndSetGuided"})
   {
     EXPECT_NE(builders.find(id), builders.end()) << id;
   }
@@ -220,6 +221,10 @@ TEST_F(MissionTest, RingAcknowledgementMustMatchPendingRecord)
   EXPECT_TRUE(state->redPending());
   EXPECT_TRUE(state->acknowledgeRed(7));
   EXPECT_FALSE(state->redPending());
+
+  publisher->publish(ring);
+  spinFor(node);
+  EXPECT_FALSE(state->redPending());
 }
 
 TEST_F(MissionTest, ActionResultSemanticFailureIsNotTransportSuccess)
@@ -233,23 +238,117 @@ TEST_F(MissionTest, ActionResultSemanticFailureIsNotTransportSuccess)
       SuccessfulResult{}));
 }
 
-TEST_F(MissionTest, SendMissionReportRequiresAcknowledgedMatchingCrc)
+TEST_F(MissionTest, PublishPipelineSurveyNodeProvidedPortsIsEmpty)
 {
-  using Result = banyu_msgs::action::SendMissionReport::Result;
-  constexpr uint32_t expected_crc = 0x12345678U;
-  Result result;
-  result.success = true;
-  result.acknowledged = true;
-  result.acknowledged_crc32 = expected_crc;
-  EXPECT_TRUE(banyu_mission::SendMissionReportNode::semanticResultSuccess(result, expected_crc));
-  result.acknowledged = false;
-  EXPECT_FALSE(banyu_mission::SendMissionReportNode::semanticResultSuccess(result, expected_crc));
-  result.acknowledged = true;
-  result.acknowledged_crc32 = expected_crc + 1U;
-  EXPECT_FALSE(banyu_mission::SendMissionReportNode::semanticResultSuccess(result, expected_crc));
-  result.success = false;
-  result.acknowledged_crc32 = expected_crc;
-  EXPECT_FALSE(banyu_mission::SendMissionReportNode::semanticResultSuccess(result, expected_crc));
+  EXPECT_TRUE(banyu_mission::PublishPipelineSurveyNode::providedPorts().empty());
+}
+
+TEST_F(MissionTest, PublishPipelineSurveyWaitsForDelayedServiceDiscovery)
+{
+  using Survey = banyu_msgs::srv::TriggerPipelineSurvey;
+  auto node = std::make_shared<rclcpp::Node>("survey_service_discovery_test");
+  auto server_node = std::make_shared<rclcpp::Node>("delayed_survey_service_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get(), false);
+  ASSERT_TRUE(state->configureMissionCoordinates(0.0, 0.0, 0.0, 0.0, false));
+  ASSERT_TRUE(state->acceptRun(1u, 1u));
+  banyu_mission::PublishPipelineSurveyNode action(
+    "PublishPipelineSurvey", BT::NodeConfig{}, node, state, "/test/delayed_pipeline_survey");
+  rclcpp::Service<Survey>::SharedPtr server;
+  size_t requests = 0;
+  std::thread advertise_service([&]() {
+      std::this_thread::sleep_for(std::chrono::milliseconds(150));
+      server = server_node->create_service<Survey>(
+        "/test/delayed_pipeline_survey",
+        [&](const std::shared_ptr<Survey::Request> request,
+        std::shared_ptr<Survey::Response> response) {
+          ++requests;
+          response->success = true;
+          response->report_id = request->report_id;
+          response->result_code = Survey::Response::ACCEPTED;
+        });
+    });
+  const auto start_status = action.onStart();
+  advertise_service.join();
+  ASSERT_EQ(start_status, BT::NodeStatus::RUNNING);
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(server_node);
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (action.onRunning() == BT::NodeStatus::RUNNING &&
+    std::chrono::steady_clock::now() < deadline)
+  {
+    executor.spin_some();
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  EXPECT_EQ(action.onRunning(), BT::NodeStatus::SUCCESS);
+  EXPECT_EQ(requests, 1u);
+}
+
+TEST_F(MissionTest, PublishPipelineSurveyFailsAfterFiveSecondsWithoutServiceResponse)
+{
+  using Survey = banyu_msgs::srv::TriggerPipelineSurvey;
+  auto node = std::make_shared<rclcpp::Node>(
+    "survey_service_timeout_test",
+    rclcpp::NodeOptions().parameter_overrides({rclcpp::Parameter("use_sim_time", true)}));
+  auto server_node = std::make_shared<rclcpp::Node>("unresponsive_survey_service_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get(), false);
+  ASSERT_TRUE(state->configureMissionCoordinates(0.0, 0.0, 0.0, 0.0, false));
+  ASSERT_TRUE(state->acceptRun(1u, 1u));
+  std::vector<std::shared_ptr<rmw_request_id_t>> requests;
+  auto server = server_node->create_service<Survey>(
+    "/test/unresponsive_pipeline_survey",
+    [&](const std::shared_ptr<rmw_request_id_t> header,
+    const std::shared_ptr<Survey::Request>) {
+      requests.push_back(header);
+    });
+  banyu_mission::PublishPipelineSurveyNode action(
+    "PublishPipelineSurvey", BT::NodeConfig{}, node, state, "/test/unresponsive_pipeline_survey");
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(server_node);
+
+  const auto started = std::chrono::steady_clock::now();
+  ASSERT_EQ(action.onStart(), BT::NodeStatus::RUNNING);
+  EXPECT_EQ(action.onRunning(), BT::NodeStatus::RUNNING);
+  auto status = BT::NodeStatus::RUNNING;
+  while (status == BT::NodeStatus::RUNNING &&
+    std::chrono::steady_clock::now() - started < std::chrono::seconds(7))
+  {
+    executor.spin_some();
+    status = action.onRunning();
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  ASSERT_EQ(status, BT::NodeStatus::FAILURE);
+  EXPECT_GE(std::chrono::steady_clock::now() - started, std::chrono::seconds(5));
+  EXPECT_EQ(node->now().nanoseconds(), 0);
+  ASSERT_EQ(requests.size(), 1u);
+
+  // A late successful reply must not change the timed-out result.
+  Survey::Response response;
+  response.success = true;
+  response.report_id = "task2-survey-1-1";
+  response.result_code = Survey::Response::ACCEPTED;
+  server->send_response(*requests.front(), response);
+  executor.spin_some();
+  EXPECT_EQ(action.onRunning(), BT::NodeStatus::FAILURE);
+
+  ASSERT_EQ(action.onStart(), BT::NodeStatus::RUNNING);
+  const auto retry_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (requests.size() < 2 && std::chrono::steady_clock::now() < retry_deadline) {
+    executor.spin_some();
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  ASSERT_EQ(requests.size(), 2u);
+  EXPECT_EQ(action.onRunning(), BT::NodeStatus::RUNNING);
+  server->send_response(*requests.back(), response);
+  while (action.onRunning() == BT::NodeStatus::RUNNING &&
+    std::chrono::steady_clock::now() < retry_deadline)
+  {
+    executor.spin_some();
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  EXPECT_EQ(action.onRunning(), BT::NodeStatus::SUCCESS);
 }
 
 TEST_F(MissionTest, AcquirePipelineRequiresAcquiredResult)
@@ -564,4 +663,42 @@ TEST_F(MissionTest, AbortServiceCommandsFallbackModeSurface)
   }
 
   EXPECT_EQ(received_mode, "SURFACE");
+}
+
+TEST_F(MissionTest, SingleDroppedPipelineFrameDoesNotCountAsLosingThePipe)
+{
+  auto node = std::make_shared<rclcpp::Node>("mission_pipeline_debounce_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get());
+  state->configure(1.0, 0.3, 1.0, 4, 1700, "GUIDED", "AUTONOMY", false);
+  auto publisher = node->create_publisher<banyu_msgs::msg::PipelineObservation>(
+    "/banyu/pipeline/observation", rclcpp::SensorDataQoS());
+  auto publish = [&](uint8_t status) {
+      banyu_msgs::msg::PipelineObservation observation;
+      observation.header.stamp = node->now();
+      observation.status = status;
+      observation.confidence = 0.9F;
+      publisher->publish(observation);
+    };
+  auto spin_for = [&](std::chrono::milliseconds duration) {
+      const auto end = std::chrono::steady_clock::now() + duration;
+      while (std::chrono::steady_clock::now() < end) {
+        rclcpp::spin_some(node);
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      }
+    };
+  using Observation = banyu_msgs::msg::PipelineObservation;
+  EXPECT_TRUE(state->pipelineLost());
+  for (int i = 0; i < 5; ++i) {
+    publish(Observation::TRACKED);
+    spin_for(std::chrono::milliseconds(20));
+  }
+  EXPECT_FALSE(state->pipelineLost());
+  publish(Observation::NO_PIPE);
+  spin_for(std::chrono::milliseconds(50));
+  EXPECT_FALSE(state->pipelineLost());
+  for (int i = 0; i < 25; ++i) {
+    publish(Observation::NO_PIPE);
+    spin_for(std::chrono::milliseconds(20));
+  }
+  EXPECT_TRUE(state->pipelineLost());
 }

@@ -7,3 +7,8 @@ repositories:
     type: git
     url: git@github.com:BanyubramantaITS/bluerov2_gz.git
     version: banyu
+  # Folder name kept so existing workspaces update in place; needs a2a1ccc+ (PipelineBuoys).
+  RobotX-SoS-communication-ITSN:
+    type: git
+    url: https://github.com/Barunastra-ITS/rx-sos-communication-itsn.git
+    version: main

@@ -1,4 +1,6 @@
 # ENU heading: radians counter-clockwise from +X (east) toward +Y (north).
+uint32 run_id
+uint64 epoch
 float64 target_heading_rad
 float64 tolerance_rad
 ---

@@ -538,6 +538,36 @@ TEST_F(VehicleExecutionNodeTest, PorAlignMarkerMissingDetectionTimesOut)
   EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::ABORTED);
 }
 
+TEST_F(VehicleExecutionNodeTest, CenterOnRingSearchesThenAbortsWhenRingNeverReappears)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("control.ring_search_timeout_s", 0.2);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::CenterOnRing;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/center_on_ring");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  Action::Goal goal;
+  goal.ring_color = "red";
+  goal.tolerance = 0.1;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  for (int i = 0; i < 40; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    spinFor(node, 2);
+  }
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  const auto wrapped = result_future.get();
+  EXPECT_EQ(wrapped.code, rclcpp_action::ResultCode::ABORTED);
+  EXPECT_FALSE(wrapped.result->success);
+  EXPECT_NE(wrapped.result->reason.find("not reacquired"), std::string::npos);
+}
+
 TEST_F(VehicleExecutionNodeTest, PorAcquireGatePoseLossTimesOutAndRecoveryResetsWatchdog)
 {
   rclcpp::NodeOptions options;
@@ -1112,36 +1142,17 @@ TEST_F(VehicleExecutionNodeTest, NodeStartsAndDeclaresPreviewSink)
   EXPECT_FALSE(node->telemetry().gps_valid);
 }
 
-TEST_F(VehicleExecutionNodeTest, TelemetryUpdatesAndLeaseValidation)
+TEST_F(VehicleExecutionNodeTest, GoalActivationImmediate)
 {
   rclcpp::NodeOptions options;
-  options.append_parameter_override("control.require_lease", true);
   auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
 
   const auto goal_id = identity(5, "/banyu/actions/align_heading", 1);
   const auto req = node->requestGoal(goal_id);
   ASSERT_EQ(req.admission, GoalAdmission::Activated);
-  EXPECT_TRUE(node->arbiter().zeroLatched());
-
-  auto lease_pub =
-    node->create_publisher<banyu_msgs::msg::ActionLease>("/banyu/execution/lease", 10);
-  spinFor(node, 5);
-
-  auto lease_msg = std::make_shared<banyu_msgs::msg::ActionLease>();
-  lease_msg->header.stamp = node->now();
-  std::copy(goal_id.uuid.begin(), goal_id.uuid.end(), lease_msg->goal_id.uuid.begin());
-  lease_msg->owner = "/banyu/actions/align_heading";
-  lease_msg->generation = 1;
-  lease_msg->active = true;
-  lease_msg->expires_at = node->now() + rclcpp::Duration::from_seconds(2.0);
-
-  for (int i = 0; i < 50 && node->arbiter().zeroLatched(); ++i) {
-    lease_pub->publish(*lease_msg);
-    rclcpp::spin_some(node);
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-
   EXPECT_FALSE(node->arbiter().zeroLatched());
+  ASSERT_TRUE(node->arbiter().activeGoal().has_value());
+  EXPECT_EQ(node->arbiter().activeGoal()->goal.owner, "/banyu/actions/align_heading");
 }
 
 TEST_F(VehicleExecutionNodeTest, OperatorTakeoverFaultsActiveGoals)
@@ -1293,6 +1304,7 @@ TEST_F(VehicleExecutionNodeTest, StaleStatusWatchdogFaultsArbiter)
   status.header.stamp = node->now() - rclcpp::Duration::from_seconds(2.0);
   status.fcu_connected = true;
   status.fcu_status_fresh = true;
+  status.armed = true;
   status.operator_takeover = false;
   status_pub->publish(status);
 
@@ -1370,6 +1382,15 @@ TEST_F(VehicleExecutionNodeTest, SurfaceWatchdogIsOptInAndResetsAfterDepthRecove
   depth.data = -2.0;
   depth_pub->publish(depth);
   spinFor(node, 5);
+  EXPECT_TRUE(result_future.wait_for(0ms) != std::future_status::ready);
+  const auto until = std::chrono::steady_clock::now() + 1500ms;
+  while (result_future.wait_for(0ms) != std::future_status::ready &&
+    std::chrono::steady_clock::now() < until)
+  {
+    depth_pub->publish(depth);
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(10ms);
+  }
   ASSERT_TRUE(waitForFuture(node, result_future));
   EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::SUCCEEDED);
 }
@@ -1449,6 +1470,8 @@ TEST_F(VehicleExecutionNodeTest, MavrosPublicationGatedByStatusAndGuidedMode)
   status.fcu_status_fresh = true;
   status.operator_takeover = false;
   status.mode = "MANUAL";
+  status.armed = true;
+  status.rc_fresh = true;
   status_pub->publish(status);
   spinFor(node, 5);
   EXPECT_EQ(mavros_count, 0);
@@ -1489,7 +1512,7 @@ TEST_F(VehicleExecutionNodeTest, MavrosPublicationGatedByStatusAndGuidedMode)
   EXPECT_EQ(mavros_count, stopped_count);
 }
 
-TEST_F(VehicleExecutionNodeTest, MavrosPublicationUngatedWhenRequireGuidedFalse)
+TEST_F(VehicleExecutionNodeTest, PreviewConfigurationCannotBypassMavrosSafety)
 {
   rclcpp::NodeOptions options;
   options.append_parameter_override("control.enable_mavros_publish", true);
@@ -1510,15 +1533,34 @@ TEST_F(VehicleExecutionNodeTest, MavrosPublicationUngatedWhenRequireGuidedFalse)
     "/test_ungated/status", 10);
 
   spinFor(node, 10);
-  EXPECT_GT(mavros_count, 0);
+  EXPECT_EQ(mavros_count, 0);
 
-  // Even with require_guided=false, operator takeover must halt publishing
+  // Preview configuration cannot authorize hardware without GUIDED and RC.
   banyu_msgs::msg::VehicleStatus status;
   status.header.stamp = node->now();
   status.fcu_connected = true;
   status.fcu_status_fresh = true;
-  status.operator_takeover = true;
+  status.rc_fresh = true;
+  status.armed = true;
+  status.operator_takeover = false;
   status.mode = "MANUAL";
+  status_pub->publish(status);
+  spinFor(node, 10);
+  EXPECT_EQ(mavros_count, 0);
+  status.header.stamp = node->now();
+  status.mode = "GUIDED";
+  status.operational_mode = 2;
+  status.rc_fresh = false;
+  status_pub->publish(status);
+  spinFor(node, 10);
+  EXPECT_EQ(mavros_count, 0);
+  status.header.stamp = node->now();
+  status.rc_fresh = true;
+  status_pub->publish(status);
+  spinFor(node, 10);
+  EXPECT_GT(mavros_count, 0);
+  status.header.stamp = node->now();
+  status.operator_takeover = true;
   status_pub->publish(status);
 
   for (int i = 0; i < 30 && !node->telemetry().operator_takeover; ++i) {

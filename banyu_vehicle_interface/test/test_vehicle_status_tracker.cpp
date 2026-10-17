@@ -59,6 +59,19 @@ TEST(VehicleStatusTrackerTest, StartsFailSafeAndFcuBecomesStale)
   EXPECT_FALSE(stale.fcu_status_fresh);
 }
 
+TEST(VehicleStatusTrackerTest, ArmedRequiresFreshConnectedFcuEvidence)
+{
+  VehicleStatusTracker tracker(testConfig());
+  auto message = state(true, "GUIDED");
+  message.armed = true;
+  tracker.updateState(message, timeAt(0.0));
+  EXPECT_TRUE(tracker.status(timeAt(0.5)).armed);
+  EXPECT_FALSE(tracker.status(timeAt(1.1)).armed);
+  message.connected = false;
+  tracker.updateState(message, timeAt(1.2));
+  EXPECT_FALSE(tracker.status(timeAt(1.2)).armed);
+}
+
 TEST(VehicleStatusTrackerTest, RcFreshnessExpiresAndDisarmsAuthority)
 {
   VehicleStatusTracker tracker(testConfig());

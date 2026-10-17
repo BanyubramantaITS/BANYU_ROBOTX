@@ -3,21 +3,20 @@
 ## Installation
 
 Install these packages:
-* [ROS 2 Humble](https://docs.ros.org/en/humble/Installation.html)
+* [ROS 2 Jazzy](https://docs.ros.org/en/jazzy/Installation.html) (or Humble)
 * [Gazebo Harmonic](https://gazebosim.org/docs/harmonic/install)
-* **`ros_gz` for Gazebo Harmonic (MANDATORY)**:
+* **Gazebo APT repository**:
   ```bash
+  sudo wget https://packages.osrfoundation.org/gazebo.gpg -O /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/gazebo-stable.list > /dev/null
   sudo apt-get update
-  sudo apt-get install -y ros-humble-ros-gzharmonic
   ```
-  > [!CAUTION]
-  > You **MUST** install `ros-humble-ros-gzharmonic`. 
-  > Using the default `ros-humble-ros-gz` will cause transport protocol incompatibility errors and break camera streaming and robot control topics.
-* [ArduSub](https://ardupilot.org/dev/docs/building-setup-linux.html)
-* BehaviorTree.CPP multiarch symlink (if required on Ubuntu 22.04):
+* **`ros_gz` and dependencies**:
   ```bash
-  sudo ln -sf /opt/ros/humble/lib/x86_64-linux-gnu/libbehaviortree_cpp.so /opt/ros/humble/lib/libbehaviortree_cpp.so
+  rosdep install --from-paths src -i -r -y
   ```
+  *(In Jazzy, `ros-jazzy-ros-gz` natively targets Gazebo Harmonic)*
+* [ArduSub](https://ardupilot.org/dev/docs/building-setup-linux.html)
 
 Build ArduSub for SITL:
 ```sh
@@ -32,7 +31,13 @@ mkdir -p <WORKSPACE>/src
 cd <WORKSPACE>/src
 git clone git@github.com:BanyubramantaITS/BANYU_ROBOTX.git
 vcs import < BANYU_ROBOTX/import.repos
+cd <WORKSPACE>
+ln -sf src/BANYU_ROBOTX/AGENTS.md AGENTS.md
+ln -sf src/BANYU_ROBOTX/.agents .agents
 ```
+
+`rx_msgs` comes from `import.repos` and tracks `main`; Task 2 needs at least commit `a2a1ccc`
+(`rx_msgs/PipelineBuoys`). Update an existing checkout with `vcs pull .` from `src/` and rebuild.
 
 Get dependencies:
 ```sh
@@ -52,3 +57,25 @@ Build the workspace:
 cd <WORKSPACE>
 colcon build --symlink-install
 ```
+
+## Running Simulation
+
+Launch the unified simulation stack (Gazebo Harmonic + SITL + MAVROS + Autonomy):
+
+- **Proof of Readiness (POR)**:
+  ```sh
+  ros2 launch banyu_bringup main_launch.launch.py mode:=por
+  ```
+
+- **Task 2 (Pipeline Inspection & Ring Repair)**:
+  ```sh
+  ros2 launch banyu_bringup main_launch.launch.py mode:=task2
+  ```
+
+Headless mission runs (without Gazebo GUI):
+```sh
+ros2 launch banyu_bringup mission.launch.py mode:=por
+# or for Task 2 sim fixture:
+ros2 launch banyu_bringup mission.launch.py mode:=task2 use_sim:=True
+```
+

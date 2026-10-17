@@ -60,6 +60,7 @@ private:
 
   bool state_received_{false};
   bool state_connected_{false};
+  bool state_armed_{false};
   std::string mode_;
   rclcpp::Time last_state_;
 

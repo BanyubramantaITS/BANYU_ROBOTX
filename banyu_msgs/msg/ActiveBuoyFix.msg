@@ -1,0 +1,12 @@
+std_msgs/Header header
+uint32 run_id
+uint64 epoch
+uint64 revision
+string source_id
+string course_id
+string endpoint_id
+sensor_msgs/NavSatFix fix
+float64 uncertainty_m
+bool green_confirmed
+bool pinger_confirmed
+uint32 pinger_freq_hz

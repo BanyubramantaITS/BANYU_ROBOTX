@@ -19,7 +19,7 @@
   <BehaviorTree ID="MissionPreflight">
     <Sequence>
       <RequireMissionStarted />
-      <ArmAndSetGuided />
+      <RequireVehicleReady />
     </Sequence>
   </BehaviorTree>
 
@@ -28,6 +28,8 @@
       <NavigateSurfaceGps target_latitude="{target_latitude}" target_longitude="{target_longitude}"
         start_latitude="{start_latitude}" start_longitude="{start_longitude}"
         tolerance="{gps_tolerance}" />
+      <!-- From here the UUV dives at this buoy; later USV updates no longer move the target. -->
+      <LockBuoyTarget />
       <AlignHeading target_heading="{heading}" tolerance="{heading_tolerance}" />
     </Sequence>
   </BehaviorTree>
@@ -36,30 +38,47 @@
     <Sequence>
       <DiveToDepth target_depth="{inspection_depth}" target_heading="{heading}"
         depth_tolerance="{depth_tolerance}" heading_tolerance="{heading_tolerance}" />
-      <Timeout msec="{acquire_timeout_ms}">
-        <AcquirePipeline camera_name="{camera_name}" use_heading_prior="true"
-          heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}" />
-      </Timeout>
+      <!-- A pass can cross the pipe at an angle and miss it; fall back to a search sweep. -->
+      <RetryUntilSuccessful num_attempts="3">
+        <Fallback>
+          <Timeout msec="{acquire_timeout_ms}">
+            <AcquirePipeline camera_name="{camera_name}" use_heading_prior="true"
+              heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}" />
+          </Timeout>
+          <SubTree ID="ReacquirePipeline" _autoremap="true" />
+        </Fallback>
+      </RetryUntilSuccessful>
     </Sequence>
   </BehaviorTree>
 
+  <!-- Repeats repair/reacquire/follow until the pipeline ends; a failed pass or the overall
+       traverse timeout ends the traversal and the trailing PipelineEnded reports a failure. -->
   <BehaviorTree ID="TraversePipeline">
-    <WhileDoElse>
-      <PipelineActive />
-      <ReactiveFallback name="traverse_reactive">
-        <Sequence name="repair_red_ring">
-          <RedRingPending />
-          <SubTree ID="RepairRedRing" _autoremap="true" />
-          <AcknowledgeRedRing />
-        </Sequence>
-        <Sequence name="reacquire_lost_pipeline">
-          <PipelineLost />
-          <SubTree ID="ReacquirePipeline" _autoremap="true" />
-        </Sequence>
-        <FollowPipeline enable="true" />
-      </ReactiveFallback>
+    <Sequence>
+      <ForceSuccess>
+        <Timeout msec="{traverse_timeout_ms}">
+          <KeepRunningUntilFailure>
+            <WhileDoElse>
+              <PipelineActive />
+              <ReactiveFallback name="traverse_reactive">
+                <Sequence name="repair_red_ring">
+                  <RedRingPending />
+                  <SubTree ID="RepairRedRing" _autoremap="true" />
+                  <AcknowledgeRedRing />
+                </Sequence>
+                <Sequence name="reacquire_lost_pipeline">
+                  <PipelineLost />
+                  <SubTree ID="ReacquirePipeline" _autoremap="true" />
+                </Sequence>
+                <FollowPipeline enable="true" />
+              </ReactiveFallback>
+              <AlwaysFailure />
+            </WhileDoElse>
+          </KeepRunningUntilFailure>
+        </Timeout>
+      </ForceSuccess>
       <PipelineEnded />
-    </WhileDoElse>
+    </Sequence>
   </BehaviorTree>
 
   <BehaviorTree ID="RepairRedRing">
@@ -82,9 +101,14 @@
 
   <BehaviorTree ID="SurfaceAndReport">
     <Sequence>
+      <Timeout msec="5000">
+        <WaitSurveyComplete />
+      </Timeout>
       <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}" />
-      <SendMissionReport mission_id="{mission_id}" ring_order="{ring_order}"
-        crc32="{crc32}" max_retries="{max_retries}" />
+      <ConfirmSurfaceAction />
+      <Timeout msec="5000">
+        <PublishPipelineSurvey />
+      </Timeout>
     </Sequence>
   </BehaviorTree>
 </root>

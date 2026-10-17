@@ -23,7 +23,7 @@ BT::NodeStatus ArmAndSetGuided::onStart()
 {
   std::lock_guard<std::mutex> lock(mutex_);
   generation_++;
-  start_time_ = node_->now();
+  start_time_ = std::chrono::steady_clock::now();
   set_mode_done_ = false;
   set_mode_success_ = false;
   arming_done_ = false;
@@ -61,9 +61,14 @@ BT::NodeStatus ArmAndSetGuided::onRunning()
 {
   std::lock_guard<std::mutex> lock(mutex_);
 
-  if ((node_->now() - start_time_).seconds() > timeout_s_) {
+  if (std::chrono::duration<double>(std::chrono::steady_clock::now() -
+    start_time_).count() > timeout_s_)
+  {
     RCLCPP_ERROR(
       node_->get_logger(), "ArmAndSetGuided timed out after %.1f seconds", timeout_s_);
+    return BT::NodeStatus::FAILURE;
+  }
+  if (step_ != Step::WaitingForReadiness && !state_->vehicleReady()) {
     return BT::NodeStatus::FAILURE;
   }
 
@@ -107,6 +112,7 @@ BT::NodeStatus ArmAndSetGuided::onRunning()
       RCLCPP_ERROR(node_->get_logger(), "Failed to set flight mode to GUIDED");
       return BT::NodeStatus::FAILURE;
     }
+    if (state_->snapshot().mode != "GUIDED") {return BT::NodeStatus::RUNNING;}
     RCLCPP_INFO(node_->get_logger(), "Flight mode set to GUIDED. Arming vehicle...");
     sendArmingRequest();
     step_ = Step::WaitingForArming;
@@ -121,7 +127,8 @@ BT::NodeStatus ArmAndSetGuided::onRunning()
       RCLCPP_ERROR(node_->get_logger(), "Failed to arm vehicle");
       return BT::NodeStatus::FAILURE;
     }
-    if (state_->snapshot().mode != "GUIDED") {
+    const auto vehicle = state_->snapshot();
+    if (vehicle.mode != "GUIDED" || !vehicle.armed) {
       return BT::NodeStatus::RUNNING;
     }
     RCLCPP_INFO(node_->get_logger(), "Vehicle successfully armed in GUIDED mode");
@@ -141,6 +148,8 @@ void ArmAndSetGuided::onHalted()
 {
   std::lock_guard<std::mutex> lock(mutex_);
   generation_++;
+  set_mode_client_->prune_pending_requests();
+  arming_client_->prune_pending_requests();
   step_ = Step::WaitingForReadiness;
 }
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Switch ArduSub's EKF3 source set on depth: GPS on the surface, DVL below.
+"""
+Switch ArduSub's EKF3 source set on depth: GPS on the surface, DVL below.
 
 EKF3 carries three source sets (EK3_SRC1_*, EK3_SRC2_*, EK3_SRC3_*) and can be
 told which is active over MAVLink, Lua or an RC aux switch -- but *nothing in
@@ -14,7 +15,7 @@ and the DVL then dead-reckons from a georeferenced point instead of from
 nowhere. Surfacing again re-acquires absolute position.
 
 Runs in sim and on hardware alike -- this is vehicle behaviour, not sim
-plumbing (unlike dvl_mavlink_bridge.py, which is sim-only).
+plumbing (unlike the banyu::DvlMavlink world system, which is sim-only).
 
 Self-check: `./ekf_source_switch.py --self-check` (no ROS needed).
 """
@@ -27,10 +28,14 @@ MAV_CMD_SET_EKF_SOURCE_SET = 42007
 
 SET_SURFACE = 1  # -> EK3_SRC1_*
 SET_DIVE = 2  # -> EK3_SRC2_*
+SURFACE_PA = 101325.0
+WATER_RHO = 1000.0
+G = 9.80665
 
 
 def desired_set(depth, current, dive_depth, surface_depth):
-    """Which source set should be active at this depth.
+    """
+    Which source set should be active at this depth.
 
     `depth` is metres below the surface, positive down. The two thresholds form
     a hysteresis band; inside it the current set is held, so a vehicle bobbing
@@ -63,7 +68,7 @@ def main():
     from mavros_msgs.srv import CommandLong
     from rclpy.node import Node
     from rclpy.qos import QoSProfile, ReliabilityPolicy
-    from std_msgs.msg import Float64
+    from sensor_msgs.msg import FluidPressure
 
     class EkfSourceSwitch(Node):
         def __init__(self):
@@ -80,33 +85,26 @@ def main():
 
             self.cli = self.create_client(CommandLong, "/mavros/cmd/command")
 
-            # rel_alt, NOT local_position/pose. local_position z is relative to
-            # the EKF ORIGIN -- wherever the vehicle happened to be when the
-            # origin was set, which in sim is on the pool floor. Measured with
-            # it, a sub sitting 2.5 m down reads a depth of 0.07 m and the
-            # switch never fires. rel_alt is relative to home, and ArduSub pins
-            # home altitude to the water surface, so it is depth (negative down).
+            # Depth straight from the pressure sensor. NOT local_position/pose
+            # (relative to the EKF origin, which in sim lands on the pool floor)
+            # and NOT rel_alt: rel_alt is EKF output, and with no horizontal
+            # aiding (no DVL fitted) it read -0.80 m at a true 0.08 m, so the
+            # switch never went back to GPS and the EKF never got a position.
             #
-            # Still no feedback loop: EK3_SRC*_POSZ is BARO in both source sets,
-            # so this number does not depend on the horizontal source we are
-            # choosing here.
-            #
-            # ponytail: home-relative, so it inherits ~0.1 m of home-fix error
-            # (measured 0.138 m in SITL). Well inside the hysteresis band. If a
-            # real Bar30 shows worse, add an explicit surface-offset param
-            # rather than narrowing the band.
+            # ponytail: fixed standard surface pressure and fresh water. On the
+            # real vehicle, sample surface pressure at startup instead.
             self.create_subscription(
-                Float64,
-                "/mavros/global_position/rel_alt",
-                self.on_depth,
+                FluidPressure,
+                "/mavros/imu/static_pressure",
+                self.on_pressure,
                 QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT),
             )
             self.get_logger().info(
                 f"depth switch armed: dive>={self.dive_depth} m, surface<={self.surface_depth} m"
             )
 
-        def on_depth(self, msg):
-            depth = -msg.data  # rel_alt is negative below the surface
+        def on_pressure(self, msg):
+            depth = (msg.fluid_pressure - SURFACE_PA) / (WATER_RHO * G)
             want = desired_set(depth, self.active, self.dive_depth, self.surface_depth)
             if want == self.active or want == self.pending:
                 return

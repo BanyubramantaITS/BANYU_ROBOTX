@@ -83,4 +83,33 @@ TEST(RingTrackerAdapter, RejectsWrongOrStaleRepairIndex)
   EXPECT_TRUE(adapter.tracker().redPending());
 }
 
+TEST(RingTrackerAdapter, ResetClearsRecordsSequenceAndRepairAcknowledgement)
+{
+  banyu_detection::RingTrackerConfig config;
+  config.entry_confirm_frames = 1;
+  banyu_detection::RingTrackerAdapter adapter(config);
+  auto first = redInput(1);
+  first.run_id = 7;
+  first.epoch = 12;
+  ASSERT_TRUE(adapter.update(first).accepted);
+  ASSERT_TRUE(adapter.acknowledgeRingRepair(0).success);
+  EXPECT_EQ(adapter.tracker().records().front().color,
+    banyu_msgs::msg::PipelineRingObservation::COLOR_RED);
+
+  adapter.reset();
+  EXPECT_TRUE(adapter.tracker().records().empty());
+  EXPECT_FALSE(adapter.tracker().repaired());
+  EXPECT_FALSE(adapter.tracker().redPending());
+  auto next = redInput(1);
+  next.run_id = 3;
+  next.epoch = 13;
+  const auto accepted = adapter.update(next);
+  ASSERT_TRUE(accepted.accepted);
+  EXPECT_EQ(accepted.record.run_id, 3U);
+  EXPECT_EQ(accepted.record.epoch, 13U);
+  EXPECT_EQ(accepted.record.node_id, 0U);
+  EXPECT_FALSE(accepted.record.ordering_verified);
+  EXPECT_TRUE(adapter.acknowledgeRingRepair(0).success);
+}
+
 }  // namespace

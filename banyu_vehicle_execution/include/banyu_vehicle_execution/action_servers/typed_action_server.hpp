@@ -15,6 +15,30 @@
 
 namespace banyu_vehicle_execution
 {
+namespace detail
+{
+template<typename T>
+auto getGoalRunId(const T & g, int) -> decltype(g.run_id)
+{
+  return g.run_id;
+}
+template<typename T>
+uint32_t getGoalRunId(const T &, ...)
+{
+  return 0;
+}
+
+template<typename T>
+auto getGoalEpoch(const T & g, int) -> decltype(g.epoch)
+{
+  return g.epoch;
+}
+template<typename T>
+uint64_t getGoalEpoch(const T &, ...)
+{
+  return 0;
+}
+}  // namespace detail
 
 template<typename ActionT>
 class TypedActionServer : public ActionServerBase
@@ -142,6 +166,8 @@ protected:
     std::copy(uuid.begin(), uuid.end(), id.uuid.begin());
     id.owner = action_name_;
     id.generation = ++generation_counter_;
+    id.run_id = detail::getGoalRunId(*goal, 0);
+    id.epoch = detail::getGoalEpoch(*goal, 0);
 
     const auto admission = coordinator_->requestGoal(id);
     if (!admission.accepted()) {
