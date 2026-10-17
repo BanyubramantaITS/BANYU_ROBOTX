@@ -31,6 +31,9 @@ mkdir -p <WORKSPACE>/src
 cd <WORKSPACE>/src
 git clone git@github.com:BanyubramantaITS/BANYU_ROBOTX.git
 vcs import < BANYU_ROBOTX/import.repos
+cd <WORKSPACE>
+ln -sf src/BANYU_ROBOTX/AGENTS.md AGENTS.md
+ln -sf src/BANYU_ROBOTX/.agents .agents
 ```
 
 `rx_msgs` comes from `import.repos` and tracks `main`; Task 2 needs at least commit `a2a1ccc`
@@ -54,3 +57,25 @@ Build the workspace:
 cd <WORKSPACE>
 colcon build --symlink-install
 ```
+
+## Running Simulation
+
+Launch the unified simulation stack (Gazebo Harmonic + SITL + MAVROS + Autonomy):
+
+- **Proof of Readiness (POR)**:
+  ```sh
+  ros2 launch banyu_bringup main_launch.launch.py mode:=por
+  ```
+
+- **Task 2 (Pipeline Inspection & Ring Repair)**:
+  ```sh
+  ros2 launch banyu_bringup main_launch.launch.py mode:=task2
+  ```
+
+Headless mission runs (without Gazebo GUI):
+```sh
+ros2 launch banyu_bringup mission.launch.py mode:=por
+# or for Task 2 sim fixture:
+ros2 launch banyu_bringup mission.launch.py mode:=task2 use_sim:=True
+```
+
