@@ -10,18 +10,13 @@ from launch_ros.actions import Node
 def generate_launch_description():
     banyu_teleop_share = get_package_share_directory("banyu_teleop")
 
-    default_config_path = os.path.join(banyu_teleop_share, "config", "teleop_ds4.yaml")
+    default_config_path = os.path.join(banyu_teleop_share, "config", "teleop_rcin.yaml")
 
     # Launch arguments
     config_file_arg = DeclareLaunchArgument(
         "teleop_config",
         default_value=default_config_path,
         description="Path to the teleop parameters YAML file",
-    )
-
-    # Nodes
-    joy_node = Node(
-        package="joy", executable="joy_node", name="joy_node", output="screen"
     )
 
     teleop_node = Node(
@@ -32,4 +27,4 @@ def generate_launch_description():
         output="screen",
     )
 
-    return LaunchDescription([config_file_arg, joy_node, teleop_node])
+    return LaunchDescription([config_file_arg, teleop_node])

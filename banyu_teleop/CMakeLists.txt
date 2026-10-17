@@ -8,10 +8,8 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(joy REQUIRED)
-find_package(sensor_msgs REQUIRED)
-find_package(mavros REQUIRED)
 find_package(mavros_msgs REQUIRED)
+find_package(Boost REQUIRED)
 
 add_executable(banyu_teleop src/banyu_teleop.cpp)
 target_include_directories(banyu_teleop PUBLIC
@@ -20,10 +18,9 @@ target_include_directories(banyu_teleop PUBLIC
 )
 ament_target_dependencies(banyu_teleop
   rclcpp
-  joy
-  mavros
   mavros_msgs
 )
+target_link_libraries(banyu_teleop Boost::boost)
 
 install(TARGETS banyu_teleop
     DESTINATION lib/${PROJECT_NAME}
