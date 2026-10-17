@@ -91,6 +91,7 @@ task2_pipeline_detector:
     max_heading_error_rad: 1.571
     # Refit a band of +-ratio*height around the lookahead row when bends spoil the global fit.
     local_fit_band_ratio: 0.2
+    probe_rect: []
 
     # Pipeline mask HSV and grayscale thresholds
     gray_threshold: 170
@@ -117,6 +118,10 @@ task2_pipeline_detector:
     green_ring_s_max: 255
     green_ring_v_min: 30
     green_ring_v_max: 255
+
+pinger_localization:
+  ros__parameters:
+    pinger_depth: 1.0
 
 banyu_vehicle_status:
   ros__parameters:
@@ -259,6 +264,9 @@ vehicle_execution_node:
       ring_lost_grace_s: 1.0
       search_retrace_distance_m: 1.5
       search_retrace_speed: 0.2
+      search_pinger_timeout_s: 3.0
+      search_pinger_kp: 0.8
+      search_pinger_forward_speed: 0.25
     surface:
       depth_sources: ["pressure_depth"]
     topics:
@@ -270,6 +278,7 @@ vehicle_execution_node:
       gps: "/mavros/global_position/raw/fix"
       pipeline_obs: "/banyu/pipeline/observation"
       ring_obs: "/banyu/pipeline/ring_observation"
+      pinger_obs: "/banyu/pinger/observation"
       guidance_intent: "/banyu/guidance/velocity_intent"
       preview_target: "/banyu/execution/preview_target"
       mavros_target: "/mavros/setpoint_raw/local"

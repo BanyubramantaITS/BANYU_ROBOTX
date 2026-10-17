@@ -1,0 +1,98 @@
+<?xml version="1.0"?>
+<sdf version="1.8">
+  <model name="robotx_robobuoy">
+    <static>true</static>
+    <frame name="indicator_mount">
+      <pose>0 0 0.3048 0 0 0</pose>
+    </frame>
+    <frame name="anchor_point">
+      <pose>0 0 0 0 0 0</pose>
+    </frame>
+    <link name="base_link">
+
+      <!-- PVC base legs with noodle floats -->
+      <visual name="leg_n">
+        <pose>0.1937 0 0 0 1.5707963 1.5707963</pose>
+        <geometry><cylinder><radius>0.0133</radius><length>0.3874</length></cylinder></geometry>
+        <material><ambient>0.88 0.88 0.86 1</ambient><diffuse>0.92 0.92 0.90 1</diffuse></material>
+      </visual>
+      <visual name="noodle_n">
+        <pose>0.1937 0 0 0 1.5707963 1.5707963</pose>
+        <geometry><cylinder><radius>0.0381</radius><length>0.3331</length></cylinder></geometry>
+        <material><ambient>0.13 0.35 0.62 1</ambient><diffuse>0.16 0.42 0.74 1</diffuse></material>
+      </visual>
+
+      <visual name="leg_s">
+        <pose>-0.1937 0 0 0 1.5707963 1.5707963</pose>
+        <geometry><cylinder><radius>0.0133</radius><length>0.3874</length></cylinder></geometry>
+        <material><ambient>0.88 0.88 0.86 1</ambient><diffuse>0.92 0.92 0.90 1</diffuse></material>
+      </visual>
+      <visual name="noodle_s">
+        <pose>-0.1937 0 0 0 1.5707963 1.5707963</pose>
+        <geometry><cylinder><radius>0.0381</radius><length>0.3331</length></cylinder></geometry>
+        <material><ambient>0.13 0.35 0.62 1</ambient><diffuse>0.16 0.42 0.74 1</diffuse></material>
+      </visual>
+
+      <visual name="leg_e">
+        <pose>0 0.1937 0 0 1.5707963 0</pose>
+        <geometry><cylinder><radius>0.0133</radius><length>0.3874</length></cylinder></geometry>
+        <material><ambient>0.88 0.88 0.86 1</ambient><diffuse>0.92 0.92 0.90 1</diffuse></material>
+      </visual>
+      <visual name="noodle_e">
+        <pose>0 0.1937 0 0 1.5707963 0</pose>
+        <geometry><cylinder><radius>0.0381</radius><length>0.3331</length></cylinder></geometry>
+        <material><ambient>0.13 0.35 0.62 1</ambient><diffuse>0.16 0.42 0.74 1</diffuse></material>
+      </visual>
+
+      <visual name="leg_w">
+        <pose>0 -0.1937 0 0 1.5707963 0</pose>
+        <geometry><cylinder><radius>0.0133</radius><length>0.3874</length></cylinder></geometry>
+        <material><ambient>0.88 0.88 0.86 1</ambient><diffuse>0.92 0.92 0.90 1</diffuse></material>
+      </visual>
+      <visual name="noodle_w">
+        <pose>0 -0.1937 0 0 1.5707963 0</pose>
+        <geometry><cylinder><radius>0.0381</radius><length>0.3331</length></cylinder></geometry>
+        <material><ambient>0.13 0.35 0.62 1</ambient><diffuse>0.16 0.42 0.74 1</diffuse></material>
+      </visual>
+
+      <!-- Upright posts -->
+      <visual name="post_e">
+        <pose>0 0.1937 0.1524 0 0 0</pose>
+        <geometry><cylinder><radius>0.0133</radius><length>0.3048</length></cylinder></geometry>
+        <material><ambient>0.88 0.88 0.86 1</ambient><diffuse>0.92 0.92 0.90 1</diffuse></material>
+      </visual>
+      <visual name="post_w">
+        <pose>0 -0.1937 0.1524 0 0 0</pose>
+        <geometry><cylinder><radius>0.0133</radius><length>0.3048</length></cylinder></geometry>
+        <material><ambient>0.88 0.88 0.86 1</ambient><diffuse>0.92 0.92 0.90 1</diffuse></material>
+      </visual>
+
+      <!-- Corrugated side panels -->
+      <visual name="panel_n">
+        <pose>0.1937 0 0.1524 0 0 0</pose>
+        <geometry><box><size>0.004 0.4318 0.3048</size></box></geometry>
+        <material><ambient>0.90 0.90 0.90 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse></material>
+      </visual>
+      <visual name="panel_s">
+        <pose>-0.1937 0 0.1524 0 0 0</pose>
+        <geometry><box><size>0.004 0.4318 0.3048</size></box></geometry>
+        <material><ambient>0.90 0.90 0.90 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse></material>
+      </visual>
+      <visual name="panel_e">
+        <pose>0 0.1937 0.1524 0 0 1.5707963</pose>
+        <geometry><box><size>0.004 0.4318 0.3048</size></box></geometry>
+        <material><ambient>0.90 0.90 0.90 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse></material>
+      </visual>
+      <visual name="panel_w">
+        <pose>0 -0.1937 0.1524 0 0 1.5707963</pose>
+        <geometry><box><size>0.004 0.4318 0.3048</size></box></geometry>
+        <material><ambient>0.90 0.90 0.90 1</ambient><diffuse>0.95 0.95 0.95 1</diffuse></material>
+      </visual>
+
+      <collision name="hull">
+        <pose>0 0 0.1524 0 0 0</pose>
+        <geometry><box><size>0.3874 0.3874 0.3048</size></box></geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>

@@ -100,8 +100,8 @@ def generate_launch_description():
         "--model=JSON",
         "--out=udp:0.0.0.0:14550",
         "--out=udp:127.0.0.1:14551",
-        # Third endpoint for the DVL bridge. It cannot share MAVROS' 14551, and
-        # MAVROS cannot carry VISION_POSITION_DELTA anyway.
+        # Third endpoint for the banyu::DvlMavlink world system (main_world.world).
+        # It cannot share MAVROS' 14551, and MAVROS cannot carry VISION_POSITION_DELTA.
         "--out=udp:127.0.0.1:14552",
         "--console",
         # MAVProxy requests telemetry at 4 Hz by default; mission readiness needs pose fresher than 1 s.
@@ -227,8 +227,8 @@ def generate_launch_description():
             use_sim_arg,
             use_ardusub_sitl_arg,
             use_sim_time_arg,
-            use_dvl_arg,
             fcu_url_arg,
+            use_dvl_arg,
             set_use_sim_time,
             ardusub_launch,
             ardusub_sitl_launch,

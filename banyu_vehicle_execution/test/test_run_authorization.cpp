@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+#include <optional>
 
 #include <cmath>
 #include <rcl/time.h>
@@ -151,11 +152,13 @@ protected:
     executor_.spin_some();
   }
 
-  ClientGoalHandle::SharedPtr sendSearch(uint32_t run_id = 0, uint64_t epoch = 0)
+  ClientGoalHandle::SharedPtr sendSearch(
+    std::optional<uint32_t> run_id = std::nullopt,
+    std::optional<uint64_t> epoch = std::nullopt)
   {
     Search::Goal goal;
-    goal.run_id = (run_id == 0) ? run_id_ : run_id;
-    goal.epoch = (epoch == 0) ? epoch_ : epoch;
+    goal.run_id = run_id.value_or(run_id_);
+    goal.epoch = epoch.value_or(epoch_);
     goal.search_span_rad = 100.0;
     goal.sweep_rate_rad_s = 0.2;
     auto future = client_->async_send_goal(goal);

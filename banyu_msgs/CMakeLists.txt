@@ -32,6 +32,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/PipelineEndState.msg"
   "msg/PipelineEndCandidate.msg"
   "msg/VehicleStatus.msg"
+  "msg/PingerObservation.msg"
   "action/NavigateSurfaceGps.action"
   "action/AlignHeading.action"
   "action/DiveToDepth.action"
