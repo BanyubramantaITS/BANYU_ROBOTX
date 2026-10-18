@@ -105,6 +105,7 @@ TEST(VehicleStatusTrackerTest, MalformedRcDoesNotRefreshDeadman)
 TEST(VehicleStatusTrackerTest, HighRcTakeoverWinsOverAutonomy)
 {
   VehicleStatusTracker tracker(testConfig());
+  tracker.updateKillSwitch(2);
   tracker.updateState(state(true, "GUIDED"), timeAt(0.0));
   tracker.updateRc(rc(1800), timeAt(0.0));
 
@@ -116,12 +117,59 @@ TEST(VehicleStatusTrackerTest, HighRcTakeoverWinsOverAutonomy)
 TEST(VehicleStatusTrackerTest, PublishesCurrentMode)
 {
   VehicleStatusTracker tracker(testConfig());
+  tracker.updateKillSwitch(1);
   tracker.updateState(state(true, "MANUAL"), timeAt(0.0));
   tracker.updateRc(rc(1500), timeAt(0.0));
 
   const auto result = tracker.status(timeAt(0.1));
   EXPECT_EQ(result.mode, "MANUAL");
   EXPECT_EQ(result.authority, "MANUAL");
+}
+
+TEST(VehicleStatusTrackerTest, DefaultKillSwitchIsDisarmed)
+{
+  VehicleStatusTracker tracker(testConfig());
+  tracker.updateState(state(true, "GUIDED"), timeAt(0.0));
+  tracker.updateRc(rc(1500), timeAt(0.0));
+
+  const auto result = tracker.status(timeAt(0.1));
+  EXPECT_EQ(result.operational_mode, 0);
+  EXPECT_TRUE(result.hardware_kill_active);
+  EXPECT_EQ(result.authority, "DISARMED");
+}
+
+TEST(VehicleStatusTrackerTest, KillSwitchTransitions)
+{
+  VehicleStatusTracker tracker(testConfig());
+  tracker.updateState(state(true, "GUIDED"), timeAt(0.0));
+  tracker.updateRc(rc(1500), timeAt(0.0));
+
+  // Switch to Manual (1)
+  tracker.updateKillSwitch(1);
+  auto manual_res = tracker.status(timeAt(0.1));
+  EXPECT_EQ(manual_res.operational_mode, 1);
+  EXPECT_FALSE(manual_res.hardware_kill_active);
+  EXPECT_EQ(manual_res.authority, "MANUAL");
+
+  // Switch to Autonomous (2) with GUIDED FCU
+  tracker.updateKillSwitch(2);
+  auto auto_res = tracker.status(timeAt(0.2));
+  EXPECT_EQ(auto_res.operational_mode, 2);
+  EXPECT_FALSE(auto_res.hardware_kill_active);
+  EXPECT_EQ(auto_res.authority, "AUTONOMY");
+
+  // Switch to Autonomous (2) with non-GUIDED FCU
+  tracker.updateState(state(true, "STABILIZE"), timeAt(0.3));
+  auto not_guided_res = tracker.status(timeAt(0.3));
+  EXPECT_EQ(not_guided_res.operational_mode, 2);
+  EXPECT_EQ(not_guided_res.authority, "MANUAL");
+
+  // Switch to Disarmed (0)
+  tracker.updateKillSwitch(0);
+  auto disarm_res = tracker.status(timeAt(0.4));
+  EXPECT_EQ(disarm_res.operational_mode, 0);
+  EXPECT_TRUE(disarm_res.hardware_kill_active);
+  EXPECT_EQ(disarm_res.authority, "DISARMED");
 }
 
 TEST(VehicleStatusTrackerTest, InvalidGpsIsNotValid)
@@ -136,6 +184,49 @@ TEST(VehicleStatusTrackerTest, InvalidGpsIsNotValid)
   const auto result = tracker.status(timeAt(0.1));
   EXPECT_FALSE(result.gps_valid);
   EXPECT_FALSE(result.gps_fresh);
+}
+
+TEST(VehicleStatusTrackerTest, ConfigurableDefaultOperationalMode)
+{
+  auto config = testConfig();
+  config.default_operational_mode = 2;
+  VehicleStatusTracker tracker(config);
+  tracker.updateState(state(true, "GUIDED"), timeAt(0.0));
+  tracker.updateRc(rc(1500), timeAt(0.0));
+
+  const auto result = tracker.status(timeAt(0.1));
+  EXPECT_EQ(result.operational_mode, 2);
+  EXPECT_FALSE(result.hardware_kill_active);
+  EXPECT_EQ(result.authority, "AUTONOMY");
+}
+
+TEST(VehicleStatusTrackerTest, KillSwitchFreshnessTimeoutFailsafe)
+{
+  auto config = testConfig();
+  config.kill_switch_timeout_s = 0.5;
+  VehicleStatusTracker tracker(config);
+  tracker.updateState(state(true, "GUIDED"), timeAt(0.0));
+  tracker.updateRc(rc(1500), timeAt(0.0));
+
+  // Receive hardware kill switch mode 2 at t=0.1
+  tracker.updateKillSwitch(2, timeAt(0.1));
+  auto active_res = tracker.status(timeAt(0.2));
+  EXPECT_EQ(active_res.operational_mode, 2);
+  EXPECT_FALSE(active_res.hardware_kill_active);
+  EXPECT_EQ(active_res.authority, "AUTONOMY");
+
+  // Timeout at t=0.7 (>0.5s elapsed without update)
+  auto stale_res = tracker.status(timeAt(0.7));
+  EXPECT_EQ(stale_res.operational_mode, 0);
+  EXPECT_TRUE(stale_res.hardware_kill_active);
+  EXPECT_EQ(stale_res.authority, "DISARMED");
+
+  // Reconnect at t=0.8
+  tracker.updateKillSwitch(2, timeAt(0.8));
+  auto recovered_res = tracker.status(timeAt(0.9));
+  EXPECT_EQ(recovered_res.operational_mode, 2);
+  EXPECT_FALSE(recovered_res.hardware_kill_active);
+  EXPECT_EQ(recovered_res.authority, "AUTONOMY");
 }
 
 }  // namespace banyu_vehicle_interface

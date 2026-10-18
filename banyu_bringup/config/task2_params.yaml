@@ -136,6 +136,8 @@ banyu_vehicle_status:
     rc_takeover_channel: 4
     rc_takeover_threshold: 1700
     autonomy_mode: "GUIDED"
+    default_operational_mode: 0
+    kill_switch_timeout_s: 1.0
 
 ring_tracker:
   ros__parameters:
@@ -292,7 +294,6 @@ pipeline_end_node:
     observation_topic: "/banyu/pipeline/observation"
     candidate_topic: "/banyu/pipeline/end_candidate"
     end_topic: "/banyu/pipeline/end"
-
 calibrated_depth_node:
   ros__parameters:
     source_id: "pressure_depth"
@@ -325,4 +326,39 @@ survey_evidence_node:
       run_lifecycle: "/banyu/mission/run_lifecycle"
       survey_evidence: "/banyu/pipeline/survey_evidence"
 
+esp32_bridge_node:
+  ros__parameters:
+    port: "/dev/ttyUSB0"
+    baud: 115200
+    heartbeat_rate_hz: 10.0
+    serial_timeout_s: 0.5
 
+esp32_serial_node:
+  ros__parameters:
+    port: "/dev/ttyUSB0"
+    baud: 115200
+    timer_period_s: 0.1
+    append_newline: false
+    default_trigger_cmd: "1"
+    trigger_on_cmd: "1"
+    trigger_off_cmd: "0"
+    trigger_service: "/banyu/trigger/fire"
+    set_trigger_service: "/banyu/trigger/set"
+    command_service: "/banyu/trigger/command"
+    command_topic: "/banyu/trigger/cmd"
+    monitor_topic: "/banyu/trigger/monitor"
+
+esp32_trigger_node:
+  ros__parameters:
+    port: "/dev/ttyUSB0"
+    baud: 115200
+    timer_period_s: 0.1
+    append_newline: false
+    default_trigger_cmd: "1"
+    trigger_on_cmd: "1"
+    trigger_off_cmd: "0"
+    trigger_service: "/banyu/trigger/fire"
+    set_trigger_service: "/banyu/trigger/set"
+    command_service: "/banyu/trigger/command"
+    command_topic: "/banyu/trigger/cmd"
+    monitor_topic: "/banyu/trigger/monitor"

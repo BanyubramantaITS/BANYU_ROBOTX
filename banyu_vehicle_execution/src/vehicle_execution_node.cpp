@@ -397,7 +397,8 @@ void VehicleExecutionNode::timerCallback()
   const bool safety_fault = (telemetry_.status_valid &&
     (telemetry_.operator_takeover || !telemetry_.fcu_connected || !telemetry_.armed ||
     !telemetry_.fcu_status_fresh ||
-    !telemetry_.rc_fresh || (require_guided_ && telemetry_.mode != "GUIDED"))) ||
+    !telemetry_.rc_fresh || (require_guided_ && telemetry_.mode != "GUIDED") ||
+    telemetry_.operational_mode != 2 || telemetry_.hardware_kill_active)) ||
     (status_ever_received_ && !telemetry_.status_valid) ||
     (require_run_authorization_ && !runMotionAuthorized() && !readinessHoldAuthorized());
 
@@ -638,6 +639,8 @@ void VehicleExecutionNode::handleStatus(const banyu_msgs::msg::VehicleStatus::Sh
   telemetry_.operator_takeover = msg->operator_takeover;
   telemetry_.mode = msg->mode;
   telemetry_.authority = msg->authority;
+  telemetry_.operational_mode = msg->operational_mode;
+  telemetry_.hardware_kill_active = msg->hardware_kill_active;
 }
 
 bool VehicleExecutionNode::lifecycleFresh() const
@@ -652,6 +655,7 @@ bool VehicleExecutionNode::hardwareStatusReady() const
   return telemetry_.status_valid && telemetry_.fcu_connected && telemetry_.fcu_status_fresh &&
          telemetry_.armed && telemetry_.rc_fresh && !telemetry_.operator_takeover &&
          telemetry_.mode == "GUIDED" &&
+         telemetry_.operational_mode == 2 && !telemetry_.hardware_kill_active &&
          std::chrono::duration<double>(steady_clock_.now() - status_receipt_).count() <= 1.0;
 }
 

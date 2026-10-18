@@ -89,6 +89,7 @@ protected:
     status.rc_fresh = rc_fresh_;
     status.operator_takeover = takeover_;
     status.mode = "GUIDED";
+    status.operational_mode = 2;
     status_pub_->publish(status);
     if (publish_pose_) {
       geometry_msgs::msg::PoseStamped pose;

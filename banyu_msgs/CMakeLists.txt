@@ -53,6 +53,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/HoldProbeOnRing.action"
   "action/Surface.action"
   "srv/AcknowledgeRingRepair.srv"
+  "srv/TriggerCommand.srv"
   "srv/ResetTask2.srv"
   "srv/TriggerPipelineSurvey.srv"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs sensor_msgs unique_identifier_msgs

@@ -212,6 +212,7 @@ protected:
       status.mode = mode_;
     }
     status.authority = takeover_.load() ? "MANUAL" : "AUTONOMY";
+    status.operational_mode = 2;
     status_pub_->publish(status);
     geometry_msgs::msg::PoseStamped pose;
     pose.header.stamp = status.header.stamp;

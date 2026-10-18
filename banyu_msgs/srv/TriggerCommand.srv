@@ -1,0 +1,7 @@
+# Command string to send to the ESP32 trigger device (e.g. "0", "1", "2")
+string command
+---
+# True if command was sent successfully over serial
+bool success
+# Diagnostic message or failure reason
+string message

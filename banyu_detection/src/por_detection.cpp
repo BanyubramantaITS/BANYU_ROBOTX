@@ -1,7 +1,6 @@
 #include "banyu_detection/por_detection.hpp"
 
 #include <cv_bridge/cv_bridge.hpp>
-
 #include <opencv4/opencv2/opencv.hpp>
 
 namespace por_detection

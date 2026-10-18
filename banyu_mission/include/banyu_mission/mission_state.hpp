@@ -43,6 +43,8 @@ public:
     uint8_t ring_color {0};
     std::string mode;
     std::string authority;
+    uint8_t operational_mode {0};
+    bool hardware_kill_active {false};
     uint32_t run_id {0};
     uint64_t epoch {0};
   };
@@ -128,6 +130,9 @@ private:
   uint8_t ring_color_ {0};
   std::string mode_;
   std::string authority_;
+  bool status_received_ {false};
+  uint8_t operational_mode_ {0};
+  bool hardware_kill_active_ {false};
   rclcpp::Time last_pipeline_;
   rclcpp::Time last_state_;
   double gps_timeout_s_ {2.0};
