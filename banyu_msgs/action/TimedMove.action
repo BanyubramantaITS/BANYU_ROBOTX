@@ -1,0 +1,24 @@
+# Execute a timed body-frame (FLU) movement segment with optional barometer depth hold and IMU yaw cap.
+string segment_name
+float64 duration_s
+float64 speed_x_mps
+float64 speed_y_mps
+float64 speed_z_mps
+float64 yaw_rate_rad_s
+bool use_baro_depth
+float64 target_depth_m
+float64 depth_kp
+float64 max_depth_speed_mps
+bool use_imu_yaw_cap
+float64 target_yaw_delta_rad
+---
+bool success
+string reason
+float64 elapsed_s
+float64 final_depth_m
+float64 accumulated_yaw_rad
+---
+builtin_interfaces/Time stamp
+float64 elapsed_s
+float64 depth_m
+float64 accumulated_yaw_rad

@@ -179,6 +179,8 @@ void VehicleExecutionNode::initActionServers()
     "actions.orbit_marker", "/banyu/actions/orbit_marker");
   const auto turn_around_action = declare_parameter<std::string>(
     "actions.turn_around", "/banyu/actions/turn_around");
+  const auto timed_move_action = declare_parameter<std::string>(
+    "actions.timed_move", "/banyu/actions/timed_move");
 
   const double nav_kp = declare_parameter<double>("control.nav_kp", 0.5);
   hold_kp_ = nav_kp;
@@ -246,6 +248,8 @@ void VehicleExecutionNode::initActionServers()
     this, orbit_marker_action, this);
   auto turn_around_server = std::make_shared<TurnAroundServer>(
     this, turn_around_action, this);
+  auto timed_move_server = std::make_shared<TimedMoveServer>(
+    this, timed_move_action, this);
 
   servers_ = {
     nav_server, align_server, dive_server,
@@ -253,7 +257,7 @@ void VehicleExecutionNode::initActionServers()
     center_server, hold_server, surface_server,
     acquire_gate_server, search_marker_server, search_gate_server,
     align_gate_server, align_marker_server, pass_gate_server,
-    orbit_marker_server, turn_around_server
+    orbit_marker_server, turn_around_server, timed_move_server
   };
 
   for (const auto & server : servers_) {

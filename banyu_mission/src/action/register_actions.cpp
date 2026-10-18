@@ -86,6 +86,8 @@ void registerActionNodes(
     "OrbitMarker", node, action_name("orbit_marker"));
   factory.registerNodeType<TurnAroundNode>(
     "TurnAround", node, action_name("turn_around"));
+  factory.registerNodeType<TimedMoveNode>(
+    "TimedMove", node, action_name("timed_move"));
 }
 
 }  // namespace banyu_mission

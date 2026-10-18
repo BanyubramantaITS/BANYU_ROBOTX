@@ -11,6 +11,7 @@
 #include "banyu_msgs/action/pass_gate.hpp"
 #include "banyu_msgs/action/search_gate.hpp"
 #include "banyu_msgs/action/search_marker.hpp"
+#include "banyu_msgs/action/timed_move.hpp"
 #include "banyu_msgs/action/turn_around.hpp"
 #include "banyu_vehicle_execution/requirement_watchdog.hpp"
 #include "banyu_vehicle_execution/action_servers/typed_action_server.hpp"
@@ -129,6 +130,21 @@ public:
 
 private:
   RequirementWatchdog watchdog_;
+  double last_yaw_{0.0};
+  double accumulated_yaw_{0.0};
+  bool yaw_initialized_{false};
+};
+
+class TimedMoveServer final : public TypedActionServer<banyu_msgs::action::TimedMove>
+{
+public:
+  TimedMoveServer(rclcpp::Node *, const std::string &, ActionServerCoordinator *);
+  bool validateGoal(const Goal &, std::string &) override;
+  void onGoalStarted() override;
+  MotionIntent tick(const VehicleTelemetry &, const rclcpp::Time &, double) override;
+
+private:
+  rclcpp::Time start_time_{0, 0, RCL_ROS_TIME};
   double last_yaw_{0.0};
   double accumulated_yaw_{0.0};
   bool yaw_initialized_{false};

@@ -1574,3 +1574,73 @@ TEST_F(VehicleExecutionNodeTest, PreviewConfigurationCannotBypassMavrosSafety)
   spinFor(node, 15);
   EXPECT_EQ(mavros_count, stopped_count);
 }
+
+TEST_F(VehicleExecutionNodeTest, TimedMoveExecutesTimedSegmentAndSupportsZeroDurationSkip)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::TimedMove;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/timed_move");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  geometry_msgs::msg::PoseStamped pose;
+  pose.header.frame_id = "map";
+  pose.pose.position.z = -1.5;
+  pose.pose.orientation.w = 1.0;
+
+  // 1. Timed forward move with baro depth control
+  Action::Goal goal;
+  goal.segment_name = "pass_gate";
+  goal.duration_s = 0.15;
+  goal.speed_x_mps = 0.5;
+  goal.speed_y_mps = 0.0;
+  goal.speed_z_mps = 0.0;
+  goal.yaw_rate_rad_s = 0.0;
+  goal.use_baro_depth = true;
+  goal.target_depth_m = 2.0;
+  goal.depth_kp = 0.7;
+  goal.max_depth_speed_mps = 0.4;
+  goal.use_imu_yaw_cap = false;
+  goal.target_yaw_delta_rad = 0.0;
+
+  pose.header.stamp = node->now();
+  pose_pub->publish(pose);
+  spinFor(node, 3);
+
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+
+  const auto until = std::chrono::steady_clock::now() + 1500ms;
+  while (result_future.wait_for(0ms) != std::future_status::ready &&
+    std::chrono::steady_clock::now() < until)
+  {
+    pose.header.stamp = node->now();
+    pose_pub->publish(pose);
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(10ms);
+  }
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  auto wrapped = result_future.get();
+  EXPECT_EQ(wrapped.code, rclcpp_action::ResultCode::SUCCEEDED);
+  EXPECT_TRUE(wrapped.result->success);
+  EXPECT_GE(wrapped.result->elapsed_s, 0.14);
+
+  // 2. Zero-duration segment skips immediately
+  goal.segment_name = "skip_turn";
+  goal.duration_s = 0.0;
+  auto zero_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, zero_future));
+  auto zero_handle = zero_future.get();
+  ASSERT_NE(zero_handle, nullptr);
+  auto zero_result_future = client->async_get_result(zero_handle);
+  spinFor(node, 5);
+  ASSERT_TRUE(waitForFuture(node, zero_result_future));
+  EXPECT_EQ(zero_result_future.get().code, rclcpp_action::ResultCode::SUCCEEDED);
+  EXPECT_TRUE(zero_result_future.get().result->success);
+}

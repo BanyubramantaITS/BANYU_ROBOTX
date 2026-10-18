@@ -163,6 +163,39 @@ banyu_msgs::action::TurnAround::Goal TurnAroundNode::makeGoal()
   return goal;
 }
 
+BANYU_POR_CONSTRUCTOR(TimedMoveNode, banyu_msgs::action::TimedMove)
+BANYU_POR_PORTS(
+  TimedMoveNode,
+  BT::InputPort<std::string>("segment_name"),
+  BT::InputPort<double>("duration_s"),
+  BT::InputPort<double>("speed_x_mps"),
+  BT::InputPort<double>("speed_y_mps"),
+  BT::InputPort<double>("speed_z_mps"),
+  BT::InputPort<double>("yaw_rate_rad_s"),
+  BT::InputPort<bool>("use_baro_depth"),
+  BT::InputPort<double>("target_depth_m"),
+  BT::InputPort<double>("depth_kp"),
+  BT::InputPort<double>("max_depth_speed_mps"),
+  BT::InputPort<bool>("use_imu_yaw_cap"),
+  BT::InputPort<double>("target_yaw_delta_rad"))
+banyu_msgs::action::TimedMove::Goal TimedMoveNode::makeGoal()
+{
+  Goal goal;
+  goal.segment_name = input<std::string>("segment_name");
+  goal.duration_s = input<double>("duration_s");
+  goal.speed_x_mps = input<double>("speed_x_mps");
+  goal.speed_y_mps = input<double>("speed_y_mps");
+  goal.speed_z_mps = input<double>("speed_z_mps");
+  goal.yaw_rate_rad_s = input<double>("yaw_rate_rad_s");
+  goal.use_baro_depth = input<bool>("use_baro_depth");
+  goal.target_depth_m = input<double>("target_depth_m");
+  goal.depth_kp = input<double>("depth_kp");
+  goal.max_depth_speed_mps = input<double>("max_depth_speed_mps");
+  goal.use_imu_yaw_cap = input<bool>("use_imu_yaw_cap");
+  goal.target_yaw_delta_rad = input<double>("target_yaw_delta_rad");
+  return goal;
+}
+
 #undef BANYU_POR_PORTS
 #undef BANYU_POR_CONSTRUCTOR
 

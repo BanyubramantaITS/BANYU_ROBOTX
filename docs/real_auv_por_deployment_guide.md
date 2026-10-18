@@ -155,17 +155,47 @@ bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && \
 ```
 
 What happens automatically:
-1. `ArmAndSetGuided` switches ArduSub to `GUIDED` mode and arms the thrusters.
-2. `AcquireGate` dives in place to `gate_depth_m` (`2.0 m` in `por_params.yaml`) while keeping the gate in view.
-3. `AlignGate` visually centers the gate on the camera crosshair.
-4. `PassGate` drives forward through the gate (switching to bounded blind push for `gate_pass_blind_duration_s: 8.0 s` once the gate passes out of the camera field of view).
-5. `SearchMarker` → `AlignMarker` → `OrbitMarker` visually centers and orbits the yellow marker buoy at `orbit_radius_m: 2.5 m` with feedforward yaw rate.
-6. `TurnAround` → `SearchGate` → `AlignGate` → `PassGate` returns through the gate.
-7. `Surface` ascends to the surface (`surface_depth_m: 0.0 m`).
+- **In Timed Mode (`mission.use_vision: false`, default on `feat/por-timed-strategy` — loads `bt/por_timed_mission.xml`):**
+  1. `ArmAndSetGuided` switches ArduSub to `GUIDED` mode and arms the thrusters.
+  2. `dive_to_gate` dives in place to `gate_depth_m` (`2.0 m`) for `dive_duration_s` (`5.0 s`).
+  3. `pass_gate` drives forward (`pass_gate_forward_speed_mps: 0.6 m/s`) for `pass_gate_duration_s` (`8.0 s`) while holding `gate_depth_m`.
+  4. `approach_pole` drives forward (`approach_pole_forward_speed_mps: 0.6 m/s`) for `approach_pole_duration_s` (`8.0 s`) toward the marker pole.
+  5. `circle_pole_polygon` executes 4 compartmentalized turn+forward legs around the pole (`circle_turn_1` → `circle_forward_1` → `circle_turn_2` → `circle_forward_2` → `circle_turn_3` → `circle_forward_3` → `circle_turn_4` → `circle_forward_4`).
+  6. `return_turn` turns to face the gate (`return_turn_duration_s` / `return_turn_yaw_rate_rad_s`), and `return_to_gate` drives forward back through the gate (`return_to_gate_duration_s` / `return_to_gate_forward_speed_mps`).
+  7. `Surface` ascends to `surface_depth_m` (`0.0 m`).
+- **In Vision Mode (`mission.use_vision: true` — loads `bt/por_mission.xml`):**
+  1. `ArmAndSetGuided` → `AcquireGate` → `AlignGate` → `PassGate` → `SearchMarker` → `AlignMarker` → `OrbitMarker` → `TurnAround` → `SearchGate` → `AlignGate` → `PassGate` → `Surface`.
 
 ---
 
-## 6. Emergency Stop & Manual Takeover Procedures
+## 6. Tuning the Timed POR Strategy (`banyu_bringup/config/por_params.yaml`)
+
+All timed POR parameters live under `banyu_mission.ros__parameters.mission` in `banyu_bringup/config/por_params.yaml`:
+
+| Segment | Duration Parameter (`s`) | Speed / Rate Parameter | Notes |
+| :--- | :--- | :--- | :--- |
+| **Mode toggle** | — | `use_vision: false` | `false` = `por_timed_mission.xml`, `true` = `por_mission.xml` |
+| **Depth mode** | — | `use_baro_depth: true`, `gate_depth_m: 2.0` | Holds `gate_depth_m` via barometer P-loop on all segments (`false` = open-loop `dive_vertical_speed_mps`) |
+| **IMU yaw cap** | — | `use_imu_yaw_cap: false` | `false` = pure timer turns; `true` = also stops turn when IMU reaches `*_target_angle_rad` |
+| **1. Dive to Gate** | `dive_duration_s: 5.0` | `dive_vertical_speed_mps: -0.4` | Dives to `gate_depth_m` |
+| **2. Pass Gate** | `pass_gate_duration_s: 8.0` | `pass_gate_forward_speed_mps: 0.6`, `pass_gate_lateral_speed_mps: 0.0` | Straight through gate |
+| **3. Approach Pole** | `approach_pole_duration_s: 8.0` | `approach_pole_forward_speed_mps: 0.6`, `approach_pole_lateral_speed_mps: 0.0` | Straight from gate to pole |
+| **4a. Circle Turn 1** | `circle_turn_1_duration_s: 3.14` | `circle_turn_1_yaw_rate_rad_s: -0.5` | `-0.5 rad/s` = right turn ( kicks off clockwise box) |
+| **4b. Circle Leg 1** | `circle_forward_1_duration_s: 4.0` | `circle_forward_1_speed_mps: 0.5`, `circle_forward_1_lateral_speed_mps: 0.0` | Side 1 of box |
+| **4c. Circle Turn 2** | `circle_turn_2_duration_s: 3.14` | `circle_turn_2_yaw_rate_rad_s: 0.5` | `+0.5 rad/s` = left turn around pole |
+| **4d. Circle Leg 2** | `circle_forward_2_duration_s: 5.0` | `circle_forward_2_speed_mps: 0.5`, `circle_forward_2_lateral_speed_mps: 0.0` | Side 2 of box |
+| **4e. Circle Turn 3** | `circle_turn_3_duration_s: 3.14` | `circle_turn_3_yaw_rate_rad_s: 0.5` | `+0.5 rad/s` = left turn around pole |
+| **4f. Circle Leg 3** | `circle_forward_3_duration_s: 5.0` | `circle_forward_3_speed_mps: 0.5`, `circle_forward_3_lateral_speed_mps: 0.0` | Side 3 of box |
+| **4g. Circle Turn 4** | `circle_turn_4_duration_s: 3.14` | `circle_turn_4_yaw_rate_rad_s: 0.5` | `+0.5 rad/s` = left turn around pole |
+| **4h. Circle Leg 4** | `circle_forward_4_duration_s: 4.0` | `circle_forward_4_speed_mps: 0.5`, `circle_forward_4_lateral_speed_mps: 0.0` | Side 4 of box |
+| **5a. Return Turn** | `return_turn_duration_s: 3.14` | `return_turn_yaw_rate_rad_s: 0.5` | Align heading back toward gate |
+| **5b. Return to Gate**| `return_to_gate_duration_s: 16.0` | `return_to_gate_forward_speed_mps: 0.6`, `return_to_gate_lateral_speed_mps: 0.0` | Drive back through gate |
+
+> **Tip:** Setting any segment's `*_duration_s` to `0.0` immediately skips that segment with `SUCCESS` (no code or XML edits needed). Because `banyu_bringup` uses `--symlink-install`, edits to `src/BANYU_ROBOTX/banyu_bringup/config/por_params.yaml` take effect immediately on the next `ros2 launch` without rebuilding.
+
+---
+
+## 7. Emergency Stop & Manual Takeover Procedures
 
 At any point during the run, you can interrupt or stop the AUV immediately:
 
@@ -179,3 +209,4 @@ At any point during the run, you can interrupt or stop the AUV immediately:
      ros2 service call /banyu/mission/abort std_srvs/srv/Trigger "{}"'
    ```
    - Triggers the BehaviorTree abort branch, cancels the active action, and transitions the vehicle to `fallback_mode` (`SURFACE`).
+

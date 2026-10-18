@@ -10,6 +10,7 @@
 #include "banyu_msgs/action/pass_gate.hpp"
 #include "banyu_msgs/action/search_gate.hpp"
 #include "banyu_msgs/action/search_marker.hpp"
+#include "banyu_msgs/action/timed_move.hpp"
 #include "banyu_msgs/action/turn_around.hpp"
 #include "banyu_mission/action/action_client_node.hpp"
 
@@ -38,6 +39,7 @@ BANYU_DECLARE_POR_ACTION_NODE(AlignMarkerNode, banyu_msgs::action::AlignMarker);
 BANYU_DECLARE_POR_ACTION_NODE(PassGateNode, banyu_msgs::action::PassGate);
 BANYU_DECLARE_POR_ACTION_NODE(OrbitMarkerNode, banyu_msgs::action::OrbitMarker);
 BANYU_DECLARE_POR_ACTION_NODE(TurnAroundNode, banyu_msgs::action::TurnAround);
+BANYU_DECLARE_POR_ACTION_NODE(TimedMoveNode, banyu_msgs::action::TimedMove);
 
 #undef BANYU_DECLARE_POR_ACTION_NODE
 

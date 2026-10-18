@@ -129,6 +129,10 @@ TurnAroundServer::TurnAroundServer(
   rclcpp::Node * node, const std::string & name,
   ActionServerCoordinator * coordinator)
 : TypedActionServer(node, name, coordinator) {}
+TimedMoveServer::TimedMoveServer(
+  rclcpp::Node * node, const std::string & name,
+  ActionServerCoordinator * coordinator)
+: TypedActionServer(node, name, coordinator) {}
 
 bool AcquireGateServer::validateGoal(const Goal & goal, std::string & reason)
 {
@@ -668,6 +672,112 @@ MotionIntent TurnAroundServer::tick(
   const double rate = gate_valid ? correction.yaw_rate_rad_s :
     positiveOr(goal->turn_yaw_rate_rad_s, 0.3);
   return bodyCommand(telemetry, 0.0, 0.0, 0.0, rate);
+}
+
+bool TimedMoveServer::validateGoal(const Goal & goal, std::string & reason)
+{
+  if (!nonnegative(goal.duration_s)) {
+    reason = "duration_s must be finite and non-negative";
+    return false;
+  }
+  if (!std::isfinite(goal.speed_x_mps) || !std::isfinite(goal.speed_y_mps) ||
+    !std::isfinite(goal.speed_z_mps) || !std::isfinite(goal.yaw_rate_rad_s))
+  {
+    reason = "speeds and yaw_rate_rad_s must be finite";
+    return false;
+  }
+  if (goal.use_baro_depth &&
+    (!nonnegative(goal.target_depth_m) || !nonnegative(goal.depth_kp) ||
+    !nonnegative(goal.max_depth_speed_mps)))
+  {
+    reason = "target_depth_m, depth_kp, and max_depth_speed_mps must be finite and non-negative";
+    return false;
+  }
+  if (goal.use_imu_yaw_cap && !nonnegative(goal.target_yaw_delta_rad)) {
+    reason = "target_yaw_delta_rad must be finite and non-negative";
+    return false;
+  }
+  return true;
+}
+
+void TimedMoveServer::onGoalStarted()
+{
+  start_time_ = node_->now();
+  last_yaw_ = 0.0;
+  accumulated_yaw_ = 0.0;
+  yaw_initialized_ = false;
+  if (active_handle_) {
+    const auto goal = active_handle_->get_goal();
+    RCLCPP_INFO(
+      node_->get_logger(),
+      "[TimedMove] Starting '%s' (duration=%.2fs, vx=%.2f, vy=%.2f, vz=%.2f, wz=%.2f, "
+      "baro_depth=%s target_depth=%.2fm)",
+      goal->segment_name.c_str(), goal->duration_s,
+      goal->speed_x_mps, goal->speed_y_mps, goal->speed_z_mps, goal->yaw_rate_rad_s,
+      goal->use_baro_depth ? "true" : "false", goal->target_depth_m);
+  }
+}
+
+MotionIntent TimedMoveServer::tick(
+  const VehicleTelemetry & telemetry, const rclcpp::Time & now,
+  double /*dt*/)
+{
+  if (!active_handle_) {return zeroIntent();}
+  if (active_handle_->is_canceling()) {cancelActive(); return zeroIntent();}
+  const auto goal = active_handle_->get_goal();
+  const double elapsed_s = std::max(0.0, (now - start_time_).seconds());
+  const bool pose_fresh = freshPose(telemetry, now);
+  if (pose_fresh && !yaw_initialized_) {
+    last_yaw_ = telemetry.yaw;
+    yaw_initialized_ = true;
+  } else if (pose_fresh) {
+    accumulated_yaw_ += normalizeAngle(telemetry.yaw - last_yaw_);
+    last_yaw_ = telemetry.yaw;
+  }
+  double depth = -1.0;
+  const bool depth_fresh = freshDepth(telemetry, now, depth);
+
+  auto feedback = std::make_shared<Feedback>();
+  feedback->stamp = now;
+  feedback->elapsed_s = elapsed_s;
+  feedback->depth_m = depth;
+  feedback->accumulated_yaw_rad = accumulated_yaw_;
+  active_handle_->publish_feedback(feedback);
+
+  if (goal->duration_s <= 0.0 || elapsed_s >= goal->duration_s) {
+    auto result = std::make_shared<Result>();
+    result->success = true;
+    result->reason = "Timed segment completed: " + goal->segment_name;
+    result->elapsed_s = elapsed_s;
+    result->final_depth_m = depth;
+    result->accumulated_yaw_rad = accumulated_yaw_;
+    succeedActive(result);
+    return zeroIntent();
+  }
+  if (goal->use_imu_yaw_cap && goal->target_yaw_delta_rad > 0.0 &&
+    pose_fresh && std::abs(accumulated_yaw_) >= goal->target_yaw_delta_rad)
+  {
+    auto result = std::make_shared<Result>();
+    result->success = true;
+    result->reason = "Target yaw delta reached: " + goal->segment_name;
+    result->elapsed_s = elapsed_s;
+    result->final_depth_m = depth;
+    result->accumulated_yaw_rad = accumulated_yaw_;
+    succeedActive(result);
+    return zeroIntent();
+  }
+
+  double vz = clampFinite(goal->speed_z_mps, -0.6, 0.6);
+  if (goal->use_baro_depth && depth_fresh) {
+    const double kp = positiveOr(goal->depth_kp, 0.7);
+    const double max_vz = positiveOr(goal->max_depth_speed_mps, 0.4);
+    const double error = goal->target_depth_m - depth;
+    vz = -clampFinite(kp * error, -max_vz, max_vz);
+  }
+  const double yaw = (telemetry.pose_valid && std::isfinite(telemetry.yaw)) ? telemetry.yaw : 0.0;
+  const auto converted = bodyFluToLocalEnu(
+    MotionIntent::bodyFlu(goal->speed_x_mps, goal->speed_y_mps, vz, goal->yaw_rate_rad_s), yaw);
+  return converted ? *converted : zeroIntent();
 }
 
 }  // namespace banyu_vehicle_execution

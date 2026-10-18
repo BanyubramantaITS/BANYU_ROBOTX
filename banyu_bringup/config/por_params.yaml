@@ -73,6 +73,87 @@ banyu_mission:
       return_gate_pass_minimum_distance_m: 0.8
       return_gate_pass_blind_duration_s: 10.0
       return_gate_pass_timeout_s: 35.0
+
+      # -----------------------------------------------------------------------
+      # Timed POR Strategy Parameters (used when use_vision is false)
+      # Set use_vision: true to switch back to vision-guided por_mission.xml.
+      # Set any segment's *_duration_s to 0.0 to skip that segment.
+      # Body-frame FLU convention:
+      #   speed_x_mps: +forward / -backward
+      #   speed_y_mps: +left / -right
+      #   speed_z_mps: +up / -down (used when use_baro_depth is false)
+      #   yaw_rate_rad_s: +counter-clockwise (left) / -clockwise (right)
+      # -----------------------------------------------------------------------
+      use_vision: false
+      use_baro_depth: true
+      use_imu_yaw_cap: false
+      depth_kp: 0.7
+      max_depth_speed_mps: 0.4
+
+      # 1. Dive to center of gate depth (holds gate_depth_m when use_baro_depth is true)
+      dive_duration_s: 5.0
+      dive_speed_x_mps: 0.0
+      dive_speed_y_mps: 0.0
+      dive_speed_z_mps: -0.4
+      dive_yaw_rate_rad_s: 0.0
+
+      # 2. Go forward to pass through the gate
+      timed_pass_gate_duration_s: 6.0
+      timed_pass_gate_speed_x_mps: 0.6
+      timed_pass_gate_speed_y_mps: 0.0
+      timed_pass_gate_yaw_rate_rad_s: 0.0
+
+      # 3. Go forward approaching the pole
+      approach_pole_duration_s: 8.0
+      approach_pole_speed_x_mps: 0.6
+      approach_pole_speed_y_mps: 0.0
+      approach_pole_yaw_rate_rad_s: 0.0
+
+      # 4. Circle the pole (4-sided polygon: Turn 90 deg -> Forward x 4, default clockwise)
+      # Step 1: Turn right (-90 deg) and move forward
+      circle_turn_1_duration_s: 2.62
+      circle_turn_1_yaw_rate_rad_s: -0.6
+      circle_turn_1_target_angle_rad: 1.570796327
+      circle_forward_1_duration_s: 3.0
+      circle_forward_1_speed_x_mps: 0.5
+      circle_forward_1_speed_y_mps: 0.0
+
+      # Step 2: Turn left (+90 deg) and move forward past pole
+      circle_turn_2_duration_s: 2.62
+      circle_turn_2_yaw_rate_rad_s: 0.6
+      circle_turn_2_target_angle_rad: 1.570796327
+      circle_forward_2_duration_s: 5.0
+      circle_forward_2_speed_x_mps: 0.5
+      circle_forward_2_speed_y_mps: 0.0
+
+      # Step 3: Turn left (+90 deg) and move forward behind pole
+      circle_turn_3_duration_s: 2.62
+      circle_turn_3_yaw_rate_rad_s: 0.6
+      circle_turn_3_target_angle_rad: 1.570796327
+      circle_forward_3_duration_s: 5.0
+      circle_forward_3_speed_x_mps: 0.5
+      circle_forward_3_speed_y_mps: 0.0
+
+      # Step 4: Turn left (+90 deg) and move forward alongside pole
+      circle_turn_4_duration_s: 2.62
+      circle_turn_4_yaw_rate_rad_s: 0.6
+      circle_turn_4_target_angle_rad: 1.570796327
+      circle_forward_4_duration_s: 5.0
+      circle_forward_4_speed_x_mps: 0.5
+      circle_forward_4_speed_y_mps: 0.0
+
+      # 5. Final turn to face the gate & go forward back to gate
+      return_turn_duration_s: 2.62
+      return_turn_yaw_rate_rad_s: 0.6
+      return_turn_target_angle_rad: 1.570796327
+      return_to_gate_duration_s: 14.0
+      return_to_gate_speed_x_mps: 0.6
+      return_to_gate_speed_y_mps: 0.0
+      return_to_gate_yaw_rate_rad_s: 0.0
+
+      # 6. Surface
+      timed_surface_duration_s: 6.0
+      timed_surface_speed_z_mps: 0.4
     actions:
       acquire_gate: "/banyu/actions/acquire_gate"
       search_marker: "/banyu/actions/search_marker"
@@ -82,6 +163,7 @@ banyu_mission:
       pass_gate: "/banyu/actions/pass_gate"
       orbit_marker: "/banyu/actions/orbit_marker"
       turn_around: "/banyu/actions/turn_around"
+      timed_move: "/banyu/actions/timed_move"
       surface: "/banyu/actions/surface"
 
 por_detection:
@@ -131,6 +213,7 @@ vehicle_execution_node:
       pass_gate: "/banyu/actions/pass_gate"
       orbit_marker: "/banyu/actions/orbit_marker"
       turn_around: "/banyu/actions/turn_around"
+      timed_move: "/banyu/actions/timed_move"
 
 banyu_vehicle_status:
   ros__parameters:

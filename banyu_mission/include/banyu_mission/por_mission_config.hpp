@@ -65,6 +65,69 @@ struct PorMissionConfig
   double return_gate_pass_blind_duration_s {14.0};
   double return_gate_pass_timeout_s {35.0};
 
+  // Timed POR strategy configuration (selected when use_vision == false)
+  bool use_vision {false};
+  bool use_baro_depth {true};
+  bool use_imu_yaw_cap {false};
+  double depth_kp {0.7};
+  double max_depth_speed_mps {0.4};
+
+  double dive_duration_s {5.0};
+  double dive_speed_x_mps {0.0};
+  double dive_speed_y_mps {0.0};
+  double dive_speed_z_mps {-0.4};
+  double dive_yaw_rate_rad_s {0.0};
+
+  double timed_pass_gate_duration_s {6.0};
+  double timed_pass_gate_speed_x_mps {0.6};
+  double timed_pass_gate_speed_y_mps {0.0};
+  double timed_pass_gate_yaw_rate_rad_s {0.0};
+
+  double approach_pole_duration_s {8.0};
+  double approach_pole_speed_x_mps {0.6};
+  double approach_pole_speed_y_mps {0.0};
+  double approach_pole_yaw_rate_rad_s {0.0};
+
+  double circle_turn_1_duration_s {2.62};
+  double circle_turn_1_yaw_rate_rad_s {-0.6};
+  double circle_turn_1_target_angle_rad {1.570796327};
+  double circle_forward_1_duration_s {3.0};
+  double circle_forward_1_speed_x_mps {0.5};
+  double circle_forward_1_speed_y_mps {0.0};
+
+  double circle_turn_2_duration_s {2.62};
+  double circle_turn_2_yaw_rate_rad_s {0.6};
+  double circle_turn_2_target_angle_rad {1.570796327};
+  double circle_forward_2_duration_s {5.0};
+  double circle_forward_2_speed_x_mps {0.5};
+  double circle_forward_2_speed_y_mps {0.0};
+
+  double circle_turn_3_duration_s {2.62};
+  double circle_turn_3_yaw_rate_rad_s {0.6};
+  double circle_turn_3_target_angle_rad {1.570796327};
+  double circle_forward_3_duration_s {5.0};
+  double circle_forward_3_speed_x_mps {0.5};
+  double circle_forward_3_speed_y_mps {0.0};
+
+  double circle_turn_4_duration_s {2.62};
+  double circle_turn_4_yaw_rate_rad_s {0.6};
+  double circle_turn_4_target_angle_rad {1.570796327};
+  double circle_forward_4_duration_s {5.0};
+  double circle_forward_4_speed_x_mps {0.5};
+  double circle_forward_4_speed_y_mps {0.0};
+
+  double return_turn_duration_s {2.62};
+  double return_turn_yaw_rate_rad_s {0.6};
+  double return_turn_target_angle_rad {1.570796327};
+
+  double return_to_gate_duration_s {14.0};
+  double return_to_gate_speed_x_mps {0.6};
+  double return_to_gate_speed_y_mps {0.0};
+  double return_to_gate_yaw_rate_rad_s {0.0};
+
+  double timed_surface_duration_s {6.0};
+  double timed_surface_speed_z_mps {0.4};
+
   static PorMissionConfig load(rclcpp::Node & node);
   void validate() const;
   void apply(const BT::Blackboard::Ptr & blackboard) const;

@@ -604,6 +604,52 @@ TEST_F(MissionTest, PorTreeUsesOrderedMemorySequence)
   }
 }
 
+TEST_F(MissionTest, PorTimedTreeLoadsAndUsesOrderedSegments)
+{
+  auto node = std::make_shared<rclcpp::Node>("por_timed_tree_parser_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get(), false);
+  BT::BehaviorTreeFactory factory;
+  banyu_mission::registerMissionNodes(factory, node, state);
+
+  const auto config = banyu_mission::PorMissionConfig::load(*node);
+  EXPECT_FALSE(config.use_vision);
+  EXPECT_NO_THROW(config.validate());
+  auto blackboard = BT::Blackboard::create();
+  blackboard->set("surface_depth", 0.0);
+  config.apply(blackboard);
+
+  std::string timed_tree_path = ament_index_cpp::get_package_share_directory("banyu_mission") +
+    "/bt/por_timed_mission.xml";
+#ifdef BANYU_MISSION_SOURCE_DIR
+  const auto source_path = std::string(BANYU_MISSION_SOURCE_DIR) + "/bt/por_timed_mission.xml";
+  if (std::filesystem::exists(source_path)) {
+    timed_tree_path = source_path;
+  }
+#endif
+  EXPECT_NO_THROW(factory.registerBehaviorTreeFromFile(timed_tree_path));
+  EXPECT_NO_THROW(
+  {
+    auto tree = factory.createTree("Main", blackboard);
+    (void)tree;
+  });
+
+  const auto xml = readFile(timed_tree_path);
+  EXPECT_EQ(xml.find("<ReactiveSequence"), std::string::npos);
+  const std::vector<std::string> segments {
+    "dive_to_gate", "pass_gate", "approach_pole",
+    "circle_turn_1", "circle_forward_1",
+    "circle_turn_2", "circle_forward_2",
+    "circle_turn_3", "circle_forward_3",
+    "circle_turn_4", "circle_forward_4",
+    "return_turn", "return_to_gate", "surface"};
+  std::size_t previous = 0;
+  for (const auto & segment : segments) {
+    const auto current = xml.find("segment_name=\"" + segment + "\"", previous);
+    ASSERT_NE(current, std::string::npos) << segment;
+    previous = current + segment.size();
+  }
+}
+
 TEST_F(MissionTest, FallbackModeParameterDefaultsToSurface)
 {
   rclcpp::NodeOptions options;
