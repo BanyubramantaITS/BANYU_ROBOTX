@@ -4,6 +4,7 @@
 #include <mavros_msgs/srv/command_bool.hpp>
 #include <mavros_msgs/srv/set_mode.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/u_int8.hpp>
 
 #include <boost/asio.hpp>
 
@@ -33,11 +34,13 @@ private:
   void writeKillCommand(int command);
 
   rclcpp::Subscription<mavros_msgs::msg::RCIn>::SharedPtr _rcinSubscriber;
+  rclcpp::Publisher<std_msgs::msg::UInt8>::SharedPtr _killSwitchPublisher;
 
   rclcpp::Client<mavros_msgs::srv::CommandBool>::SharedPtr _armingClient;
   rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr _setModeClient;
 
   std::string _rcTopic;
+  std::string _killSwitchTopic;
 
   int _armChannel;
   int _armThreshold;

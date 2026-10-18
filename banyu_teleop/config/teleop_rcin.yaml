@@ -4,6 +4,7 @@
 banyu_teleop:
   ros__parameters:
     rc_topic: "/mavros/rc/in"
+    kill_switch_topic: "/banyu/hardware/kill_switch"
 
     # Arm/disarm switch (CH7 = index 6). Value >= threshold requests arm, below requests disarm.
     arm_channel: 6

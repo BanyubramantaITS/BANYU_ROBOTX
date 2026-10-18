@@ -80,6 +80,13 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    enable_esp32_bridge_arg = DeclareLaunchArgument(
+        name="enable_esp32_bridge",
+        default_value="False",
+        description="Whether to launch esp32_bridge_node (False when banyu_teleop owns /dev/ttyUSB0)",
+        choices=["True", "False"],
+    )
+
     # SetUseSimTime only configures launch's own node; SetParameter reaches every launched node.
     set_use_sim_time = SetParameter(
         name="use_sim_time",
@@ -98,6 +105,12 @@ def generate_launch_description():
     task2_params = LaunchConfiguration("task2_params_file")
     por_params = LaunchConfiguration("por_params_file")
     hardware_params = LaunchConfiguration("hardware_params_file")
+    enable_esp32_bridge = LaunchConfiguration("enable_esp32_bridge")
+
+    default_op_mode_expr = PythonExpression([
+        "0 if ('", use_sim, "'.lower() == 'false' and '",
+        enable_esp32_bridge, "'.lower() == 'true') else 2"
+    ])
 
     task2_fixture_mode = AndSubstitution(
         EqualsSubstitution(mode, "task2"),
@@ -172,9 +185,7 @@ def generate_launch_description():
             por_params,
             {
                 "default_operational_mode": ParameterValue(
-                    PythonExpression(
-                        ["2 if '", LaunchConfiguration("use_sim"), "'.lower() == 'true' else 0"]
-                    ),
+                    default_op_mode_expr,
                     value_type=int,
                 ),
                 "rc_topic": ParameterValue(
@@ -219,9 +230,7 @@ def generate_launch_description():
             task2_params,
             {
                 "default_operational_mode": ParameterValue(
-                    PythonExpression(
-                        ["2 if '", LaunchConfiguration("use_sim"), "'.lower() == 'true' else 0"]
-                    ),
+                    default_op_mode_expr,
                     value_type=int,
                 ),
                 "rc_topic": ParameterValue(
@@ -327,7 +336,12 @@ def generate_launch_description():
         name="esp32_bridge_node",
         parameters=[active_params, hardware_params],
         output="screen",
-        condition=UnlessCondition(LaunchConfiguration("use_sim")),
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "False"),
+                EqualsSubstitution(LaunchConfiguration("enable_esp32_bridge"), "True"),
+            )
+        ),
     )
 
     esp32_trigger = Node(
@@ -359,6 +373,7 @@ def generate_launch_description():
             por_params_arg,
             hardware_params_arg,
             enable_esp32_trigger_arg,
+            enable_esp32_bridge_arg,
             set_use_sim_time,
             por_mission_manager,
             task2_mission_manager,

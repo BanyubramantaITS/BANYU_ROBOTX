@@ -2,13 +2,14 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
     AndSubstitution,
     EqualsSubstitution,
     LaunchConfiguration,
+    PythonExpression,
 )
 from launch_ros.actions import Node, SetParameter
 
@@ -55,10 +56,11 @@ def generate_launch_description():
 
     fcu_url_arg = DeclareLaunchArgument(
         name="fcu_url",
-        default_value="/dev/ttyACM0:921600",
+        default_value="udp://127.0.0.1:14551@",
         description=(
             "FCU connection URL for the physical Pixhawk "
-            "(e.g. /dev/ttyACM0:921600 for direct USB serial or udp://192.168.2.1:14550@)."
+            "(udp://127.0.0.1:14551@ when using tools/scripts/run_mavproxy.sh, "
+            "or /dev/ttyACM0:921600 for direct USB serial)."
         ),
     )
 
@@ -69,10 +71,34 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    use_gps_arg = DeclareLaunchArgument(
+        name="use_gps",
+        default_value="False",
+        description=(
+            "Whether GPS is available on the AUV. False (default for POR) "
+            "forces EKF3 SRC2 (baro + compass) and runs nogps_odom_beacon when use_dvl is False."
+        ),
+        choices=["True", "False"],
+    )
+
     debug_arg = DeclareLaunchArgument(
         name="debug",
         default_value="False",
         description="Enable OpenCV debug windows (only when a display is attached).",
+        choices=["True", "False"],
+    )
+
+    enable_teleop_arg = DeclareLaunchArgument(
+        name="enable_teleop",
+        default_value="True",
+        description="Whether to launch banyu_teleop for TX16S RC switches and ESP32 kill relay.",
+        choices=["True", "False"],
+    )
+
+    enable_esp32_bridge_arg = DeclareLaunchArgument(
+        name="enable_esp32_bridge",
+        default_value="False",
+        description="Whether to launch esp32_bridge_node (keep False when enable_teleop is True).",
         choices=["True", "False"],
     )
 
@@ -112,7 +138,13 @@ def generate_launch_description():
 
     mode = LaunchConfiguration("mode")
     enable_cameras = LaunchConfiguration("enable_cameras")
+    por_params = LaunchConfiguration("por_params_file")
+    task2_params = LaunchConfiguration("task2_params_file")
     hardware_params = LaunchConfiguration("hardware_params_file")
+
+    active_params = PythonExpression([
+        "'", por_params, "' if '", mode, "' == 'por' else '", task2_params, "'"
+    ])
 
     mavros_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -124,7 +156,38 @@ def generate_launch_description():
             "use_ardusub_sitl": "False",
             "fcu_url": LaunchConfiguration("fcu_url"),
             "use_dvl": LaunchConfiguration("use_dvl"),
+            "use_gps": LaunchConfiguration("use_gps"),
         }.items(),
+    )
+
+    nogps_odom_beacon = ExecuteProcess(
+        cmd=[
+            "ros2",
+            "run",
+            "banyu_bringup",
+            "nogps_odom_beacon.py",
+            "--mavlink",
+            "udpin:127.0.0.1:14552",
+        ],
+        name="nogps_odom_beacon",
+        output="screen",
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("use_gps"), "False"),
+                EqualsSubstitution(LaunchConfiguration("use_dvl"), "False"),
+            )
+        ),
+    )
+
+    teleop_node = Node(
+        package="banyu_teleop",
+        executable="banyu_teleop",
+        name="banyu_teleop",
+        output="screen",
+        parameters=[active_params, hardware_params],
+        condition=IfCondition(
+            EqualsSubstitution(LaunchConfiguration("enable_teleop"), "True")
+        ),
     )
 
     front_camera_node = _make_camera_node(
@@ -157,8 +220,9 @@ def generate_launch_description():
             "use_sim_time": "False",
             "debug": LaunchConfiguration("debug"),
             "enable_esp32_trigger": LaunchConfiguration("enable_esp32_trigger"),
-            "por_params_file": LaunchConfiguration("por_params_file"),
-            "task2_params_file": LaunchConfiguration("task2_params_file"),
+            "enable_esp32_bridge": LaunchConfiguration("enable_esp32_bridge"),
+            "por_params_file": por_params,
+            "task2_params_file": task2_params,
             "hardware_params_file": hardware_params,
         }.items(),
     )
@@ -168,7 +232,10 @@ def generate_launch_description():
             mode_arg,
             fcu_url_arg,
             use_dvl_arg,
+            use_gps_arg,
             debug_arg,
+            enable_teleop_arg,
+            enable_esp32_bridge_arg,
             enable_esp32_trigger_arg,
             enable_cameras_arg,
             por_params_arg,
@@ -176,6 +243,8 @@ def generate_launch_description():
             hardware_params_arg,
             set_wall_time,
             mavros_launch,
+            nogps_odom_beacon,
+            teleop_node,
             front_camera_node,
             bottom_camera_node,
             mission_launch,

@@ -36,14 +36,17 @@ def test_sub_bringup_defaults_are_hardware_safe():
     args = _declared_args(ld)
     assert "use_sim" not in args
     assert args["use_dvl"] == "False"
-    assert args["fcu_url"] == "/dev/ttyACM0:921600"
+    assert args["use_gps"] == "False"
+    assert args["enable_teleop"] == "True"
+    assert args["enable_esp32_bridge"] == "False"
+    assert args["fcu_url"] == "udp://127.0.0.1:14551@"
     assert args["enable_cameras"] == "True"
 
 
 def test_sub_bringup_contains_v4l2_camera_nodes():
     ld = _load_launch("sub_bringup.launch.py")
     nodes = [e for e in ld.entities if isinstance(e, Node)]
-    assert len(nodes) == 2
+    assert len(nodes) == 3
     for node in nodes:
         assert node.condition is not None
 

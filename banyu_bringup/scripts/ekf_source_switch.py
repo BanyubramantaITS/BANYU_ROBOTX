@@ -33,14 +33,18 @@ WATER_RHO = 1000.0
 G = 9.80665
 
 
-def desired_set(depth, current, dive_depth, surface_depth):
+def desired_set(depth, current, dive_depth, surface_depth, require_gps=True):
     """
     Which source set should be active at this depth.
 
     `depth` is metres below the surface, positive down. The two thresholds form
     a hysteresis band; inside it the current set is held, so a vehicle bobbing
     at the waterline does not flap the EKF between sources.
+    When `require_gps` is False (GPS-denied / POR mode), always select SET_DIVE
+    (EK3_SRC2: POSXY=NONE, VELXY=EXTNAV, POSZ=BARO, YAW=COMPASS) even at the surface.
     """
+    if not require_gps:
+        return SET_DIVE
     if depth >= dive_depth:
         return SET_DIVE
     if depth <= surface_depth:
@@ -60,6 +64,9 @@ def self_check():
     # Thresholds themselves are inclusive on both sides.
     assert desired_set(0.5, SET_SURFACE, d, s) == SET_DIVE
     assert desired_set(0.2, SET_DIVE, d, s) == SET_SURFACE
+    # GPS-denied mode always selects SET_DIVE, including on the surface.
+    assert desired_set(0.0, SET_SURFACE, d, s, require_gps=False) == SET_DIVE
+    assert desired_set(0.1, SET_SURFACE, d, s, require_gps=False) == SET_DIVE
     print("ekf_source_switch: self-check OK")
 
 
@@ -75,37 +82,42 @@ def main():
             super().__init__("ekf_source_switch")
             self.declare_parameter("dive_depth", 0.5)
             self.declare_parameter("surface_depth", 0.2)
+            self.declare_parameter("require_gps", True)
             self.dive_depth = self.get_parameter("dive_depth").value
             self.surface_depth = self.get_parameter("surface_depth").value
+            self.require_gps = bool(self.get_parameter("require_gps").value)
 
             # Start assuming surface: on the deck, unarmed, that is true, and if
-            # it is not the first depth sample past dive_depth corrects it.
+            # require_gps is False or depth exceeds dive_depth it switches to SET_DIVE.
             self.active = SET_SURFACE
             self.pending = None  # set we have commanded but not seen accepted
+            self.last_depth = 0.0
 
             self.cli = self.create_client(CommandLong, "/mavros/cmd/command")
 
-            # Depth straight from the pressure sensor. NOT local_position/pose
-            # (relative to the EKF origin, which in sim lands on the pool floor)
-            # and NOT rel_alt: rel_alt is EKF output, and with no horizontal
-            # aiding (no DVL fitted) it read -0.80 m at a true 0.08 m, so the
-            # switch never went back to GPS and the EKF never got a position.
-            #
-            # ponytail: fixed standard surface pressure and fresh water. On the
-            # real vehicle, sample surface pressure at startup instead.
             self.create_subscription(
                 FluidPressure,
                 "/mavros/imu/static_pressure",
                 self.on_pressure,
                 QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT),
             )
+            self.create_timer(1.0, self.on_timer)
             self.get_logger().info(
-                f"depth switch armed: dive>={self.dive_depth} m, surface<={self.surface_depth} m"
+                f"depth switch armed: dive>={self.dive_depth} m, "
+                f"surface<={self.surface_depth} m, require_gps={self.require_gps}"
             )
 
         def on_pressure(self, msg):
-            depth = (msg.fluid_pressure - SURFACE_PA) / (WATER_RHO * G)
-            want = desired_set(depth, self.active, self.dive_depth, self.surface_depth)
+            self.last_depth = (msg.fluid_pressure - SURFACE_PA) / (WATER_RHO * G)
+            self.evaluate(self.last_depth)
+
+        def on_timer(self):
+            self.evaluate(self.last_depth)
+
+        def evaluate(self, depth):
+            want = desired_set(
+                depth, self.active, self.dive_depth, self.surface_depth, self.require_gps
+            )
             if want == self.active or want == self.pending:
                 return
             self.send(want, depth)

@@ -45,6 +45,16 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    use_gps_arg = DeclareLaunchArgument(
+        name="use_gps",
+        default_value="True",
+        description=(
+            "Whether GPS is available for surface EKF aiding. When False, "
+            "ekf_source_switch forces EKF3 SRC2 (baro + compass, no GPS) at all depths."
+        ),
+        choices=["True", "False"],
+    )
+
     fcu_url_arg = DeclareLaunchArgument(
         name="fcu_url",
         default_value="udp://127.0.0.1:14551@",
@@ -209,17 +219,26 @@ def generate_launch_description():
         ),
     )
 
-    # GPS on the surface, DVL underwater. ArduPilot has the source sets and
-    # three ways to select one, but switches on depth by itself in none of them
-    # -- this node is that decision. It is only started when DVL is enabled, so
-    # the no-DVL default cannot select the DVL source set.
+    # GPS on the surface, DVL underwater (or always SRC2 when use_gps == False).
     ekf_source_switch = Node(
         package="banyu_bringup",
         executable="ekf_source_switch.py",
         name="ekf_source_switch",
         output="screen",
+        parameters=[
+            os.path.join(_banyu_bringup_share, "config", "por_params.yaml"),
+            {
+                "require_gps": ParameterValue(
+                    EqualsSubstitution(LaunchConfiguration("use_gps"), "True"),
+                    value_type=bool,
+                )
+            },
+        ],
         condition=IfCondition(
-            EqualsSubstitution(LaunchConfiguration("use_dvl"), "True")
+            PythonExpression([
+                "'", LaunchConfiguration("use_dvl"), "'.lower() == 'true' or '",
+                LaunchConfiguration("use_gps"), "'.lower() == 'false'"
+            ])
         ),
     )
 
@@ -230,6 +249,7 @@ def generate_launch_description():
             use_sim_time_arg,
             fcu_url_arg,
             use_dvl_arg,
+            use_gps_arg,
             set_use_sim_time,
             ardusub_launch,
             ardusub_sitl_launch,

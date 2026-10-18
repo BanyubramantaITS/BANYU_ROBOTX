@@ -11,6 +11,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(mavros_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(Boost REQUIRED)
 
 add_executable(banyu_teleop src/banyu_teleop.cpp)
@@ -21,6 +22,7 @@ target_include_directories(banyu_teleop PUBLIC
 ament_target_dependencies(banyu_teleop
   rclcpp
   mavros_msgs
+  std_msgs
 )
 target_link_libraries(banyu_teleop Boost::boost)
 
