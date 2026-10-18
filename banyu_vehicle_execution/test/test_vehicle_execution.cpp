@@ -1584,31 +1584,20 @@ TEST_F(VehicleExecutionNodeTest, TimedMoveExecutesTimedSegmentAndSupportsZeroDur
   auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/timed_move");
   ASSERT_TRUE(client->wait_for_action_server(1s));
 
-  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
-    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
-  geometry_msgs::msg::PoseStamped pose;
-  pose.header.frame_id = "map";
-  pose.pose.position.z = -1.5;
-  pose.pose.orientation.w = 1.0;
-
-  // 1. Timed forward move with baro depth control
+  // 1. Pure timed move with zero sensors (no pose, no baro depth, no IMU yaw cap)
   Action::Goal goal;
   goal.segment_name = "pass_gate";
   goal.duration_s = 0.15;
   goal.speed_x_mps = 0.5;
   goal.speed_y_mps = 0.0;
-  goal.speed_z_mps = 0.0;
-  goal.yaw_rate_rad_s = 0.0;
-  goal.use_baro_depth = true;
+  goal.speed_z_mps = -0.1;
+  goal.yaw_rate_rad_s = -0.5;
+  goal.use_baro_depth = false;
   goal.target_depth_m = 2.0;
   goal.depth_kp = 0.7;
   goal.max_depth_speed_mps = 0.4;
   goal.use_imu_yaw_cap = false;
   goal.target_yaw_delta_rad = 0.0;
-
-  pose.header.stamp = node->now();
-  pose_pub->publish(pose);
-  spinFor(node, 3);
 
   auto send_future = client->async_send_goal(goal);
   ASSERT_TRUE(waitForFuture(node, send_future));
@@ -1620,8 +1609,6 @@ TEST_F(VehicleExecutionNodeTest, TimedMoveExecutesTimedSegmentAndSupportsZeroDur
   while (result_future.wait_for(0ms) != std::future_status::ready &&
     std::chrono::steady_clock::now() < until)
   {
-    pose.header.stamp = node->now();
-    pose_pub->publish(pose);
     rclcpp::spin_some(node);
     std::this_thread::sleep_for(10ms);
   }

@@ -104,6 +104,7 @@ PorMissionConfig PorMissionConfig::load(rclcpp::Node & node)
       return node.declare_parameter<bool>("mission." + name, fallback);
     };
   config.use_vision = bool_param("use_vision", config.use_vision);
+  config.use_sensors = bool_param("use_sensors", config.use_sensors);
   config.use_baro_depth = bool_param("use_baro_depth", config.use_baro_depth);
   config.use_imu_yaw_cap = bool_param("use_imu_yaw_cap", config.use_imu_yaw_cap);
   config.depth_kp = parameter("depth_kp", config.depth_kp);
@@ -121,6 +122,8 @@ PorMissionConfig PorMissionConfig::load(rclcpp::Node & node)
     "timed_pass_gate_speed_x_mps", config.timed_pass_gate_speed_x_mps);
   config.timed_pass_gate_speed_y_mps = parameter(
     "timed_pass_gate_speed_y_mps", config.timed_pass_gate_speed_y_mps);
+  config.timed_pass_gate_speed_z_mps = parameter(
+    "timed_pass_gate_speed_z_mps", config.timed_pass_gate_speed_z_mps);
   config.timed_pass_gate_yaw_rate_rad_s = parameter(
     "timed_pass_gate_yaw_rate_rad_s", config.timed_pass_gate_yaw_rate_rad_s);
 
@@ -130,11 +133,19 @@ PorMissionConfig PorMissionConfig::load(rclcpp::Node & node)
     "approach_pole_speed_x_mps", config.approach_pole_speed_x_mps);
   config.approach_pole_speed_y_mps = parameter(
     "approach_pole_speed_y_mps", config.approach_pole_speed_y_mps);
+  config.approach_pole_speed_z_mps = parameter(
+    "approach_pole_speed_z_mps", config.approach_pole_speed_z_mps);
   config.approach_pole_yaw_rate_rad_s = parameter(
     "approach_pole_yaw_rate_rad_s", config.approach_pole_yaw_rate_rad_s);
 
   config.circle_turn_1_duration_s = parameter(
     "circle_turn_1_duration_s", config.circle_turn_1_duration_s);
+  config.circle_turn_1_speed_x_mps = parameter(
+    "circle_turn_1_speed_x_mps", config.circle_turn_1_speed_x_mps);
+  config.circle_turn_1_speed_y_mps = parameter(
+    "circle_turn_1_speed_y_mps", config.circle_turn_1_speed_y_mps);
+  config.circle_turn_1_speed_z_mps = parameter(
+    "circle_turn_1_speed_z_mps", config.circle_turn_1_speed_z_mps);
   config.circle_turn_1_yaw_rate_rad_s = parameter(
     "circle_turn_1_yaw_rate_rad_s", config.circle_turn_1_yaw_rate_rad_s);
   config.circle_turn_1_target_angle_rad = parameter(
@@ -145,9 +156,19 @@ PorMissionConfig PorMissionConfig::load(rclcpp::Node & node)
     "circle_forward_1_speed_x_mps", config.circle_forward_1_speed_x_mps);
   config.circle_forward_1_speed_y_mps = parameter(
     "circle_forward_1_speed_y_mps", config.circle_forward_1_speed_y_mps);
+  config.circle_forward_1_speed_z_mps = parameter(
+    "circle_forward_1_speed_z_mps", config.circle_forward_1_speed_z_mps);
+  config.circle_forward_1_yaw_rate_rad_s = parameter(
+    "circle_forward_1_yaw_rate_rad_s", config.circle_forward_1_yaw_rate_rad_s);
 
   config.circle_turn_2_duration_s = parameter(
     "circle_turn_2_duration_s", config.circle_turn_2_duration_s);
+  config.circle_turn_2_speed_x_mps = parameter(
+    "circle_turn_2_speed_x_mps", config.circle_turn_2_speed_x_mps);
+  config.circle_turn_2_speed_y_mps = parameter(
+    "circle_turn_2_speed_y_mps", config.circle_turn_2_speed_y_mps);
+  config.circle_turn_2_speed_z_mps = parameter(
+    "circle_turn_2_speed_z_mps", config.circle_turn_2_speed_z_mps);
   config.circle_turn_2_yaw_rate_rad_s = parameter(
     "circle_turn_2_yaw_rate_rad_s", config.circle_turn_2_yaw_rate_rad_s);
   config.circle_turn_2_target_angle_rad = parameter(
@@ -158,9 +179,19 @@ PorMissionConfig PorMissionConfig::load(rclcpp::Node & node)
     "circle_forward_2_speed_x_mps", config.circle_forward_2_speed_x_mps);
   config.circle_forward_2_speed_y_mps = parameter(
     "circle_forward_2_speed_y_mps", config.circle_forward_2_speed_y_mps);
+  config.circle_forward_2_speed_z_mps = parameter(
+    "circle_forward_2_speed_z_mps", config.circle_forward_2_speed_z_mps);
+  config.circle_forward_2_yaw_rate_rad_s = parameter(
+    "circle_forward_2_yaw_rate_rad_s", config.circle_forward_2_yaw_rate_rad_s);
 
   config.circle_turn_3_duration_s = parameter(
     "circle_turn_3_duration_s", config.circle_turn_3_duration_s);
+  config.circle_turn_3_speed_x_mps = parameter(
+    "circle_turn_3_speed_x_mps", config.circle_turn_3_speed_x_mps);
+  config.circle_turn_3_speed_y_mps = parameter(
+    "circle_turn_3_speed_y_mps", config.circle_turn_3_speed_y_mps);
+  config.circle_turn_3_speed_z_mps = parameter(
+    "circle_turn_3_speed_z_mps", config.circle_turn_3_speed_z_mps);
   config.circle_turn_3_yaw_rate_rad_s = parameter(
     "circle_turn_3_yaw_rate_rad_s", config.circle_turn_3_yaw_rate_rad_s);
   config.circle_turn_3_target_angle_rad = parameter(
@@ -171,9 +202,19 @@ PorMissionConfig PorMissionConfig::load(rclcpp::Node & node)
     "circle_forward_3_speed_x_mps", config.circle_forward_3_speed_x_mps);
   config.circle_forward_3_speed_y_mps = parameter(
     "circle_forward_3_speed_y_mps", config.circle_forward_3_speed_y_mps);
+  config.circle_forward_3_speed_z_mps = parameter(
+    "circle_forward_3_speed_z_mps", config.circle_forward_3_speed_z_mps);
+  config.circle_forward_3_yaw_rate_rad_s = parameter(
+    "circle_forward_3_yaw_rate_rad_s", config.circle_forward_3_yaw_rate_rad_s);
 
   config.circle_turn_4_duration_s = parameter(
     "circle_turn_4_duration_s", config.circle_turn_4_duration_s);
+  config.circle_turn_4_speed_x_mps = parameter(
+    "circle_turn_4_speed_x_mps", config.circle_turn_4_speed_x_mps);
+  config.circle_turn_4_speed_y_mps = parameter(
+    "circle_turn_4_speed_y_mps", config.circle_turn_4_speed_y_mps);
+  config.circle_turn_4_speed_z_mps = parameter(
+    "circle_turn_4_speed_z_mps", config.circle_turn_4_speed_z_mps);
   config.circle_turn_4_yaw_rate_rad_s = parameter(
     "circle_turn_4_yaw_rate_rad_s", config.circle_turn_4_yaw_rate_rad_s);
   config.circle_turn_4_target_angle_rad = parameter(
@@ -184,9 +225,19 @@ PorMissionConfig PorMissionConfig::load(rclcpp::Node & node)
     "circle_forward_4_speed_x_mps", config.circle_forward_4_speed_x_mps);
   config.circle_forward_4_speed_y_mps = parameter(
     "circle_forward_4_speed_y_mps", config.circle_forward_4_speed_y_mps);
+  config.circle_forward_4_speed_z_mps = parameter(
+    "circle_forward_4_speed_z_mps", config.circle_forward_4_speed_z_mps);
+  config.circle_forward_4_yaw_rate_rad_s = parameter(
+    "circle_forward_4_yaw_rate_rad_s", config.circle_forward_4_yaw_rate_rad_s);
 
   config.return_turn_duration_s = parameter(
     "return_turn_duration_s", config.return_turn_duration_s);
+  config.return_turn_speed_x_mps = parameter(
+    "return_turn_speed_x_mps", config.return_turn_speed_x_mps);
+  config.return_turn_speed_y_mps = parameter(
+    "return_turn_speed_y_mps", config.return_turn_speed_y_mps);
+  config.return_turn_speed_z_mps = parameter(
+    "return_turn_speed_z_mps", config.return_turn_speed_z_mps);
   config.return_turn_yaw_rate_rad_s = parameter(
     "return_turn_yaw_rate_rad_s", config.return_turn_yaw_rate_rad_s);
   config.return_turn_target_angle_rad = parameter(
@@ -198,13 +249,21 @@ PorMissionConfig PorMissionConfig::load(rclcpp::Node & node)
     "return_to_gate_speed_x_mps", config.return_to_gate_speed_x_mps);
   config.return_to_gate_speed_y_mps = parameter(
     "return_to_gate_speed_y_mps", config.return_to_gate_speed_y_mps);
+  config.return_to_gate_speed_z_mps = parameter(
+    "return_to_gate_speed_z_mps", config.return_to_gate_speed_z_mps);
   config.return_to_gate_yaw_rate_rad_s = parameter(
     "return_to_gate_yaw_rate_rad_s", config.return_to_gate_yaw_rate_rad_s);
 
   config.timed_surface_duration_s = parameter(
     "timed_surface_duration_s", config.timed_surface_duration_s);
+  config.timed_surface_speed_x_mps = parameter(
+    "timed_surface_speed_x_mps", config.timed_surface_speed_x_mps);
+  config.timed_surface_speed_y_mps = parameter(
+    "timed_surface_speed_y_mps", config.timed_surface_speed_y_mps);
   config.timed_surface_speed_z_mps = parameter(
     "timed_surface_speed_z_mps", config.timed_surface_speed_z_mps);
+  config.timed_surface_yaw_rate_rad_s = parameter(
+    "timed_surface_yaw_rate_rad_s", config.timed_surface_yaw_rate_rad_s);
   return config;
 }
 
@@ -250,14 +309,32 @@ void PorMissionConfig::validate() const
   }
   const std::array finite_signed_values {
     dive_speed_x_mps, dive_speed_y_mps, dive_speed_z_mps, dive_yaw_rate_rad_s,
-    timed_pass_gate_speed_x_mps, timed_pass_gate_speed_y_mps, timed_pass_gate_yaw_rate_rad_s,
-    approach_pole_speed_x_mps, approach_pole_speed_y_mps, approach_pole_yaw_rate_rad_s,
-    circle_turn_1_yaw_rate_rad_s, circle_forward_1_speed_x_mps, circle_forward_1_speed_y_mps,
-    circle_turn_2_yaw_rate_rad_s, circle_forward_2_speed_x_mps, circle_forward_2_speed_y_mps,
-    circle_turn_3_yaw_rate_rad_s, circle_forward_3_speed_x_mps, circle_forward_3_speed_y_mps,
-    circle_turn_4_yaw_rate_rad_s, circle_forward_4_speed_x_mps, circle_forward_4_speed_y_mps,
-    return_turn_yaw_rate_rad_s, return_to_gate_speed_x_mps, return_to_gate_speed_y_mps,
-    return_to_gate_yaw_rate_rad_s, timed_surface_speed_z_mps};
+    timed_pass_gate_speed_x_mps, timed_pass_gate_speed_y_mps,
+    timed_pass_gate_speed_z_mps, timed_pass_gate_yaw_rate_rad_s,
+    approach_pole_speed_x_mps, approach_pole_speed_y_mps,
+    approach_pole_speed_z_mps, approach_pole_yaw_rate_rad_s,
+    circle_turn_1_speed_x_mps, circle_turn_1_speed_y_mps,
+    circle_turn_1_speed_z_mps, circle_turn_1_yaw_rate_rad_s,
+    circle_forward_1_speed_x_mps, circle_forward_1_speed_y_mps,
+    circle_forward_1_speed_z_mps, circle_forward_1_yaw_rate_rad_s,
+    circle_turn_2_speed_x_mps, circle_turn_2_speed_y_mps,
+    circle_turn_2_speed_z_mps, circle_turn_2_yaw_rate_rad_s,
+    circle_forward_2_speed_x_mps, circle_forward_2_speed_y_mps,
+    circle_forward_2_speed_z_mps, circle_forward_2_yaw_rate_rad_s,
+    circle_turn_3_speed_x_mps, circle_turn_3_speed_y_mps,
+    circle_turn_3_speed_z_mps, circle_turn_3_yaw_rate_rad_s,
+    circle_forward_3_speed_x_mps, circle_forward_3_speed_y_mps,
+    circle_forward_3_speed_z_mps, circle_forward_3_yaw_rate_rad_s,
+    circle_turn_4_speed_x_mps, circle_turn_4_speed_y_mps,
+    circle_turn_4_speed_z_mps, circle_turn_4_yaw_rate_rad_s,
+    circle_forward_4_speed_x_mps, circle_forward_4_speed_y_mps,
+    circle_forward_4_speed_z_mps, circle_forward_4_yaw_rate_rad_s,
+    return_turn_speed_x_mps, return_turn_speed_y_mps,
+    return_turn_speed_z_mps, return_turn_yaw_rate_rad_s,
+    return_to_gate_speed_x_mps, return_to_gate_speed_y_mps,
+    return_to_gate_speed_z_mps, return_to_gate_yaw_rate_rad_s,
+    timed_surface_speed_x_mps, timed_surface_speed_y_mps,
+    timed_surface_speed_z_mps, timed_surface_yaw_rate_rad_s};
   for (const double value : finite_signed_values) {
     if (!std::isfinite(value)) {
       throw std::invalid_argument("POR timed speed/yaw-rate parameters must be finite");
@@ -328,8 +405,9 @@ void PorMissionConfig::apply(const BT::Blackboard::Ptr & blackboard) const
   blackboard->set("return_gate_pass_timeout_s", return_gate_pass_timeout_s);
 
   blackboard->set("use_vision", use_vision);
-  blackboard->set("use_baro_depth", use_baro_depth);
-  blackboard->set("use_imu_yaw_cap", use_imu_yaw_cap);
+  blackboard->set("use_sensors", use_sensors);
+  blackboard->set("use_baro_depth", use_sensors && use_baro_depth);
+  blackboard->set("use_imu_yaw_cap", use_sensors && use_imu_yaw_cap);
   blackboard->set("depth_kp", depth_kp);
   blackboard->set("max_depth_speed_mps", max_depth_speed_mps);
 
@@ -342,52 +420,81 @@ void PorMissionConfig::apply(const BT::Blackboard::Ptr & blackboard) const
   blackboard->set("timed_pass_gate_duration_s", timed_pass_gate_duration_s);
   blackboard->set("timed_pass_gate_speed_x_mps", timed_pass_gate_speed_x_mps);
   blackboard->set("timed_pass_gate_speed_y_mps", timed_pass_gate_speed_y_mps);
+  blackboard->set("timed_pass_gate_speed_z_mps", timed_pass_gate_speed_z_mps);
   blackboard->set("timed_pass_gate_yaw_rate_rad_s", timed_pass_gate_yaw_rate_rad_s);
 
   blackboard->set("approach_pole_duration_s", approach_pole_duration_s);
   blackboard->set("approach_pole_speed_x_mps", approach_pole_speed_x_mps);
   blackboard->set("approach_pole_speed_y_mps", approach_pole_speed_y_mps);
+  blackboard->set("approach_pole_speed_z_mps", approach_pole_speed_z_mps);
   blackboard->set("approach_pole_yaw_rate_rad_s", approach_pole_yaw_rate_rad_s);
 
   blackboard->set("circle_turn_1_duration_s", circle_turn_1_duration_s);
+  blackboard->set("circle_turn_1_speed_x_mps", circle_turn_1_speed_x_mps);
+  blackboard->set("circle_turn_1_speed_y_mps", circle_turn_1_speed_y_mps);
+  blackboard->set("circle_turn_1_speed_z_mps", circle_turn_1_speed_z_mps);
   blackboard->set("circle_turn_1_yaw_rate_rad_s", circle_turn_1_yaw_rate_rad_s);
   blackboard->set("circle_turn_1_target_angle_rad", circle_turn_1_target_angle_rad);
   blackboard->set("circle_forward_1_duration_s", circle_forward_1_duration_s);
   blackboard->set("circle_forward_1_speed_x_mps", circle_forward_1_speed_x_mps);
   blackboard->set("circle_forward_1_speed_y_mps", circle_forward_1_speed_y_mps);
+  blackboard->set("circle_forward_1_speed_z_mps", circle_forward_1_speed_z_mps);
+  blackboard->set("circle_forward_1_yaw_rate_rad_s", circle_forward_1_yaw_rate_rad_s);
 
   blackboard->set("circle_turn_2_duration_s", circle_turn_2_duration_s);
+  blackboard->set("circle_turn_2_speed_x_mps", circle_turn_2_speed_x_mps);
+  blackboard->set("circle_turn_2_speed_y_mps", circle_turn_2_speed_y_mps);
+  blackboard->set("circle_turn_2_speed_z_mps", circle_turn_2_speed_z_mps);
   blackboard->set("circle_turn_2_yaw_rate_rad_s", circle_turn_2_yaw_rate_rad_s);
   blackboard->set("circle_turn_2_target_angle_rad", circle_turn_2_target_angle_rad);
   blackboard->set("circle_forward_2_duration_s", circle_forward_2_duration_s);
   blackboard->set("circle_forward_2_speed_x_mps", circle_forward_2_speed_x_mps);
   blackboard->set("circle_forward_2_speed_y_mps", circle_forward_2_speed_y_mps);
+  blackboard->set("circle_forward_2_speed_z_mps", circle_forward_2_speed_z_mps);
+  blackboard->set("circle_forward_2_yaw_rate_rad_s", circle_forward_2_yaw_rate_rad_s);
 
   blackboard->set("circle_turn_3_duration_s", circle_turn_3_duration_s);
+  blackboard->set("circle_turn_3_speed_x_mps", circle_turn_3_speed_x_mps);
+  blackboard->set("circle_turn_3_speed_y_mps", circle_turn_3_speed_y_mps);
+  blackboard->set("circle_turn_3_speed_z_mps", circle_turn_3_speed_z_mps);
   blackboard->set("circle_turn_3_yaw_rate_rad_s", circle_turn_3_yaw_rate_rad_s);
   blackboard->set("circle_turn_3_target_angle_rad", circle_turn_3_target_angle_rad);
   blackboard->set("circle_forward_3_duration_s", circle_forward_3_duration_s);
   blackboard->set("circle_forward_3_speed_x_mps", circle_forward_3_speed_x_mps);
   blackboard->set("circle_forward_3_speed_y_mps", circle_forward_3_speed_y_mps);
+  blackboard->set("circle_forward_3_speed_z_mps", circle_forward_3_speed_z_mps);
+  blackboard->set("circle_forward_3_yaw_rate_rad_s", circle_forward_3_yaw_rate_rad_s);
 
   blackboard->set("circle_turn_4_duration_s", circle_turn_4_duration_s);
+  blackboard->set("circle_turn_4_speed_x_mps", circle_turn_4_speed_x_mps);
+  blackboard->set("circle_turn_4_speed_y_mps", circle_turn_4_speed_y_mps);
+  blackboard->set("circle_turn_4_speed_z_mps", circle_turn_4_speed_z_mps);
   blackboard->set("circle_turn_4_yaw_rate_rad_s", circle_turn_4_yaw_rate_rad_s);
   blackboard->set("circle_turn_4_target_angle_rad", circle_turn_4_target_angle_rad);
   blackboard->set("circle_forward_4_duration_s", circle_forward_4_duration_s);
   blackboard->set("circle_forward_4_speed_x_mps", circle_forward_4_speed_x_mps);
   blackboard->set("circle_forward_4_speed_y_mps", circle_forward_4_speed_y_mps);
+  blackboard->set("circle_forward_4_speed_z_mps", circle_forward_4_speed_z_mps);
+  blackboard->set("circle_forward_4_yaw_rate_rad_s", circle_forward_4_yaw_rate_rad_s);
 
   blackboard->set("return_turn_duration_s", return_turn_duration_s);
+  blackboard->set("return_turn_speed_x_mps", return_turn_speed_x_mps);
+  blackboard->set("return_turn_speed_y_mps", return_turn_speed_y_mps);
+  blackboard->set("return_turn_speed_z_mps", return_turn_speed_z_mps);
   blackboard->set("return_turn_yaw_rate_rad_s", return_turn_yaw_rate_rad_s);
   blackboard->set("return_turn_target_angle_rad", return_turn_target_angle_rad);
 
   blackboard->set("return_to_gate_duration_s", return_to_gate_duration_s);
   blackboard->set("return_to_gate_speed_x_mps", return_to_gate_speed_x_mps);
   blackboard->set("return_to_gate_speed_y_mps", return_to_gate_speed_y_mps);
+  blackboard->set("return_to_gate_speed_z_mps", return_to_gate_speed_z_mps);
   blackboard->set("return_to_gate_yaw_rate_rad_s", return_to_gate_yaw_rate_rad_s);
 
   blackboard->set("timed_surface_duration_s", timed_surface_duration_s);
+  blackboard->set("timed_surface_speed_x_mps", timed_surface_speed_x_mps);
+  blackboard->set("timed_surface_speed_y_mps", timed_surface_speed_y_mps);
   blackboard->set("timed_surface_speed_z_mps", timed_surface_speed_z_mps);
+  blackboard->set("timed_surface_yaw_rate_rad_s", timed_surface_yaw_rate_rad_s);
 }
 
 }  // namespace banyu_mission

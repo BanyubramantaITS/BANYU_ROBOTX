@@ -172,24 +172,26 @@ What happens automatically:
 
 All timed POR parameters live under `banyu_mission.ros__parameters.mission` in `banyu_bringup/config/por_params.yaml`:
 
-| Segment | Duration Parameter (`s`) | Speed / Rate Parameter | Notes |
+| Segment | Duration Parameter (`s`) | Speed / Rate Parameters | Notes |
 | :--- | :--- | :--- | :--- |
+| **No-Sensor Master Toggle** | — | `use_sensors: false` | `false` (default) = **100% pure timer + speed** (ignores camera, barometer depth, and IMU yaw cap). Set `true` to enable optional sensor assistance below. |
 | **Mode toggle** | — | `use_vision: false` | `false` = `por_timed_mission.xml`, `true` = `por_mission.xml` |
-| **Depth mode** | — | `use_baro_depth: true`, `gate_depth_m: 2.0` | Holds `gate_depth_m` via barometer P-loop on all segments (`false` = open-loop `dive_vertical_speed_mps`) |
-| **IMU yaw cap** | — | `use_imu_yaw_cap: false` | `false` = pure timer turns; `true` = also stops turn when IMU reaches `*_target_angle_rad` |
-| **1. Dive to Gate** | `dive_duration_s: 5.0` | `dive_vertical_speed_mps: -0.4` | Dives to `gate_depth_m` |
-| **2. Pass Gate** | `pass_gate_duration_s: 8.0` | `pass_gate_forward_speed_mps: 0.6`, `pass_gate_lateral_speed_mps: 0.0` | Straight through gate |
-| **3. Approach Pole** | `approach_pole_duration_s: 8.0` | `approach_pole_forward_speed_mps: 0.6`, `approach_pole_lateral_speed_mps: 0.0` | Straight from gate to pole |
-| **4a. Circle Turn 1** | `circle_turn_1_duration_s: 3.14` | `circle_turn_1_yaw_rate_rad_s: -0.5` | `-0.5 rad/s` = right turn ( kicks off clockwise box) |
-| **4b. Circle Leg 1** | `circle_forward_1_duration_s: 4.0` | `circle_forward_1_speed_mps: 0.5`, `circle_forward_1_lateral_speed_mps: 0.0` | Side 1 of box |
-| **4c. Circle Turn 2** | `circle_turn_2_duration_s: 3.14` | `circle_turn_2_yaw_rate_rad_s: 0.5` | `+0.5 rad/s` = left turn around pole |
-| **4d. Circle Leg 2** | `circle_forward_2_duration_s: 5.0` | `circle_forward_2_speed_mps: 0.5`, `circle_forward_2_lateral_speed_mps: 0.0` | Side 2 of box |
-| **4e. Circle Turn 3** | `circle_turn_3_duration_s: 3.14` | `circle_turn_3_yaw_rate_rad_s: 0.5` | `+0.5 rad/s` = left turn around pole |
-| **4f. Circle Leg 3** | `circle_forward_3_duration_s: 5.0` | `circle_forward_3_speed_mps: 0.5`, `circle_forward_3_lateral_speed_mps: 0.0` | Side 3 of box |
-| **4g. Circle Turn 4** | `circle_turn_4_duration_s: 3.14` | `circle_turn_4_yaw_rate_rad_s: 0.5` | `+0.5 rad/s` = left turn around pole |
-| **4h. Circle Leg 4** | `circle_forward_4_duration_s: 4.0` | `circle_forward_4_speed_mps: 0.5`, `circle_forward_4_lateral_speed_mps: 0.0` | Side 4 of box |
-| **5a. Return Turn** | `return_turn_duration_s: 3.14` | `return_turn_yaw_rate_rad_s: 0.5` | Align heading back toward gate |
-| **5b. Return to Gate**| `return_to_gate_duration_s: 16.0` | `return_to_gate_forward_speed_mps: 0.6`, `return_to_gate_lateral_speed_mps: 0.0` | Drive back through gate |
+| **Optional Depth Hold** | — | `use_baro_depth: false`, `gate_depth_m: 2.0` | Only active when `use_sensors: true` and `use_baro_depth: true` |
+| **Optional IMU Yaw Cap**| — | `use_imu_yaw_cap: false` | Only active when `use_sensors: true` and `use_imu_yaw_cap: true` |
+| **1. Dive to Gate** | `dive_duration_s: 5.0` | `dive_speed_x/y/z_mps` (`z: -0.4`), `dive_yaw_rate_rad_s` | Timed descent to gate center depth |
+| **2. Pass Gate** | `timed_pass_gate_duration_s: 6.0` | `timed_pass_gate_speed_x/y/z_mps` (`x: 0.6`), `timed_pass_gate_yaw_rate_rad_s` | Forward through gate |
+| **3. Approach Pole** | `approach_pole_duration_s: 8.0` | `approach_pole_speed_x/y/z_mps` (`x: 0.6`), `approach_pole_yaw_rate_rad_s` | Forward from gate to pole |
+| **4a. Circle Turn 1** | `circle_turn_1_duration_s: 2.62` | `circle_turn_1_speed_x/y/z_mps`, `circle_turn_1_yaw_rate_rad_s: -0.6` | `-0.6 rad/s` = right turn (`-90°`) |
+| **4b. Circle Leg 1** | `circle_forward_1_duration_s: 3.0` | `circle_forward_1_speed_x/y/z_mps` (`x: 0.5`), `circle_forward_1_yaw_rate_rad_s` | Side 1 of box |
+| **4c. Circle Turn 2** | `circle_turn_2_duration_s: 2.62` | `circle_turn_2_speed_x/y/z_mps`, `circle_turn_2_yaw_rate_rad_s: 0.6` | `+0.6 rad/s` = left turn (`+90°`) |
+| **4d. Circle Leg 2** | `circle_forward_2_duration_s: 5.0` | `circle_forward_2_speed_x/y/z_mps` (`x: 0.5`), `circle_forward_2_yaw_rate_rad_s` | Side 2 of box |
+| **4e. Circle Turn 3** | `circle_turn_3_duration_s: 2.62` | `circle_turn_3_speed_x/y/z_mps`, `circle_turn_3_yaw_rate_rad_s: 0.6` | `+0.6 rad/s` = left turn (`+90°`) |
+| **4f. Circle Leg 3** | `circle_forward_3_duration_s: 5.0` | `circle_forward_3_speed_x/y/z_mps` (`x: 0.5`), `circle_forward_3_yaw_rate_rad_s` | Side 3 of box |
+| **4g. Circle Turn 4** | `circle_turn_4_duration_s: 2.62` | `circle_turn_4_speed_x/y/z_mps`, `circle_turn_4_yaw_rate_rad_s: 0.6` | `+0.6 rad/s` = left turn (`+90°`) |
+| **4h. Circle Leg 4** | `circle_forward_4_duration_s: 5.0` | `circle_forward_4_speed_x/y/z_mps` (`x: 0.5`), `circle_forward_4_yaw_rate_rad_s` | Side 4 of box |
+| **5a. Return Turn** | `return_turn_duration_s: 2.62` | `return_turn_speed_x/y/z_mps`, `return_turn_yaw_rate_rad_s: 0.6` | Align heading back toward gate |
+| **5b. Return to Gate**| `return_to_gate_duration_s: 14.0` | `return_to_gate_speed_x/y/z_mps` (`x: 0.6`), `return_to_gate_yaw_rate_rad_s` | Drive back through gate |
+| **6. Surface** | `timed_surface_duration_s: 6.0` | `timed_surface_speed_x/y/z_mps` (`z: 0.4`), `timed_surface_yaw_rate_rad_s` | Timed ascent to surface |
 
 > **Tip:** Setting any segment's `*_duration_s` to `0.0` immediately skips that segment with `SUCCESS` (no code or XML edits needed). Because `banyu_bringup` uses `--symlink-install`, edits to `src/BANYU_ROBOTX/banyu_bringup/config/por_params.yaml` take effect immediately on the next `ros2 launch` without rebuilding.
 

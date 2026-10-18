@@ -720,7 +720,7 @@ void TimedMoveServer::onGoalStarted()
 
 MotionIntent TimedMoveServer::tick(
   const VehicleTelemetry & telemetry, const rclcpp::Time & now,
-  double /*dt*/)
+  double dt)
 {
   if (!active_handle_) {return zeroIntent();}
   if (active_handle_->is_canceling()) {cancelActive(); return zeroIntent();}
@@ -729,10 +729,16 @@ MotionIntent TimedMoveServer::tick(
   const bool pose_fresh = freshPose(telemetry, now);
   if (pose_fresh && !yaw_initialized_) {
     last_yaw_ = telemetry.yaw;
+    dead_reckon_yaw_ = telemetry.yaw;
     yaw_initialized_ = true;
   } else if (pose_fresh) {
     accumulated_yaw_ += normalizeAngle(telemetry.yaw - last_yaw_);
     last_yaw_ = telemetry.yaw;
+    dead_reckon_yaw_ = telemetry.yaw;
+  } else if (std::isfinite(dt) && dt > 0.0) {
+    const double delta_yaw = goal->yaw_rate_rad_s * dt;
+    accumulated_yaw_ += delta_yaw;
+    dead_reckon_yaw_ = normalizeAngle(dead_reckon_yaw_ + delta_yaw);
   }
   double depth = -1.0;
   const bool depth_fresh = freshDepth(telemetry, now, depth);
@@ -774,7 +780,8 @@ MotionIntent TimedMoveServer::tick(
     const double error = goal->target_depth_m - depth;
     vz = -clampFinite(kp * error, -max_vz, max_vz);
   }
-  const double yaw = (telemetry.pose_valid && std::isfinite(telemetry.yaw)) ? telemetry.yaw : 0.0;
+  const double yaw = (pose_fresh && std::isfinite(telemetry.yaw)) ?
+    telemetry.yaw : dead_reckon_yaw_;
   const auto converted = bodyFluToLocalEnu(
     MotionIntent::bodyFlu(goal->speed_x_mps, goal->speed_y_mps, vz, goal->yaw_rate_rad_s), yaw);
   return converted ? *converted : zeroIntent();

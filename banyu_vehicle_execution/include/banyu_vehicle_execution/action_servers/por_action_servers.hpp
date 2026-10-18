@@ -147,6 +147,7 @@ private:
   rclcpp::Time start_time_{0, 0, RCL_ROS_TIME};
   double last_yaw_{0.0};
   double accumulated_yaw_{0.0};
+  double dead_reckon_yaw_{0.0};
   bool yaw_initialized_{false};
 };
 

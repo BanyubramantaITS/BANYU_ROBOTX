@@ -613,10 +613,15 @@ TEST_F(MissionTest, PorTimedTreeLoadsAndUsesOrderedSegments)
 
   const auto config = banyu_mission::PorMissionConfig::load(*node);
   EXPECT_FALSE(config.use_vision);
+  EXPECT_FALSE(config.use_sensors);
+  EXPECT_FALSE(config.use_baro_depth);
+  EXPECT_FALSE(config.use_imu_yaw_cap);
   EXPECT_NO_THROW(config.validate());
   auto blackboard = BT::Blackboard::create();
   blackboard->set("surface_depth", 0.0);
   config.apply(blackboard);
+  EXPECT_FALSE(blackboard->get<bool>("use_baro_depth"));
+  EXPECT_FALSE(blackboard->get<bool>("use_imu_yaw_cap"));
 
   std::string timed_tree_path = ament_index_cpp::get_package_share_directory("banyu_mission") +
     "/bt/por_timed_mission.xml";
