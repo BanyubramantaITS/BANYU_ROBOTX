@@ -183,3 +183,10 @@ esp32_trigger_node:
     command_topic: "/banyu/trigger/cmd"
     monitor_topic: "/banyu/trigger/monitor"
 
+sim_rc_deadman_node:
+  ros__parameters:
+    rc_topic: "/sim/supervisor_rc"
+    publish_rate_hz: 10.0
+    num_channels: 8
+    channel_value: 1500
+

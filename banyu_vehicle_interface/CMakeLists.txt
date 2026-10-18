@@ -70,6 +70,10 @@ target_compile_features(esp32_serial_node_bin PUBLIC cxx_std_17)
 target_link_libraries(esp32_serial_node_bin esp32_trigger_node)
 ament_target_dependencies(esp32_serial_node_bin rclcpp)
 
+add_executable(sim_rc_deadman_node src/sim_rc_deadman_node.cpp)
+target_compile_features(sim_rc_deadman_node PUBLIC cxx_std_17)
+ament_target_dependencies(sim_rc_deadman_node rclcpp mavros_msgs)
+
 install(DIRECTORY include/
   DESTINATION include)
 
@@ -81,6 +85,7 @@ install(TARGETS
   esp32_trigger_node
   esp32_trigger_node_bin
   esp32_serial_node_bin
+  sim_rc_deadman_node
   EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib

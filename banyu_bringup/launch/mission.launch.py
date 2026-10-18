@@ -154,15 +154,22 @@ def generate_launch_description():
     por_vehicle_status = Node(
         package="banyu_vehicle_interface",
         executable="vehicle_status_node",
+        namespace="",
         name="banyu_vehicle_status",
         parameters=[
             por_params,
             {
                 "default_operational_mode": ParameterValue(
                     PythonExpression(
-                        ["2 if '", LaunchConfiguration("use_sim"), "' == 'True' else 0"]
+                        ["2 if '", LaunchConfiguration("use_sim"), "'.lower() == 'true' else 0"]
                     ),
                     value_type=int,
+                ),
+                "rc_topic": ParameterValue(
+                    PythonExpression(
+                        ["'/sim/supervisor_rc' if '", LaunchConfiguration("use_sim"), "'.lower() == 'true' else '/mavros/rc/in'"]
+                    ),
+                    value_type=str,
                 ),
             },
         ],
@@ -194,15 +201,22 @@ def generate_launch_description():
     task2_vehicle_status = Node(
         package="banyu_vehicle_interface",
         executable="vehicle_status_node",
+        namespace="",
         name="banyu_vehicle_status",
         parameters=[
             task2_params,
             {
                 "default_operational_mode": ParameterValue(
                     PythonExpression(
-                        ["2 if '", LaunchConfiguration("use_sim"), "' == 'True' else 0"]
+                        ["2 if '", LaunchConfiguration("use_sim"), "'.lower() == 'true' else 0"]
                     ),
                     value_type=int,
+                ),
+                "rc_topic": ParameterValue(
+                    PythonExpression(
+                        ["'/sim/supervisor_rc' if '", LaunchConfiguration("use_sim"), "'.lower() == 'true' else '/mavros/rc/in'"]
+                    ),
+                    value_type=str,
                 ),
             },
         ],
@@ -312,6 +326,17 @@ def generate_launch_description():
         output="screen",
         condition=IfCondition(LaunchConfiguration("enable_esp32_trigger")),
     )
+
+    sim_rc_deadman = Node(
+        package="banyu_vehicle_interface",
+        executable="sim_rc_deadman_node",
+        name="sim_rc_deadman_node",
+        parameters=[active_params],
+        output="screen",
+        condition=IfCondition(
+            EqualsSubstitution(LaunchConfiguration("use_sim"), "True")
+        ),
+    )
     return LaunchDescription(
         [
             mode_arg,
@@ -341,5 +366,6 @@ def generate_launch_description():
             task2_pinger_localization,
             esp32_bridge,
             esp32_trigger,
+            sim_rc_deadman,
         ]
     )
