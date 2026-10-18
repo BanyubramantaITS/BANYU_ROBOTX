@@ -1,0 +1,488 @@
+#include <fcntl.h>
+#include <pty.h>
+#include <unistd.h>
+
+#include <chrono>
+#include <memory>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include <gtest/gtest.h>
+#include <rclcpp/rclcpp.hpp>
+
+#include "banyu_vehicle_interface/esp32_trigger_node.hpp"
+
+class Esp32TriggerNodeTest : public ::testing::Test
+{
+protected:
+  void SetUp() override
+  {
+    if (!rclcpp::ok()) {
+      rclcpp::init(0, nullptr);
+    }
+  }
+
+  void TearDown() override
+  {
+    if (master_fd_ >= 0) {
+      close(master_fd_);
+      master_fd_ = -1;
+    }
+    if (slave_fd_ >= 0) {
+      close(slave_fd_);
+      slave_fd_ = -1;
+    }
+  }
+
+  bool createPtyPair(std::string & slave_path)
+  {
+    if (openpty(&master_fd_, &slave_fd_, nullptr, nullptr, nullptr) != 0) {
+      return false;
+    }
+    char * name = ttyname(slave_fd_);
+    if (!name) {
+      return false;
+    }
+    slave_path = name;
+    // Set master non-blocking for tests
+    const int flags = fcntl(master_fd_, F_GETFL, 0);
+    fcntl(master_fd_, F_SETFL, flags | O_NONBLOCK);
+    return true;
+  }
+
+  int master_fd_{-1};
+  int slave_fd_{-1};
+};
+
+TEST_F(Esp32TriggerNodeTest, OpenPtyAndInitialize)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"baud", 115200}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  EXPECT_TRUE(node->isPortOpen());
+}
+
+TEST_F(Esp32TriggerNodeTest, SendTriggerWritesRawBytes)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"baud", 115200}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  ASSERT_TRUE(node->isPortOpen());
+
+  // Test sending '0'
+  EXPECT_TRUE(node->sendTrigger("0"));
+  char buf[16] = {0};
+  ssize_t n = read(master_fd_, buf, sizeof(buf) - 1);
+  EXPECT_EQ(n, 1);
+  EXPECT_EQ(buf[0], '0');
+
+  // Test sending '1'
+  EXPECT_TRUE(node->sendTrigger("1"));
+  memset(buf, 0, sizeof(buf));
+  n = read(master_fd_, buf, sizeof(buf) - 1);
+  EXPECT_EQ(n, 1);
+  EXPECT_EQ(buf[0], '1');
+
+  // Test sending '2'
+  EXPECT_TRUE(node->sendTrigger("2"));
+  memset(buf, 0, sizeof(buf));
+  n = read(master_fd_, buf, sizeof(buf) - 1);
+  EXPECT_EQ(n, 1);
+  EXPECT_EQ(buf[0], '2');
+}
+
+TEST_F(Esp32TriggerNodeTest, ProcessIncomingDataParsesLines)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"baud", 115200}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  ASSERT_TRUE(node->isPortOpen());
+
+  // Send data to master_fd so node reads from slave
+  const std::string msg = "ESP32 READY\r\nSTATUS: RUNNING\n";
+  const ssize_t written = write(master_fd_, msg.c_str(), msg.length());
+  EXPECT_EQ(written, static_cast<ssize_t>(msg.length()));
+
+  // Process data in node
+  node->processIncomingData();
+
+  // Test partial message streaming across calls
+  const std::string part1 = "TEMP: 2";
+  const std::string part2 = "5.5C\r\n";
+  write(master_fd_, part1.c_str(), part1.length());
+  node->processIncomingData();
+  write(master_fd_, part2.c_str(), part2.length());
+  node->processIncomingData();
+}
+
+TEST_F(Esp32TriggerNodeTest, FailsToOpenInvalidPort)
+{
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", "/dev/nonexistent_serial_device_test_123"},
+    {"baud", 115200}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  EXPECT_FALSE(node->isPortOpen());
+  EXPECT_FALSE(node->sendTrigger("0"));
+}
+
+TEST_F(Esp32TriggerNodeTest, ProcessEmptyAndWhitespaceLines)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"baud", 115200}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  ASSERT_TRUE(node->isPortOpen());
+
+  // Empty lines and spaces should be safely processed without crashing
+  const std::string blanks = "\n   \r\n\t\t\n   \n";
+  write(master_fd_, blanks.c_str(), blanks.length());
+  node->processIncomingData();
+}
+
+TEST_F(Esp32TriggerNodeTest, MultiLineAndVariousNewlines)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"baud", 115200}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  ASSERT_TRUE(node->isPortOpen());
+
+  // Mix of \r, \n, and \r\n
+  const std::string mixed = "LINE_CR\rLINE_LF\nLINE_CRLF\r\nFINAL_LINE\n";
+  write(master_fd_, mixed.c_str(), mixed.length());
+  node->processIncomingData();
+}
+
+TEST_F(Esp32TriggerNodeTest, RapidSuccessionTriggers)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"baud", 115200}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  ASSERT_TRUE(node->isPortOpen());
+
+  for (int i = 0; i < 10; ++i) {
+    EXPECT_TRUE(node->sendTrigger("0"));
+    EXPECT_TRUE(node->sendTrigger("1"));
+    EXPECT_TRUE(node->sendTrigger("2"));
+  }
+
+  char buf[64] = {0};
+  ssize_t total_read = 0;
+  while (total_read < 30) {
+    ssize_t n = read(master_fd_, buf + total_read, sizeof(buf) - total_read);
+    if (n > 0) {
+      total_read += n;
+    } else {
+      break;
+    }
+  }
+  EXPECT_EQ(total_read, 30);
+}
+
+TEST_F(Esp32TriggerNodeTest, TriggerServiceExecution)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"baud", 115200},
+    {"default_trigger_cmd", "1"}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  ASSERT_TRUE(node->isPortOpen());
+
+  auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
+  auto res = std::make_shared<std_srvs::srv::Trigger::Response>();
+  node->handleTrigger(nullptr, req, res);
+
+  EXPECT_TRUE(res->success);
+  EXPECT_NE(res->message.find("successfully"), std::string::npos);
+
+  char buf[16] = {0};
+  ssize_t n = read(master_fd_, buf, sizeof(buf) - 1);
+  EXPECT_EQ(n, 1);
+  EXPECT_EQ(buf[0], '1');
+}
+
+TEST_F(Esp32TriggerNodeTest, SetTriggerServiceExecution)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"baud", 115200},
+    {"trigger_on_cmd", "1"},
+    {"trigger_off_cmd", "0"}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  ASSERT_TRUE(node->isPortOpen());
+
+  // Test SetTrigger(true) -> "1"
+  auto req_on = std::make_shared<std_srvs::srv::SetBool::Request>();
+  req_on->data = true;
+  auto res_on = std::make_shared<std_srvs::srv::SetBool::Response>();
+  node->handleSetTrigger(nullptr, req_on, res_on);
+
+  EXPECT_TRUE(res_on->success);
+  char buf[16] = {0};
+  ssize_t n = read(master_fd_, buf, sizeof(buf) - 1);
+  EXPECT_EQ(n, 1);
+  EXPECT_EQ(buf[0], '1');
+
+  // Test SetTrigger(false) -> "0"
+  auto req_off = std::make_shared<std_srvs::srv::SetBool::Request>();
+  req_off->data = false;
+  auto res_off = std::make_shared<std_srvs::srv::SetBool::Response>();
+  node->handleSetTrigger(nullptr, req_off, res_off);
+
+  EXPECT_TRUE(res_off->success);
+  memset(buf, 0, sizeof(buf));
+  n = read(master_fd_, buf, sizeof(buf) - 1);
+  EXPECT_EQ(n, 1);
+  EXPECT_EQ(buf[0], '0');
+}
+
+TEST_F(Esp32TriggerNodeTest, CommandServiceExecution)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"baud", 115200}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  ASSERT_TRUE(node->isPortOpen());
+
+  // Test valid command "2"
+  auto req = std::make_shared<banyu_msgs::srv::TriggerCommand::Request>();
+  req->command = "2";
+  auto res = std::make_shared<banyu_msgs::srv::TriggerCommand::Response>();
+  node->handleSendCommand(nullptr, req, res);
+
+  EXPECT_TRUE(res->success);
+  char buf[16] = {0};
+  ssize_t n = read(master_fd_, buf, sizeof(buf) - 1);
+  EXPECT_EQ(n, 1);
+  EXPECT_EQ(buf[0], '2');
+
+  // Test empty command rejection
+  req->command = "";
+  auto res_empty = std::make_shared<banyu_msgs::srv::TriggerCommand::Response>();
+  node->handleSendCommand(nullptr, req, res_empty);
+  EXPECT_FALSE(res_empty->success);
+  EXPECT_NE(res_empty->message.find("cannot be empty"), std::string::npos);
+}
+
+TEST_F(Esp32TriggerNodeTest, ServiceRejectionsOnClosedPort)
+{
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", "/dev/nonexistent_device_trigger_closed_port_test"}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  EXPECT_FALSE(node->isPortOpen());
+
+  // Trigger service rejection
+  auto trig_req = std::make_shared<std_srvs::srv::Trigger::Request>();
+  auto trig_res = std::make_shared<std_srvs::srv::Trigger::Response>();
+  node->handleTrigger(nullptr, trig_req, trig_res);
+  EXPECT_FALSE(trig_res->success);
+
+  // SetBool service rejection
+  auto set_req = std::make_shared<std_srvs::srv::SetBool::Request>();
+  set_req->data = true;
+  auto set_res = std::make_shared<std_srvs::srv::SetBool::Response>();
+  node->handleSetTrigger(nullptr, set_req, set_res);
+  EXPECT_FALSE(set_res->success);
+
+  // Command service rejection
+  auto cmd_req = std::make_shared<banyu_msgs::srv::TriggerCommand::Request>();
+  cmd_req->command = "1";
+  auto cmd_res = std::make_shared<banyu_msgs::srv::TriggerCommand::Response>();
+  node->handleSendCommand(nullptr, cmd_req, cmd_res);
+  EXPECT_FALSE(cmd_res->success);
+}
+
+TEST_F(Esp32TriggerNodeTest, CommandTopicExecution)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"baud", 115200}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  ASSERT_TRUE(node->isPortOpen());
+
+  auto msg = std::make_shared<std_msgs::msg::String>();
+  msg->data = "0";
+  node->handleCommandTopic(msg);
+
+  char buf[16] = {0};
+  ssize_t n = read(master_fd_, buf, sizeof(buf) - 1);
+  EXPECT_EQ(n, 1);
+  EXPECT_EQ(buf[0], '0');
+
+  // Null and empty message should be safely ignored
+  node->handleCommandTopic(nullptr);
+  msg->data = "";
+  node->handleCommandTopic(msg);
+}
+
+TEST_F(Esp32TriggerNodeTest, MonitorTopicPublishing)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"baud", 115200},
+    {"monitor_topic", "/test/monitor"}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  ASSERT_TRUE(node->isPortOpen());
+
+  std::string received_msg;
+  auto sub = node->create_subscription<std_msgs::msg::String>(
+    "/test/monitor", 10,
+    [&received_msg](const std_msgs::msg::String::SharedPtr msg) {
+      received_msg = msg->data;
+    });
+
+  const std::string text = "STATUS: TRIGGERED\r\n";
+  write(master_fd_, text.c_str(), text.length());
+
+  const auto start = std::chrono::steady_clock::now();
+  while (received_msg.empty() &&
+    (std::chrono::steady_clock::now() - start) < std::chrono::milliseconds(500))
+  {
+    node->processIncomingData();
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  EXPECT_EQ(received_msg, "STATUS: TRIGGERED");
+}
+
+TEST_F(Esp32TriggerNodeTest, EmptyCommandRejectedBySendTrigger)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"baud", 115200}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  ASSERT_TRUE(node->isPortOpen());
+  EXPECT_FALSE(node->sendTrigger(""));
+}
+
+TEST_F(Esp32TriggerNodeTest, AppendNewlineOption)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"baud", 115200},
+    {"append_newline", true}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  ASSERT_TRUE(node->isPortOpen());
+
+  EXPECT_TRUE(node->sendTrigger("1"));
+
+  char buf[16] = {0};
+  ssize_t n = read(master_fd_, buf, sizeof(buf) - 1);
+  EXPECT_EQ(n, 2);
+  EXPECT_EQ(buf[0], '1');
+  EXPECT_EQ(buf[1], '\n');
+}
+
+TEST_F(Esp32TriggerNodeTest, DisconnectDetectionOnWriteFailure)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"baud", 115200}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  ASSERT_TRUE(node->isPortOpen());
+
+  // Close master fd so that writing from slave fails
+  close(master_fd_);
+  master_fd_ = -1;
+
+  // On pty, writing to slave when master is closed causes EIO
+  const bool ok = node->sendTrigger("1");
+  EXPECT_FALSE(ok);
+  // Port should now be marked closed due to disconnect detection
+  EXPECT_FALSE(node->isPortOpen());
+}

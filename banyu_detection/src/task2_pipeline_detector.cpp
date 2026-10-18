@@ -1,4 +1,4 @@
-#include <cv_bridge/cv_bridge.h>
+#include <cv_bridge/cv_bridge.hpp>
 
 #include <algorithm>
 #include <banyu_msgs/msg/pipeline_observation.hpp>
@@ -16,6 +16,8 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include "banyu_detection/pipeline_vision.hpp"
 
 namespace task2_pipeline_detector
 {
@@ -98,6 +100,12 @@ private:
       "ring_observation_topic",
       "/banyu/pipeline/ring_observation");
 
+    const auto rect = declare_parameter<std::vector<int64_t>>("probe_rect", std::vector<int64_t>{});
+    if (rect.size() == 4) {
+      probe_rect_ = cv::Rect(static_cast<int>(rect[0]), static_cast<int>(rect[1]),
+                             static_cast<int>(rect[2]), static_cast<int>(rect[3]));
+    }
+
     gray_threshold_ = declare_parameter<int>("gray_threshold", 170);
     hsv_value_threshold_ = declare_parameter<int>("hsv_value_threshold", 150);
     hsv_saturation_max_ = declare_parameter<int>("hsv_saturation_max", 125);
@@ -123,6 +131,7 @@ private:
     max_line_residual_px_ = declare_parameter<double>("max_line_residual_px", 10.0);
     max_heading_error_rad_ = declare_parameter<double>("max_heading_error_rad", M_PI_2);
     lookahead_y_ratio_ = declare_parameter<double>("lookahead_y_ratio", 0.65);
+    local_fit_band_ratio_ = declare_parameter<double>("local_fit_band_ratio", 0.2);
     lookahead_extrapolation_ratio_ =
       declare_parameter<double>("lookahead_extrapolation_ratio", 0.35);
     min_pipeline_confidence_ = declare_parameter<double>("min_pipeline_confidence", 0.20);
@@ -218,6 +227,7 @@ private:
     ring_association_distance_px_ = std::max(0.1, ring_association_distance_px_);
     ring_max_aspect_ratio_ = std::max(1.0, ring_max_aspect_ratio_);
     lookahead_y_ratio_ = std::clamp(lookahead_y_ratio_, 0.0, 1.0);
+    local_fit_band_ratio_ = std::clamp(local_fit_band_ratio_, 0.0, 0.5);
     lookahead_extrapolation_ratio_ = std::max(0.0, lookahead_extrapolation_ratio_);
     roi_y_min_ratio_ = std::clamp(roi_y_min_ratio_, 0.0, 1.0);
     roi_y_max_ratio_ = std::clamp(roi_y_max_ratio_, roi_y_min_ratio_, 1.0);
@@ -355,6 +365,40 @@ private:
         throw std::runtime_error("converted image is empty");
       }
 
+      // Primary: edge-pair pipe fitting from pipeline_vision
+      const cv::Mat edge_mask = banyu_detection::pipeMask(image, probe_rect_);
+      const auto ahead_fit = banyu_detection::fitPipe(edge_mask,
+          banyu_detection::aheadBand(image.rows));
+      const auto ahead_centroid = banyu_detection::pipeCentroid(edge_mask);
+
+      bool pipeline_detected = false;
+      PipelineLine pipeline;
+
+      if (ahead_fit.has_value()) {
+        observation.status = banyu_msgs::msg::PipelineObservation::TRACKED;
+        observation.heading_error_rad = std::clamp(
+          ahead_fit->angle, static_cast<float>(-M_PI_2), static_cast<float>(M_PI_2));
+        observation.offset_x = std::clamp(
+          static_cast<float>(ahead_fit->lateral / (image.cols * 0.5f)), -1.0f, 1.0f);
+        if (ahead_centroid.has_value()) {
+          observation.offset_y = std::clamp(
+            static_cast<float>((ahead_centroid->y - image.rows * 0.5f) / (image.rows * 0.5f)),
+              -1.0f, 1.0f);
+        } else {
+          observation.offset_y = 0.0f;
+        }
+        const int inliers = cv::countNonZero(edge_mask);
+        observation.confidence = std::clamp(static_cast<float>(inliers / 300.0f), 0.35f, 1.0f);
+        pipeline_detected = true;
+
+        pipeline.line = cv::Vec4f(std::sin(ahead_fit->angle), -std::cos(ahead_fit->angle),
+                                  image.cols * 0.5f + ahead_fit->lateral, image.rows * 0.5f);
+        pipeline.heading = ahead_fit->angle;
+        pipeline.offset_x = observation.offset_x;
+        pipeline.offset_y = observation.offset_y;
+        pipeline.confidence = observation.confidence;
+      }
+
       cv::Mat hsv;
       cv::Mat gray;
       cv::Mat blurred;
@@ -366,40 +410,85 @@ private:
         getSliderValue();
       }
 
-      const cv::Mat pipeline_mask = makePipelineMask(gray, hsv);
-      PipelineLine pipeline;
-      if (findPipeline(pipeline_mask, image.size(), pipeline)) {
-        observation.status = banyu_msgs::msg::PipelineObservation::TRACKED;
-        observation.offset_x = static_cast<float>(pipeline.offset_x);
-        observation.offset_y = static_cast<float>(pipeline.offset_y);
-        observation.heading_error_rad = static_cast<float>(pipeline.heading);
-        observation.confidence = static_cast<float>(pipeline.confidence);
+      cv::Mat pipeline_mask;
+      if (!pipeline_detected) {
+        pipeline_mask = makePipelineMask(gray, hsv);
+        if (findPipeline(pipeline_mask, image.size(), pipeline)) {
+          observation.status = banyu_msgs::msg::PipelineObservation::TRACKED;
+          observation.offset_x = static_cast<float>(pipeline.offset_x);
+          observation.offset_y = static_cast<float>(pipeline.offset_y);
+          observation.heading_error_rad = static_cast<float>(pipeline.heading);
+          observation.confidence = static_cast<float>(pipeline.confidence);
+          pipeline_detected = true;
+        }
       }
 
-      RingCandidate best_red;
-      bool found_red = false;
-      RingCandidate best_green;
-      bool found_green = false;
+      // Detect light nodes on the pipeline (top-hat multi-color detection)
+      const cv::Mat & lights_mask =
+        (!edge_mask.empty() && cv::countNonZero(edge_mask) > 0) ? edge_mask : pipeline_mask;
+      const auto lights = banyu_detection::detectLights(image, lights_mask);
+      bool light_found = false;
+
+      if (!lights.empty()) {
+        const banyu_detection::Light * chosen = nullptr;
+        for (const auto & l : lights) {
+          if (l.colour == banyu_detection::Light::kRed) {
+            chosen = &l;
+            break;
+          }
+        }
+        if (!chosen) {
+          for (const auto & l : lights) {
+            if (l.colour == banyu_detection::Light::kBlue) {
+              chosen = &l;
+              break;
+            }
+          }
+        }
+        if (!chosen) {
+          chosen = &lights.front();
+        }
+
+        ring.visible = true;
+        ring.color = (chosen->colour == banyu_detection::Light::kRed) ?
+          banyu_msgs::msg::PipelineRingObservation::COLOR_RED :
+          ((chosen->colour == banyu_detection::Light::kBlue) ?
+          banyu_msgs::msg::PipelineRingObservation::COLOR_BLUE :
+          banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN);
+        ring.confidence = 0.9f;
+        ring.offset_x = std::clamp(static_cast<float>(normalizedX(chosen->x, image.cols)), -1.0f,
+            1.0f);
+        ring.offset_y = std::clamp(static_cast<float>(normalizedY(chosen->y, image.rows)), -1.0f,
+            1.0f);
+        light_found = true;
+      }
+
       cv::Mat red_mask;
       cv::Mat green_mask;
+      if (!light_found) {
+        RingCandidate best_red;
+        bool found_red = false;
+        RingCandidate best_green;
+        bool found_green = false;
 
-      findRings(
-        hsv, pipeline, (observation.status == banyu_msgs::msg::PipelineObservation::TRACKED),
-        best_red, found_red, best_green,
-        found_green, red_mask, green_mask);
+        findRings(
+          hsv, pipeline, pipeline_detected,
+          best_red, found_red, best_green,
+          found_green, red_mask, green_mask);
 
-      if (found_red) {
-        ring.visible = true;
-        ring.color = static_cast<uint8_t>(best_red.color);
-        ring.confidence = static_cast<float>(best_red.confidence);
-        ring.offset_x = static_cast<float>(normalizedX(best_red.center.x, image.cols));
-        ring.offset_y = static_cast<float>(normalizedY(best_red.center.y, image.rows));
-      } else if (found_green) {
-        ring.visible = true;
-        ring.color = static_cast<uint8_t>(best_green.color);
-        ring.confidence = static_cast<float>(best_green.confidence);
-        ring.offset_x = static_cast<float>(normalizedX(best_green.center.x, image.cols));
-        ring.offset_y = static_cast<float>(normalizedY(best_green.center.y, image.rows));
+        if (found_red) {
+          ring.visible = true;
+          ring.color = static_cast<uint8_t>(best_red.color);
+          ring.confidence = static_cast<float>(best_red.confidence);
+          ring.offset_x = static_cast<float>(normalizedX(best_red.center.x, image.cols));
+          ring.offset_y = static_cast<float>(normalizedY(best_red.center.y, image.rows));
+        } else if (found_green) {
+          ring.visible = true;
+          ring.color = static_cast<uint8_t>(best_green.color);
+          ring.confidence = static_cast<float>(best_green.confidence);
+          ring.offset_x = static_cast<float>(normalizedX(best_green.center.x, image.cols));
+          ring.offset_y = static_cast<float>(normalizedY(best_green.center.y, image.rows));
+        }
       }
 
       if (use_gui_) {
@@ -434,29 +523,28 @@ private:
               0, 0, 255), 2);
         }
 
-        if (found_red) {
-          cv::circle(annotated, best_red.center, 20, cv::Scalar(0, 0, 255), 2);
+        if (ring.visible) {
+          const cv::Point ring_pt(
+            static_cast<int>((ring.offset_x * 0.5 + 0.5) * image.cols),
+            static_cast<int>((ring.offset_y * 0.5 + 0.5) * image.rows));
+          const cv::Scalar ring_color = (ring.color ==
+            banyu_msgs::msg::PipelineRingObservation::COLOR_RED) ?
+            cv::Scalar(0, 0, 255) :
+            (ring.color == banyu_msgs::msg::PipelineRingObservation::COLOR_BLUE ?
+            cv::Scalar(255, 0, 0) :
+            cv::Scalar(0, 255, 0));
+          cv::circle(annotated, ring_pt, 20, ring_color, 2);
           cv::putText(
-            annotated, "RED RING",
-            cv::Point(
-              static_cast<int>(best_red.center.x) - 30,
-              static_cast<int>(best_red.center.y) - 25),
-            cv::FONT_HERSHEY_SIMPLEX, 0.55, cv::Scalar(0, 0, 255), 2);
-        }
-        if (found_green) {
-          cv::circle(annotated, best_green.center, 20, cv::Scalar(0, 255, 0), 2);
-          cv::putText(
-            annotated, "GREEN RING",
-            cv::Point(
-              static_cast<int>(best_green.center.x) - 30,
-              static_cast<int>(best_green.center.y) - 25),
-            cv::FONT_HERSHEY_SIMPLEX, 0.55, cv::Scalar(0, 255, 0), 2);
+            annotated,
+            ring.color == banyu_msgs::msg::PipelineRingObservation::COLOR_RED ? "RED RING" : "RING",
+            cv::Point(ring_pt.x - 30, ring_pt.y - 25),
+            cv::FONT_HERSHEY_SIMPLEX, 0.55, ring_color, 2);
         }
 
         cv::imshow("Original Frame", image);
-        cv::imshow("Pipeline Mask", pipeline_mask);
-        cv::imshow("Red Ring Mask", red_mask);
-        cv::imshow("Green Ring Mask", green_mask);
+        cv::imshow("Pipeline Mask", pipeline_mask.empty() ? edge_mask : pipeline_mask);
+        if (!red_mask.empty()) {cv::imshow("Red Ring Mask", red_mask);}
+        if (!green_mask.empty()) {cv::imshow("Green Ring Mask", green_mask);}
         cv::imshow("Annotated", annotated);
         cv::waitKey(1);
       }
@@ -580,6 +668,33 @@ private:
     return mask;
   }
 
+  static bool fitPipelineLine(
+    const std::vector<cv::Point2f> & points, cv::Vec4f & line, double & length,
+    double & residual)
+  {
+    cv::fitLine(points, line, cv::DIST_L2, 0.0, 0.01, 0.01);
+    const double vx = line[0];
+    const double vy = line[1];
+    const double norm = std::hypot(vx, vy);
+    if (!std::isfinite(norm) || norm < 1.0e-6) {
+      return false;
+    }
+    double min_projection = std::numeric_limits<double>::max();
+    double max_projection = std::numeric_limits<double>::lowest();
+    double squared_residual = 0.0;
+    for (const cv::Point2f & point : points) {
+      const double dx = point.x - line[2];
+      const double dy = point.y - line[3];
+      min_projection = std::min(min_projection, dx * vx + dy * vy);
+      max_projection = std::max(max_projection, dx * vx + dy * vy);
+      const double perpendicular = dx * vy - dy * vx;
+      squared_residual += perpendicular * perpendicular;
+    }
+    length = max_projection - min_projection;
+    residual = std::sqrt(squared_residual / points.size());
+    return true;
+  }
+
   bool findPipeline(const cv::Mat & mask, const cv::Size & image_size, PipelineLine & best) const
   {
     cv::Mat labels;
@@ -631,30 +746,31 @@ private:
       }
 
       cv::Vec4f line;
-      cv::fitLine(points, line, cv::DIST_L2, 0.0, 0.01, 0.01);
-      const double vx = line[0];
-      const double vy = line[1];
-      const double norm = std::hypot(vx, vy);
-      if (!std::isfinite(norm) || norm < 1.0e-6) {
+      double length = 0.0;
+      double residual = 0.0;
+      if (!fitPipelineLine(points, line, length, residual)) {
         continue;
       }
-
-      double min_projection = std::numeric_limits<double>::max();
-      double max_projection = std::numeric_limits<double>::lowest();
-      double squared_residual = 0.0;
-      for (const cv::Point2f & point : points) {
-        const double dx = point.x - line[2];
-        const double dy = point.y - line[3];
-        min_projection = std::min(min_projection, dx * vx + dy * vy);
-        max_projection = std::max(max_projection, dx * vx + dy * vy);
-        const double perpendicular = dx * vy - dy * vx;
-        squared_residual += perpendicular * perpendicular;
+      if (residual > max_line_residual_px_ && local_fit_band_ratio_ > 0.0) {
+        // Bends and node housings make one line fit the whole blob badly; fit the straight
+        // segment inside a band around the lookahead row that guidance actually uses.
+        const double center_row = lookahead_y_ratio_ * image_size.height;
+        const double half_band = local_fit_band_ratio_ * image_size.height;
+        std::vector<cv::Point2f> local_points;
+        for (const cv::Point2f & point : points) {
+          if (std::abs(point.y - center_row) <= half_band) {
+            local_points.push_back(point);
+          }
+        }
+        if (local_points.size() >= 5) {
+          fitPipelineLine(local_points, line, length, residual);
+        }
       }
-      const double length = max_projection - min_projection;
-      const double residual = std::sqrt(squared_residual / points.size());
       if (length < min_line_length_px_ || residual > max_line_residual_px_) {
         continue;
       }
+      const double vx = line[0];
+      const double vy = line[1];
 
       double direction_x = vx;
       double direction_y = vy;
@@ -936,6 +1052,7 @@ private:
   double min_line_length_px_ {18.0};
   double min_aspect_ratio_ {1.5};
   double max_line_residual_px_ {10.0};
+  double local_fit_band_ratio_ {0.2};
   double max_heading_error_rad_ {M_PI_2};
   double lookahead_y_ratio_ {0.65};
   double lookahead_extrapolation_ratio_ {0.35};
@@ -970,6 +1087,7 @@ private:
   double ring_max_aspect_ratio_ {4.5};
   double ring_min_confidence_ {0.15};
 
+  cv::Rect probe_rect_{};
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_sub_;
   rclcpp::Publisher<banyu_msgs::msg::PipelineObservation>::SharedPtr observation_pub_;

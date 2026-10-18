@@ -1,0 +1,47 @@
+# Hardware configuration for the physical BANYU AUV (V4L2 USB cameras & sensor overrides)
+
+front_camera:
+  ros__parameters:
+    video_device: "/dev/video0"
+    image_size: [640, 480]
+    output_encoding: "bgr8"
+    camera_frame_id: "front_camera_optical_frame"
+    camera_info_url: "package://banyu_bringup/config/front_camera_info.yaml"
+
+bottom_camera:
+  ros__parameters:
+    video_device: "/dev/video2"
+    image_size: [640, 480]
+    output_encoding: "bgr8"
+    camera_frame_id: "bottom_camera_optical_frame"
+    camera_info_url: "package://banyu_bringup/config/bottom_camera_info.yaml"
+
+# Physical AUV course coordinates & camera mounting overrides (applied when use_sim == False).
+# Update start/target/end coordinates for the competition venue if USV PipelineBuoys is not used,
+# and update ring_tracker camera geometry to match physical bottom-camera mounting on the sub.
+banyu_mission:
+  ros__parameters:
+    mission:
+      start_latitude: 33.810313
+      start_longitude: -118.393866
+      target_latitude: 33.810438
+      target_longitude: -118.393392
+      end_latitude: 33.810438
+      end_longitude: -118.393272
+
+ring_tracker:
+  ros__parameters:
+    camera_height_m: 1.7
+    camera_forward_m: 0.2
+    camera_tilt_from_vertical_rad: 0.227
+    camera_half_vfov_rad: 0.408
+
+esp32_bridge_node:
+  ros__parameters:
+    port: "/dev/ttyUSB0"
+    baud: 115200
+
+esp32_trigger_node:
+  ros__parameters:
+    port: "/dev/ttyUSB0"
+    baud: 115200

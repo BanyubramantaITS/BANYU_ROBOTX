@@ -3,24 +3,31 @@
 banyu_mission:
   ros__parameters:
     fallback_mode: "SURFACE"
-    task2_follow_source: "fixture_route"
-    task2_pose_timeout_s: 3.0
-    task2_gps_receipt_pair_timeout_s: 3.0
-    task2_use_dvl: false
-    task2_gps_fix_timeout_s: 1.0
-    task2_gps_surface_depth: -0.4
-    task2_gps_surface_tolerance: 0.5
-    task2_gps_max_fix_pose_skew_s: 0.5
-    task2_pipeline_observation_topic: "/banyu/pipeline/observation"
-    task2_pipeline_ring_observation_topic: "/banyu/pipeline/ring_observation"
     topics:
+      pipeline_observation: "/banyu/pipeline/observation"
+      ring_observation: "/banyu/pipeline/ring_observation"
       pipeline_end: "/banyu/pipeline/end"
-    actions:
-      send_mission_report: "/banyu/actions/send_mission_report"
+      pipeline_end_state: "/banyu/pipeline/end_state"
+      run_lifecycle: "/banyu/mission/run_lifecycle"
+      run_command: "/system/mission/command"
+      readiness_pose: "/mavros/local_position/pose"
+      execution_readiness: "/banyu/execution/readiness"
+      survey_progress: "/banyu/communication/survey_progress"
+      buoy_target: "/banyu/task2/buoy_target"
+    run:
+      reset_services: ["/banyu/pipeline/reset_tracker", "/banyu/pipeline/reset_end"]
+    services:
+      trigger_pipeline_survey: "/banyu/communication/trigger_pipeline_survey"
     timing:
+      preparation_timeout_s: 30.0
+      execution_readiness_timeout_s: 1.0
+      run_reset_timeout_s: 3.0
       state_timeout_s: 5.0
       gps_timeout_s: 5.0
     mission:
+      task2_tier: 2
+      surface_depth_m: 0.0
+      surface_tolerance_m: 0.5
       max_retries: 3
       start_latitude: 33.810313
       start_longitude: -118.393866
@@ -30,12 +37,13 @@ banyu_mission:
       end_longitude: -118.393272
       camera_name: "bottom_camera"
       acquire_timeout_s: 15.0
+      traverse_timeout_s: 600.0
       inspection_depth_m: 12.5
       depth_tolerance_m: 0.3
 
 task2_sim_provider:
   ros__parameters:
-    ring_colors: ["green", "green", "green", "red", "green"]
+    ring_colors: ["green", "green", "green", "red"]
     publish_rate: 5.0
     pipeline_standoff_m: 1.0
     surface_depth: -0.4
@@ -46,6 +54,20 @@ task2_sim_provider:
     task2_gps_fix_timeout_s: 1.0
     start_buoy_map_x: 43.95
     start_buoy_map_y: 13.85
+    # Simulation ground truth (sim-only fixture): pipe axis, end window and active buoy identity.
+    pipeline_start_map_x: 47.11
+    pipeline_start_map_y: 13.85
+    pipeline_end_map_x: 51.64
+    pipeline_end_map_y: 13.86
+    end_candidate_window_m: 0.5
+    end_candidate_max_lateral_m: 1.0
+    # Stands in for the USV: publishes rx_msgs/PipelineBuoys (start buoy = active/GREEN).
+    end_buoy_map_x: 55.0
+    end_buoy_map_y: 13.85
+    pipeline_buoys_start_label: "a"
+    pipeline_buoys_report_active: true
+    pipeline_buoys_uncertainty_m: 1.0
+    pipeline_buoys_second_delay_s: 0.0
 
 task2_pipeline_detector:
   ros__parameters:
@@ -59,6 +81,9 @@ task2_pipeline_detector:
     min_component_area_px: 20
     min_pipeline_confidence: 0.20
     max_heading_error_rad: 1.571
+    # Refit a band of +-ratio*height around the lookahead row when bends spoil the global fit.
+    local_fit_band_ratio: 0.2
+    probe_rect: []
 
     # Pipeline mask HSV and grayscale thresholds
     gray_threshold: 170
@@ -86,6 +111,10 @@ task2_pipeline_detector:
     green_ring_v_min: 30
     green_ring_v_max: 255
 
+pinger_localization:
+  ros__parameters:
+    pinger_depth: 1.0
+
 banyu_vehicle_status:
   ros__parameters:
     state_topic: "/mavros/state"
@@ -99,14 +128,40 @@ banyu_vehicle_status:
     rc_takeover_channel: 4
     rc_takeover_threshold: 1700
     autonomy_mode: "GUIDED"
+    default_operational_mode: 0
+    kill_switch_timeout_s: 1.0
 
 ring_tracker:
   ros__parameters:
+    require_run_context: true
+    reset_service: "/banyu/pipeline/reset_tracker"
     observation_topic: "/banyu/pipeline/ring_observation"
     pose_topic: "/mavros/local_position/pose"
     state_topic: "/banyu/pipeline/ring_state"
     accepted_ring_topic: "/banyu/pipeline/accepted_ring"
     repair_service: "/banyu/pipeline/acknowledge_ring_repair"
+    # Same physical node if within this distance; keep below half the minimum ring spacing.
+    node_association_distance_m: 0.4
+    # Nearest pose can be half a pose period away (MAVROS pose ~5-10 Hz vs 30 Hz camera).
+    pose_timestamp_tolerance_s: 0.12
+    # Tolerate a few dropped camera frames (best-effort transport) before treating it as a gap.
+    maximum_sequence_gap: 3
+    # Bottom camera geometry at survey depth (sim BlueROV2 Heavy: 77 deg pitch, 60 deg HFOV at
+    # 320x240, ~1.7 m above the rings) used to estimate ring position along the pipe.
+    camera_height_m: 1.7
+    camera_forward_m: 0.2
+    camera_tilt_from_vertical_rad: 0.227
+    camera_half_vfov_rad: 0.408
+    # Ordered from the active (start) buoy end so progress increases along the survey;
+    # survey_evidence low_progress_endpoint_id is start_buoy.
+    centerline_points: [
+      47.231, 13.848,
+      47.921, 13.848,
+      48.701, 13.273,
+      49.541, 13.108,
+      50.351, 13.558,
+      51.251, 13.848
+    ]
 
 pipeline_guidance:
   ros__parameters:
@@ -125,36 +180,185 @@ pipeline_guidance:
     yaw_control_enabled: true
     publish_rate_hz: 20.0
 
-uav_report:
+uuv_comm_node:
   ros__parameters:
-    action_name: "/banyu/actions/send_mission_report"
-    report_topic: "/banyu/uav/mission_report"
-    ack_topic: "/banyu/uav/mission_report_ack"
-    max_attempts: 4
-    retry_period_ms: 1000
+    survey:
+      task2_tier: 2
+      evidence_sources: ["pipeline_topology"]
+      buoy_sources: ["usv_pipeline_buoys", "uuv_buoy_localizer", "gcs_buoy_observer"]
+      depth_sources: ["pressure_depth"]
+      minimum_confidence: 0.2
+      maximum_buoy_uncertainty_m: 5.0
+      ingress_max_age_s: 2.0
+      minimum_progress_separation_m: 0.0
+      surface_hold_s: 1.0
+      surface_tolerance_m: 0.5
+      depth_timeout_s: 0.5
+    topics:
+      survey_evidence: "/banyu/pipeline/survey_evidence"
+      survey_progress: "/banyu/communication/survey_progress"
+      water_depth: "/banyu/vehicle/water_depth"
+      pipeline_survey: "/system/vehicle/uuv/task2/pipeline_survey"
+      delivery: "/system/vehicle/uuv/task2/delivery"
+      run_lifecycle: "/banyu/mission/run_lifecycle"
+    timing:
+      lifecycle_timeout_s: 2.0
+    heartbeat_rate_hz: 2.0
+    anchor_latitude: 33.810313
+    anchor_longitude: -118.393866
+    anchor_altitude_hae_m: 0.0
+
+# USV rx_msgs/PipelineBuoys (forwarded by the GCS) -> mission target and survey active buoy.
+pipeline_buoys_node:
+  ros__parameters:
+    source_id: "usv_pipeline_buoys"       # must be in uuv_comm_node survey.buoy_sources
+    endpoint_id: "start_buoy"             # the UUV always starts at the active buoy
+    default_uncertainty_m: 3.0            # used when the USV sends uncertainty_m = 0 (unknown)
+    require_inside_course: true
+    minimum_buoy_separation_m: 1.0
+    lock_depth_m: 1.0                     # deeper than this in a live run: ignore USV updates
+    publish_rate_hz: 1.0
+    # Survey evidence when no USV active buoy arrives. Disabled until the USV/GCS teams agree
+    # on the fallback; green_confirmed must stay false unless the active buoy is known.
+    fallback:
+      enabled: false
+      latitude: 33.810438
+      longitude: -118.393392
+      uncertainty_m: 3.0
+      green_confirmed: false
+    topics:
+      pipeline_buoys: "/system/vehicle/usv/task2/pipeline_buoys"
+      course: "/system/mission/course"
+      run_lifecycle: "/banyu/mission/run_lifecycle"
+      water_depth: "/banyu/vehicle/water_depth"
+      buoy_target: "/banyu/task2/buoy_target"
+      active_buoy_fix: "/banyu/task2/active_buoy_fix"
 
 vehicle_execution_node:
   ros__parameters:
     control:
+      require_calibrated_surface_depth: true
+      surface_hold_time_s: 1.0
+      surface_depth_timeout_s: 0.5
+      # Water depth is datum minus EKF baro altitude, which drifts ~0.2-0.4 m over a dive;
+      # 0.5 m matches the GPS surface tolerance used elsewhere in this file.
+      surface_max_depth_m: 0.5
+      require_run_authorization: true
+      run_lifecycle_timeout_s: 1.0
       enable_mavros_publish: true
-      require_lease: false
       publish_rate_hz: 20.0
       require_guided: true
       acquire_surge_speed: 0.3
       acquire_timeout_s: 20.0
       acquire_confirm_frames: 5
+      ring_kp_sway: 0.8
+      ring_kp_surge: 0.5
+      ring_search_speed: 0.15
+      ring_search_timeout_s: 20.0
+      ring_lost_grace_s: 1.0
+      search_retrace_distance_m: 1.5
+      search_retrace_speed: 0.2
+      search_pinger_timeout_s: 3.0
+      search_pinger_kp: 0.8
+      search_pinger_forward_speed: 0.25
+    surface:
+      depth_sources: ["pressure_depth"]
     topics:
+      water_depth: "/banyu/vehicle/water_depth"
+      run_lifecycle: "/banyu/mission/run_lifecycle"
+      execution_readiness: "/banyu/execution/readiness"
       status: "/banyu/vehicle_status"
       pose: "/mavros/local_position/pose"
       gps: "/mavros/global_position/raw/fix"
       pipeline_obs: "/banyu/pipeline/observation"
       ring_obs: "/banyu/pipeline/ring_observation"
+      pinger_obs: "/banyu/pinger/observation"
       guidance_intent: "/banyu/guidance/velocity_intent"
       preview_target: "/banyu/execution/preview_target"
       mavros_target: "/mavros/setpoint_raw/local"
 
 pipeline_end_node:
   ros__parameters:
+    require_run_context: true
+    reset_service: "/banyu/pipeline/reset_end"
+    candidate_state_topic: "/banyu/pipeline/end_candidate_state"
+    end_state_topic: "/banyu/pipeline/end_state"
     observation_topic: "/banyu/pipeline/observation"
     candidate_topic: "/banyu/pipeline/end_candidate"
     end_topic: "/banyu/pipeline/end"
+calibrated_depth_node:
+  ros__parameters:
+    source_id: "pressure_depth"
+    datum: "water_surface"
+    calibration_id: "surface_rel_alt_datum"
+    auto_calibrate_surface_at_start: true
+    manually_calibrated: false
+    max_rel_alt_age_s: 1.0
+    surface_datum_offset: 0.0
+    topics:
+      rel_alt: "/mavros/global_position/rel_alt"
+      water_depth: "/banyu/vehicle/water_depth"
+      run_lifecycle: "/banyu/mission/run_lifecycle"
+
+survey_evidence_node:
+  ros__parameters:
+    source_id: "pipeline_topology"
+    low_progress_endpoint_id: "start_buoy"
+    high_progress_endpoint_id: "end_buoy"
+    buoy_source_id: "uuv_buoy_localizer"
+    default_course_id: "course-a"
+    default_pinger_freq_hz: 25000
+    tier: 2
+    topics:
+      accepted_ring: "/banyu/pipeline/accepted_ring"
+      end_state: "/banyu/pipeline/end_state"
+      start_buoy_fix: "/banyu/task2/start_buoy_fix"
+      active_buoy_fix: "/banyu/task2/active_buoy_fix"
+      course: "/system/mission/course"
+      run_lifecycle: "/banyu/mission/run_lifecycle"
+      survey_evidence: "/banyu/pipeline/survey_evidence"
+
+esp32_bridge_node:
+  ros__parameters:
+    port: "/dev/ttyUSB0"
+    baud: 115200
+    heartbeat_rate_hz: 10.0
+    serial_timeout_s: 0.5
+
+esp32_serial_node:
+  ros__parameters:
+    port: "/dev/ttyUSB0"
+    baud: 115200
+    timer_period_s: 0.1
+    append_newline: false
+    default_trigger_cmd: "1"
+    trigger_on_cmd: "1"
+    trigger_off_cmd: "0"
+    trigger_service: "/banyu/trigger/fire"
+    set_trigger_service: "/banyu/trigger/set"
+    command_service: "/banyu/trigger/command"
+    command_topic: "/banyu/trigger/cmd"
+    monitor_topic: "/banyu/trigger/monitor"
+
+esp32_trigger_node:
+  ros__parameters:
+    port: "/dev/ttyUSB0"
+    baud: 115200
+    timer_period_s: 0.1
+    append_newline: false
+    default_trigger_cmd: "1"
+    trigger_on_cmd: "1"
+    trigger_off_cmd: "0"
+    trigger_service: "/banyu/trigger/fire"
+    set_trigger_service: "/banyu/trigger/set"
+    command_service: "/banyu/trigger/command"
+    command_topic: "/banyu/trigger/cmd"
+    monitor_topic: "/banyu/trigger/monitor"
+
+sim_rc_deadman_node:
+  ros__parameters:
+    rc_topic: "/sim/supervisor_rc"
+    publish_rate_hz: 10.0
+    num_channels: 8
+    channel_value: 1500
+

@@ -33,12 +33,16 @@ BT::NodeStatus AcknowledgeRedRingNode::onStart()
     const auto generation = generation_;
     auto request = std::make_shared<banyu_msgs::srv::AcknowledgeRingRepair::Request>();
     request->ring_index = index;
+    const auto context = state_->snapshot();
+    request->run_id = context.run_id;
+    request->epoch = context.epoch;
     client_->async_send_request(
-      request, [this, generation](
+      request, [this, generation, run_id = context.run_id, epoch = context.epoch](
         rclcpp::Client<banyu_msgs::srv::AcknowledgeRingRepair>::SharedFuture future) {
         const auto response = future.get();
         std::lock_guard<std::mutex> callback_lock(mutex_);
-        if (generation != generation_) {
+        const auto current = state_->snapshot();
+        if (generation != generation_ || current.run_id != run_id || current.epoch != epoch) {
           return;
         }
         done_ = true;

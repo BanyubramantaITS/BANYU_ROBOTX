@@ -1,4 +1,6 @@
 # enable starts or stops pipeline following; status is implementation-neutral.
+uint32 run_id
+uint64 epoch
 bool enable
 ---
 bool success

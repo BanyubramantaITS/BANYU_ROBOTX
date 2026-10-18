@@ -3,6 +3,13 @@
 namespace banyu_detection
 {
 
+void RingTrackerAdapter::reset()
+{
+  tracker_.reset();
+  repair_acknowledged_ = false;
+  repaired_ring_index_ = kInvalidRingIndex;
+}
+
 RepairAcknowledgementResult RingTrackerAdapter::acknowledgeRingRepair(uint32_t ring_index)
 {
   RepairAcknowledgementResult result;

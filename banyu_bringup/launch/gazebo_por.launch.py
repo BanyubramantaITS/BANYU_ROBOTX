@@ -6,8 +6,8 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node, SetUseSimTime
+from launch.substitutions import AndSubstitution, EqualsSubstitution, LaunchConfiguration
+from launch_ros.actions import Node, SetParameter
 
 
 def generate_launch_description():
@@ -24,8 +24,16 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
-    set_use_sim_time = SetUseSimTime(
-        True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
+    # SetUseSimTime only configures launch's own node; SetParameter reaches every launched node.
+    set_use_sim_time = SetParameter(
+        name="use_sim_time",
+        value=True,
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+                EqualsSubstitution(LaunchConfiguration("use_sim_time"), "True"),
+            )
+        ),
     )
 
     _banyu_sim_pkg_share = get_package_share_directory("banyu_simulation")
@@ -87,6 +95,7 @@ def generate_launch_description():
         name="robot_state_publisher",
         output="both",
         parameters=[{"robot_description": bluerov2_heavy_xml}],
+        condition=IfCondition(LaunchConfiguration("use_sim")),
     )
 
     ros_gz_sim_launch = ExecuteProcess(
@@ -155,6 +164,7 @@ def generate_launch_description():
         executable="image_bridge",
         arguments=["/front_camera/image_raw"],
         output="screen",
+        condition=IfCondition(LaunchConfiguration("use_sim")),
     )
 
     bottom_camera_image_bridge = Node(
@@ -162,6 +172,17 @@ def generate_launch_description():
         executable="image_bridge",
         arguments=["/bottom_camera/image_raw"],
         output="screen",
+        condition=IfCondition(LaunchConfiguration("use_sim")),
+    )
+
+    # Gazebo sim time for every node running with use_sim_time (sensor stamps use it too).
+    clock_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        name="clock_bridge",
+        arguments=["/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"],
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("use_sim")),
     )
 
     camera_info_bridge = Node(
@@ -189,6 +210,7 @@ def generate_launch_description():
             use_sim_arg,
             use_sim_time_arg,
             set_use_sim_time,
+            clock_bridge,
             ros_gz_sim_launch,
             spawn_por_pool,
             spawn_gate,

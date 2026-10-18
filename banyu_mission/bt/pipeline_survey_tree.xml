@@ -1,0 +1,90 @@
+<?xml version="1.0"?>
+<!-- RobotX 2026 Task 2: Infrastructure Survey and Repair, CORE, ADVANCED and DISRUPTIVE TIERS ({tier},
+     banyu_mission's task2_tier parameter), on the sensors the UUV
+     carries (bottom camera + lights, echosounder, hydrophones, pressure depth, compass, GPS at
+     the surface, magnetic probe under the bow; no DVL, no position estimate used for control).
+
+     Handbook: start at the buoy whose indicator is GREEN (its pinger is the only one pinging),
+     follow the pipeline noting each segment intact (GREEN) or damaged (RED), reporting in order
+     from the active buoy end. The UUV may surface to report. Advanced: hold the probe on the
+     RED node until it turns GREEN, read the colour it then flashes, and request a delivery to
+     that circle (the UAV picks the request up from the OCS). Disruptive: as Advanced, but the
+     flash also names the tin colour.
+
+     Root ReactiveFallback: an abort halts the mission branch on any tick. Phase chains are plain
+     Sequences, NOT ReactiveSequences (BT 4.9 StatefulActionNode only reaches onRunning() while it
+     stays the ticked child). Whatever happens underwater, the vehicle surfaces and disarms; the
+     report is only sent once it is actually floating. -->
+<root BTCPP_format="4" main_tree_to_execute="PipelineSurvey">
+  <BehaviorTree ID="PipelineSurvey">
+    <ReactiveFallback name="MissionSupervisor">
+      <AbortedOrTeleop name="IdleOrAborted" />
+      <Sequence name="MissionFlow">
+        <MissionActive name="MissionRunning" />
+        <ArmVehicle arm="true" />
+        <ForceSuccess>
+          <Sequence name="Survey">
+            <!-- Surface transit: no dive until the active buoy. -->
+            <SurfaceVehicle />
+            <TransitToPinger />
+            <RecordBuoyFix />
+            <SetFlightMode mode="ALT_HOLD" />
+            <FindPipe />
+            <SetSurveyDepth />
+            <!-- Square up on the pipe, then head whichever way the pinger is. -->
+            <TurnOnPipe reverse="false" />
+            <Fallback name="HeadTowardPinger">
+              <PingerForwardAtLeast min_forward="0.0" />
+              <TurnOnPipe reverse="true" />
+            </Fallback>
+            <!-- Follow to an end; the start end is the one with the pinger ahead or abeam.
+                 At the far end, turn round and try again. -->
+            <RetryUntilSuccessful num_attempts="3">
+              <Sequence name="SeekStartEnd">
+                <FollowPipe direction="1" record="false" />
+                <Fallback name="AtStartEnd">
+                  <PingerForwardAtLeast min_forward="-0.2" />
+                  <ForceFailure>
+                    <TurnOnPipe reverse="true" />
+                  </ForceFailure>
+                </Fallback>
+              </Sequence>
+            </RetryUntilSuccessful>
+            <!-- The survey leg, tail first on the same heading, tracking every light node.
+                 Advanced: it stops at the RED node on the way to repair it, then carries on. No
+                 RED node reached before the end (FAILURE) leaves the survey done as it is. -->
+            <FollowPipe direction="-1" record="true" _skipIf="tier != 'core'" />
+            <Fallback name="SurveyLeg" _skipIf="tier == 'core'">
+              <Sequence name="RepairOnTheWay">
+                <FollowPipe direction="-1" record="true" stop_at_red="true" />
+                <!-- STABILIZE: the vertical stick is thrust, so the probe presses on the switch
+                     without ALT_HOLD's depth target running away below it. -->
+                <ForceSuccess>
+                  <Sequence name="Repair">
+                    <SetFlightMode mode="STABILIZE" />
+                    <RepairLight />
+                    <ReadFlash />
+                  </Sequence>
+                </ForceSuccess>
+                <SetFlightMode mode="ALT_HOLD" />
+                <FollowPipe direction="-1" record="true" resume="true" />
+              </Sequence>
+              <AlwaysSuccess />
+            </Fallback>
+          </Sequence>
+        </ForceSuccess>
+        <ForceSuccess>
+          <Sequence name="SurfaceAndReport">
+            <SurfaceVehicle />
+            <!-- Request first: it re-tasks the UAV. The survey report is the completion. -->
+            <ForceSuccess _skipIf="tier == 'core'">
+              <SendResourceRequest />
+            </ForceSuccess>
+            <SendReport />
+          </Sequence>
+        </ForceSuccess>
+        <ArmVehicle arm="false" />
+      </Sequence>
+    </ReactiveFallback>
+  </BehaviorTree>
+</root>

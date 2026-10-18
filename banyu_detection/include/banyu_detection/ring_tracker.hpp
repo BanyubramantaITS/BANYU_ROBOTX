@@ -32,10 +32,19 @@ struct RingTrackerConfig
   double pose_timestamp_tolerance_s{0.05};
   uint64_t maximum_sequence_gap{1};
   bool reject_duplicate_red{true};
+  double node_association_distance_m{0.8};
+  // Bottom camera geometry for estimating where a ring is along the pipe; disabled when
+  // camera_height_m is 0 (ring position then equals vehicle position).
+  double camera_height_m{0.0};
+  double camera_forward_m{0.0};
+  double camera_tilt_from_vertical_rad{0.0};
+  double camera_half_vfov_rad{0.0};
 };
 
 struct RingTrackerInput
 {
+  uint32_t run_id{0};
+  uint64_t epoch{0};
   banyu_msgs::msg::PipelineRingObservation observation;
   geometry_msgs::msg::PoseStamped vehicle_pose_map;
   bool has_vehicle_pose{false};
@@ -84,6 +93,13 @@ public:
   bool markRedRepaired();
   void reset();
 
+  void setCenterline(const std::vector<std::pair<double, double>> & waypoints);
+  bool hasCenterline() const;
+  double projectOntoCenterline(double x, double y) const;
+  int findAssociatedRecord(
+    double progress_m,
+    const geometry_msgs::msg::PoseStamped & pose) const;
+
   const RingTrackerSnapshot & snapshot() const {return snapshot_;}
   const std::vector<banyu_msgs::msg::Task2RingRecord> & records() const
   {
@@ -106,6 +122,10 @@ private:
   bool hasRecordedColor(uint8_t color) const;
   bool validPoseForObservation(const RingTrackerInput & input) const;
   bool rearmAllowed(const RingTrackerInput & input) const;
+  void beginNewRingEntry();
+  bool cameraModelEnabled() const;
+  bool ringProgress(const RingTrackerInput & input, double & progress) const;
+  static bool kind_is_visible(const banyu_msgs::msg::PipelineRingObservation & observation);
 
   void beginExit();
   void beginDebounce();
@@ -121,9 +141,12 @@ private:
   bool has_last_record_path_distance_{false};
   geometry_msgs::msg::PoseStamped last_record_pose_;
   bool has_last_record_pose_{false};
+  bool rearmed_{false};
+  bool beyond_last_node_{false};
   uint8_t pending_color_{
     banyu_msgs::msg::PipelineRingObservation::COLOR_UNKNOWN};
   bool has_pending_color_{false};
+  std::vector<std::pair<double, double>> centerline_waypoints_;
 };
 
 }  // namespace banyu_detection

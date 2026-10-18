@@ -3,8 +3,8 @@
 # Launch the BANYU ROV simulation through banyu_bringup's main_launch.
 #
 # Usage:
-#   ./launch_sim.sh por      # proof-of-readiness sim (no DVL)
-#   ./launch_sim.sh task2    # Task 2 sim (DVL)
+#   ./launch_sim.sh por      # proof-of-readiness sim
+#   ./launch_sim.sh task2    # Task 2 sim (pass use_dvl:=True to enable DVL)
 #   ./launch_sim.sh          # defaults to 'por'
 #
 # Any extra arguments after the mode are passed straight through to
@@ -26,5 +26,7 @@ WS_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 
 cd "$WS_ROOT"
 
-bash -c "source /opt/ros/humble/setup.bash && source install/setup.bash && \
+ROS_DISTRO_TO_USE="${ROS_DISTRO:-jazzy}"
+bash -c "source /opt/ros/${ROS_DISTRO_TO_USE}/setup.bash && source install/setup.bash && \
   ros2 launch banyu_bringup main_launch.launch.py mode:=$MODE ${*:2}"
+

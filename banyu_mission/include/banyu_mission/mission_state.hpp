@@ -2,6 +2,7 @@
 #define BANYU_MISSION__MISSION_STATE_HPP_
 
 #include <memory>
+#include <chrono>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -9,6 +10,7 @@
 #include "banyu_msgs/msg/pipeline_observation.hpp"
 #include "banyu_msgs/msg/pipeline_ring_observation.hpp"
 #include "banyu_msgs/msg/pipeline_ring_state.hpp"
+#include "banyu_msgs/msg/pipeline_end_state.hpp"
 #include "banyu_msgs/msg/vehicle_status.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/bool.hpp"
@@ -24,6 +26,7 @@ public:
   struct Snapshot
   {
     bool fcu_connected {false};
+    bool armed {false};
     bool fcu_status_fresh {false};
     bool rc_fresh {false};
     bool operator_takeover {false};
@@ -40,6 +43,10 @@ public:
     uint8_t ring_color {0};
     std::string mode;
     std::string authority;
+    uint8_t operational_mode {0};
+    bool hardware_kill_active {false};
+    uint32_t run_id {0};
+    uint64_t epoch {0};
   };
 
   explicit MissionState(rclcpp::Node * node, bool subscribe = true);
@@ -56,6 +63,9 @@ public:
   bool resetForStart();
   void requestAbort();
   bool requestStart();
+  bool acceptRun(uint32_t run_id, uint64_t epoch);
+  void prepareAutonomy();
+  void requireRunContext(bool required);
   void markSucceeded();
   void markFailed();
   void markInterrupted();
@@ -64,6 +74,8 @@ public:
   Snapshot snapshot() const;
   Lifecycle lifecycle() const;
   double missionHeading() const;
+  uint32_t currentRunId() const;
+  uint64_t currentRunEpoch() const;
 
   bool autonomyInterrupted() const;
   bool vehicleReady() const;
@@ -88,10 +100,17 @@ private:
   void ringCallback(const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg);
   void ringStateCallback(const banyu_msgs::msg::PipelineRingState::SharedPtr msg);
   void endCallback(const std_msgs::msg::Bool::SharedPtr msg);
+  void endStateCallback(const banyu_msgs::msg::PipelineEndState::SharedPtr msg);
 
   mutable std::mutex mutex_;
   rclcpp::Node * node_;
   bool fcu_connected_ {false};
+  bool armed_ {false};
+  bool require_run_context_ {false};
+  uint32_t run_id_ {0};
+  uint64_t epoch_ {0};
+  rclcpp::Time run_started_at_{0, 0, RCL_ROS_TIME};
+  std::chrono::steady_clock::time_point state_received_at_{};
   bool fcu_status_fresh_ {false};
   bool rc_fresh_ {false};
   bool operator_takeover_ {false};
@@ -105,10 +124,15 @@ private:
   bool pipeline_tracked_ {false};
   bool red_pending_ {false};
   uint32_t red_record_index_ {0};
+  bool red_repaired_ {false};
+  uint32_t red_repaired_index_ {0};
   bool ring_visible_ {false};
   uint8_t ring_color_ {0};
   std::string mode_;
   std::string authority_;
+  bool status_received_ {false};
+  uint8_t operational_mode_ {0};
+  bool hardware_kill_active_ {false};
   rclcpp::Time last_pipeline_;
   rclcpp::Time last_state_;
   double gps_timeout_s_ {2.0};

@@ -16,7 +16,9 @@ public:
   HoldProbeOnRingServer(
     rclcpp::Node * node,
     const std::string & action_name,
-    ActionServerCoordinator * coordinator);
+    ActionServerCoordinator * coordinator,
+    double ring_kp_sway = 0.8,
+    double ring_kp_surge = 0.5);
 
   MotionIntent tick(
     const VehicleTelemetry & telemetry, const rclcpp::Time & now,
@@ -27,6 +29,8 @@ protected:
   bool validateGoal(const Goal & goal, std::string & reason) override;
 
 private:
+  double ring_kp_sway_{0.8};
+  double ring_kp_surge_{0.5};
   double elapsed_aligned_s_{0.0};
   double max_alignment_error_{0.0};
 };

@@ -9,11 +9,13 @@ from launch.actions import (
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
+    AndSubstitution,
     EqualsSubstitution,
     LaunchConfiguration,
     PythonExpression,
 )
-from launch_ros.actions import SetUseSimTime
+from launch_ros.actions import SetParameter
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -42,9 +44,7 @@ def generate_launch_description():
     use_ardusub_sitl_arg = DeclareLaunchArgument(
         name="use_ardusub_sitl",
         default_value="True",
-        description=(
-            "Use sim_vehicle.py wrapper (True) or bare ardusub binary (False) for simulation"
-        ),
+        description="Whether to start the ArduSub SITL binary alongside Gazebo",
         choices=["True", "False"],
     )
 
@@ -55,6 +55,14 @@ def generate_launch_description():
             "FCU connection URL (udp://127.0.0.1:14551@ for SITL or "
             "udp://192.168.2.1:14550@ for real ROV). SITL keeps 14550 free for QGC."
         ),
+    )
+
+    tier_arg = DeclareLaunchArgument(
+        name="tier",
+        default_value="advanced",
+        description="RobotX Task 2 tier: 'core' (survey + report, no probe), 'advanced' (repair + resource request) "
+                    "or 'disruptive' (as advanced, and the tin colour).",
+        choices=["core", "advanced", "disruptive"],
     )
 
     debug_arg = DeclareLaunchArgument(
@@ -90,8 +98,16 @@ def generate_launch_description():
         description="Path to ROS 2 parameter YAML file for POR nodes",
     )
 
-    set_use_sim_time = SetUseSimTime(
-        True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
+    # SetUseSimTime only configures launch's own node; SetParameter reaches every launched node.
+    set_use_sim_time = SetParameter(
+        name="use_sim_time",
+        value=ParameterValue(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+                EqualsSubstitution(LaunchConfiguration("use_sim_time"), "True"),
+            ),
+            value_type=bool,
+        ),
     )
 
     task2_spawn_x = PythonExpression(
@@ -108,7 +124,12 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             os.path.join(_banyu_bringup_share, "launch", "gazebo_por.launch.py")
         ),
-        condition=IfCondition(EqualsSubstitution(LaunchConfiguration("mode"), "por")),
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("mode"), "por"),
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+            )
+        ),
         launch_arguments={
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
@@ -119,10 +140,16 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             os.path.join(_banyu_bringup_share, "launch", "gazebo_main.launch.py")
         ),
-        condition=IfCondition(EqualsSubstitution(LaunchConfiguration("mode"), "task2")),
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("mode"), "task2"),
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+            )
+        ),
         launch_arguments={
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
+            "tier": LaunchConfiguration("tier"),
             "spawn_x": task2_spawn_x,
             "spawn_y": task2_spawn_y,
             "spawn_z": task2_spawn_z,
@@ -137,8 +164,8 @@ def generate_launch_description():
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "use_ardusub_sitl": LaunchConfiguration("use_ardusub_sitl"),
-            "use_dvl": LaunchConfiguration("use_dvl"),
             "fcu_url": LaunchConfiguration("fcu_url"),
+            "use_dvl": LaunchConfiguration("use_dvl"),
         }.items(),
     )
 
@@ -163,6 +190,7 @@ def generate_launch_description():
             use_sim_time_arg,
             use_ardusub_sitl_arg,
             fcu_url_arg,
+            tier_arg,
             debug_arg,
             use_dvl_arg,
             task2_params_arg,

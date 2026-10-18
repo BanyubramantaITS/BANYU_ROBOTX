@@ -1,27 +1,45 @@
 # banyu_msgs contracts
 
-The action interfaces use ROS order `Goal --- Result --- Feedback`. Every
-terminal result begins with `bool success` and `string reason`; operation-
-specific terminal fields follow. Feedback contains progress only, including
-its optional `builtin_interfaces/Time stamp`. GPS coordinates are WGS84
-latitude/longitude in degrees. Distances and depths are metres; depth is
-positive downward and a surface target is normally zero. Headings are ENU
-radians, measured counter-clockwise from east toward north. Image offsets and
-alignment values are unitless; image offsets use the normalized range `[-1, 1]`.
-Ring colors and pipeline identifiers are mission-defined strings.
-`ring_order` contains mission-defined numeric ring identifiers, and `crc32`
-is the unsigned report CRC.
+This package defines the core ROS 2 message, service, and action contracts for the BANYU ROV autonomy stack.
 
-`VehicleStatus` is deliberately MAVROS-neutral. Its `header.stamp` is the
-status publication time; the freshness booleans describe the corresponding
-FCU, RC/operator, and GPS data validity. `authority` is an implementation-
-neutral authority label. `AcknowledgeRingRepair` accepts one mission ring
-index and echoes the accepted index only when the acknowledgement succeeds.
+## Action Interfaces
 
-`MissionReport` is the transport-neutral report payload for the
-`SendMissionReport` action boundary. `ring_sequence` uses the mission-defined
-numeric ring identifiers, `source_timestamp` identifies when the report was
-formed, and `crc32` is the unsigned report checksum. `MissionReportAck` echoes
-the mission ID and CRC; `acknowledged` indicates acceptance, while `reason` is
-optional and is empty when no explanation is needed. Neither message carries
-radio, MAVROS, or vehicle-control fields.
+Actions follow the ROS order `Goal --- Result --- Feedback`. Every terminal result begins with `bool success` and `string reason`, followed by action-specific fields. Feedback contains progress updates, including timestamps and distance/offset errors.
+
+- **Proof of Readiness (POR)**:
+  - `AcquireGate.action` — Acquire gate in field of view (defaults to dive in place).
+  - `AlignGate.action` — Visually center and align vehicle heading and depth to the gate.
+  - `PassGate.action` — Traverse through the gate; supports blind push on return leg if visual lock is temporarily lost.
+  - `SearchMarker.action` — Search pattern to locate the yellow buoy.
+  - `AlignMarker.action` — Visually center on the yellow buoy.
+  - `OrbitMarker.action` — Clockwise/counter-clockwise orbit around marker applying feedforward yaw rate ($\omega_{\text{ff}} = -y / r$).
+  - `TurnAround.action` — 180° in-place yaw maneuver.
+  - `SearchGate.action` — Search pattern to re-acquire gate on return leg.
+  - `Surface.action` — Ascent to surface with surfaced-depth verification.
+
+- **Task 2 (Pipeline & Rings)**:
+  - `NavigateSurfaceGps.action` — GPS waypoint navigation at surface with retargeting support.
+  - `AlignHeading.action` — In-place heading alignment to target pipeline orientation.
+  - `DiveToDepth.action` — Vertical descent to target inspection depth.
+  - `AcquirePipeline.action` — Visual detection and initial lock on pipeline structure.
+  - `SearchPipeline.action` — Local search sweep when pipeline tracking is lost.
+  - `FollowPipeline.action` — Autonomous pipeline tracking guided by velocity intent.
+  - `CenterOnRing.action` — Visual centering on detected repair ring.
+  - `HoldProbeOnRing.action` — Station keeping while magnetic probe interacts with repair ring.
+  - `Surface.action` — Ascent to surface upon mission completion.
+
+## Key Messages
+
+- `VehicleStatus.msg` — MAVROS-neutral health summary (`fcu_connected`, `rc_fresh`, `gps_fresh`, `calibrated_depth_m`, `battery_voltage`).
+- `ActiveBuoyFix.msg` & `Task2BuoyTarget.msg` — USV pipeline buoy coordinates and locked target navigation state.
+- `Detection.msg` — Single best visual detection per frame for POR (`object_id`: 0=gate, 1=yellow buoy; normalized `[-1, 1]` offsets).
+- `PipelineObservation.msg` & `PipelineRingObservation.msg` — Line fit, lookahead angles, and detected rings from downward inspection camera.
+- `PipelineRingState.msg` — Associated ring tracker state across temporal observations.
+- `Task2SurveyEvidence.msg` & `Task2Report.msg` — Survey evidence assembled during pipeline inspection for RoboCommand / GCS reporting.
+- `RunLifecycle.msg` — Epoch-tagged autonomy state transitions (`STATE_IDLE`, `STATE_PREPARED`, `STATE_ACTIVE`, `STATE_COMPLETED`).
+
+## Services
+
+- `AcknowledgeRingRepair.srv` — Confirms physical interaction with damaged ring before vehicle resumes pipeline traverse.
+- `TriggerPipelineSurvey.srv` — Triggers generation and sealing of the final pipeline survey report.
+- `ResetTask2.srv` — Resets Task 2 state between test runs.

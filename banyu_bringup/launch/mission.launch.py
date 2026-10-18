@@ -10,18 +10,8 @@ from launch.substitutions import (
     LaunchConfiguration,
     PythonExpression,
 )
-from launch_ros.actions import Node, SetUseSimTime
+from launch_ros.actions import Node, SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
-
-
-def _task2_report_max_attempts_substitution():
-    return PythonExpression(
-        [
-            "min(255, int('",
-            LaunchConfiguration("task2_report_max_retries"),
-            "') + 1)",
-        ]
-    )
 
 
 def generate_launch_description():
@@ -33,6 +23,9 @@ def generate_launch_description():
     )
     default_por_params = os.path.join(
         banyu_bringup_share, "config", "por_params.yaml"
+    )
+    default_hardware_params = os.path.join(
+        banyu_bringup_share, "config", "hardware_params.yaml"
     )
 
     mode_arg = DeclareLaunchArgument(
@@ -74,8 +67,29 @@ def generate_launch_description():
         description="Path to ROS 2 parameter YAML file for POR nodes",
     )
 
-    set_use_sim_time = SetUseSimTime(
-        True, condition=IfCondition(LaunchConfiguration("use_sim_time"))
+    hardware_params_arg = DeclareLaunchArgument(
+        name="hardware_params_file",
+        default_value=default_hardware_params,
+        description="Path to ROS 2 parameter YAML file for hardware camera/sensor overrides",
+    )
+
+    enable_esp32_trigger_arg = DeclareLaunchArgument(
+        name="enable_esp32_trigger",
+        default_value="False",
+        description="Whether to launch the ESP32 trigger node",
+        choices=["True", "False"],
+    )
+
+    # SetUseSimTime only configures launch's own node; SetParameter reaches every launched node.
+    set_use_sim_time = SetParameter(
+        name="use_sim_time",
+        value=ParameterValue(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+                EqualsSubstitution(LaunchConfiguration("use_sim_time"), "True"),
+            ),
+            value_type=bool,
+        ),
     )
 
     mode = LaunchConfiguration("mode")
@@ -83,11 +97,16 @@ def generate_launch_description():
     debug = LaunchConfiguration("debug")
     task2_params = LaunchConfiguration("task2_params_file")
     por_params = LaunchConfiguration("por_params_file")
+    hardware_params = LaunchConfiguration("hardware_params_file")
 
     task2_fixture_mode = AndSubstitution(
         EqualsSubstitution(mode, "task2"),
         EqualsSubstitution(use_sim, "True"),
     )
+
+    task2_hardware_override = PythonExpression([
+        "'", task2_params, "' if '", use_sim, "'.lower() == 'true' else '", hardware_params, "'"
+    ])
 
     por_mission_manager = Node(
         package="banyu_mission",
@@ -110,11 +129,9 @@ def generate_launch_description():
         output="screen",
         parameters=[
             task2_params,
+            task2_hardware_override,
             {
                 "mission_mode": mode,
-                "task2_fixture_mode": ParameterValue(
-                    task2_fixture_mode, value_type=bool
-                ),
             },
         ],
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
@@ -149,8 +166,25 @@ def generate_launch_description():
     por_vehicle_status = Node(
         package="banyu_vehicle_interface",
         executable="vehicle_status_node",
+        namespace="",
         name="banyu_vehicle_status",
-        parameters=[por_params],
+        parameters=[
+            por_params,
+            {
+                "default_operational_mode": ParameterValue(
+                    PythonExpression(
+                        ["2 if '", LaunchConfiguration("use_sim"), "'.lower() == 'true' else 0"]
+                    ),
+                    value_type=int,
+                ),
+                "rc_topic": ParameterValue(
+                    PythonExpression(
+                        ["'/sim/supervisor_rc' if '", LaunchConfiguration("use_sim"), "'.lower() == 'true' else '/mavros/rc/in'"]
+                    ),
+                    value_type=str,
+                ),
+            },
+        ],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "por")),
     )
@@ -179,8 +213,25 @@ def generate_launch_description():
     task2_vehicle_status = Node(
         package="banyu_vehicle_interface",
         executable="vehicle_status_node",
+        namespace="",
         name="banyu_vehicle_status",
-        parameters=[task2_params],
+        parameters=[
+            task2_params,
+            {
+                "default_operational_mode": ParameterValue(
+                    PythonExpression(
+                        ["2 if '", LaunchConfiguration("use_sim"), "'.lower() == 'true' else 0"]
+                    ),
+                    value_type=int,
+                ),
+                "rc_topic": ParameterValue(
+                    PythonExpression(
+                        ["'/sim/supervisor_rc' if '", LaunchConfiguration("use_sim"), "'.lower() == 'true' else '/mavros/rc/in'"]
+                    ),
+                    value_type=str,
+                ),
+            },
+        ],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -189,7 +240,7 @@ def generate_launch_description():
         package="banyu_detection",
         executable="ring_tracker_node",
         name="ring_tracker",
-        parameters=[task2_params],
+        parameters=[task2_params, task2_hardware_override],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -203,10 +254,19 @@ def generate_launch_description():
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
 
-    task2_uav_report = Node(
+    task2_uuv_comm = Node(
         package="banyu_communication",
-        executable="uav_report_node",
-        name="uav_report",
+        executable="uuv_comm_node",
+        name="uuv_comm_node",
+        parameters=[task2_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+    )
+
+    task2_pipeline_buoys = Node(
+        package="banyu_communication",
+        executable="pipeline_buoys_node",
+        name="pipeline_buoys_node",
         parameters=[task2_params],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
@@ -230,6 +290,65 @@ def generate_launch_description():
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
 
+    task2_calibrated_depth = Node(
+        package="banyu_vehicle_execution",
+        executable="calibrated_depth_node",
+        name="calibrated_depth_node",
+        parameters=[task2_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+    )
+
+    task2_survey_evidence = Node(
+        package="banyu_detection",
+        executable="survey_evidence_node",
+        name="survey_evidence_node",
+        parameters=[task2_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+    )
+
+    task2_pinger_localization = Node(
+        package="banyu_detection",
+        executable="pinger_localization",
+        name="pinger_localization",
+        parameters=[task2_params],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+    )
+
+    active_params = PythonExpression([
+        "'", por_params, "' if '", mode, "' == 'por' else '", task2_params, "'"
+    ])
+
+    esp32_bridge = Node(
+        package="banyu_vehicle_interface",
+        executable="esp32_bridge_node",
+        name="esp32_bridge_node",
+        parameters=[active_params, hardware_params],
+        output="screen",
+        condition=UnlessCondition(LaunchConfiguration("use_sim")),
+    )
+
+    esp32_trigger = Node(
+        package="banyu_vehicle_interface",
+        executable="esp32_trigger_node",
+        name="esp32_trigger_node",
+        parameters=[active_params, hardware_params],
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("enable_esp32_trigger")),
+    )
+
+    sim_rc_deadman = Node(
+        package="banyu_vehicle_interface",
+        executable="sim_rc_deadman_node",
+        name="sim_rc_deadman_node",
+        parameters=[active_params],
+        output="screen",
+        condition=IfCondition(
+            EqualsSubstitution(LaunchConfiguration("use_sim"), "True")
+        ),
+    )
     return LaunchDescription(
         [
             mode_arg,
@@ -238,6 +357,8 @@ def generate_launch_description():
             debug_arg,
             task2_params_arg,
             por_params_arg,
+            hardware_params_arg,
+            enable_esp32_trigger_arg,
             set_use_sim_time,
             por_mission_manager,
             task2_mission_manager,
@@ -249,8 +370,15 @@ def generate_launch_description():
             task2_vehicle_status,
             task2_ring_tracker,
             task2_pipeline_guidance,
-            task2_uav_report,
+            task2_uuv_comm,
+            task2_pipeline_buoys,
             task2_vehicle_execution,
             task2_pipeline_end,
+            task2_calibrated_depth,
+            task2_survey_evidence,
+            task2_pinger_localization,
+            esp32_bridge,
+            esp32_trigger,
+            sim_rc_deadman,
         ]
     )

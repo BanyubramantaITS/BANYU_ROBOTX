@@ -19,8 +19,15 @@ public:
     const std::string & name, const BT::NodeConfig & config,
     rclcpp::Node::SharedPtr node, const std::string & action);
 
+  // Re-sends the goal when the blackboard target moves during the transit (USV buoy update).
+  BT::NodeStatus onRunning() override;
+
 protected:
   Goal makeGoal() override;
+
+private:
+  double goal_latitude_{0.0};
+  double goal_longitude_{0.0};
 };
 
 }  // namespace banyu_mission

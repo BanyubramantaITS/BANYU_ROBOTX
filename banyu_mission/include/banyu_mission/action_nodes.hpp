@@ -14,7 +14,7 @@
 #include "banyu_mission/action/por_action_nodes.hpp"
 #include "banyu_mission/action/register_actions.hpp"
 #include "banyu_mission/action/search_pipeline_node.hpp"
-#include "banyu_mission/action/send_mission_report_node.hpp"
+#include "banyu_mission/action/publish_pipeline_survey_node.hpp"
 #include "banyu_mission/action/surface_node.hpp"
 
 #endif  // BANYU_MISSION__ACTION_NODES_HPP_
