@@ -1,0 +1,24 @@
+# RC transmitter (TX16S) teleop: RC switch handling for the BANYU ROV.
+# Thrust is driven natively by ArduSub via RCMAP; this node only handles
+# arm/disarm, flight-mode, and the ESP32 kill switch.
+banyu_teleop:
+  ros__parameters:
+    rc_topic: "/mavros/rc/in"
+
+    # Arm/disarm switch (CH7 = index 6). Value >= threshold requests arm, below requests disarm.
+    arm_channel: 6
+    arm_threshold: 1500
+
+    # Flight mode switch (CH8 = index 7): 900=STABILIZE, 1500=MANUAL, 2000=ALT_HOLD.
+    mode_channel: 7
+
+    # Kill switch (SB = CH6 = index 5): 900=autonomous(0), 1500=remote(1), 2000=kill(2).
+    kill_channel: 5
+
+    # 3-position switch band thresholds (shared by mode and kill switches).
+    switch_low_threshold: 1200.0
+    switch_high_threshold: 1750.0
+
+    # ESP32 kill switch serial link.
+    serial_port: "/dev/ttyUSB0"
+    serial_baud: 115200

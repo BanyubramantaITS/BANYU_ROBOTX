@@ -52,9 +52,10 @@ chmod a+x install_geographiclib_datasets.sh
 sudo ./install_geographiclib_datasets.sh
 ```
 
-Build the workspace:
+Build the workspace (`ros_gz` is built from source here, so target the installed Gazebo Harmonic explicitly):
 ```sh
 cd <WORKSPACE>
+export GZ_VERSION=harmonic
 colcon build --symlink-install
 ```
 
