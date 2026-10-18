@@ -174,10 +174,10 @@ All timed POR parameters live under `banyu_mission.ros__parameters.mission` in `
 
 | Segment | Duration Parameter (`s`) | Speed / Rate Parameters | Notes |
 | :--- | :--- | :--- | :--- |
-| **No-Sensor Master Toggle** | — | `use_sensors: false` | `false` (default) = **100% pure timer + speed** (ignores camera, barometer depth, and IMU yaw cap). Set `true` to enable optional sensor assistance below. |
+| **Sensor Master Toggle** | — | `use_sensors: true` | `true` (default) = uses Pixhawk Barometer & IMU. Set `false` for 100% pure timer + speed without any sensors. |
 | **Mode toggle** | — | `use_vision: false` | `false` = `por_timed_mission.xml`, `true` = `por_mission.xml` |
-| **Optional Depth Hold** | — | `use_baro_depth: false`, `gate_depth_m: 2.0` | Only active when `use_sensors: true` and `use_baro_depth: true` |
-| **Optional IMU Yaw Cap**| — | `use_imu_yaw_cap: false` | Only active when `use_sensors: true` and `use_imu_yaw_cap: true` |
+| **Pixhawk Baro Depth** | — | `use_baro_depth: true`, `gate_depth_m: 2.0` | Holds `gate_depth_m` via Pixhawk barometer on all segments (set `false` or `use_sensors: false` for open-loop `*_speed_z_mps`) |
+| **Pixhawk IMU Yaw** | — | `use_imu_yaw_cap: true` | Uses Pixhawk IMU heading & stops turns when reaching `*_target_angle_rad` (`90°`) or `*_duration_s` |
 | **1. Dive to Gate** | `dive_duration_s: 5.0` | `dive_speed_x/y/z_mps` (`z: -0.4`), `dive_yaw_rate_rad_s` | Timed descent to gate center depth |
 | **2. Pass Gate** | `timed_pass_gate_duration_s: 6.0` | `timed_pass_gate_speed_x/y/z_mps` (`x: 0.6`), `timed_pass_gate_yaw_rate_rad_s` | Forward through gate |
 | **3. Approach Pole** | `approach_pole_duration_s: 8.0` | `approach_pole_speed_x/y/z_mps` (`x: 0.6`), `approach_pole_yaw_rate_rad_s` | Forward from gate to pole |

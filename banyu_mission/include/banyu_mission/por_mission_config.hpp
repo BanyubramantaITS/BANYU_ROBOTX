@@ -67,9 +67,9 @@ struct PorMissionConfig
 
   // Timed POR strategy configuration (selected when use_vision == false)
   bool use_vision {false};
-  bool use_sensors {false};
-  bool use_baro_depth {false};
-  bool use_imu_yaw_cap {false};
+  bool use_sensors {true};
+  bool use_baro_depth {true};
+  bool use_imu_yaw_cap {true};
   double depth_kp {0.7};
   double max_depth_speed_mps {0.4};
 

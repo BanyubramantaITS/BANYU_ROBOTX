@@ -76,8 +76,8 @@ banyu_mission:
 
       # -----------------------------------------------------------------------
       # Timed POR Strategy Parameters (used when use_vision is false)
-      # - use_sensors: false -> 100% pure timer + speed/movement (no camera, no baro depth, no IMU yaw cap)
-      # - use_sensors: true  -> enables optional use_baro_depth / use_imu_yaw_cap / use_vision
+      # - use_sensors: true  (default) -> uses Pixhawk Baro depth hold (use_baro_depth) & IMU yaw (use_imu_yaw_cap)
+      # - use_sensors: false           -> 100% pure timer + speed/movement (ignores all sensors)
       # - Set any segment's *_duration_s to 0.0 to skip that segment.
       # Body-frame FLU convention:
       #   speed_x_mps: +forward / -backward
@@ -86,9 +86,9 @@ banyu_mission:
       #   yaw_rate_rad_s: +counter-clockwise (left) / -clockwise (right)
       # -----------------------------------------------------------------------
       use_vision: false
-      use_sensors: false
-      use_baro_depth: false
-      use_imu_yaw_cap: false
+      use_sensors: true
+      use_baro_depth: true
+      use_imu_yaw_cap: true
       depth_kp: 0.7
       max_depth_speed_mps: 0.4
 

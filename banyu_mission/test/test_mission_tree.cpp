@@ -611,14 +611,19 @@ TEST_F(MissionTest, PorTimedTreeLoadsAndUsesOrderedSegments)
   BT::BehaviorTreeFactory factory;
   banyu_mission::registerMissionNodes(factory, node, state);
 
-  const auto config = banyu_mission::PorMissionConfig::load(*node);
+  auto config = banyu_mission::PorMissionConfig::load(*node);
   EXPECT_FALSE(config.use_vision);
-  EXPECT_FALSE(config.use_sensors);
-  EXPECT_FALSE(config.use_baro_depth);
-  EXPECT_FALSE(config.use_imu_yaw_cap);
+  EXPECT_TRUE(config.use_sensors);
+  EXPECT_TRUE(config.use_baro_depth);
+  EXPECT_TRUE(config.use_imu_yaw_cap);
   EXPECT_NO_THROW(config.validate());
   auto blackboard = BT::Blackboard::create();
   blackboard->set("surface_depth", 0.0);
+  config.apply(blackboard);
+  EXPECT_TRUE(blackboard->get<bool>("use_baro_depth"));
+  EXPECT_TRUE(blackboard->get<bool>("use_imu_yaw_cap"));
+
+  config.use_sensors = false;
   config.apply(blackboard);
   EXPECT_FALSE(blackboard->get<bool>("use_baro_depth"));
   EXPECT_FALSE(blackboard->get<bool>("use_imu_yaw_cap"));
