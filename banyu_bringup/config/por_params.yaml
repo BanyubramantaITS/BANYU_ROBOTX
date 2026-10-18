@@ -89,6 +89,7 @@ por_detection:
     fallback_focal_length_px: 500.0
     buoy_reference_height_m: 1.5
     gate_reference_height_m: 2.0
+    image_topic: "/front_camera/image_raw"
     camera_info_topic: "/camera/camera_info"
     max_distance_m: 20.0
     use_gui: false

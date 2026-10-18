@@ -3,17 +3,9 @@
 banyu_mission:
   ros__parameters:
     fallback_mode: "SURFACE"
-    task2_follow_source: "fixture_route"
-    task2_pose_timeout_s: 3.0
-    task2_gps_receipt_pair_timeout_s: 3.0
-    task2_use_dvl: false
-    task2_gps_fix_timeout_s: 1.0
-    task2_gps_surface_depth: -0.4
-    task2_gps_surface_tolerance: 0.5
-    task2_gps_max_fix_pose_skew_s: 0.5
-    task2_pipeline_observation_topic: "/banyu/pipeline/observation"
-    task2_pipeline_ring_observation_topic: "/banyu/pipeline/ring_observation"
     topics:
+      pipeline_observation: "/banyu/pipeline/observation"
+      ring_observation: "/banyu/pipeline/ring_observation"
       pipeline_end: "/banyu/pipeline/end"
       pipeline_end_state: "/banyu/pipeline/end_state"
       run_lifecycle: "/banyu/mission/run_lifecycle"

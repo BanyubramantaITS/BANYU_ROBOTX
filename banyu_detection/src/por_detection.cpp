@@ -11,8 +11,11 @@ PorDetection::PorDetection()
 {
   this->declareParameters();
 
+  const auto imageTopic = this->declare_parameter<std::string>(
+    "image_topic",
+    "/front_camera/image_raw");
   _frontCameraSub = this->create_subscription<sensor_msgs::msg::Image>(
-    "/front_camera/image_raw", rclcpp::SensorDataQoS(),
+    imageTopic, rclcpp::SensorDataQoS(),
     std::bind(&PorDetection::frontCameraCb, this, std::placeholders::_1));
 
   const auto cameraInfoTopic = this->declare_parameter<std::string>(
@@ -104,16 +107,14 @@ void PorDetection::frontCameraCb(sensor_msgs::msg::Image::SharedPtr msg)
 
     _detectionPub->publish(detection);
   }
-  cv::imshow("Annotated", annotated);
-
-  cv::Mat matched {};
-  cv::bitwise_and(origImage, origImage, matched, mask);
-  cv::drawContours(matched, contours, -1, CV_WHITE);
   if (useGui) {
+    cv::imshow("Annotated", annotated);
+    cv::Mat matched {};
+    cv::bitwise_and(origImage, origImage, matched, mask);
+    cv::drawContours(matched, contours, -1, CV_WHITE);
     cv::imshow("Matched Image", matched);
+    cv::waitKey(1);
   }
-
-  cv::waitKey(1);
 }
 
 void PorDetection::cameraInfoCb(sensor_msgs::msg::CameraInfo::SharedPtr msg)

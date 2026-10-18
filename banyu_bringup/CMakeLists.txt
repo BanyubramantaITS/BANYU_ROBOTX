@@ -9,7 +9,6 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
-find_package(xacro REQUIRED)
 
 install(
     DIRECTORY launch config
@@ -42,6 +41,7 @@ if(BUILD_TESTING)
   )
   ament_lint_auto_find_test_dependencies()
   ament_add_pytest_test(test_task2_sim_provider test/test_task2_sim_provider.py)
+  ament_add_pytest_test(test_launch_readiness test/test_launch_readiness.py)
 endif()
 
 ament_package()

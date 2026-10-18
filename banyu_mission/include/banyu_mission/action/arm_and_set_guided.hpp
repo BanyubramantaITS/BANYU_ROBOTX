@@ -9,6 +9,7 @@
 #include "behaviortree_cpp/action_node.h"
 #include "behaviortree_cpp/basic_types.h"
 #include "banyu_mission/mission_state.hpp"
+#include "mavros_msgs/msg/position_target.hpp"
 #include "mavros_msgs/srv/command_bool.hpp"
 #include "mavros_msgs/srv/set_mode.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -23,7 +24,8 @@ public:
     const std::string & name, const BT::NodeConfig & config,
     rclcpp::Node::SharedPtr node, std::shared_ptr<MissionState> state,
     std::string set_mode_service = "/mavros/set_mode",
-    std::string arming_service = "/mavros/cmd/arming");
+    std::string arming_service = "/mavros/cmd/arming",
+    std::string setpoint_topic = "/mavros/setpoint_raw/local");
 
   static BT::PortsList providedPorts() {return {};}
 
@@ -43,13 +45,16 @@ private:
 
   void sendSetModeRequest();
   void sendArmingRequest();
+  void publishZeroVelocitySetpoint();
 
   rclcpp::Node::SharedPtr node_;
   std::shared_ptr<MissionState> state_;
   std::string set_mode_service_;
   std::string arming_service_;
+  std::string setpoint_topic_;
   rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr set_mode_client_;
   rclcpp::Client<mavros_msgs::srv::CommandBool>::SharedPtr arming_client_;
+  rclcpp::Publisher<mavros_msgs::msg::PositionTarget>::SharedPtr setpoint_pub_;
 
   std::mutex mutex_;
   uint64_t generation_{0};

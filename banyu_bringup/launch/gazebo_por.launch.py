@@ -73,6 +73,7 @@ def generate_launch_description():
         name="robot_state_publisher",
         output="both",
         parameters=[{"robot_description": bluerov2_heavy_xml}],
+        condition=IfCondition(LaunchConfiguration("use_sim")),
     )
 
     ros_gz_sim_launch = ExecuteProcess(
@@ -129,6 +130,7 @@ def generate_launch_description():
         executable="image_bridge",
         arguments=["/front_camera/image_raw"],
         output="screen",
+        condition=IfCondition(LaunchConfiguration("use_sim")),
     )
 
     bottom_camera_image_bridge = Node(
@@ -136,6 +138,7 @@ def generate_launch_description():
         executable="image_bridge",
         arguments=["/bottom_camera/image_raw"],
         output="screen",
+        condition=IfCondition(LaunchConfiguration("use_sim")),
     )
 
     # Gazebo sim time for every node running with use_sim_time (sensor stamps use it too).

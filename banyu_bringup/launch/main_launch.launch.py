@@ -15,6 +15,7 @@ from launch.substitutions import (
     PythonExpression,
 )
 from launch_ros.actions import SetParameter
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -100,12 +101,12 @@ def generate_launch_description():
     # SetUseSimTime only configures launch's own node; SetParameter reaches every launched node.
     set_use_sim_time = SetParameter(
         name="use_sim_time",
-        value=True,
-        condition=IfCondition(
+        value=ParameterValue(
             AndSubstitution(
                 EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
                 EqualsSubstitution(LaunchConfiguration("use_sim_time"), "True"),
-            )
+            ),
+            value_type=bool,
         ),
     )
 
@@ -123,7 +124,12 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             os.path.join(_banyu_bringup_share, "launch", "gazebo_por.launch.py")
         ),
-        condition=IfCondition(EqualsSubstitution(LaunchConfiguration("mode"), "por")),
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("mode"), "por"),
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+            )
+        ),
         launch_arguments={
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
@@ -134,7 +140,12 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             os.path.join(_banyu_bringup_share, "launch", "gazebo_main.launch.py")
         ),
-        condition=IfCondition(EqualsSubstitution(LaunchConfiguration("mode"), "task2")),
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("mode"), "task2"),
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+            )
+        ),
         launch_arguments={
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),

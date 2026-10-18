@@ -8,14 +8,18 @@ namespace banyu_mission
 ArmAndSetGuided::ArmAndSetGuided(
   const std::string & name, const BT::NodeConfig & config,
   rclcpp::Node::SharedPtr node, std::shared_ptr<MissionState> state,
-  std::string set_mode_service, std::string arming_service)
+  std::string set_mode_service, std::string arming_service,
+  std::string setpoint_topic)
 : BT::StatefulActionNode(name, config),
   node_(std::move(node)),
   state_(std::move(state)),
   set_mode_service_(std::move(set_mode_service)),
   arming_service_(std::move(arming_service)),
+  setpoint_topic_(std::move(setpoint_topic)),
   set_mode_client_(node_->create_client<mavros_msgs::srv::SetMode>(set_mode_service_)),
-  arming_client_(node_->create_client<mavros_msgs::srv::CommandBool>(arming_service_))
+  arming_client_(node_->create_client<mavros_msgs::srv::CommandBool>(arming_service_)),
+  setpoint_pub_(node_->create_publisher<mavros_msgs::msg::PositionTarget>(
+      setpoint_topic_, rclcpp::QoS(10)))
 {
 }
 
@@ -113,6 +117,7 @@ BT::NodeStatus ArmAndSetGuided::onRunning()
       return BT::NodeStatus::FAILURE;
     }
     if (state_->snapshot().mode != "GUIDED") {return BT::NodeStatus::RUNNING;}
+    publishZeroVelocitySetpoint();
     RCLCPP_INFO(node_->get_logger(), "Flight mode set to GUIDED. Arming vehicle...");
     sendArmingRequest();
     step_ = Step::WaitingForArming;
@@ -120,6 +125,7 @@ BT::NodeStatus ArmAndSetGuided::onRunning()
   }
 
   if (step_ == Step::WaitingForArming) {
+    publishZeroVelocitySetpoint();
     if (!arming_done_) {
       return BT::NodeStatus::RUNNING;
     }
@@ -201,6 +207,28 @@ void ArmAndSetGuided::sendArmingRequest()
         arming_success_ = false;
       }
     });
+}
+
+void ArmAndSetGuided::publishZeroVelocitySetpoint()
+{
+  if (!setpoint_pub_) {
+    return;
+  }
+  mavros_msgs::msg::PositionTarget target;
+  target.header.stamp = node_->now();
+  target.header.frame_id = "map";
+  target.coordinate_frame = mavros_msgs::msg::PositionTarget::FRAME_LOCAL_NED;
+  target.type_mask =
+    mavros_msgs::msg::PositionTarget::IGNORE_PX |
+    mavros_msgs::msg::PositionTarget::IGNORE_PY |
+    mavros_msgs::msg::PositionTarget::IGNORE_PZ |
+    mavros_msgs::msg::PositionTarget::IGNORE_AFX |
+    mavros_msgs::msg::PositionTarget::IGNORE_AFY |
+    mavros_msgs::msg::PositionTarget::IGNORE_AFZ |
+    mavros_msgs::msg::PositionTarget::IGNORE_YAW;
+  target.yaw = 0.0F;
+  target.yaw_rate = 0.0F;
+  setpoint_pub_->publish(target);
 }
 
 }  // namespace banyu_mission

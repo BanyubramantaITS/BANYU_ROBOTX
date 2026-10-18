@@ -187,8 +187,12 @@ def generate_launch_description():
                 name="robot_state_publisher",
                 output="both",
                 parameters=[{"robot_description": bluerov2_heavy_xml}],
+                condition=IfCondition(LaunchConfiguration("use_sim")),
             ),
-            LogInfo(msg=info_msg),
+            LogInfo(
+                msg=info_msg,
+                condition=IfCondition(LaunchConfiguration("use_sim")),
+            ),
             ExecuteProcess(
                 cmd=["gz", "sim", "-v3", "-r"]
                 + (["-s"] if LaunchConfiguration("headless").perform(context) == "True" else ["--gui-config", _gui_config])
@@ -232,8 +236,9 @@ def generate_launch_description():
     gazebo_ros_image_bridge = Node(
         package="ros_gz_image",
         executable="image_bridge",
-        arguments=["/front_camera/image_raw", "/bottom_camera/image_raw"],
+        arguments=["/front_camera/image_raw"],
         output="screen",
+        condition=IfCondition(LaunchConfiguration("use_sim")),
     )
 
     bottom_camera_image_bridge = Node(
@@ -241,6 +246,7 @@ def generate_launch_description():
         executable="image_bridge",
         arguments=["/bottom_camera/image_raw"],
         output="screen",
+        condition=IfCondition(LaunchConfiguration("use_sim")),
     )
 
     clock_bridge = Node(

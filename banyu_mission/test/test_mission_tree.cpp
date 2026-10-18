@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
+#include "banyu_mission/action/arm_and_set_guided.hpp"
 #include "banyu_mission/action_nodes.hpp"
 #include "banyu_mission/banyu_mission.hpp"
 #include "banyu_mission/por_mission_config.hpp"
@@ -701,4 +702,99 @@ TEST_F(MissionTest, SingleDroppedPipelineFrameDoesNotCountAsLosingThePipe)
     spin_for(std::chrono::milliseconds(20));
   }
   EXPECT_TRUE(state->pipelineLost());
+}
+
+TEST_F(MissionTest, ArmAndSetGuidedPublishesZeroVelocityYawRateSetpointsDuringArming)
+{
+  auto node = std::make_shared<rclcpp::Node>("arm_and_set_guided_setpoint_test");
+  auto helper_node = std::make_shared<rclcpp::Node>("arm_and_set_guided_helper_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get());
+
+  auto set_mode_server = helper_node->create_service<mavros_msgs::srv::SetMode>(
+    "/mavros/set_mode",
+    [](
+      const std::shared_ptr<mavros_msgs::srv::SetMode::Request>,
+      std::shared_ptr<mavros_msgs::srv::SetMode::Response> res) {
+      res->mode_sent = true;
+    });
+
+  auto arming_server = helper_node->create_service<mavros_msgs::srv::CommandBool>(
+    "/mavros/cmd/arming",
+    [](
+      const std::shared_ptr<mavros_msgs::srv::CommandBool::Request> req,
+      std::shared_ptr<mavros_msgs::srv::CommandBool::Response> res) {
+      res->success = req->value;
+    });
+
+  std::vector<mavros_msgs::msg::PositionTarget> received_setpoints;
+  auto setpoint_sub = helper_node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/mavros/setpoint_raw/local", rclcpp::QoS(10),
+    [&received_setpoints](const mavros_msgs::msg::PositionTarget::SharedPtr msg) {
+      received_setpoints.push_back(*msg);
+    });
+
+  auto status_pub = helper_node->create_publisher<banyu_msgs::msg::VehicleStatus>(
+    "/banyu/vehicle_status", rclcpp::QoS(5));
+  banyu_mission::ArmAndSetGuided action("ArmAndSetGuided", {}, node, state);
+
+  banyu_msgs::msg::VehicleStatus status;
+  status.fcu_connected = true;
+  status.fcu_status_fresh = true;
+  status.rc_fresh = true;
+  status.gps_valid = true;
+  status.gps_fresh = true;
+  status.operational_mode = 2;
+  status.mode = "GUIDED";
+  status.armed = false;
+  for (int i = 0; i < 15; ++i) {
+    status_pub->publish(status);
+    rclcpp::spin_some(node);
+    rclcpp::spin_some(helper_node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  // Tick 1: onStart sends SetMode request
+  EXPECT_EQ(action.executeTick(), BT::NodeStatus::RUNNING);
+  for (int i = 0; i < 10; ++i) {
+    status_pub->publish(status);
+    rclcpp::spin_some(node);
+    rclcpp::spin_some(helper_node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+
+  // Tick 2: SetMode succeeded and mode=="GUIDED" -> publishes 0x5C7 setpoint and sends Arm request
+  EXPECT_EQ(action.executeTick(), BT::NodeStatus::RUNNING);
+  for (int i = 0; i < 10; ++i) {
+    status_pub->publish(status);
+    rclcpp::spin_some(node);
+    rclcpp::spin_some(helper_node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+
+  // Tick 3: Waiting for armed status -> continues publishing 0x5C7 zero velocity/yaw-rate setpoint
+  EXPECT_EQ(action.executeTick(), BT::NodeStatus::RUNNING);
+  for (int i = 0; i < 10; ++i) {
+    rclcpp::spin_some(node);
+    rclcpp::spin_some(helper_node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+
+  ASSERT_GE(received_setpoints.size(), 2u);
+  for (const auto & sp : received_setpoints) {
+    EXPECT_EQ(sp.coordinate_frame, mavros_msgs::msg::PositionTarget::FRAME_LOCAL_NED);
+    EXPECT_EQ(sp.type_mask, 0x05C7u);
+    EXPECT_DOUBLE_EQ(sp.velocity.x, 0.0);
+    EXPECT_DOUBLE_EQ(sp.velocity.y, 0.0);
+    EXPECT_DOUBLE_EQ(sp.velocity.z, 0.0);
+    EXPECT_FLOAT_EQ(sp.yaw_rate, 0.0f);
+  }
+
+  status.armed = true;
+  for (int i = 0; i < 10; ++i) {
+    status_pub->publish(status);
+    rclcpp::spin_some(node);
+    rclcpp::spin_some(helper_node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  EXPECT_EQ(action.executeTick(), BT::NodeStatus::SUCCESS);
 }

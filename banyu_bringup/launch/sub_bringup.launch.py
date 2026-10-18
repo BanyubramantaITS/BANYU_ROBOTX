@@ -1,0 +1,183 @@
+import os
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import (
+    AndSubstitution,
+    EqualsSubstitution,
+    LaunchConfiguration,
+)
+from launch_ros.actions import Node, SetParameter
+
+
+def _make_camera_node(name, image_topic, info_topic, hardware_params, enable_cameras, target_mode, mode):
+    return Node(
+        package="v4l2_camera",
+        executable="v4l2_camera_node",
+        name=name,
+        output="screen",
+        parameters=[hardware_params],
+        remappings=[
+            ("image_raw", image_topic),
+            ("camera_info", info_topic),
+        ],
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(enable_cameras, "True"),
+                EqualsSubstitution(mode, target_mode),
+            )
+        ),
+    )
+
+
+def generate_launch_description():
+    banyu_bringup_share = get_package_share_directory("banyu_bringup")
+
+    default_por_params = os.path.join(
+        banyu_bringup_share, "config", "por_params.yaml"
+    )
+    default_task2_params = os.path.join(
+        banyu_bringup_share, "config", "task2_params.yaml"
+    )
+    default_hardware_params = os.path.join(
+        banyu_bringup_share, "config", "hardware_params.yaml"
+    )
+
+    mode_arg = DeclareLaunchArgument(
+        name="mode",
+        default_value="por",
+        description="Which competition mission to launch on the real AUV: 'por' or 'task2'.",
+        choices=["por", "task2"],
+    )
+
+    fcu_url_arg = DeclareLaunchArgument(
+        name="fcu_url",
+        default_value="/dev/ttyACM0:921600",
+        description=(
+            "FCU connection URL for the physical Pixhawk "
+            "(e.g. /dev/ttyACM0:921600 for direct USB serial or udp://192.168.2.1:14550@)."
+        ),
+    )
+
+    use_dvl_arg = DeclareLaunchArgument(
+        name="use_dvl",
+        default_value="False",
+        description="Enable DVL source switching when a DVL is fitted on the AUV.",
+        choices=["True", "False"],
+    )
+
+    debug_arg = DeclareLaunchArgument(
+        name="debug",
+        default_value="False",
+        description="Enable OpenCV debug windows (only when a display is attached).",
+        choices=["True", "False"],
+    )
+
+    enable_esp32_trigger_arg = DeclareLaunchArgument(
+        name="enable_esp32_trigger",
+        default_value="False",
+        description="Whether to launch the ESP32 trigger node.",
+        choices=["True", "False"],
+    )
+
+    enable_cameras_arg = DeclareLaunchArgument(
+        name="enable_cameras",
+        default_value="True",
+        description="Whether to launch local V4L2 USB camera driver nodes.",
+        choices=["True", "False"],
+    )
+
+    por_params_arg = DeclareLaunchArgument(
+        name="por_params_file",
+        default_value=default_por_params,
+        description="Path to ROS 2 parameter YAML file for POR nodes.",
+    )
+
+    task2_params_arg = DeclareLaunchArgument(
+        name="task2_params_file",
+        default_value=default_task2_params,
+        description="Path to ROS 2 parameter YAML file for Task 2 nodes.",
+    )
+
+    hardware_params_arg = DeclareLaunchArgument(
+        name="hardware_params_file",
+        default_value=default_hardware_params,
+        description="Path to ROS 2 parameter YAML file for hardware camera/sensor nodes.",
+    )
+
+    set_wall_time = SetParameter(name="use_sim_time", value=False)
+
+    mode = LaunchConfiguration("mode")
+    enable_cameras = LaunchConfiguration("enable_cameras")
+    hardware_params = LaunchConfiguration("hardware_params_file")
+
+    mavros_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(banyu_bringup_share, "launch", "sitl_mavros.launch.py")
+        ),
+        launch_arguments={
+            "use_sim": "False",
+            "use_sim_time": "False",
+            "use_ardusub_sitl": "False",
+            "fcu_url": LaunchConfiguration("fcu_url"),
+            "use_dvl": LaunchConfiguration("use_dvl"),
+        }.items(),
+    )
+
+    front_camera_node = _make_camera_node(
+        name="front_camera",
+        image_topic="/front_camera/image_raw",
+        info_topic="/camera/camera_info",
+        hardware_params=hardware_params,
+        enable_cameras=enable_cameras,
+        target_mode="por",
+        mode=mode,
+    )
+
+    bottom_camera_node = _make_camera_node(
+        name="bottom_camera",
+        image_topic="/bottom_camera/image_raw",
+        info_topic="/bottom_camera/camera_info",
+        hardware_params=hardware_params,
+        enable_cameras=enable_cameras,
+        target_mode="task2",
+        mode=mode,
+    )
+
+    mission_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(banyu_bringup_share, "launch", "mission.launch.py")
+        ),
+        launch_arguments={
+            "mode": mode,
+            "use_sim": "False",
+            "use_sim_time": "False",
+            "debug": LaunchConfiguration("debug"),
+            "enable_esp32_trigger": LaunchConfiguration("enable_esp32_trigger"),
+            "por_params_file": LaunchConfiguration("por_params_file"),
+            "task2_params_file": LaunchConfiguration("task2_params_file"),
+            "hardware_params_file": hardware_params,
+        }.items(),
+    )
+
+    return LaunchDescription(
+        [
+            mode_arg,
+            fcu_url_arg,
+            use_dvl_arg,
+            debug_arg,
+            enable_esp32_trigger_arg,
+            enable_cameras_arg,
+            por_params_arg,
+            task2_params_arg,
+            hardware_params_arg,
+            set_wall_time,
+            mavros_launch,
+            front_camera_node,
+            bottom_camera_node,
+            mission_launch,
+        ]
+    )

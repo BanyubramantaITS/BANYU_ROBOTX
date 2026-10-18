@@ -6,12 +6,17 @@
 
 using namespace banyu_detection;
 
-namespace {
-const std::vector<Vec3> kArray = {{0.15, 0, -0.1}, {-0.15, 0, -0.1}, {0, 0.15, -0.1}, {0, -0.15, -0.1}};
+namespace
+{
+const std::vector<Vec3> kArray = {{0.15, 0, -0.1}, {-0.15, 0, -0.1}, {0, 0.15, -0.1},
+  {0, -0.15, -0.1}};
 
-std::vector<double> arrivals(const Vec3& src) {
+std::vector<double> arrivals(const Vec3 & src)
+{
   std::vector<double> t;
-  for (const auto& h : kArray) t.push_back(std::hypot(h[0] - src[0], h[1] - src[1], h[2] - src[2]) / kSoundSpeed);
+  for (const auto & h : kArray) {
+    t.push_back(std::hypot(h[0] - src[0], h[1] - src[1], h[2] - src[2]) / kSoundSpeed);
+  }
   return t;
 }
 }  // namespace

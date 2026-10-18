@@ -24,6 +24,9 @@ def generate_launch_description():
     default_por_params = os.path.join(
         banyu_bringup_share, "config", "por_params.yaml"
     )
+    default_hardware_params = os.path.join(
+        banyu_bringup_share, "config", "hardware_params.yaml"
+    )
 
     mode_arg = DeclareLaunchArgument(
         name="mode",
@@ -64,6 +67,12 @@ def generate_launch_description():
         description="Path to ROS 2 parameter YAML file for POR nodes",
     )
 
+    hardware_params_arg = DeclareLaunchArgument(
+        name="hardware_params_file",
+        default_value=default_hardware_params,
+        description="Path to ROS 2 parameter YAML file for hardware camera/sensor overrides",
+    )
+
     enable_esp32_trigger_arg = DeclareLaunchArgument(
         name="enable_esp32_trigger",
         default_value="False",
@@ -74,12 +83,12 @@ def generate_launch_description():
     # SetUseSimTime only configures launch's own node; SetParameter reaches every launched node.
     set_use_sim_time = SetParameter(
         name="use_sim_time",
-        value=True,
-        condition=IfCondition(
+        value=ParameterValue(
             AndSubstitution(
                 EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
                 EqualsSubstitution(LaunchConfiguration("use_sim_time"), "True"),
-            )
+            ),
+            value_type=bool,
         ),
     )
 
@@ -88,11 +97,16 @@ def generate_launch_description():
     debug = LaunchConfiguration("debug")
     task2_params = LaunchConfiguration("task2_params_file")
     por_params = LaunchConfiguration("por_params_file")
+    hardware_params = LaunchConfiguration("hardware_params_file")
 
     task2_fixture_mode = AndSubstitution(
         EqualsSubstitution(mode, "task2"),
         EqualsSubstitution(use_sim, "True"),
     )
+
+    task2_hardware_override = PythonExpression([
+        "'", task2_params, "' if '", use_sim, "'.lower() == 'true' else '", hardware_params, "'"
+    ])
 
     por_mission_manager = Node(
         package="banyu_mission",
@@ -115,11 +129,9 @@ def generate_launch_description():
         output="screen",
         parameters=[
             task2_params,
+            task2_hardware_override,
             {
                 "mission_mode": mode,
-                "task2_fixture_mode": ParameterValue(
-                    task2_fixture_mode, value_type=bool
-                ),
             },
         ],
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
@@ -228,7 +240,7 @@ def generate_launch_description():
         package="banyu_detection",
         executable="ring_tracker_node",
         name="ring_tracker",
-        parameters=[task2_params],
+        parameters=[task2_params, task2_hardware_override],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -313,7 +325,7 @@ def generate_launch_description():
         package="banyu_vehicle_interface",
         executable="esp32_bridge_node",
         name="esp32_bridge_node",
-        parameters=[active_params],
+        parameters=[active_params, hardware_params],
         output="screen",
         condition=UnlessCondition(LaunchConfiguration("use_sim")),
     )
@@ -322,7 +334,7 @@ def generate_launch_description():
         package="banyu_vehicle_interface",
         executable="esp32_trigger_node",
         name="esp32_trigger_node",
-        parameters=[active_params],
+        parameters=[active_params, hardware_params],
         output="screen",
         condition=IfCondition(LaunchConfiguration("enable_esp32_trigger")),
     )
@@ -345,6 +357,7 @@ def generate_launch_description():
             debug_arg,
             task2_params_arg,
             por_params_arg,
+            hardware_params_arg,
             enable_esp32_trigger_arg,
             set_use_sim_time,
             por_mission_manager,
