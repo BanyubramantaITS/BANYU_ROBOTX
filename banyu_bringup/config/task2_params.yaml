@@ -73,6 +73,8 @@ task2_pipeline_detector:
   ros__parameters:
     use_gui: false
     image_topic: "/bottom_camera/image_raw"
+    # Launch sets this true on the real AUV (use_sim:=False)
+    use_compressed_image: false
     camera_info_topic: "/bottom_camera/camera_info"
     observation_topic: "/banyu/pipeline/observation"
     ring_observation_topic: "/banyu/pipeline/ring_observation"

@@ -12,6 +12,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/image_encodings.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <stdexcept>
 #include <string>
@@ -60,9 +61,15 @@ public:
     if (image_topic_.empty()) {
       throw std::invalid_argument("image_topic must not be empty");
     }
-    image_sub_ = create_subscription<sensor_msgs::msg::Image>(
-      image_topic_, rclcpp::SensorDataQoS(),
-      std::bind(&Task2PipelineDetector::imageCallback, this, std::placeholders::_1));
+    if (use_compressed_image_) {
+      compressed_image_sub_ = create_subscription<sensor_msgs::msg::CompressedImage>(
+        image_topic_ + "/compressed", rclcpp::SensorDataQoS(),
+        std::bind(&Task2PipelineDetector::compressedImageCallback, this, std::placeholders::_1));
+    } else {
+      image_sub_ = create_subscription<sensor_msgs::msg::Image>(
+        image_topic_, rclcpp::SensorDataQoS(),
+        std::bind(&Task2PipelineDetector::imageCallback, this, std::placeholders::_1));
+    }
 
     if (use_camera_info_ && !camera_info_topic_.empty()) {
       camera_info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
@@ -76,7 +83,8 @@ public:
 
     RCLCPP_INFO(
       get_logger(), "task2_pipeline_detector listening on %s (GUI: %s)",
-      image_topic_.c_str(), use_gui_ ? "enabled" : "disabled");
+      (use_compressed_image_ ? image_topic_ + "/compressed" : image_topic_).c_str(),
+      use_gui_ ? "enabled" : "disabled");
   }
 
   ~Task2PipelineDetector() override
@@ -91,6 +99,7 @@ private:
   {
     use_gui_ = declare_parameter<bool>("use_gui", false);
     image_topic_ = declare_parameter<std::string>("image_topic", "/front_camera/image_raw");
+    use_compressed_image_ = declare_parameter<bool>("use_compressed_image", false);
     camera_info_topic_ = declare_parameter<std::string>("camera_info_topic", "/camera/camera_info");
     use_camera_info_ = declare_parameter<bool>("use_camera_info", true);
     observation_topic_ = declare_parameter<std::string>(
@@ -340,6 +349,16 @@ private:
     camera_height_ = msg->height;
     camera_cx_ = msg->k[2];
     camera_cy_ = msg->k[5];
+  }
+
+  void compressedImageCallback(const sensor_msgs::msg::CompressedImage::SharedPtr msg)
+  {
+    try {
+      imageCallback(cv_bridge::toCvCopy(*msg, sensor_msgs::image_encodings::BGR8)->toImageMsg());
+    } catch (const cv_bridge::Exception & error) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 5000, "Compressed image decode failed: %s", error.what());
+    }
   }
 
   void imageCallback(const sensor_msgs::msg::Image::SharedPtr msg)
@@ -1023,6 +1042,7 @@ private:
   }
 
   std::string image_topic_;
+  bool use_compressed_image_ {false};
   std::string camera_info_topic_;
   bool use_camera_info_ {true};
   std::string observation_topic_;
@@ -1089,6 +1109,7 @@ private:
 
   cv::Rect probe_rect_{};
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr compressed_image_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_sub_;
   rclcpp::Publisher<banyu_msgs::msg::PipelineObservation>::SharedPtr observation_pub_;
   rclcpp::Publisher<banyu_msgs::msg::PipelineRingObservation>::SharedPtr ring_observation_pub_;

@@ -14,9 +14,16 @@ PorDetection::PorDetection(const rclcpp::NodeOptions & options)
   const auto imageTopic = this->declare_parameter<std::string>(
     "image_topic",
     "/front_camera/image_raw");
-  _frontCameraSub = this->create_subscription<sensor_msgs::msg::Image>(
-    imageTopic, rclcpp::SensorDataQoS(),
-    std::bind(&PorDetection::frontCameraCb, this, std::placeholders::_1));
+  const bool useCompressed = this->declare_parameter<bool>("use_compressed_image", false);
+  if (useCompressed) {
+    _frontCameraCompressedSub = this->create_subscription<sensor_msgs::msg::CompressedImage>(
+      imageTopic + "/compressed", rclcpp::SensorDataQoS(),
+      std::bind(&PorDetection::frontCameraCompressedCb, this, std::placeholders::_1));
+  } else {
+    _frontCameraSub = this->create_subscription<sensor_msgs::msg::Image>(
+      imageTopic, rclcpp::SensorDataQoS(),
+      std::bind(&PorDetection::frontCameraCb, this, std::placeholders::_1));
+  }
 
   const auto cameraInfoTopic = this->declare_parameter<std::string>(
     "camera_info_topic",
@@ -58,6 +65,16 @@ void PorDetection::declareParameters()
   kernelSize = this->declare_parameter<int>("kernel_size", 5);
   buoyAspectMax = this->declare_parameter<int>("buoy_aspect_max", 65);
   gateAspectMin = this->declare_parameter<int>("gate_aspect_min", 85);
+}
+
+void PorDetection::frontCameraCompressedCb(sensor_msgs::msg::CompressedImage::SharedPtr msg)
+{
+  try {
+    frontCameraCb(cv_bridge::toCvCopy(*msg, "bgr8")->toImageMsg());
+  } catch (const cv_bridge::Exception & e) {
+    RCLCPP_WARN_THROTTLE(
+      this->get_logger(), *this->get_clock(), 5000, "Compressed image decode failed: %s", e.what());
+  }
 }
 
 void PorDetection::frontCameraCb(sensor_msgs::msg::Image::SharedPtr msg)

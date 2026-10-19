@@ -221,6 +221,8 @@ por_detection:
     min_height_px: 10
     min_width_px: 10
     image_topic: "/front_camera/image_raw"
+    # Launch sets this true on the real AUV (use_sim:=False)
+    use_compressed_image: false
     camera_info_topic: "/camera/camera_info"
     max_distance_m: 20.0
     use_gui: false
