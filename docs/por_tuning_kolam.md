@@ -8,6 +8,7 @@ Hasil simulasi dan model gerak ada di [`por_timed_tuning.md`](por_timed_tuning.m
 | Strafe box (**paling aman**) | `por_params_timed_fast.yaml` | 55 s | kecepatan −8%..+5%, heading ±6° |
 | Diamond mundur (**tercepat**) | `por_params_timed_fastest.yaml` | 33,3 s | kecepatan ±6%, heading +6° (gagal −6°) |
 | Diamond putar balik | `por_params_timed_fastest_turn.yaml` | 39,1 s | putaran harus akurat ±3° |
+| **Diamond + kamera** | `por_params_vision_assisted.yaml` | lihat bagian 8 | kamera mengoreksi heading, jarak, dan arah ke gate |
 
 Tuning dikerjakan berurutan: kalibrasi kecepatan dulu, baru segmen satu per
 satu. Mulai dari strafe box, setelah itu diamond.
@@ -152,13 +153,144 @@ robot meleset 2 m dari gate.
 3. **Diamond putar balik** (`por_params_timed_fastest_turn.yaml`), hanya kalau
    putarannya konsisten ±3°.
 
-## Catatan: mode kamera
+## 8. Strategi Diamond + Kamera (`por_params_vision_assisted.yaml`)
 
-- `por_params_hybrid.yaml` (`use_vision_return: true`) berangkat dan loop pakai
-  timer, lalu pulang lewat gate pakai kamera.
+Gate **kuning**, marker **oranye**. Kerangkanya tetap timer diamond D3,
+ditambah koreksi kamera. Setiap langkah kamera punya batas waktu, dan kalau
+kamera gagal robot lanjut dengan timer.
+
+| # | Langkah | Kamera | Fallback |
+|---|---|---|---|
+| 0 | `AlignGate` dari posisi start (geser + atur kedalaman ke tengah gate) | gate | lewati setelah `assist_gate_align_max_s` |
+| 1–3 | dive + approach (timer) | – | – |
+| 3b | `AlignMarker` **hanya geser ke samping** sampai marker di tengah (memperbaiki error heading start) | marker | lewati setelah `assist_marker_align_max_s` |
+| 4 | diamond (timer) | – | – |
+| 5 | `return_turn` 180° (IMU) | – | – |
+| 6 | `SearchGate` (maks 1,5 s), lalu `TurnAround` mengunci heading ke gate, lalu `PassGate` **maju** sambil steering ke gate | gate | gate tidak terlihat: `return_to_gate` timer maju dengan heading IMU |
+| 7 | surface | – | – |
+
+Jarak tetap diatur timer, karena estimasi jarak pole dari kamera tidak bisa
+dipercaya. Di sim, jarak asli 3 m terbaca 11–14 m karena sisi pole yang
+gelap tidak lolos HSV. Kalibrasi kecepatan ±6% tetap wajib.
+
+Hasil sim (gate kuning, marker oranye):
+
+| Tes | Hasil | Lewat gate kembali |
+|---|---|---|
+| Nominal | ✅ | 42,3 s |
+| Heading −6° (timer-only gagal) | ✅ | 45,0 s |
+| Heading +6° | ✅ | 45,7 s |
+| Speed +6% / −6% | ✅ / ✅ | 41,7 / 42,1 s |
+| Tanpa kamera (detector dibutakan, semua fallback timer) | ✅ | 45,0 s |
+
+```bash
+ros2 launch banyu_bringup sub_bringup.launch.py mode:=por \
+  por_params_file:=$PWD/src/BANYU_ROBOTX/banyu_bringup/config/por_params_vision_assisted.yaml
+```
+
+Set `assist_*_max_s: 0.0` untuk mematikan satu koreksi kamera.
+
+Aksi kamera bergerak memakai heading dari `/mavros/local_position/pose`.
+Kalau pose tidak ada (tanpa DVL), heading diambil dari `/mavros/imu/data`.
+
+## 9. Tuning warna gate & marker pakai slider
+
+Detector memakai HSV terpisah per objek (`color_mode: "per_object"`):
+
+| Objek | Parameter | Default |
+|---|---|---|
+| Gate (kuning) | `gate_h_min/max`, `gate_s_min/max`, `gate_v_min/max` | H 20–35, S 80–255, V 80–255 |
+| Marker (oranye) | `marker_h_min/max`, `marker_s_min/max`, `marker_v_min/max` | H 5–18, S 120–255, V 100–255 |
+| Filter | `min_area`, `morph_kernel`, `buoy_aspect_max` | 300, 3, 65 |
+
+Hue OpenCV bernilai 0–179. Kalau `h_min > h_max`, range-nya melingkar lewat 0
+(dipakai untuk merah, misalnya `h_min 170`, `h_max 10`).
+
+### Cara A: tool slider + preview mask (disarankan)
+
+Robot menjalankan stack seperti biasa. Di laptop (dengan `ROS_DOMAIN_ID` sama
+dengan robot):
+
+```bash
+python3 src/BANYU_ROBOTX/tools/scripts/por_hsv_tuner.py          # lewat WiFi (compressed)
+python3 src/BANYU_ROBOTX/tools/scripts/por_hsv_tuner.py --raw    # sim / kabel LAN
+```
+
+- Ada 3 jendela slider: **Gate HSV (yellow)**, **Marker HSV (orange)**, dan **Filter**.
+- Slider langsung mengubah parameter detector di robot, tanpa restart.
+- Jendela **POR HSV tuner** menampilkan gambar annotated, mask gate, dan mask
+  marker dari detector di robot.
+- Tombol **`s`** menyimpan nilai saat ini (lewat `/por_detection/save_params`)
+  ke `~/por_detection_tuned.yaml` di robot, dan juga mencetak snippet YAML-nya
+  di terminal.
+- Tombol **`r`** membaca ulang nilai dari robot. Tombol **`q`** keluar.
+
+Target tuning:
+- Mask gate: putih **hanya** di tiang dan palang gate.
+- Mask marker: putih **hanya** di pole marker.
+- Lantai, garis lane, dan pantulan cahaya harus hitam.
+
+Urutan geser slider:
+1. Persempit `h_min`/`h_max` sampai warna lain hilang.
+2. Naikkan `s_min` untuk membuang air atau lantai yang pucat.
+3. Atur `v_min` untuk bayangan.
+4. Naikkan `min_area` untuk membuang bintik kecil.
+
+### Cara B: `rqt_reconfigure`
+
+```bash
+ros2 run rqt_reconfigure rqt_reconfigure     # pilih /por_detection
+ros2 run rqt_image_view rqt_image_view        # /banyu/detection/debug/annotated/compressed
+```
+
+Semua parameter HSV muncul sebagai slider.
+
+### Cara C: offline dari rekaman
+
+Rekam dulu video kamera di kolam (atau `ros2 bag record /front_camera/image_raw`
+lalu export frame-nya), kemudian:
+
+```bash
+python3 src/BANYU_ROBOTX/tools/scripts/por_hsv_tuner.py --source rekaman_kolam.mp4
+```
+
+Spasi untuk pause dan `s` untuk menyimpan ke `~/por_detection_tuned.yaml`.
+
+### Cara D: jendela OpenCV di robot (butuh monitor atau X forwarding)
+
+`ros2 launch banyu_bringup sub_bringup.launch.py mode:=por debug:=True`
+
+### Kalibrasi jarak marker dan gate
+
+`AlignMarker` menjaga jarak 3,0–3,6 m dari marker, berdasarkan estimasi jarak
+dari ukuran objek di gambar. Estimasi ini harus cocok dengan jarak asli.
+
+1. Taruh robot 3,0 m (diukur meteran) di depan marker.
+2. Jalankan `ros2 topic echo /banyu/detection/marker --once` dan lihat
+   `distance`.
+3. Koreksi `buoy_reference_width_m` (bagian `por_detection` di YAML profil):
+   **`baru = lama × 3,0 / distance_terbaca`**.
+4. Lakukan hal yang sama untuk gate dengan `gate_reference_width_m` dan
+   `gate_reference_height_m`.
+
+Di sim, marker terbaca 1,6 m saat jarak aslinya sekitar 2,7 m, sehingga
+`buoy_reference_width_m` diset 0,5.
+
+### Simpan permanen
+
+Salin nilai dari `~/por_detection_tuned.yaml` ke
+`banyu_detection/config/por_detection_params.yaml`, lalu rebuild:
+`colcon build --packages-select banyu_detection`.
+
+Cek deteksi:
+- `ros2 topic echo /banyu/detection/gate --once`
+- `ros2 topic echo /banyu/detection/marker --once`
+
+## Catatan
+
+- `por_params_hybrid.yaml` (`use_vision_return: true`): strafe box timer, lalu
+  pulang pakai kamera.
 - `use_vision: true` menjalankan full vision (`bt/por_mission.xml`).
-- Semua aksi vision baru bergerak kalau `/mavros/local_position/pose` tersedia.
-  Cek dulu di robot dengan `ros2 topic hz /mavros/local_position/pose`.
 - Kalau sim dijalankan di laptop yang satu jaringan dengan robot, pakai
   `ROS_DOMAIN_ID` yang berbeda. Kalau tidak, traffic robot memicu
   "Vehicle safety or run authorization fault" di sim.

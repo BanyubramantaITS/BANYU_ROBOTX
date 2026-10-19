@@ -85,7 +85,8 @@ BANYU_POR_PORTS(
   BT::InputPort<double>("minimum_distance_m"), BT::InputPort<double>("standoff_min_m"),
   BT::InputPort<double>("standoff_max_m"),
   BT::InputPort<double>("hold_time_s"),
-  BT::InputPort<double>("timeout_s"))
+  BT::InputPort<double>("timeout_s"),
+  BT::InputPort<bool>("lateral_only", false, "Centre sideways only, no range hold"))
 banyu_msgs::action::AlignMarker::Goal AlignMarkerNode::makeGoal()
 {
   Goal goal;
@@ -100,6 +101,7 @@ banyu_msgs::action::AlignMarker::Goal AlignMarkerNode::makeGoal()
   goal.standoff_max_m = input<double>("standoff_max_m");
   goal.hold_time_s = input<double>("hold_time_s");
   goal.timeout_s = input<double>("timeout_s");
+  goal.lateral_only = input<bool>("lateral_only");
   return goal;
 }
 

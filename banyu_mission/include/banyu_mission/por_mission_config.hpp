@@ -69,6 +69,17 @@ struct PorMissionConfig
   bool use_vision {false};
   // Hybrid: timed outbound + marker loop, then camera-guided turn and gate return
   bool use_vision_return {false};
+  // Vision-assisted: timed diamond with camera corrections (gate align at the
+  // start, marker range/lateral align before the loop) and a camera-guided
+  // turn-and-pass return. Every camera step is time-boxed with a timer fallback.
+  bool use_vision_assist {false};
+  double assist_gate_align_max_s {3.0};
+  double assist_gate_deadband {0.06};
+  double assist_marker_align_max_s {4.0};
+  double assist_marker_standoff_min_m {3.0};
+  double assist_marker_standoff_max_m {3.6};
+  double assist_marker_deadband {0.08};
+  double assist_align_hold_s {0.3};
   bool use_sensors {true};
   bool use_baro_depth {true};
   bool use_imu_yaw_cap {true};

@@ -12,6 +12,10 @@
       <geometry>
         <mesh filename="package://banyu_simulation/models/yellow_buoy/meshes/yellow_buoy.dae" />
       </geometry>
+      <!-- Course marker is orange (gate stays yellow) so the detector separates them by colour. -->
+      <material name="marker_orange">
+        <color rgba="1.0 0.15 0.0 1.0" />
+      </material>
     </visual>
     <collision name="collision_inner">
       <origin xyz=" 0 0 0.3637" />

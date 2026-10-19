@@ -105,6 +105,19 @@ PorMissionConfig PorMissionConfig::load(rclcpp::Node & node)
     };
   config.use_vision = bool_param("use_vision", config.use_vision);
   config.use_vision_return = bool_param("use_vision_return", config.use_vision_return);
+  config.use_vision_assist = bool_param("use_vision_assist", config.use_vision_assist);
+  config.assist_gate_align_max_s = parameter(
+    "assist_gate_align_max_s", config.assist_gate_align_max_s);
+  config.assist_gate_deadband = parameter("assist_gate_deadband", config.assist_gate_deadband);
+  config.assist_marker_align_max_s = parameter(
+    "assist_marker_align_max_s", config.assist_marker_align_max_s);
+  config.assist_marker_standoff_min_m = parameter(
+    "assist_marker_standoff_min_m", config.assist_marker_standoff_min_m);
+  config.assist_marker_standoff_max_m = parameter(
+    "assist_marker_standoff_max_m", config.assist_marker_standoff_max_m);
+  config.assist_marker_deadband = parameter(
+    "assist_marker_deadband", config.assist_marker_deadband);
+  config.assist_align_hold_s = parameter("assist_align_hold_s", config.assist_align_hold_s);
   config.use_sensors = bool_param("use_sensors", config.use_sensors);
   config.use_baro_depth = bool_param("use_baro_depth", config.use_baro_depth);
   config.use_imu_yaw_cap = bool_param("use_imu_yaw_cap", config.use_imu_yaw_cap);
@@ -288,14 +301,18 @@ void PorMissionConfig::validate() const
     turn_timeout_s, gate_search_speed_mps, gate_search_timeout_s, return_gate_pass_speed_mps,
     return_gate_pass_target_distance_m, return_gate_pass_minimum_distance_m,
     return_gate_pass_blind_duration_s, return_gate_pass_timeout_s,
-    depth_kp, max_depth_speed_mps};
+    depth_kp, max_depth_speed_mps, assist_gate_deadband, assist_marker_standoff_min_m,
+    assist_marker_standoff_max_m, assist_marker_deadband, assist_align_hold_s};
   for (const double value : values) {
     if (!std::isfinite(value) || value <= 0.0) {
       throw std::invalid_argument("POR mission parameters must be finite and positive");
     }
   }
+  if (assist_marker_standoff_max_m < assist_marker_standoff_min_m) {
+    throw std::invalid_argument("assist_marker_standoff_max_m must be >= the min");
+  }
   const std::array nonnegative_values {
-    surface_watchdog_timeout_s,
+    surface_watchdog_timeout_s, assist_gate_align_max_s, assist_marker_align_max_s,
     dive_duration_s, timed_pass_gate_duration_s, approach_pole_duration_s,
     circle_turn_1_duration_s, circle_turn_1_target_angle_rad, circle_forward_1_duration_s,
     circle_turn_2_duration_s, circle_turn_2_target_angle_rad, circle_forward_2_duration_s,
@@ -407,6 +424,20 @@ void PorMissionConfig::apply(const BT::Blackboard::Ptr & blackboard) const
 
   blackboard->set("use_vision", use_vision);
   blackboard->set("use_vision_return", use_vision_return);
+  blackboard->set("use_vision_assist", use_vision_assist);
+  // BT Timeout decorators take whole milliseconds.
+  blackboard->set(
+    "assist_gate_align_max_ms", static_cast<unsigned>(std::lround(assist_gate_align_max_s * 1000.0)));
+  blackboard->set(
+    "assist_marker_align_max_ms",
+    static_cast<unsigned>(std::lround(assist_marker_align_max_s * 1000.0)));
+  blackboard->set("assist_gate_align_max_s", assist_gate_align_max_s);
+  blackboard->set("assist_marker_align_max_s", assist_marker_align_max_s);
+  blackboard->set("assist_gate_deadband", assist_gate_deadband);
+  blackboard->set("assist_marker_standoff_min_m", assist_marker_standoff_min_m);
+  blackboard->set("assist_marker_standoff_max_m", assist_marker_standoff_max_m);
+  blackboard->set("assist_marker_deadband", assist_marker_deadband);
+  blackboard->set("assist_align_hold_s", assist_align_hold_s);
   blackboard->set("use_sensors", use_sensors);
   blackboard->set("use_baro_depth", use_sensors && use_baro_depth);
   blackboard->set("use_imu_yaw_cap", use_sensors && use_imu_yaw_cap);

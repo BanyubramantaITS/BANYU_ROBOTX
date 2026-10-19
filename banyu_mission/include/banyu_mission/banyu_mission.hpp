@@ -127,6 +127,7 @@ private:
   std::atomic_bool mission_config_valid_{false};
   bool por_use_vision_{false};
   bool por_use_vision_return_{false};
+  bool por_use_vision_assist_{false};
   std::string fallback_mode_{"SURFACE"};
   std::string set_mode_service_{"/mavros/set_mode"};
   rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr set_mode_client_;

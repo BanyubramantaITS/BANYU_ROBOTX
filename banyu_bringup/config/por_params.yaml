@@ -89,6 +89,18 @@ banyu_mission:
       # true: timed outbound + loop, then camera TurnAround/SearchGate/AlignGate/PassGate
       # return (bt/por_hybrid_mission.xml); timed return_to_gate is the fallback.
       use_vision_return: false
+      # Vision-assisted strategy (bt/por_vision_assisted_mission.xml), used when
+      # use_vision is false and use_vision_assist is true. Timed diamond + camera:
+      # gate align at the start, marker align before the loop, camera turn-and-pass
+      # return. Each camera step is time-boxed (*_max_s, 0 = skip) and falls back to timers.
+      use_vision_assist: false
+      assist_gate_align_max_s: 3.0
+      assist_gate_deadband: 0.06
+      assist_marker_align_max_s: 4.0
+      assist_marker_standoff_min_m: 3.0
+      assist_marker_standoff_max_m: 3.6
+      assist_marker_deadband: 0.08
+      assist_align_hold_s: 0.3
       use_sensors: true
       use_baro_depth: true
       use_imu_yaw_cap: true
@@ -238,6 +250,7 @@ vehicle_execution_node:
       execution_readiness: "/banyu/execution/readiness"
       status: "/banyu/vehicle_status"
       pose: "/mavros/local_position/pose"
+      imu: "/mavros/imu/data" # heading fallback for camera actions without a pose
       gps: "/mavros/global_position/raw/fix"
       detection: "/banyu/detection"
       preview_target: "/banyu/execution/preview_target"

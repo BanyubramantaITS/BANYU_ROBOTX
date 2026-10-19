@@ -593,8 +593,14 @@ std::string BanyuMission::xmlPath()
 {
   std::string mission_mode = "task2";
   get_parameter("mission_mode", mission_mode);
-  const std::string por_tree = por_use_vision_ ? "por_mission.xml" :
-    (por_use_vision_return_ ? "por_hybrid_mission.xml" : "por_timed_mission.xml");
+  std::string por_tree = "por_timed_mission.xml";
+  if (por_use_vision_) {
+    por_tree = "por_mission.xml";
+  } else if (por_use_vision_assist_) {
+    por_tree = "por_vision_assisted_mission.xml";
+  } else if (por_use_vision_return_) {
+    por_tree = "por_hybrid_mission.xml";
+  }
   const auto default_tree = ament_index_cpp::get_package_share_directory(
     "banyu_mission") + "/bt/" +
     (mission_mode == "por" ? por_tree : std::string("banyu_mission.xml"));
@@ -609,6 +615,7 @@ void BanyuMission::configurePorBlackboard(const BT::Blackboard::Ptr & blackboard
     config.validate();
     por_use_vision_ = config.use_vision;
     por_use_vision_return_ = config.use_vision_return;
+    por_use_vision_assist_ = config.use_vision_assist;
     config.apply(blackboard);
   } catch (const std::exception & error) {
     mission_config_valid_ = false;

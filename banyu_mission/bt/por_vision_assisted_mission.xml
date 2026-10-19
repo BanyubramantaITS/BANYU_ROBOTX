@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4" main_tree_to_execute="Main">
+  <BehaviorTree ID="Main">
+    <ReactiveFallback name="por_vision_assisted_mission_root">
+      <Sequence name="interrupt_sequence">
+        <AutonomyInterrupted />
+        <HandleAbortOrTeleop />
+      </Sequence>
+      <Sequence name="por_vision_assisted_mission_phases">
+        <Sequence name="mission_preflight">
+          <RequireMissionStarted />
+          <ArmAndSetGuided />
+        </Sequence>
+        <!-- 0. Camera: centre the gate (lateral + vertical) from the start position.
+             Time-boxed; if the gate is not seen or not centred in time, carry on timed. -->
+        <Fallback name="assist_gate_align">
+          <Timeout msec="{assist_gate_align_max_ms}">
+            <AlignGate deadband_x="{assist_gate_deadband}" deadband_y="{assist_gate_deadband}"
+              gain_x="{gate_align_gain_x}" gain_y="{gate_align_gain_y}"
+              max_speed_y="{gate_align_max_speed_y}" max_speed_z="{gate_align_max_speed_z}"
+              hold_time_s="{assist_align_hold_s}" timeout_s="{assist_gate_align_max_s}" />
+          </Timeout>
+          <AlwaysSuccess />
+        </Fallback>
+        <!-- 1. Dive to gate center depth -->
+        <TimedMove name="dive_to_gate" segment_name="dive_to_gate"
+          duration_s="{dive_duration_s}"
+          speed_x_mps="{dive_speed_x_mps}" speed_y_mps="{dive_speed_y_mps}"
+          speed_z_mps="{dive_speed_z_mps}" yaw_rate_rad_s="{dive_yaw_rate_rad_s}"
+          use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
+          depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
+          use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+        <!-- 2. Go forward to pass through the gate -->
+        <TimedMove name="pass_gate" segment_name="pass_gate"
+          duration_s="{timed_pass_gate_duration_s}"
+          speed_x_mps="{timed_pass_gate_speed_x_mps}" speed_y_mps="{timed_pass_gate_speed_y_mps}"
+          speed_z_mps="{timed_pass_gate_speed_z_mps}" yaw_rate_rad_s="{timed_pass_gate_yaw_rate_rad_s}"
+          use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
+          depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
+          use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+        <!-- 3. Go forward approaching the pole -->
+        <TimedMove name="approach_pole" segment_name="approach_pole"
+          duration_s="{approach_pole_duration_s}"
+          speed_x_mps="{approach_pole_speed_x_mps}" speed_y_mps="{approach_pole_speed_y_mps}"
+          speed_z_mps="{approach_pole_speed_z_mps}" yaw_rate_rad_s="{approach_pole_yaw_rate_rad_s}"
+          use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
+          depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
+          use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+        <!-- 3b. Camera: strafe until the marker is centred (corrects start-heading
+             error before the loop). Lateral only: monocular pole range is too noisy
+             to hold, so the timed approach keeps owning the range. Time-boxed. -->
+        <Fallback name="assist_marker_align">
+          <Timeout msec="{assist_marker_align_max_ms}">
+            <AlignMarker deadband_x="{assist_marker_deadband}" deadband_y="{assist_marker_deadband}"
+              gain_x="{marker_align_gain_x}" gain_y="{marker_align_gain_y}"
+              max_speed_y="{marker_align_max_speed_y}" max_speed_z="{marker_align_max_speed_z}"
+              minimum_distance_m="{marker_align_minimum_distance_m}"
+              standoff_min_m="{assist_marker_standoff_min_m}"
+              standoff_max_m="{assist_marker_standoff_max_m}"
+              hold_time_s="{assist_align_hold_s}" timeout_s="{assist_marker_align_max_s}"
+              lateral_only="true" />
+          </Timeout>
+          <AlwaysSuccess />
+        </Fallback>
+        <!-- 4. Circle the pole (4-sided polygon: Turn 90 deg -> Forward x 4) -->
+        <Sequence name="circle_pole_polygon">
+          <TimedMove name="circle_turn_1" segment_name="circle_turn_1"
+            duration_s="{circle_turn_1_duration_s}"
+            speed_x_mps="{circle_turn_1_speed_x_mps}" speed_y_mps="{circle_turn_1_speed_y_mps}"
+            speed_z_mps="{circle_turn_1_speed_z_mps}" yaw_rate_rad_s="{circle_turn_1_yaw_rate_rad_s}"
+            use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
+            depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
+            use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{circle_turn_1_target_angle_rad}" />
+          <TimedMove name="circle_forward_1" segment_name="circle_forward_1"
+            duration_s="{circle_forward_1_duration_s}"
+            speed_x_mps="{circle_forward_1_speed_x_mps}" speed_y_mps="{circle_forward_1_speed_y_mps}"
+            speed_z_mps="{circle_forward_1_speed_z_mps}" yaw_rate_rad_s="{circle_forward_1_yaw_rate_rad_s}"
+            use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
+            depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
+            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+          <TimedMove name="circle_turn_2" segment_name="circle_turn_2"
+            duration_s="{circle_turn_2_duration_s}"
+            speed_x_mps="{circle_turn_2_speed_x_mps}" speed_y_mps="{circle_turn_2_speed_y_mps}"
+            speed_z_mps="{circle_turn_2_speed_z_mps}" yaw_rate_rad_s="{circle_turn_2_yaw_rate_rad_s}"
+            use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
+            depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
+            use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{circle_turn_2_target_angle_rad}" />
+          <TimedMove name="circle_forward_2" segment_name="circle_forward_2"
+            duration_s="{circle_forward_2_duration_s}"
+            speed_x_mps="{circle_forward_2_speed_x_mps}" speed_y_mps="{circle_forward_2_speed_y_mps}"
+            speed_z_mps="{circle_forward_2_speed_z_mps}" yaw_rate_rad_s="{circle_forward_2_yaw_rate_rad_s}"
+            use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
+            depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
+            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+          <TimedMove name="circle_turn_3" segment_name="circle_turn_3"
+            duration_s="{circle_turn_3_duration_s}"
+            speed_x_mps="{circle_turn_3_speed_x_mps}" speed_y_mps="{circle_turn_3_speed_y_mps}"
+            speed_z_mps="{circle_turn_3_speed_z_mps}" yaw_rate_rad_s="{circle_turn_3_yaw_rate_rad_s}"
+            use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
+            depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
+            use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{circle_turn_3_target_angle_rad}" />
+          <TimedMove name="circle_forward_3" segment_name="circle_forward_3"
+            duration_s="{circle_forward_3_duration_s}"
+            speed_x_mps="{circle_forward_3_speed_x_mps}" speed_y_mps="{circle_forward_3_speed_y_mps}"
+            speed_z_mps="{circle_forward_3_speed_z_mps}" yaw_rate_rad_s="{circle_forward_3_yaw_rate_rad_s}"
+            use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
+            depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
+            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+          <TimedMove name="circle_turn_4" segment_name="circle_turn_4"
+            duration_s="{circle_turn_4_duration_s}"
+            speed_x_mps="{circle_turn_4_speed_x_mps}" speed_y_mps="{circle_turn_4_speed_y_mps}"
+            speed_z_mps="{circle_turn_4_speed_z_mps}" yaw_rate_rad_s="{circle_turn_4_yaw_rate_rad_s}"
+            use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
+            depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
+            use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{circle_turn_4_target_angle_rad}" />
+          <TimedMove name="circle_forward_4" segment_name="circle_forward_4"
+            duration_s="{circle_forward_4_duration_s}"
+            speed_x_mps="{circle_forward_4_speed_x_mps}" speed_y_mps="{circle_forward_4_speed_y_mps}"
+            speed_z_mps="{circle_forward_4_speed_z_mps}" yaw_rate_rad_s="{circle_forward_4_yaw_rate_rad_s}"
+            use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
+            depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
+            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+        </Sequence>
+        <!-- 5. Turn around to face the gate: timed/IMU-capped spin -->
+        <TimedMove name="return_turn" segment_name="return_turn"
+          duration_s="{return_turn_duration_s}"
+          speed_x_mps="{return_turn_speed_x_mps}" speed_y_mps="{return_turn_speed_y_mps}"
+          speed_z_mps="{return_turn_speed_z_mps}" yaw_rate_rad_s="{return_turn_yaw_rate_rad_s}"
+          use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
+          depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
+          use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{return_turn_target_angle_rad}" />
+        <!-- 6. Camera-guided return: find the gate, lock the heading on it, then pass
+             FORWARD steering on it. If the gate is not seen, drive the timed
+             return_to_gate leg on the IMU heading. -->
+        <Fallback name="return_leg">
+          <Sequence name="vision_return">
+            <!-- Look for the gate first (short, nearly stationary). Only when it is
+                 seen does TurnAround lock the heading on it, so a blind camera never
+                 spins the vehicle off the IMU heading. -->
+            <SearchGate search_speed_mps="{gate_search_speed_mps}" timeout_s="{gate_search_timeout_s}" />
+            <TurnAround turn_yaw_rate_rad_s="{turn_yaw_rate_rad_s}"
+              capture_gain="{turn_capture_gain}" capture_deadband="{turn_capture_deadband}"
+              max_angle_rad="{turn_max_angle_rad}" timeout_s="{turn_timeout_s}" />
+            <!-- Gate already locked: a late failure must not trigger the timed leg too -->
+            <ForceSuccess>
+              <PassGate return_leg="true" speed_mps="{return_gate_pass_speed_mps}"
+                target_distance_m="{return_gate_pass_target_distance_m}"
+                minimum_distance_m="{return_gate_pass_minimum_distance_m}"
+                blind_duration_s="{return_gate_pass_blind_duration_s}"
+                timeout_s="{return_gate_pass_timeout_s}" />
+            </ForceSuccess>
+          </Sequence>
+          <TimedMove name="return_to_gate" segment_name="return_to_gate"
+            duration_s="{return_to_gate_duration_s}"
+            speed_x_mps="{return_to_gate_speed_x_mps}" speed_y_mps="{return_to_gate_speed_y_mps}"
+            speed_z_mps="{return_to_gate_speed_z_mps}" yaw_rate_rad_s="{return_to_gate_yaw_rate_rad_s}"
+            use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
+            depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
+            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+        </Fallback>
+        <!-- 7. Surface -->
+        <TimedMove name="surface" segment_name="surface"
+          duration_s="{timed_surface_duration_s}"
+          speed_x_mps="{timed_surface_speed_x_mps}" speed_y_mps="{timed_surface_speed_y_mps}"
+          speed_z_mps="{timed_surface_speed_z_mps}" yaw_rate_rad_s="{timed_surface_yaw_rate_rad_s}"
+          use_baro_depth="{use_baro_depth}" target_depth_m="{surface_depth}"
+          depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
+          use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+      </Sequence>
+    </ReactiveFallback>
+  </BehaviorTree>
+</root>

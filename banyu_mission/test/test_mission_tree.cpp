@@ -701,6 +701,62 @@ TEST_F(MissionTest, PorHybridTreeLoadsAndReturnsWithVision)
   }
 }
 
+TEST_F(MissionTest, PorVisionAssistedTreeLoadsWithTimedFallbacks)
+{
+  auto node = std::make_shared<rclcpp::Node>("por_vision_assisted_tree_parser_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get(), false);
+  BT::BehaviorTreeFactory factory;
+  banyu_mission::registerMissionNodes(factory, node, state);
+
+  auto config = banyu_mission::PorMissionConfig::load(*node);
+  EXPECT_FALSE(config.use_vision_assist);
+  EXPECT_NO_THROW(config.validate());
+  {
+    auto keys = BT::Blackboard::create();
+    config.apply(keys);
+    for (const auto * key : {"assist_gate_align_max_s", "assist_marker_align_max_s",
+        "assist_gate_deadband", "assist_marker_standoff_min_m", "assist_marker_standoff_max_m",
+        "assist_marker_deadband", "assist_align_hold_s"})
+    {
+      EXPECT_NE(keys->getEntry(key), nullptr) << key;
+    }
+    EXPECT_EQ(keys->get<unsigned>("assist_gate_align_max_ms"), 3000u);
+  }
+  auto blackboard = BT::Blackboard::create();
+  blackboard->set("surface_depth", 0.0);
+  config.apply(blackboard);
+
+  std::string assisted_tree_path = ament_index_cpp::get_package_share_directory("banyu_mission") +
+    "/bt/por_vision_assisted_mission.xml";
+#ifdef BANYU_MISSION_SOURCE_DIR
+  const auto source_path = std::string(BANYU_MISSION_SOURCE_DIR) + "/bt/por_vision_assisted_mission.xml";
+  if (std::filesystem::exists(source_path)) {
+    assisted_tree_path = source_path;
+  }
+#endif
+  EXPECT_NO_THROW(factory.registerBehaviorTreeFromFile(assisted_tree_path));
+  EXPECT_NO_THROW(
+  {
+    auto tree = factory.createTree("Main", blackboard);
+    (void)tree;
+  });
+
+  const auto xml = readFile(assisted_tree_path);
+  const std::vector<std::string> phases {
+    "<Timeout msec=\"{assist_gate_align_max_ms}\"", "<AlignGate",
+    "segment_name=\"dive_to_gate\"", "segment_name=\"approach_pole\"",
+    "<Timeout msec=\"{assist_marker_align_max_ms}\"", "<AlignMarker",
+    "segment_name=\"circle_turn_1\"", "segment_name=\"return_turn\"", "<SearchGate",
+    "<TurnAround", "<PassGate return_leg=\"true\"", "segment_name=\"return_to_gate\"",
+    "segment_name=\"surface\""};
+  std::size_t previous = 0;
+  for (const auto & phase : phases) {
+    const auto current = xml.find(phase, previous);
+    ASSERT_NE(current, std::string::npos) << phase;
+    previous = current + phase.size();
+  }
+}
+
 TEST_F(MissionTest, FallbackModeParameterDefaultsToSurface)
 {
   rclcpp::NodeOptions options;
