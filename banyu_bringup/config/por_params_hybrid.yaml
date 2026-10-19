@@ -221,6 +221,8 @@ por_detection:
     min_height_px: 10
     min_width_px: 10
     image_topic: "/front_camera/image_raw"
+    # Launch sets this true on the real AUV (use_sim:=False)
+    use_compressed_image: false
     camera_info_topic: "/camera/camera_info"
     max_distance_m: 20.0
     use_gui: false
@@ -333,6 +335,16 @@ banyu_teleop:
       serial_port: "/dev/ttyUSB0"
       baud_rate: 115200
       kill_switch_topic: "/banyu/hardware/kill_switch"
+    enable_mock_auto: true
+    auto_arm_on_auto_mode: true
+    mock_auto_flight_mode: "MANUAL"
+    mock_auto_publish_rate_hz: 20.0
+    mock_auto_forward_pwm: 1540
+    mock_auto_throttle_pwm: 1540
+    mock_auto_lateral_pwm: 1500
+    mock_auto_yaw_pwm: 1500
+    mock_auto_pitch_pwm: 1500
+    mock_auto_roll_pwm: 1500
 
 ekf_source_switch:
   ros__parameters:

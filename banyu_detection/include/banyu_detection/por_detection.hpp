@@ -5,6 +5,7 @@
 #include <opencv4/opencv2/core.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <string>
@@ -57,6 +58,7 @@ class PorDetection : public rclcpp::Node
 {
 private:
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr _frontCameraSub;
+  rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr _frontCameraCompressedSub;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr _cameraInfoSub;
   rclcpp::Publisher<banyu_msgs::msg::Detection>::SharedPtr _detectionPub;
   rclcpp::Publisher<banyu_msgs::msg::Detection>::SharedPtr _gatePub;
@@ -116,6 +118,7 @@ private:
   std::unordered_map<std::string, int *> intParams;
 
   void frontCameraCb(sensor_msgs::msg::Image::SharedPtr msg);
+  void frontCameraCompressedCb(sensor_msgs::msg::CompressedImage::SharedPtr msg);
   void cameraInfoCb(sensor_msgs::msg::CameraInfo::SharedPtr msg);
   void createSlider();
   void getSliderValue();

@@ -61,6 +61,7 @@ por_detection:
 
     # Camera & Fallback
     image_topic: "/front_camera/image_raw" # [active]
+    use_compressed_image: false # Subscribe to <image_topic>/compressed; launch sets true on the real AUV [active]
     camera_info_topic: "/camera/camera_info" # [active]
     fallback_focal_length_px: 0.0 # Used if camera_info unavailable (0 = no distance) [active]
 

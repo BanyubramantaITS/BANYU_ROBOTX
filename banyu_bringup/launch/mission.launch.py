@@ -150,6 +150,10 @@ def generate_launch_description():
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
 
+    use_compressed_image = ParameterValue(
+        EqualsSubstitution(use_sim, "False"), value_type=bool
+    )
+
     por_detection = Node(
         package="banyu_detection",
         executable="por_detection",
@@ -161,7 +165,7 @@ def generate_launch_description():
                 "por_detection_params.yaml",
             ),
             por_params,
-            {"use_gui": debug},
+            {"use_gui": debug, "use_compressed_image": use_compressed_image},
         ],
         output="screen",
         condition=UnlessCondition(EqualsSubstitution(mode, "task2")),
@@ -215,7 +219,7 @@ def generate_launch_description():
         name="task2_pipeline_detector",
         parameters=[
             task2_params,
-            {"use_gui": debug},
+            {"use_gui": debug, "use_compressed_image": use_compressed_image},
         ],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),

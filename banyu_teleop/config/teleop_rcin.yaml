@@ -1,10 +1,13 @@
 # RC transmitter (TX16S) teleop: RC switch handling for the BANYU ROV.
-# Thrust is driven natively by ArduSub via RCMAP; this node only handles
-# arm/disarm, flight-mode, and the ESP32 kill switch.
+# Thrust is driven natively by ArduSub via RCMAP; this node handles
+# arm/disarm, flight-mode, the ESP32 kill switch, and mock auto/mission mode.
 banyu_teleop:
   ros__parameters:
     rc_topic: "/mavros/rc/in"
     kill_switch_topic: "/banyu/hardware/kill_switch"
+    override_topic: "/mavros/rc/override"
+    setpoint_topic: "/mavros/setpoint_raw/local"
+    state_topic: "/mavros/state"
 
     # Arm/disarm switch (CH7 = index 6). Value >= threshold requests arm, below requests disarm.
     arm_channel: 6
@@ -23,3 +26,17 @@ banyu_teleop:
     # ESP32 kill switch serial link.
     serial_port: "/dev/ttyUSB0"
     serial_baud: 115200
+
+    # Mock ESP32 Auto/Mission Mode (land testing)
+    enable_mock_auto: true
+    auto_arm_on_auto_mode: true
+    mock_auto_flight_mode: "MANUAL"
+    mock_auto_publish_rate_hz: 20.0
+    mock_auto_forward_pwm: 1540
+    mock_auto_throttle_pwm: 1540
+    mock_auto_lateral_pwm: 1500
+    mock_auto_yaw_pwm: 1500
+    mock_auto_pitch_pwm: 1500
+    mock_auto_roll_pwm: 1500
+    mock_auto_linear_x: 0.1
+    mock_auto_linear_z: 0.1
