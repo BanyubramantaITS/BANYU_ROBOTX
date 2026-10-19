@@ -3,7 +3,7 @@
 <package format="3">
   <name>banyu_teleop</name>
   <version>0.0.0</version>
-  <description>RC transmitter switch handling (arm/disarm, flight mode, kill switch) for the BANYU ROV.</description>
+  <description>RC transmitter switch handling (arm/disarm, flight mode, kill switch) and mock auto mode for the BANYU ROV.</description>
   <maintainer email="jalucahyoseno@gmail.com">gryd</maintainer>
   <license>MIT</license>
 
@@ -16,6 +16,7 @@
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
