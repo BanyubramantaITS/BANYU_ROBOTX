@@ -67,6 +67,8 @@ struct PorMissionConfig
 
   // Timed POR strategy configuration (selected when use_vision == false)
   bool use_vision {false};
+  // Hybrid: timed outbound + marker loop, then camera-guided turn and gate return
+  bool use_vision_return {false};
   bool use_sensors {true};
   bool use_baro_depth {true};
   bool use_imu_yaw_cap {true};

@@ -104,6 +104,7 @@ PorMissionConfig PorMissionConfig::load(rclcpp::Node & node)
       return node.declare_parameter<bool>("mission." + name, fallback);
     };
   config.use_vision = bool_param("use_vision", config.use_vision);
+  config.use_vision_return = bool_param("use_vision_return", config.use_vision_return);
   config.use_sensors = bool_param("use_sensors", config.use_sensors);
   config.use_baro_depth = bool_param("use_baro_depth", config.use_baro_depth);
   config.use_imu_yaw_cap = bool_param("use_imu_yaw_cap", config.use_imu_yaw_cap);
@@ -405,6 +406,7 @@ void PorMissionConfig::apply(const BT::Blackboard::Ptr & blackboard) const
   blackboard->set("return_gate_pass_timeout_s", return_gate_pass_timeout_s);
 
   blackboard->set("use_vision", use_vision);
+  blackboard->set("use_vision_return", use_vision_return);
   blackboard->set("use_sensors", use_sensors);
   blackboard->set("use_baro_depth", use_sensors && use_baro_depth);
   blackboard->set("use_imu_yaw_cap", use_sensors && use_imu_yaw_cap);
