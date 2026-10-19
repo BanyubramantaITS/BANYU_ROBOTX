@@ -202,7 +202,12 @@ por_detection:
     target_priority: "largest"
     fallback_focal_length_px: 500.0
     buoy_reference_height_m: 1.5
+    buoy_reference_width_m: 0.3
     gate_reference_height_m: 2.0
+    gate_reference_width_m: 2.0
+    edge_margin_px: 5
+    min_height_px: 10
+    min_width_px: 10
     image_topic: "/front_camera/image_raw"
     camera_info_topic: "/camera/camera_info"
     max_distance_m: 20.0

@@ -164,6 +164,12 @@ if(BUILD_TESTING)
   target_compile_definitions(test_survey_evidence_node PRIVATE BANYU_DETECTION_NO_MAIN)
   target_include_directories(test_survey_evidence_node PRIVATE include)
   ament_target_dependencies(test_survey_evidence_node rclcpp sensor_msgs banyu_msgs rx_msgs)
+
+  ament_add_gtest(test_por_detection
+      test/test_por_detection.cpp src/por_detection.cpp)
+  target_compile_definitions(test_por_detection PRIVATE BANYU_DETECTION_NO_MAIN)
+  target_include_directories(test_por_detection PRIVATE include)
+  ament_target_dependencies(test_por_detection rclcpp cv_bridge OpenCV sensor_msgs banyu_msgs)
 endif()
 
 ament_package()

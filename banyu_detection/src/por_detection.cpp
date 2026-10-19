@@ -6,8 +6,8 @@
 namespace por_detection
 {
 
-PorDetection::PorDetection()
-: Node("por_detection")
+PorDetection::PorDetection(const rclcpp::NodeOptions & options)
+: Node("por_detection", options)
 {
   this->declareParameters();
 
@@ -39,12 +39,25 @@ void PorDetection::declareParameters()
   priority = this->declare_parameter<std::string>("target_priority", "largest");
   fallbackFocalLengthPx = this->declare_parameter<double>("fallback_focal_length_px", 0.0);
   buoyReferenceHeightM = this->declare_parameter<double>("buoy_reference_height_m", 1.5);
+  buoyReferenceWidthM = this->declare_parameter<double>("buoy_reference_width_m", 0.3);
   gateReferenceHeightM = this->declare_parameter<double>("gate_reference_height_m", 2.0);
+  gateReferenceWidthM = this->declare_parameter<double>("gate_reference_width_m", 2.0);
   edgeMarginPx = this->declare_parameter<int>("edge_margin_px", 5);
   minHeightPx = this->declare_parameter<int>("min_height_px", 10);
+  minWidthPx = this->declare_parameter<int>("min_width_px", 10);
   minApparentSize = this->declare_parameter<double>("min_apparent_size", 0.001);
   maxDistanceM = this->declare_parameter<double>("max_distance_m", 20.0);
   useGui = this->declare_parameter<bool>("use_gui", false);
+  minArea = this->declare_parameter<int>("min_area", 300);
+  hMin = this->declare_parameter<int>("h_min", 25);
+  hMax = this->declare_parameter<int>("h_max", 35);
+  sMin = this->declare_parameter<int>("s_min", 75);
+  sMax = this->declare_parameter<int>("s_max", 255);
+  vMin = this->declare_parameter<int>("v_min", 50);
+  vMax = this->declare_parameter<int>("v_max", 255);
+  kernelSize = this->declare_parameter<int>("kernel_size", 5);
+  buoyAspectMax = this->declare_parameter<int>("buoy_aspect_max", 65);
+  gateAspectMin = this->declare_parameter<int>("gate_aspect_min", 85);
 }
 
 void PorDetection::frontCameraCb(sensor_msgs::msg::Image::SharedPtr msg)
@@ -129,14 +142,62 @@ void PorDetection::cameraInfoCb(sensor_msgs::msg::CameraInfo::SharedPtr msg)
 
 float PorDetection::calculateDistance(const DetectionCandidate & candidate) const
 {
-  const double focalLength = focalY > 0.0 ? focalY : fallbackFocalLengthPx;
-  if (focalLength <= 0.0 || candidate.height <= 0) {
+  const double fx = focalX > 0.0 ? focalX : fallbackFocalLengthPx;
+  const double fy = focalY > 0.0 ? focalY : fallbackFocalLengthPx;
+  if ((fx <= 0.0 && fy <= 0.0) || candidate.width <= 0 || candidate.height <= 0) {
     return 0.0f;
   }
 
-  const double referenceHeight = candidate.objectId ==
-    1 ? buoyReferenceHeightM : gateReferenceHeightM;
-  return static_cast<float>(focalLength * referenceHeight / static_cast<double>(candidate.height));
+  const bool touchesHoriz = candidate.touchesLeft || candidate.touchesRight;
+  const bool touchesVert = candidate.touchesTop || candidate.touchesBottom;
+
+  const double refHeight = (candidate.objectId == 1) ? buoyReferenceHeightM : gateReferenceHeightM;
+  const double refWidth = (candidate.objectId == 1) ? buoyReferenceWidthM : gateReferenceWidthM;
+
+  double distHeight = 0.0;
+  if (fy > 0.0 && candidate.height > 0 && refHeight > 0.0) {
+    distHeight = fy * refHeight / static_cast<double>(candidate.height);
+  }
+
+  double distWidth = 0.0;
+  if (fx > 0.0 && candidate.width > 0 && refWidth > 0.0) {
+    distWidth = fx * refWidth / static_cast<double>(candidate.width);
+  }
+
+  // 1. Fully visible: neither dimension touches an image boundary.
+  if (!touchesHoriz && !touchesVert) {
+    if (candidate.objectId == 1) {
+      // Slender buoy: height has 5x more pixels, providing superior resolution.
+      return distHeight > 0.0 ? static_cast<float>(distHeight) : static_cast<float>(distWidth);
+    } else {
+      // Wide gate: average height and width estimates if both are valid.
+      if (distWidth > 0.0 && distHeight > 0.0) {
+        return static_cast<float>(0.5 * (distWidth + distHeight));
+      }
+      return static_cast<float>(distWidth > 0.0 ? distWidth : distHeight);
+    }
+  }
+
+  // 2. Vertically truncated (tall marker close to ROV): width is intact.
+  if (touchesVert && !touchesHoriz) {
+    if (distWidth > 0.0) {
+      return static_cast<float>(distWidth);
+    }
+  }
+
+  // 3. Horizontally truncated (wide gate close to ROV): height is intact.
+  if (touchesHoriz && !touchesVert) {
+    if (distHeight > 0.0) {
+      return static_cast<float>(distHeight);
+    }
+  }
+
+  // 4. Both dimensions touch borders: both pixel dimensions are truncated (understated),
+  // making both distances upper bounds. Return the tighter upper bound.
+  if (distWidth > 0.0 && distHeight > 0.0) {
+    return static_cast<float>(std::min(distWidth, distHeight));
+  }
+  return static_cast<float>(std::max(distWidth, distHeight));
 }
 
 bool PorDetection::detectObjectFromContours(
@@ -154,26 +215,84 @@ bool PorDetection::detectObjectFromContours(
 
     if (area < minArea) {continue;}
 
-    // A component touching the image border is only partially visible,
-    // so its pixel height cannot produce a valid monocular distance.
-    const bool touchesEdge = x <= edgeMarginPx || y <= edgeMarginPx ||
-      x + width >= origImage.cols - edgeMarginPx ||
-      y + height >= origImage.rows - edgeMarginPx;
-    if (touchesEdge || height < minHeightPx) {continue;}
+    const bool touchesLeft = (x <= edgeMarginPx);
+    const bool touchesRight = (x + width >= origImage.cols - edgeMarginPx);
+    const bool touchesTop = (y <= edgeMarginPx);
+    const bool touchesBottom = (y + height >= origImage.rows - edgeMarginPx);
 
-    double aspect = static_cast<double>(width) / static_cast<double>(height);
-    double cx = centroids.at<double>(i, 0);
-    double cy = centroids.at<double>(i, 1);
+    const bool touchesHoriz = touchesLeft || touchesRight;
+    const bool touchesVert = touchesTop || touchesBottom;
+
+    if (height < minHeightPx || width < minWidthPx) {continue;}
+
+    // Reject tiny edge slivers that lack sufficient dimension in the touching direction
+    if (touchesHoriz && width < minWidthPx) {continue;}
+    if (touchesVert && height < minHeightPx) {continue;}
+
+    const double aspect = static_cast<double>(width) / static_cast<double>(height);
+    const double cx = centroids.at<double>(i, 0);
+    const double cy = centroids.at<double>(i, 1);
+    const float confidence = std::clamp(
+      static_cast<float>(area) / static_cast<float>(width * height),
+      0.0f, 1.0f);
 
     const double buoyAspectMaxRatio = this->buoyAspectMax / 100.0;
     const double gateAspectMinRatio = this->gateAspectMin / 100.0;
-    const bool isBuoy = aspect <= buoyAspectMaxRatio;
-    const bool isGate = aspect >= gateAspectMinRatio;
 
-    const double targetCx = isGate ? x + width / 2.0 : cx;
-    const double targetCy = isGate ? y + height / 2.0 : cy;
+    bool isBuoy = false;
+    bool isGate = false;
+
+    if (!touchesHoriz && !touchesVert) {
+      // Unclipped: standard aspect ratio classification
+      isBuoy = (aspect <= buoyAspectMaxRatio);
+      isGate = (aspect >= gateAspectMinRatio);
+      if (!isBuoy && !isGate) {
+        if (confidence >= 0.50f && priority != "gate") {
+          isBuoy = true;
+        } else if (confidence < 0.45f && priority != "buoy") {
+          isGate = true;
+        }
+      }
+    } else if (touchesVert && !touchesHoriz) {
+      // Vertically truncated, horizontally contained:
+      // Object is tall (height spans to screen boundaries), but width is narrow.
+      // Even if measured aspect > buoyAspectMaxRatio because height was cut, this is a buoy pole.
+      if (width <= origImage.cols * 0.5) {
+        isBuoy = true;
+      } else {
+        isGate = true;
+      }
+    } else if (touchesHoriz && !touchesVert) {
+      // Horizontally truncated, vertically contained:
+      // Object is wide (width spans to screen boundaries), but height is contained.
+      // Even if measured aspect < gateAspectMinRatio because width was cut, this is a gate.
+      isGate = true;
+    } else {
+      // Both touch edges (object is very close):
+      if (priority == "buoy") {
+        isBuoy = true;
+      } else if (priority == "gate") {
+        isGate = true;
+      } else {
+        if (confidence >= 0.50f) {
+          isBuoy = true;
+        } else {
+          isGate = true;
+        }
+      }
+    }
 
     if (!isBuoy && !isGate) {continue;}
+
+    double targetCx = cx;
+    double targetCy = cy;
+    if (isGate) {
+      targetCx = (touchesLeft && touchesRight) ? origImage.cols / 2.0 : (x + width / 2.0);
+      targetCy = (touchesTop && touchesBottom) ? origImage.rows / 2.0 : (y + height / 2.0);
+    } else {
+      targetCx = (!touchesHoriz) ? cx : (x + width / 2.0);
+      targetCy = (touchesTop && touchesBottom) ? origImage.rows / 2.0 : cy;
+    }
 
     const float offsetX =
       static_cast<float>((targetCx - origImage.cols / 2.0) / (origImage.cols / 2.0));
@@ -183,25 +302,34 @@ bool PorDetection::detectObjectFromContours(
     const float apparentSize = static_cast<float>(area) / (origImage.cols * origImage.rows);
     if (apparentSize < minApparentSize) {continue;}
 
-    float confidence = std::clamp(
-      static_cast<float>(area) / static_cast<float>(width * height),
-      0.0f, 1.0f);
-
     DetectionCandidate candidate;
-    candidate.objectId = (isBuoy) ? 1 : (isGate) ? 0 : -1;
+    candidate.objectId = isBuoy ? 1 : 0;
     candidate.x = x;
     candidate.y = y;
     candidate.width = width;
     candidate.height = height;
     candidate.area = area;
+    candidate.touchesLeft = touchesLeft;
+    candidate.touchesRight = touchesRight;
+    candidate.touchesTop = touchesTop;
+    candidate.touchesBottom = touchesBottom;
     candidate.offsetX = offsetX;
     candidate.offsetY = offsetY;
     candidate.apparentSize = apparentSize;
     candidate.confidence = confidence;
+
+    if (touchesVert && !touchesHoriz) {
+      candidate.distanceSource = "width";
+    } else if (touchesHoriz && !touchesVert) {
+      candidate.distanceSource = "height";
+    } else if (touchesHoriz && touchesVert) {
+      candidate.distanceSource = "upper_bound";
+    } else {
+      candidate.distanceSource = isBuoy ? "height" : "dual";
+    }
+
     candidate.distance = calculateDistance(candidate);
 
-    // A zero distance means that no camera calibration is available.
-    // Otherwise reject estimates outside the configured operating range.
     if (maxDistanceM > 0.0 && candidate.distance > maxDistanceM) {continue;}
 
     candidates.push_back(candidate);
@@ -211,16 +339,16 @@ bool PorDetection::detectObjectFromContours(
     cv::rectangle(annotated, cv::Rect(x, y, width, height), color, 2);
     cv::circle(annotated, cv::Point(cvRound(targetCx), cvRound(targetCy)), 4, color, -1);
 
-    char text[64];
+    char text[80];
     const char * label = isBuoy ? "buoy" : isGate ? "gate" : "unknown";
     snprintf(
-      text, sizeof(text), "%s ar=%.2f fill=%.2f d=%.2fm ox=%.2f oy=%.2f", label, aspect, confidence,
-      candidate.distance, offsetX, offsetY);
+      text, sizeof(text), "%s ar=%.2f d=%.2fm [%s] ox=%.2f oy=%.2f",
+      label, aspect, candidate.distance, candidate.distanceSource.c_str(), offsetX, offsetY);
     cv::putText(
       annotated, text, cv::Point(
         x, std::max(
           y - 8,
-          12)), cv::FONT_HERSHEY_SIMPLEX, 0.6, color,
+          12)), cv::FONT_HERSHEY_SIMPLEX, 0.5, color,
       2);
 
     const int midX = origImage.cols / 2;
@@ -291,6 +419,7 @@ void PorDetection::getSliderValue()
 }
 }  // namespace por_detection
 
+#ifndef BANYU_DETECTION_NO_MAIN
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
@@ -299,3 +428,4 @@ int main(int argc, char ** argv)
   rclcpp::shutdown();
   return 0;
 }
+#endif

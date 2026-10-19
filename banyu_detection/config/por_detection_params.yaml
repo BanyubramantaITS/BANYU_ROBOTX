@@ -12,8 +12,9 @@ por_detection:
     # Detection Filters
     min_area: 300 # Minimum blob area (pixels)
     kernel_size: 5 # Gaussian blur kernel size (must be odd)
-    edge_margin_px: 5 # Reject blobs within this many pixels of image edge [active]
+    edge_margin_px: 5 # Boundary margin to test for FOV edge contact [active]
     min_height_px: 10 # Minimum blob height (pixels) [active]
+    min_width_px: 10 # Minimum blob width (pixels) [active]
     min_apparent_size: 0.001 # Minimum apparent size (area / image_area) [active]
     max_distance_m: 20.0 # Maximum detection distance (meters, 0 = no limit) [active]
 
@@ -23,9 +24,11 @@ por_detection:
     buoy_aspect_max: 65 # Buoy max aspect ratio (65 = 0.65)
     gate_aspect_min: 85 # Gate min aspect ratio (85 = 0.85)
 
-    # Object Reference Heights (meters) - for distance estimation
+    # Object Reference Dimensions (meters) - for dual-dimension distance estimation
     buoy_reference_height_m: 1.5 # Real buoy height [active]
-    gate_reference_height_m: 1.57 # Empirically calibrated gate height [active]
+    buoy_reference_width_m: 0.3 # Real buoy diameter / width [active]
+    gate_reference_height_m: 2.0 # Real gate height [active]
+    gate_reference_width_m: 2.0 # Real gate outer width [active]
 
     # Camera & Fallback
     image_topic: "/front_camera/image_raw" # [active]
