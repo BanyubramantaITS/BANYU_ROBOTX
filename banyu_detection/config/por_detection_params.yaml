@@ -1,7 +1,36 @@
 por_detection:
   ros__parameters:
-    # HSV Color Thresholds (tune for your lighting conditions)
-    # H: 0-179, S: 0-255, V: 0-255
+    # Colour mode:
+    #   "per_object" (default): separate HSV per target. Gate = yellow, marker = orange.
+    #   "single": legacy one HSV range below, gate/marker split by aspect ratio.
+    color_mode: "per_object"
+
+    # Per-object HSV (OpenCV H: 0-179, S/V: 0-255). If h_min > h_max the hue
+    # range wraps around 0 (use for red targets, e.g. h_min 170, h_max 10).
+    # All of these can be changed live with sliders:
+    #   ros2 run rqt_reconfigure rqt_reconfigure        (pick /por_detection)
+    #   python3 tools/por_hsv_tuner.py                  (sliders + mask preview)
+    # then save with: ros2 service call /por_detection/save_params std_srvs/srv/Trigger
+    gate_h_min: 20
+    gate_h_max: 35
+    gate_s_min: 80
+    gate_s_max: 255
+    gate_v_min: 80
+    gate_v_max: 255
+    marker_h_min: 5
+    marker_h_max: 18
+    marker_s_min: 120
+    marker_s_max: 255
+    marker_v_min: 100
+    marker_v_max: 255
+    morph_kernel: 3 # mask opening kernel to remove speckle (0 = off)
+
+    # Debug images (only rendered while subscribed):
+    #   /banyu/detection/debug/annotated, mask_gate, mask_marker (+ /compressed)
+    debug_rate_hz: 5.0
+    debug_scale: 0.5
+
+    # Single-mode HSV thresholds (color_mode: "single")
     h_min: 25
     h_max: 35
     s_min: 75

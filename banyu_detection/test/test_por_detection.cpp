@@ -191,5 +191,73 @@ TEST_F(PorDetectionTest, DiscardsTinyEdgeSlivers)
   EXPECT_FALSE(found);
 }
 
+TEST_F(PorDetectionTest, PerObjectColourSeparatesYellowGateFromOrangeMarker)
+{
+  // Blue pool background, yellow gate (two posts + top bar), orange marker pole.
+  cv::Mat image(480, 640, CV_8UC3, cv::Scalar(140, 90, 20));
+  const cv::Scalar yellow(0, 230, 255);   // BGR
+  const cv::Scalar orange(0, 120, 255);
+  cv::rectangle(image, cv::Rect(150, 100, 20, 250), yellow, cv::FILLED);
+  cv::rectangle(image, cv::Rect(330, 100, 20, 250), yellow, cv::FILLED);
+  cv::rectangle(image, cv::Rect(150, 100, 200, 15), yellow, cv::FILLED);
+  cv::rectangle(image, cv::Rect(500, 120, 18, 200), orange, cv::FILLED);
+
+  cv::Mat hsv;
+  cv::cvtColor(image, hsv, cv::COLOR_BGR2HSV);
+  const HsvRange gateRange {20, 35, 80, 255, 80, 255};
+  const HsvRange markerRange {5, 18, 120, 255, 100, 255};
+  const cv::Mat gateMask = PorDetection::hsvMask(hsv, gateRange);
+  const cv::Mat markerMask = PorDetection::hsvMask(hsv, markerRange);
+
+  cv::Mat annotated = image.clone();
+  DetectionCandidate gate;
+  DetectionCandidate marker;
+  ASSERT_TRUE(detector_->detectColorTarget(image, annotated, gateMask, 0, gate));
+  ASSERT_TRUE(detector_->detectColorTarget(image, annotated, markerMask, 1, marker));
+
+  // Gate box is the union of both posts and the bar; its centre is x = 250.
+  EXPECT_EQ(gate.objectId, 0);
+  EXPECT_EQ(gate.width, 200);
+  EXPECT_NEAR(gate.offsetX, (250.0 - 320.0) / 320.0, 0.01);
+  EXPECT_EQ(marker.objectId, 1);
+  EXPECT_EQ(marker.width, 18);
+  EXPECT_GT(marker.offsetX, 0.5f);
+}
+
+TEST_F(PorDetectionTest, GateUnionKeepsCentreWithoutTopBar)
+{
+  cv::Mat mask = cv::Mat::zeros(480, 640, CV_8UC1);
+  mask(cv::Rect(100, 150, 20, 200)).setTo(255);
+  mask(cv::Rect(400, 150, 20, 200)).setTo(255);
+  cv::Mat image(480, 640, CV_8UC3, cv::Scalar(0, 0, 0));
+  cv::Mat annotated = image.clone();
+  DetectionCandidate gate;
+  ASSERT_TRUE(detector_->detectColorTarget(image, annotated, mask, 0, gate));
+  EXPECT_NEAR(gate.offsetX, (260.0 - 320.0) / 320.0, 0.01);
+}
+
+TEST_F(PorDetectionTest, MarkerRejectsWideBlobOfMarkerColour)
+{
+  detector_->setAspectLimits(65, 85);
+  cv::Mat mask = cv::Mat::zeros(480, 640, CV_8UC1);
+  mask(cv::Rect(100, 200, 200, 40)).setTo(255);  // wide, not a pole
+  cv::Mat image(480, 640, CV_8UC3, cv::Scalar(0, 0, 0));
+  cv::Mat annotated = image.clone();
+  DetectionCandidate marker;
+  EXPECT_FALSE(detector_->detectColorTarget(image, annotated, mask, 1, marker));
+}
+
+TEST_F(PorDetectionTest, HueRangeWrapsForRedTargets)
+{
+  cv::Mat image(10, 20, CV_8UC3, cv::Scalar(0, 0, 0));
+  image(cv::Rect(0, 0, 10, 10)).setTo(cv::Scalar(0, 0, 255));    // red, hue 0
+  image(cv::Rect(10, 0, 10, 10)).setTo(cv::Scalar(255, 0, 0));   // blue, hue 120
+  cv::Mat hsv;
+  cv::cvtColor(image, hsv, cv::COLOR_BGR2HSV);
+  const cv::Mat mask = PorDetection::hsvMask(hsv, HsvRange {170, 10, 100, 255, 100, 255});
+  EXPECT_EQ(cv::countNonZero(mask(cv::Rect(0, 0, 10, 10))), 100);
+  EXPECT_EQ(cv::countNonZero(mask(cv::Rect(10, 0, 10, 10))), 0);
+}
+
 }  // namespace test
 }  // namespace por_detection
