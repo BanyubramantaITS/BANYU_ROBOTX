@@ -26,8 +26,17 @@ MotionIntent bodyCommand(
   const VehicleTelemetry & telemetry, double x, double y, double z,
   double yaw_rate = 0.0)
 {
-  if (!telemetry.pose_valid) {return zeroIntent();}
-  const auto converted = bodyFluToLocalEnu(MotionIntent::bodyFlu(x, y, z, yaw_rate), telemetry.yaw);
+  // Body-frame commands only need a heading: prefer the local pose yaw and fall
+  // back to IMU yaw when no position estimate exists (real vehicle without DVL).
+  double heading = 0.0;
+  if (telemetry.pose_valid) {
+    heading = telemetry.yaw;
+  } else if (telemetry.imu_valid) {
+    heading = telemetry.imu_yaw;
+  } else {
+    return zeroIntent();
+  }
+  const auto converted = bodyFluToLocalEnu(MotionIntent::bodyFlu(x, y, z, yaw_rate), heading);
   return converted ? *converted : zeroIntent();
 }
 
@@ -39,7 +48,7 @@ double travelledFrom(double x, double y, double z, double sx, double sy, double 
 double detectionAgeOrInf(const VehicleTelemetry & telemetry, const rclcpp::Time & now, int64_t id)
 {
   return detectionIsFresh(telemetry, now, kDetectionTimeout, id) ?
-         std::max(0.0, detectionAge(telemetry, now)) :
+         std::max(0.0, detectionAge(telemetry, now, id)) :
          std::numeric_limits<double>::infinity();
 }
 
@@ -76,6 +85,23 @@ bool freshPose(const VehicleTelemetry & telemetry, const rclcpp::Time & now)
   }
   const double age = (now - telemetry.pose_stamp).seconds();
   return age >= 0.0 && age <= kDetectionTimeout;
+}
+
+bool freshHeading(const VehicleTelemetry & telemetry, const rclcpp::Time & now, double * yaw)
+{
+  if (freshPose(telemetry, now)) {
+    if (yaw != nullptr) {*yaw = telemetry.yaw;}
+    return true;
+  }
+  if (!telemetry.imu_valid || telemetry.imu_stamp.nanoseconds() == 0 ||
+    !std::isfinite(telemetry.imu_yaw))
+  {
+    return false;
+  }
+  const double age = (now - telemetry.imu_stamp).seconds();
+  if (age < 0.0 || age > kDetectionTimeout) {return false;}
+  if (yaw != nullptr) {*yaw = telemetry.imu_yaw;}
+  return true;
 }
 
 bool nonnegative(double value)
@@ -247,7 +273,7 @@ MotionIntent AcquireGateServer::tick(
   const bool gate = detectionIsFresh(telemetry, now, kDetectionTimeout, 0);
   double depth = -1.0;
   const bool depth_fresh = freshDepth(telemetry, now, depth);
-  const bool pose_fresh = freshPose(telemetry, now);
+  const bool pose_fresh = freshHeading(telemetry, now, nullptr);
   if (pose_fresh && depth_fresh && gate) {watchdog_.reset(now);}
 
   auto feedback = std::make_shared<Feedback>();
@@ -365,7 +391,7 @@ MotionIntent AlignGateServer::tick(
   const bool visible = detectionIsFresh(telemetry, now, kDetectionTimeout, 0, &detection);
   const double dx = visible ? detection.offset_x : 0.0;
   const double dy = visible ? detection.offset_y : 0.0;
-  const bool requirement_valid = freshPose(telemetry, now) && visible &&
+  const bool requirement_valid = freshHeading(telemetry, now, nullptr) && visible &&
     std::isfinite(dx) && std::isfinite(dy);
   if (requirement_valid) {watchdog_.reset(now);}
   auto feedback = std::make_shared<Feedback>();
@@ -418,7 +444,7 @@ MotionIntent AlignMarkerServer::tick(
   const double dy = visible ? detection.offset_y : 0.0;
   const double distance = visible ? detection.distance : 0.0;
   const bool offsets_valid = visible && std::isfinite(dx) && std::isfinite(dy);
-  const bool pose_fresh = freshPose(telemetry, now);
+  const bool pose_fresh = freshHeading(telemetry, now, nullptr);
   auto feedback = std::make_shared<Feedback>();
   feedback->stamp = now; feedback->marker_visible = visible;
   feedback->offset_x = dx; feedback->offset_y = dy; feedback->distance_m = distance;
@@ -427,10 +453,13 @@ MotionIntent AlignMarkerServer::tick(
   const double min_range = positiveOr(goal->standoff_min_m, 2.2);
   const double max_range = positiveOr(goal->standoff_max_m, 2.5);
   const double minimum_distance = positiveOr(goal->minimum_distance_m, 1.8);
-  const bool range_valid = pose_fresh && offsets_valid &&
-    std::isfinite(distance) && distance > 0.0;
+  const bool lateral_only = goal->lateral_only;
+  const bool range_measured = offsets_valid && std::isfinite(distance) && distance > 0.0;
+  // Lateral-only mode needs just the bearing: monocular pole range is too noisy
+  // to hold a standoff, so the timed legs keep owning the range.
+  const bool range_valid = pose_fresh && (lateral_only ? offsets_valid : range_measured);
   if (range_valid) {watchdog_.reset(now);}
-  if (range_valid && distance < minimum_distance) {
+  if (pose_fresh && range_measured && distance < minimum_distance) {
     auto result = std::make_shared<Result>();
     result->success = false;
     result->reason = "Marker range is below safety minimum";
@@ -446,8 +475,8 @@ MotionIntent AlignMarkerServer::tick(
     abortActiveWithResult(result); return zeroIntent();
   }
   const bool centered = std::abs(dx) <= positiveOr(goal->deadband_x, 0.03) &&
-    std::abs(dy) <= positiveOr(goal->deadband_y, 0.03);
-  const bool in_range = distance >= min_range && distance <= max_range;
+    (lateral_only || std::abs(dy) <= positiveOr(goal->deadband_y, 0.03));
+  const bool in_range = lateral_only || (distance >= min_range && distance <= max_range);
   if (range_valid && centered && in_range) {
     if (aligned_since_.nanoseconds() == 0) {aligned_since_ = now;}
     if ((now - aligned_since_).seconds() >= positiveOr(goal->hold_time_s, 0.5)) {
@@ -462,11 +491,12 @@ MotionIntent AlignMarkerServer::tick(
   }
   if (!range_valid) {return zeroIntent();}
   const double midpoint = 0.5 * (min_range + max_range);
-  const double x = clampFinite(0.35 * (distance - midpoint), -0.25, 0.25);
+  const double x = lateral_only ? 0.0 : clampFinite(0.35 * (distance - midpoint), -0.25, 0.25);
   const auto correction = visualCorrection(
     dx, dy, positiveOr(goal->gain_x, 1.2), positiveOr(goal->gain_y, 0.8),
     positiveOr(goal->max_speed_y, 0.3), positiveOr(goal->max_speed_z, 0.2));
-  return bodyCommand(telemetry, x, correction.lateral_flu_mps, correction.vertical_flu_mps);
+  return bodyCommand(
+    telemetry, x, correction.lateral_flu_mps, lateral_only ? 0.0 : correction.vertical_flu_mps);
 }
 
 void PassGateServer::onGoalStarted()
@@ -487,8 +517,11 @@ MotionIntent PassGateServer::tick(
   if (!active_handle_) {return zeroIntent();}
   if (active_handle_->is_canceling()) {cancelActive(); return zeroIntent();}
   const auto goal = active_handle_->get_goal();
-  const bool pose_fresh = freshPose(telemetry, now);
-  if (pose_fresh && !start_pose_set_) {
+  // Travelled distance needs a position; steering and the bounded blind pass
+  // only need a heading, so the pass also works on IMU yaw alone.
+  const bool position_fresh = freshPose(telemetry, now);
+  const bool pose_fresh = freshHeading(telemetry, now, nullptr);
+  if (position_fresh && !start_pose_set_) {
     start_x_ = telemetry.pos_x; start_y_ = telemetry.pos_y; start_z_ = telemetry.pos_z;
     start_pose_set_ = true;
   }
@@ -519,7 +552,7 @@ MotionIntent PassGateServer::tick(
     abortActiveWithResult(result); return zeroIntent();
   }
   const double target = positiveOr(goal->target_distance_m, 3.0);
-  if (pose_fresh && travelled >= target) {
+  if (position_fresh && start_pose_set_ && travelled >= target) {
     auto result = std::make_shared<Result>(); result->success = true;
     result->reason = "Gate pass distance reached"; result->travelled_m = travelled;
     result->minimum_observed_distance_m = std::isfinite(min_distance_) ? min_distance_ : 0.0;
@@ -570,11 +603,12 @@ MotionIntent OrbitMarkerServer::tick(
   if (!active_handle_) {return zeroIntent();}
   if (active_handle_->is_canceling()) {cancelActive(); return zeroIntent();}
   const auto goal = active_handle_->get_goal();
-  const bool pose_fresh = freshPose(telemetry, now);
+  double heading = 0.0;
+  const bool pose_fresh = freshHeading(telemetry, now, &heading);
   if (pose_fresh && !yaw_initialized_) {
-    last_yaw_ = telemetry.yaw; yaw_initialized_ = true;
+    last_yaw_ = heading; yaw_initialized_ = true;
   } else if (pose_fresh) {
-    accumulated_yaw_ += normalizeAngle(telemetry.yaw - last_yaw_); last_yaw_ = telemetry.yaw;
+    accumulated_yaw_ += normalizeAngle(heading - last_yaw_); last_yaw_ = heading;
   }
   banyu_msgs::msg::Detection detection;
   const bool visible = detectionIsFresh(telemetry, now, kDetectionTimeout, 1, &detection);
@@ -634,12 +668,13 @@ MotionIntent TurnAroundServer::tick(
   if (!active_handle_) {return zeroIntent();}
   if (active_handle_->is_canceling()) {cancelActive(); return zeroIntent();}
   const auto goal = active_handle_->get_goal();
-  const bool pose_fresh = freshPose(telemetry, now);
+  double heading = 0.0;
+  const bool pose_fresh = freshHeading(telemetry, now, &heading);
   if (pose_fresh) {watchdog_.reset(now);}
   if (pose_fresh && !yaw_initialized_) {
-    last_yaw_ = telemetry.yaw; yaw_initialized_ = true;
+    last_yaw_ = heading; yaw_initialized_ = true;
   } else if (pose_fresh) {
-    accumulated_yaw_ += normalizeAngle(telemetry.yaw - last_yaw_); last_yaw_ = telemetry.yaw;
+    accumulated_yaw_ += normalizeAngle(heading - last_yaw_); last_yaw_ = heading;
   }
   banyu_msgs::msg::Detection detection;
   const bool visible = detectionIsFresh(telemetry, now, kDetectionTimeout, 0, &detection);

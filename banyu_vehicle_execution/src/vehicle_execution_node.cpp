@@ -86,6 +86,11 @@ void VehicleExecutionNode::initSubscribers()
     pose_topic, rclcpp::SensorDataQoS(),
     std::bind(&VehicleExecutionNode::handlePose, this, std::placeholders::_1));
 
+  const auto imu_topic = declare_parameter<std::string>("topics.imu", "/mavros/imu/data");
+  imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
+    imu_topic, rclcpp::SensorDataQoS(),
+    std::bind(&VehicleExecutionNode::handleImu, this, std::placeholders::_1));
+
   gps_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
     gps_topic, rclcpp::SensorDataQoS(),
     std::bind(&VehicleExecutionNode::handleGps, this, std::placeholders::_1));
@@ -395,6 +400,18 @@ void VehicleExecutionNode::timerCallback()
     (current_ros_time - telemetry_.detection_stamp).seconds() > kObservationTimeoutS)
   {
     telemetry_.detection_valid = false;
+  }
+  for (int id = 0; id < VehicleTelemetry::kDetectionSlots; ++id) {
+    if (telemetry_.detection_slot_valid[id] &&
+      (current_ros_time - telemetry_.detection_slot_stamp[id]).seconds() > kObservationTimeoutS)
+    {
+      telemetry_.detection_slot_valid[id] = false;
+    }
+  }
+  if (telemetry_.imu_valid &&
+    (current_ros_time - telemetry_.imu_stamp).seconds() > kPoseTimeoutS)
+  {
+    telemetry_.imu_valid = false;
   }
 
   // Vehicle safety check
@@ -858,6 +875,24 @@ void VehicleExecutionNode::handleDetection(const banyu_msgs::msg::Detection::Sha
   telemetry_.detection = *msg;
   telemetry_.detection_valid = true;
   telemetry_.detection_stamp = resolveStamp(msg->header.stamp);
+  if (msg->object_id >= 0 && msg->object_id < VehicleTelemetry::kDetectionSlots) {
+    telemetry_.detection_slot[msg->object_id] = *msg;
+    telemetry_.detection_slot_valid[msg->object_id] = true;
+    telemetry_.detection_slot_stamp[msg->object_id] = telemetry_.detection_stamp;
+  }
+}
+
+void VehicleExecutionNode::handleImu(const sensor_msgs::msg::Imu::SharedPtr msg)
+{
+  const auto & q = msg->orientation;
+  if (!std::isfinite(q.x) || !std::isfinite(q.y) || !std::isfinite(q.z) || !std::isfinite(q.w) ||
+    (q.x == 0.0 && q.y == 0.0 && q.z == 0.0 && q.w == 0.0))
+  {
+    return;
+  }
+  telemetry_.imu_yaw = getYawFromQuaternion(q.x, q.y, q.z, q.w);
+  telemetry_.imu_stamp = resolveStamp(msg->header.stamp);
+  telemetry_.imu_valid = true;
 }
 
 void VehicleExecutionNode::handleGuidanceIntent(

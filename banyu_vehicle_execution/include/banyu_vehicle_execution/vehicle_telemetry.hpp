@@ -56,6 +56,12 @@ struct VehicleTelemetry
   double pos_z{0.0};
   double yaw{0.0};
 
+  // IMU attitude (ENU yaw). Heading source for camera-guided POR actions when
+  // the local pose is unavailable (no DVL/position estimate on the vehicle).
+  bool imu_valid{false};
+  rclcpp::Time imu_stamp{};
+  double imu_yaw{0.0};
+
   // GPS NavSatFix
   bool gps_valid{false};
   rclcpp::Time gps_stamp{};
@@ -129,12 +135,35 @@ struct VehicleTelemetry
   bool detection_valid{false};
   rclcpp::Time detection_stamp{};
   banyu_msgs::msg::Detection detection{};
+
+  // Latest detection per POR object id (0 = gate, 1 = marker), so both targets
+  // stay available when the detector publishes them in the same frame.
+  static constexpr int kDetectionSlots = 2;
+  bool detection_slot_valid[kDetectionSlots]{false, false};
+  rclcpp::Time detection_slot_stamp[kDetectionSlots]{};
+  banyu_msgs::msg::Detection detection_slot[kDetectionSlots]{};
 };
 
 inline bool detectionIsFresh(
   const VehicleTelemetry & telemetry, const rclcpp::Time & now, double timeout_s,
   int64_t object_id, banyu_msgs::msg::Detection * result = nullptr)
 {
+  if (object_id >= 0 && object_id < VehicleTelemetry::kDetectionSlots &&
+    telemetry.detection_slot_valid[object_id])
+  {
+    const auto & stamp = telemetry.detection_slot_stamp[object_id];
+    if (stamp.nanoseconds() == 0 || !std::isfinite(timeout_s) || timeout_s < 0.0) {
+      return false;
+    }
+    const double slot_age = (now - stamp).seconds();
+    if (slot_age < 0.0 || slot_age > timeout_s) {
+      return false;
+    }
+    if (result != nullptr) {
+      *result = telemetry.detection_slot[object_id];
+    }
+    return true;
+  }
   if (!telemetry.detection_valid || telemetry.detection.object_id != object_id ||
     telemetry.detection_stamp.nanoseconds() == 0 || !std::isfinite(timeout_s) || timeout_s < 0.0)
   {
@@ -157,6 +186,18 @@ inline double detectionAge(
     return std::numeric_limits<double>::infinity();
   }
   return (now - telemetry.detection_stamp).seconds();
+}
+
+inline double detectionAge(
+  const VehicleTelemetry & telemetry, const rclcpp::Time & now, int64_t object_id)
+{
+  if (object_id >= 0 && object_id < VehicleTelemetry::kDetectionSlots &&
+    telemetry.detection_slot_valid[object_id] &&
+    telemetry.detection_slot_stamp[object_id].nanoseconds() != 0)
+  {
+    return (now - telemetry.detection_slot_stamp[object_id]).seconds();
+  }
+  return detectionAge(telemetry, now);
 }
 
 inline double normalizeAngle(double angle)

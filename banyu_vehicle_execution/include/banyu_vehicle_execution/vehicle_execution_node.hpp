@@ -10,6 +10,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
+#include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "mavros_msgs/msg/position_target.hpp"
@@ -77,6 +78,7 @@ private:
   void handlePipelineObs(const banyu_msgs::msg::PipelineObservation::SharedPtr msg);
   void handleRingObs(const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg);
   void handleDetection(const banyu_msgs::msg::Detection::SharedPtr msg);
+  void handleImu(const sensor_msgs::msg::Imu::SharedPtr msg);
   void handleGuidanceIntent(const banyu_guidance::msg::VelocityIntent::SharedPtr msg);
   void handlePingerObs(const banyu_msgs::msg::PingerObservation::SharedPtr msg);
   void handleRunLifecycle(const banyu_msgs::msg::RunLifecycle::SharedPtr msg);
@@ -127,6 +129,7 @@ private:
   std::unordered_map<std::string, std::shared_ptr<ActionServerBase>> server_map_;
 
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr rel_alt_sub_;
   rclcpp::Subscription<banyu_msgs::msg::WaterDepth>::SharedPtr water_depth_sub_;

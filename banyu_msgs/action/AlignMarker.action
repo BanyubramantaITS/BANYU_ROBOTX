@@ -11,6 +11,9 @@ float64 standoff_max_m
 float64 hold_time_s
 # Continuous missing-prerequisite watchdog window; not a fixed action duration.
 float64 timeout_s
+# true: centre the marker sideways only (no range hold, no depth change). Used by
+# the vision-assisted timed strategy, where monocular pole range is unreliable.
+bool lateral_only
 ---
 bool success
 string reason

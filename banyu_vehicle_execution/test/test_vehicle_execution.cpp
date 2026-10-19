@@ -335,6 +335,29 @@ TEST(ActionServerMath, PorDetectionFreshnessUsesObjectAndAge)
   EXPECT_FALSE(banyu_vehicle_execution::detectionIsFresh(telemetry, now, 0.1, 1));
 }
 
+TEST(ActionServerMath, PorDetectionSlotsKeepGateAndMarkerTogether)
+{
+  banyu_vehicle_execution::VehicleTelemetry telemetry;
+  // Marker arrived last in the legacy single slot, gate is in its own slot.
+  telemetry.detection_valid = true;
+  telemetry.detection.object_id = 1;
+  telemetry.detection_stamp = rclcpp::Time(10, 0, RCL_ROS_TIME);
+  telemetry.detection_slot_valid[0] = true;
+  telemetry.detection_slot[0].object_id = 0;
+  telemetry.detection_slot[0].offset_x = -0.4F;
+  telemetry.detection_slot_stamp[0] = rclcpp::Time(10, 0, RCL_ROS_TIME);
+  telemetry.detection_slot_valid[1] = true;
+  telemetry.detection_slot[1].object_id = 1;
+  telemetry.detection_slot_stamp[1] = rclcpp::Time(9, 0, RCL_ROS_TIME);
+  const auto now = rclcpp::Time(10, 100000000, RCL_ROS_TIME);
+  banyu_msgs::msg::Detection gate;
+  EXPECT_TRUE(banyu_vehicle_execution::detectionIsFresh(telemetry, now, 0.5, 0, &gate));
+  EXPECT_FLOAT_EQ(gate.offset_x, -0.4F);
+  // Marker slot is stale even though the legacy slot holds a fresh marker id.
+  EXPECT_FALSE(banyu_vehicle_execution::detectionIsFresh(telemetry, now, 0.5, 1));
+  EXPECT_NEAR(banyu_vehicle_execution::detectionAge(telemetry, now, 1), 1.1, 1e-6);
+}
+
 TEST(ActionServerMath, PorVisualCorrectionUsesLocalEnuRightAndYawSigns)
 {
   const auto right = banyu_vehicle_execution::visualCorrection(
