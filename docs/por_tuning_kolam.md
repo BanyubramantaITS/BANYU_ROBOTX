@@ -294,3 +294,66 @@ Cek deteksi:
 - Kalau sim dijalankan di laptop yang satu jaringan dengan robot, pakai
   `ROS_DOMAIN_ID` yang berbeda. Kalau tidak, traffic robot memicu
   "Vehicle safety or run authorization fault" di sim.
+
+## 10. Thruster horizontal mati (2 depan-kiri + 3 belakang-kanan)
+
+Profil: `banyu_bringup/config/por_params_dead_thruster_2_3.yaml` (timer + IMU,
+tanpa kamera).
+
+Frame robot adalah `FRAME_CONFIG = 2` (Vectored-6DOF):
+- Motor 1–4 horizontal: 1 depan-kanan, 2 depan-kiri, 3 belakang-kanan, 4 belakang-kiri.
+- Motor 5–8 vertikal.
+
+Kalau motor 2 + 3 mati, pasangan 1 + 4 hanya bisa mendorong di **satu diagonal
+badan** (perintah `vx = vy`, ke arah depan-kiri) dan masih bisa yaw. Karena itu
+setiap gerakan dikirim di sepanjang diagonal tersebut:
+
+| # | Segmen | Gerakan |
+|---|---|---|
+| 1 | `dive_to_gate` | turun sambil yaw −45° (berbasis waktu), supaya diagonal menghadap lintasan |
+| 3 | `approach_pole` | maju di sepanjang diagonal sampai radius orbit sebelum marker |
+| 4 | `circle_turn_1` | yaw −90° (batas IMU) |
+| 5 | `circle_turn_2` | **orbit**: maju di sepanjang diagonal sambil yaw. Berhenti oleh IMU pada 360° (`target_angle 6.23`), bukan oleh waktu |
+| 6 | `circle_turn_3` | yaw +90° kembali (batas IMU) |
+| 8 | `return_to_gate` | mundur di sepanjang diagonal lewat gate |
+
+Hasil sim (thruster 2 + 3 dimatikan): lewat gate keluar di y = 0,08 m, orbit
+359°, lewat gate kembali di y = 0,10 m. Orbit yang dibatasi IMU dipakai karena
+orbit berbasis waktu meleset ±14° antar run, yang berarti sekitar 2 m di gate.
+
+### Setting cepat dengan generator
+
+Jangan edit angka satu per satu. Ukur di kolam, lalu buat ulang profilnya:
+
+```bash
+python3 src/BANYU_ROBOTX/tools/scripts/dead_thruster_por.py \
+  --measured-speed 0.42 --start-to-gate 3.0 --gate-to-marker 10.0 --orbit-radius 2.3
+```
+
+| Opsi | Arti | Default |
+|---|---|---|
+| `--measured-speed` | kecepatan asli di sepanjang diagonal saat perintah `--speed-cmd` (ukur 10 s pakai meteran) | = `--speed-cmd` |
+| `--speed-cmd` | kecepatan perintah di sepanjang diagonal | 0,5 m/s |
+| `--start-to-gate`, `--gate-to-marker` | jarak lintasan | 3,2 / 10,0 m |
+| `--orbit-radius` | radius orbit di sekitar marker | 2,3 m |
+| `--past-gate` | jarak mundur setelah lewat gate | 2,0 m |
+| `--live-diagonal` | arah dorong pasangan yang masih hidup: `forward-left` (2 + 3 mati) atau `forward-right` (1 + 4 mati) | `forward-left` |
+| `--dive-turn-deg`, `--dive-yaw-rate` | putaran saat dive | 45°, 0,49 rad/s |
+| `--turn-cap`, `--orbit-cap` | sudut berhenti IMU (sedikit kurang dari target untuk menyerap overshoot) | 1,45 / 6,23 rad |
+
+### Urutan tes di kolam
+
+1. **Arah diagonal.** Jalankan approach saja: robot harus bergerak ke
+   **depan-kiri** badan. Kalau ke depan-kanan, pakai `--live-diagonal forward-right`.
+2. **Dive −45°.** Cek heading setelah dive di QGC. Kalau kurang atau lebih,
+   ubah `--dive-turn-deg` (misalnya 40 atau 50).
+3. **Kecepatan.** Ukur jarak 10 s, isi `--measured-speed`, lalu buat ulang
+   profilnya.
+4. **Orbit.** Bandingkan heading di akhir orbit dengan heading di awal orbit
+   (lihat di QGC).
+   - Putarannya **kurang** dari 360°: naikkan `--orbit-cap` sedikit
+     (+0,05 rad ≈ 3°).
+   - Putarannya **lebih**: turunkan `--orbit-cap`.
+   Error heading di sini menjadi error samping di gate, sekitar 0,17 m per
+   derajat.
+5. Lakukan full run, lalu ulangi langkah 3–4 sampai lewat gate di tengah.
