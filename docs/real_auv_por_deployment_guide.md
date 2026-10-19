@@ -212,3 +212,54 @@ At any point during the run, you can interrupt or stop the AUV immediately:
    ```
    - Triggers the BehaviorTree abort branch, cancels the active action, and transitions the vehicle to `fallback_mode` (`SURFACE`).
 
+---
+
+## 8. Simulation Testing & Verification
+
+The timed POR strategy can be fully tested in Gazebo Harmonic + ArduSub SITL + MAVROS simulation.
+
+### 8.1 Launch Simulation
+
+To run with full Gazebo GUI:
+```bash
+bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && \
+  ros2 launch banyu_bringup main_launch.launch.py mode:=por'
+```
+
+To run headless (server-only, faster execution, ideal for automated test runs):
+```bash
+bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && \
+  ros2 launch banyu_bringup main_launch.launch.py mode:=por headless:=True'
+```
+
+### 8.2 Verify Readiness
+
+Check that MAVROS and ArduSub SITL have initialized and calibrated:
+```bash
+bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && \
+  ros2 topic echo /banyu/vehicle_status --once'
+```
+Expect: `fcu_connected: true`, `rc_fresh: true`, `operational_mode: 2` (AUTONOMOUS).
+
+### 8.3 Start the Mission
+
+Call the mission start service:
+```bash
+bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && \
+  ros2 service call /banyu/mission/start std_srvs/srv/Trigger "{}"'
+```
+
+### 8.4 Verification Output
+
+During execution, watch the logs:
+1. Vehicle arms and switches flight mode to `GUIDED`.
+2. Segments execute sequentially:
+   - `[BT] Executing: dive_to_gate (TimedMove)`
+   - `[BT] Executing: pass_gate (TimedMove)`
+   - `[BT] Executing: approach_pole (TimedMove)`
+   - `[BT] Executing: circle_turn_1 ... circle_forward_4` (polygon circling)
+   - `[BT] Executing: return_turn (TimedMove)`
+   - `[BT] Executing: return_to_gate (TimedMove)`
+   - `[BT] Executing: surface (TimedMove)`
+3. Completion: `BehaviorTree execution finished: status=SUCCESS, interrupted=false`.
+

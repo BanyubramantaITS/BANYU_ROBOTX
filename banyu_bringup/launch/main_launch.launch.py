@@ -133,6 +133,7 @@ def generate_launch_description():
         launch_arguments={
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
+            "headless": LaunchConfiguration("headless"),
         }.items(),
     )
 
@@ -166,6 +167,7 @@ def generate_launch_description():
             "use_ardusub_sitl": LaunchConfiguration("use_ardusub_sitl"),
             "fcu_url": LaunchConfiguration("fcu_url"),
             "use_dvl": LaunchConfiguration("use_dvl"),
+            "headless": LaunchConfiguration("headless"),
         }.items(),
     )
 

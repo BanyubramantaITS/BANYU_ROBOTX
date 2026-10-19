@@ -24,6 +24,13 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    headless_arg = DeclareLaunchArgument(
+        name="headless",
+        default_value="False",
+        description="Run the Gazebo server only (no GUI): faster real-time factor for test runs.",
+        choices=["True", "False"],
+    )
+
     # SetUseSimTime only configures launch's own node; SetParameter reaches every launched node.
     set_use_sim_time = SetParameter(
         name="use_sim_time",
@@ -102,7 +109,24 @@ def generate_launch_description():
         cmd=["gz", "sim", "-v3", "-r", _world_file],
         additional_env={"GZ_SIM_RESOURCE_PATH": _gz_resource_path},
         output="both",
-        condition=IfCondition(LaunchConfiguration("use_sim")),
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+                EqualsSubstitution(LaunchConfiguration("headless"), "False"),
+            )
+        ),
+    )
+
+    ros_gz_sim_headless_launch = ExecuteProcess(
+        cmd=["gz", "sim", "-v3", "-r", "-s", _world_file],
+        additional_env={"GZ_SIM_RESOURCE_PATH": _gz_resource_path},
+        output="both",
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+                EqualsSubstitution(LaunchConfiguration("headless"), "True"),
+            )
+        ),
     )
 
     _por_pool_file = os.path.join(
@@ -209,9 +233,11 @@ def generate_launch_description():
         [
             use_sim_arg,
             use_sim_time_arg,
+            headless_arg,
             set_use_sim_time,
             clock_bridge,
             ros_gz_sim_launch,
+            ros_gz_sim_headless_launch,
             spawn_por_pool,
             spawn_gate,
             spawn_buoy,

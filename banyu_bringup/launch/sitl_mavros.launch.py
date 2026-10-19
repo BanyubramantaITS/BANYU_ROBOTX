@@ -55,6 +55,13 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    headless_arg = DeclareLaunchArgument(
+        name="headless",
+        default_value="False",
+        description="Run headless without MAVProxy GUI console",
+        choices=["True", "False"],
+    )
+
     fcu_url_arg = DeclareLaunchArgument(
         name="fcu_url",
         default_value="udp://127.0.0.1:14551@",
@@ -100,7 +107,7 @@ def generate_launch_description():
         ),
     )
 
-    _ardusub_sitl_cmd = [
+    _ardusub_sitl_base_cmd = [
         "sim_vehicle.py",
         "-L",
         "RATBeach",
@@ -111,24 +118,38 @@ def generate_launch_description():
         "--model=JSON",
         "--out=udp:0.0.0.0:14550",
         "--out=udp:127.0.0.1:14551",
-        # Third endpoint for the banyu::DvlMavlink world system (main_world.world).
-        # It cannot share MAVROS' 14551, and MAVROS cannot carry VISION_POSITION_DELTA.
         "--out=udp:127.0.0.1:14552",
-        "--console",
-        # MAVProxy requests telemetry at 4 Hz by default; mission readiness needs pose fresher than 1 s.
         "--mavproxy-args=--streamrate=10",
         "-w",
         "--add-param-file=" + _banyu_defaults_file,
     ]
     ardusub_sitl_launch = ExecuteProcess(
-        cmd=_ardusub_sitl_cmd,
+        cmd=_ardusub_sitl_base_cmd + ["--console"],
         name="ardusub_sitl",
         output="screen",
         log_cmd=True,
         condition=IfCondition(
             AndSubstitution(
-                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
-                EqualsSubstitution(LaunchConfiguration("use_ardusub_sitl"), "True"),
+                AndSubstitution(
+                    EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+                    EqualsSubstitution(LaunchConfiguration("use_ardusub_sitl"), "True"),
+                ),
+                EqualsSubstitution(LaunchConfiguration("headless"), "False"),
+            )
+        ),
+    )
+    ardusub_sitl_headless_launch = ExecuteProcess(
+        cmd=_ardusub_sitl_base_cmd,
+        name="ardusub_sitl_headless",
+        output="screen",
+        log_cmd=True,
+        condition=IfCondition(
+            AndSubstitution(
+                AndSubstitution(
+                    EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+                    EqualsSubstitution(LaunchConfiguration("use_ardusub_sitl"), "True"),
+                ),
+                EqualsSubstitution(LaunchConfiguration("headless"), "True"),
             )
         ),
     )
@@ -247,12 +268,14 @@ def generate_launch_description():
             use_sim_arg,
             use_ardusub_sitl_arg,
             use_sim_time_arg,
+            headless_arg,
             fcu_url_arg,
             use_dvl_arg,
             use_gps_arg,
             set_use_sim_time,
             ardusub_launch,
             ardusub_sitl_launch,
+            ardusub_sitl_headless_launch,
             mavros_launch,
             dvl_bridge,
             dvl_health,
