@@ -82,6 +82,13 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    headless_arg = DeclareLaunchArgument(
+        name="headless",
+        default_value="False",
+        description="Run Gazebo server only (no GUI) and MAVProxy without console GUI.",
+        choices=["True", "False"],
+    )
+
     task2_params_arg = DeclareLaunchArgument(
         name="task2_params_file",
         default_value=os.path.join(
@@ -150,6 +157,7 @@ def generate_launch_description():
         launch_arguments={
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
+            "headless": LaunchConfiguration("headless"),
             "tier": LaunchConfiguration("tier"),
             "spawn_x": task2_spawn_x,
             "spawn_y": task2_spawn_y,
@@ -195,6 +203,7 @@ def generate_launch_description():
             tier_arg,
             debug_arg,
             use_dvl_arg,
+            headless_arg,
             task2_params_arg,
             por_params_arg,
             set_use_sim_time,

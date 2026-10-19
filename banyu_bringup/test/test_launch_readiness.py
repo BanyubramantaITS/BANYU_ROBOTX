@@ -106,3 +106,13 @@ def test_package_xml_has_no_sim_build_depends():
     assert "ros_gz_bridge" not in hard_depends
     exec_depends = [el.text for el in root.findall("exec_depend")]
     assert "v4l2_camera" in exec_depends
+
+
+def test_main_launch_declares_headless_argument():
+    ld = _load_launch("main_launch.launch.py")
+    args = _declared_args(ld)
+    assert "headless" in args
+    assert args["headless"] == "False"
+    assert args["mode"] == "por"
+    assert args["use_sim"] == "True"
+
