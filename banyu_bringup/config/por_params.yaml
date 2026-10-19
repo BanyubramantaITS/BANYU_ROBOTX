@@ -86,6 +86,9 @@ banyu_mission:
       #   yaw_rate_rad_s: +counter-clockwise (left) / -clockwise (right)
       # -----------------------------------------------------------------------
       use_vision: false
+      # true: timed outbound + loop, then camera TurnAround/SearchGate/AlignGate/PassGate
+      # return (bt/por_hybrid_mission.xml); timed return_to_gate is the fallback.
+      use_vision_return: false
       use_sensors: true
       use_baro_depth: true
       use_imu_yaw_cap: true
