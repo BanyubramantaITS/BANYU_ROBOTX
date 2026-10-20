@@ -19,14 +19,15 @@
           use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
           depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
           use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
-        <!-- 2. Go forward to pass through the gate -->
+        <!-- 2. Go forward to pass through the gate (optionally ends on the IMU at
+             timed_pass_gate_target_angle_rad, e.g. an initial turn) -->
         <TimedMove name="pass_gate" segment_name="pass_gate"
           duration_s="{timed_pass_gate_duration_s}"
           speed_x_mps="{timed_pass_gate_speed_x_mps}" speed_y_mps="{timed_pass_gate_speed_y_mps}"
           speed_z_mps="{timed_pass_gate_speed_z_mps}" yaw_rate_rad_s="{timed_pass_gate_yaw_rate_rad_s}"
           use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
           depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
-          use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+          use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{timed_pass_gate_target_angle_rad}" />
         <!-- 3. Go forward approaching the pole -->
         <TimedMove name="approach_pole" segment_name="approach_pole"
           duration_s="{approach_pole_duration_s}"

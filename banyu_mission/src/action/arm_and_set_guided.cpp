@@ -113,12 +113,15 @@ BT::NodeStatus ArmAndSetGuided::onRunning()
       return BT::NodeStatus::RUNNING;
     }
     if (!set_mode_success_) {
-      RCLCPP_ERROR(node_->get_logger(), "Failed to set flight mode to GUIDED");
+      RCLCPP_ERROR(
+        node_->get_logger(), "Failed to set flight mode to %s", state_->autonomyMode().c_str());
       return BT::NodeStatus::FAILURE;
     }
-    if (state_->snapshot().mode != "GUIDED") {return BT::NodeStatus::RUNNING;}
+    if (state_->snapshot().mode != state_->autonomyMode()) {return BT::NodeStatus::RUNNING;}
     publishZeroVelocitySetpoint();
-    RCLCPP_INFO(node_->get_logger(), "Flight mode set to GUIDED. Arming vehicle...");
+    RCLCPP_INFO(
+      node_->get_logger(), "Flight mode set to %s. Arming vehicle...",
+      state_->autonomyMode().c_str());
     sendArmingRequest();
     step_ = Step::WaitingForArming;
     return BT::NodeStatus::RUNNING;
@@ -134,10 +137,12 @@ BT::NodeStatus ArmAndSetGuided::onRunning()
       return BT::NodeStatus::FAILURE;
     }
     const auto vehicle = state_->snapshot();
-    if (vehicle.mode != "GUIDED" || !vehicle.armed) {
+    if (vehicle.mode != state_->autonomyMode() || !vehicle.armed) {
       return BT::NodeStatus::RUNNING;
     }
-    RCLCPP_INFO(node_->get_logger(), "Vehicle successfully armed in GUIDED mode");
+    RCLCPP_INFO(
+      node_->get_logger(), "Vehicle successfully armed in %s mode",
+      state_->autonomyMode().c_str());
     state_->markAutonomyEngaged();
     step_ = Step::Done;
     return BT::NodeStatus::SUCCESS;
@@ -162,7 +167,7 @@ void ArmAndSetGuided::onHalted()
 void ArmAndSetGuided::sendSetModeRequest()
 {
   auto request = std::make_shared<mavros_msgs::srv::SetMode::Request>();
-  request->custom_mode = "GUIDED";
+  request->custom_mode = state_->autonomyMode();
   const auto generation = generation_;
 
   set_mode_client_->async_send_request(

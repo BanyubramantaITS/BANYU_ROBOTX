@@ -329,7 +329,7 @@ bool BanyuMission::autonomousReady() const
     phase == RunCoordinator::Phase::SurveyComplete || phase == RunCoordinator::Phase::Surfaced;
   return mission_config_valid_ && vehicle.fcu_connected && vehicle.fcu_status_fresh &&
          vehicle.rc_fresh && vehicle.armed && !vehicle.operator_takeover &&
-         (underway || vehicle.gps_available) && vehicle.mode == "GUIDED" && pose_valid_ &&
+         (underway || vehicle.gps_available) && vehicle.mode == state_->autonomyMode() && pose_valid_ &&
          std::chrono::steady_clock::now() - pose_received_at_ < std::chrono::seconds(1);
 }
 
@@ -345,7 +345,7 @@ std::string BanyuMission::autonomyNotReadyReason() const
   if (!vehicle.armed) {return "disarmed";}
   if (vehicle.operator_takeover) {return "operator takeover";}
   if (!underway && !vehicle.gps_available) {return "GPS unavailable";}
-  if (vehicle.mode != "GUIDED") {return "mode " + vehicle.mode;}
+  if (vehicle.mode != state_->autonomyMode()) {return "mode " + vehicle.mode;}
   if (!pose_valid_) {return "pose invalid or stamp older than 1 s";}
   if (std::chrono::steady_clock::now() - pose_received_at_ >= std::chrono::seconds(1)) {
     return "pose not received for 1 s";
@@ -357,7 +357,7 @@ bool BanyuMission::operatorHasControl() const
 {
   const auto vehicle = state_->snapshot();
   return vehicle.operator_takeover || (vehicle.fcu_connected && vehicle.fcu_status_fresh &&
-         !vehicle.mode.empty() && vehicle.mode != "GUIDED");
+         !vehicle.mode.empty() && vehicle.mode != state_->autonomyMode());
 }
 
 bool BanyuMission::executionHolding() const

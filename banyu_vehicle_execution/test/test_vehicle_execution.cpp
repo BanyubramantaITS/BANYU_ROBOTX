@@ -335,6 +335,62 @@ TEST(ActionServerMath, PorDetectionFreshnessUsesObjectAndAge)
   EXPECT_FALSE(banyu_vehicle_execution::detectionIsFresh(telemetry, now, 0.1, 1));
 }
 
+TEST(CommandEncoder, RcOverrideMapsBodyIntentToArduSubSticks)
+{
+  banyu_vehicle_execution::RcOverrideConfig config;
+  config.channel_forward = 3;
+  config.channel_lateral = 4;
+  config.channel_throttle = 2;
+  config.channel_yaw = 1;
+  config.gain_xy_pwm_per_mps = 300.0;
+  config.gain_z_pwm_per_mps = 300.0;
+  config.gain_yaw_pwm_per_rad_s = 300.0;
+  // Heading 90 deg (ENU north): body forward 0.5 m/s, left 0.2 m/s, up 0.1, CCW 0.4.
+  const double yaw = M_PI / 2.0;
+  const auto body = banyu_vehicle_execution::MotionIntent::bodyFlu(0.5, 0.2, 0.1, 0.4);
+  const auto local = banyu_vehicle_execution::bodyFluToLocalEnu(body, yaw);
+  ASSERT_TRUE(local.has_value());
+  const auto msg = banyu_vehicle_execution::encodeRcOverride(*local, yaw, config);
+  EXPECT_EQ(msg.channels[2], 1650);   // forward +0.5 -> stick forward
+  EXPECT_EQ(msg.channels[3], 1440);   // left +0.2 -> lateral stick LEFT (below neutral)
+  EXPECT_EQ(msg.channels[1], 1530);   // up +0.1 -> throttle up
+  EXPECT_EQ(msg.channels[0], 1380);   // CCW +0.4 -> yaw stick LEFT
+  EXPECT_EQ(msg.channels[4], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
+}
+
+TEST(CommandEncoder, RcOverrideCompensatesArduSubDeadZone)
+{
+  banyu_vehicle_execution::RcOverrideConfig config;   // yaw on channel 4
+  config.gain_yaw_pwm_per_rad_s = 143.4;
+  config.deadzone_yaw_pwm = 20;
+  // Slow orbit yaw (CW 0.217 rad/s) starts outside the 20 PWM dead zone: 20 + 31 = 51.
+  auto msg = banyu_vehicle_execution::encodeRcOverride(
+    banyu_vehicle_execution::MotionIntent::localEnu(0.0, 0.0, 0.0, -0.217), 0.0, config);
+  EXPECT_EQ(msg.channels[3], 1551);
+  // Zero command stays exactly neutral (ArduSub then holds heading).
+  msg = banyu_vehicle_execution::encodeRcOverride(
+    banyu_vehicle_execution::MotionIntent::localEnu(0.0, 0.0, 0.0, 0.0), 0.0, config);
+  EXPECT_EQ(msg.channels[3], 1500);
+}
+
+TEST(CommandEncoder, RcOverrideClampsAndNeutralReleasesOtherChannels)
+{
+  banyu_vehicle_execution::RcOverrideConfig config;   // ArduSub default channels 5,6,3,4
+  config.max_delta_pwm = 200;
+  const auto local = banyu_vehicle_execution::MotionIntent::localEnu(5.0, 0.0, 0.0, 0.0);
+  const auto msg = banyu_vehicle_execution::encodeRcOverride(
+    local, 0.0, config, banyu_vehicle_execution::IntentLimits(10.0, 1.0));
+  EXPECT_EQ(msg.channels[4], 1700);   // clamped to neutral + max_delta_pwm
+  const auto neutral = banyu_vehicle_execution::neutralRcOverride(config);
+  EXPECT_EQ(neutral.channels[4], 1500);
+  EXPECT_EQ(neutral.channels[2], 1500);
+  EXPECT_EQ(neutral.channels[0], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
+  const auto released = banyu_vehicle_execution::releasedRcOverride();
+  for (const auto value : released.channels) {
+    EXPECT_EQ(value, mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
+  }
+}
+
 TEST(ActionServerMath, PorDetectionSlotsKeepGateAndMarkerTogether)
 {
   banyu_vehicle_execution::VehicleTelemetry telemetry;

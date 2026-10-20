@@ -34,6 +34,35 @@ void VehicleExecutionNode::initParameters()
   required_zero_cycles_ = declare_parameter<int64_t>("control.required_zero_cycles", 2);
   enable_mavros_publish_ = declare_parameter<bool>("control.enable_mavros_publish", false);
   require_guided_ = declare_parameter<bool>("control.require_guided", true);
+  autonomy_mode_ = declare_parameter<std::string>("control.autonomy_mode", "GUIDED");
+  output_mode_ = declare_parameter<std::string>("control.output_mode", "setpoint");
+  if (output_mode_ != "setpoint" && output_mode_ != "rc_override") {
+    throw std::invalid_argument("control.output_mode must be setpoint or rc_override");
+  }
+  rc_override_config_.channel_forward = static_cast<int>(declare_parameter<int64_t>(
+    "rc_override.channel_forward", rc_override_config_.channel_forward));
+  rc_override_config_.channel_lateral = static_cast<int>(declare_parameter<int64_t>(
+    "rc_override.channel_lateral", rc_override_config_.channel_lateral));
+  rc_override_config_.channel_throttle = static_cast<int>(declare_parameter<int64_t>(
+    "rc_override.channel_throttle", rc_override_config_.channel_throttle));
+  rc_override_config_.channel_yaw = static_cast<int>(declare_parameter<int64_t>(
+    "rc_override.channel_yaw", rc_override_config_.channel_yaw));
+  rc_override_config_.gain_xy_pwm_per_mps = declare_parameter<double>(
+    "rc_override.gain_xy_pwm_per_mps", rc_override_config_.gain_xy_pwm_per_mps);
+  rc_override_config_.gain_z_pwm_per_mps = declare_parameter<double>(
+    "rc_override.gain_z_pwm_per_mps", rc_override_config_.gain_z_pwm_per_mps);
+  rc_override_config_.gain_yaw_pwm_per_rad_s = declare_parameter<double>(
+    "rc_override.gain_yaw_pwm_per_rad_s", rc_override_config_.gain_yaw_pwm_per_rad_s);
+  rc_override_config_.max_delta_pwm = static_cast<int>(declare_parameter<int64_t>(
+    "rc_override.max_delta_pwm", rc_override_config_.max_delta_pwm));
+  rc_override_config_.neutral_pwm = static_cast<int>(declare_parameter<int64_t>(
+    "rc_override.neutral_pwm", rc_override_config_.neutral_pwm));
+  rc_override_config_.deadzone_xy_pwm = static_cast<int>(declare_parameter<int64_t>(
+    "rc_override.deadzone_xy_pwm", rc_override_config_.deadzone_xy_pwm));
+  rc_override_config_.deadzone_z_pwm = static_cast<int>(declare_parameter<int64_t>(
+    "rc_override.deadzone_z_pwm", rc_override_config_.deadzone_z_pwm));
+  rc_override_config_.deadzone_yaw_pwm = static_cast<int>(declare_parameter<int64_t>(
+    "rc_override.deadzone_yaw_pwm", rc_override_config_.deadzone_yaw_pwm));
   require_run_authorization_ = declare_parameter<bool>("control.require_run_authorization", false);
   run_lifecycle_timeout_s_ = declare_parameter<double>("control.run_lifecycle_timeout_s", 1.0);
   if (!std::isfinite(run_lifecycle_timeout_s_) || run_lifecycle_timeout_s_ <= 0.0) {
@@ -140,11 +169,17 @@ void VehicleExecutionNode::initPublishers()
   preview_target_pub_ = create_publisher<mavros_msgs::msg::PositionTarget>(
     preview_topic, rclcpp::QoS(10));
 
-  if (enable_mavros_publish_) {
+  if (enable_mavros_publish_ && output_mode_ == "setpoint") {
     const auto mavros_topic = declare_parameter<std::string>(
       "topics.mavros_target", "/mavros/setpoint_raw/local");
     mavros_target_pub_ = create_publisher<mavros_msgs::msg::PositionTarget>(
       mavros_topic, rclcpp::QoS(10));
+  }
+  if (enable_mavros_publish_ && output_mode_ == "rc_override") {
+    const auto override_topic = declare_parameter<std::string>(
+      "topics.rc_override", "/mavros/rc/override");
+    rc_override_pub_ = create_publisher<mavros_msgs::msg::OverrideRCIn>(
+      override_topic, rclcpp::QoS(10));
   }
 }
 
@@ -418,7 +453,7 @@ void VehicleExecutionNode::timerCallback()
   const bool safety_fault = (telemetry_.status_valid &&
     (telemetry_.operator_takeover || !telemetry_.fcu_connected || !telemetry_.armed ||
     !telemetry_.fcu_status_fresh ||
-    !telemetry_.rc_fresh || (require_guided_ && telemetry_.mode != "GUIDED") ||
+    !telemetry_.rc_fresh || (require_guided_ && telemetry_.mode != autonomy_mode_) ||
     telemetry_.operational_mode != 2 || telemetry_.hardware_kill_active)) ||
     (status_ever_received_ && !telemetry_.status_valid) ||
     (require_run_authorization_ && !runMotionAuthorized() && !readinessHoldAuthorized());
@@ -478,6 +513,15 @@ void VehicleExecutionNode::timerCallback()
     target.header.frame_id = "map";
     preview_target_pub_->publish(target);
 
+    if (enable_mavros_publish_ && rc_override_pub_) {
+      const bool terminal_stop = require_run_authorization_ &&
+        terminal_zero_cycles_remaining_ > 0;
+      const bool run_output_ready = !require_run_authorization_ ||
+        runMotionAuthorized() || terminal_stop;
+      const bool allowed = hardwareStatusReady() && run_output_ready && !safety_fault;
+      publishRcOverride(allowed ? intent : zeroIntent(), allowed);
+      readiness_output_published = false;
+    }
     if (enable_mavros_publish_ && mavros_target_pub_) {
       if (!hardwareStatusReady()) {
         terminal_zero_cycles_remaining_ = 0;
@@ -664,6 +708,38 @@ void VehicleExecutionNode::handleStatus(const banyu_msgs::msg::VehicleStatus::Sh
   telemetry_.hardware_kill_active = msg->hardware_kill_active;
 }
 
+void VehicleExecutionNode::publishRcOverride(const MotionIntent & intent, bool output_allowed)
+{
+  // While autonomous: stream sticks. Otherwise hold neutral while the vehicle is still
+  // armed in the autonomy mode (a clean stop), and release the sticks to the
+  // transmitter once it is disarmed or in another mode.
+  const bool armed_in_autonomy = telemetry_.armed && telemetry_.mode == autonomy_mode_;
+  mavros_msgs::msg::OverrideRCIn msg;
+  if (output_allowed) {
+    double heading = 0.0;
+    if (telemetry_.pose_valid) {
+      heading = telemetry_.yaw;
+    } else if (telemetry_.imu_valid) {
+      heading = telemetry_.imu_yaw;
+    }
+    try {
+      msg = encodeRcOverride(intent, heading, rc_override_config_, limits_);
+    } catch (const std::exception & ex) {
+      RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000, "RC override encode: %s", ex.what());
+      msg = neutralRcOverride(rc_override_config_);
+    }
+    rc_override_neutral_sent_ = false;
+  } else if (armed_in_autonomy) {
+    msg = neutralRcOverride(rc_override_config_);
+    rc_override_neutral_sent_ = false;
+  } else {
+    if (rc_override_neutral_sent_) {return;}   // release once, then stay quiet
+    msg = releasedRcOverride();
+    rc_override_neutral_sent_ = true;
+  }
+  rc_override_pub_->publish(msg);
+}
+
 bool VehicleExecutionNode::lifecycleFresh() const
 {
   return lifecycle_received_ && authority_handshake_ &&
@@ -675,7 +751,7 @@ bool VehicleExecutionNode::hardwareStatusReady() const
 {
   return telemetry_.status_valid && telemetry_.fcu_connected && telemetry_.fcu_status_fresh &&
          telemetry_.armed && telemetry_.rc_fresh && !telemetry_.operator_takeover &&
-         telemetry_.mode == "GUIDED" &&
+         telemetry_.mode == autonomy_mode_ &&
          telemetry_.operational_mode == 2 && !telemetry_.hardware_kill_active &&
          std::chrono::duration<double>(steady_clock_.now() - status_receipt_).count() <= 1.0;
 }

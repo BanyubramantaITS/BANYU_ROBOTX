@@ -402,3 +402,79 @@ Pengaman tanpa RC (RC tidak lagi bisa mengambil alih):
   dengan yang dikirim teleop.
 - ArduSub tetap memeriksa pre-arm. Kalau arming ditolak karena tidak ada input
   RC, cek `ARMING_CHECK` di QGC; jangan matikan pemeriksaan lain.
+
+## 12. Tanpa posisi (tanpa DVL/GPS): ALT_HOLD + RC override
+
+GUIDED (dan AUTO) di ArduSub butuh estimasi posisi. Kalau EKF tidak punya
+posisi, mission berhenti di `ArmAndSetGuided` dengan pesan
+`Mode change failed: Guided requires position`. Mode tanpa posisi adalah ALT_HOLD:
+kedalaman ditahan baro dan heading oleh kompas. Di mode ini stack mengirim
+"stick" lewat `/mavros/rc/override`.
+
+Profil: `por_params_dead_thruster_2_3_no_rc_no_pos.yaml`
+(`dead_thruster_por.py --no-rc --no-position`, ALT_HOLD, **disarankan untuk
+BANYU**). Isi parameternya:
+
+| Node | Parameter | Nilai |
+|---|---|---|
+| `banyu_mission` | `autonomy_mode` | `ALT_HOLD` (mode yang diminta `ArmAndSetGuided`) |
+| `vehicle_execution_node` | `control.autonomy_mode` / `control.output_mode` | `ALT_HOLD` / `rc_override` |
+| `vehicle_execution_node` | `rc_override.channel_forward/lateral/throttle/yaw` | `3/4/2/1`, harus sama dengan `RCMAP_*` di Pixhawk |
+| `vehicle_execution_node` | `rc_override.gain_xy/z/yaw` | 300 PWM per m/s (atau per rad/s) |
+| `banyu_vehicle_status` | `autonomy_mode`, `bypass_rc` | `ALT_HOLD`, `true` |
+
+Cara kerjanya:
+- Kecepatan menjadi **open-loop**: perintah 0,354 m/s berarti stick sekitar
+  1500 + 106 PWM, bukan kecepatan terukur. Jarak diatur ulang lewat
+  `--measured-speed` (ukur 10 s), atau perkuat atau perlemah stick dengan
+  `--rc-gain-xy`.
+- Heading (dan batas IMU untuk putaran serta orbit) diambil dari
+  `/mavros/imu/data` saat pose tidak ada.
+- Saat mission berhenti atau ada fault, stick ditahan **netral** selama robot
+  masih arm di ALT_HOLD, lalu **dilepas** ke transmitter saat disarm. Kalau
+  stack mati, ArduSub membuang override sendiri setelah `RC_OVERRIDE_TIME`
+  (3 s).
+- RC override hanya diterima dari GCS dengan sysid = `SYSID_MYGCS` (255). MAVROS
+  sudah memakai `system_id: 255`.
+
+Hasil cek di Pixhawk BANYU (disarm, 20 Okt):
+- **BARO2 = `MS5837_30BA` (Bar30) di I2C 0x76**. Driver ini bertipe `BARO_TYPE_WATER`,
+  jadi ArduSub menganggap ada sensor kedalaman. Pembacaannya hidup (1030 hPa di udara).
+- Ganti mode ke **ALT_HOLD diterima** dan STABILIZE diterima. GUIDED/AUTO/POSHOLD
+  ditolak karena butuh posisi (`ArduSub/mode.cpp`, `position_ok()`).
+- ALT_HOLD butuh sensor kedalaman tipe water (`Sub::control_check_barometer`).
+  Kalau Bar30 lepas, pakai `--no-depth-sensor` (profil `..._pixhawk_only.yaml`,
+  STABILIZE, kedalaman open-loop dengan `--depth-trim`).
+
+Kompensasi stick (generator menghitungnya dari parameter Pixhawk, lihat
+`ArduSub/Attitude.cpp` dan `RC_Channel::pwm_to_angle_dz_trim`):
+
+| Sumbu | ArduSub | Setting (BANYU) |
+|---|---|---|
+| Yaw | rate = 4500 cdeg × `ACRO_YAW_P` per s pada 400 − DZ PWM, DZ = `RC1_DZ` × `JS_GAIN_DEFAULT` | DZ 20, gain 143,4 PWM per rad/s (`--acro-yaw-p 3.375 --rc-yaw-dz 40 --js-gain 0.5`) |
+| Throttle (ALT_HOLD) | climb = `PILOT_SPEED` × (stick − `THR_DZ` × gain) | DZ 50, gain 200 PWM per m/s (`--thr-dz 100 --pilot-speed 200`) |
+| Maju / samping | dorongan langsung (`norm_input`, tanpa DZ) | gain 300 PWM per m/s, kalibrasi dengan `--measured-speed` |
+
+Tanpa kompensasi deadzone, yaw orbit 0,217 rad/s (33 PWM) tertelan oleh deadzone
+20 PWM, dan robot hampir tidak berbelok.
+
+Putaran 45° di awal **dibatasi IMU** di segmen `pass_gate`
+(`timed_pass_gate_target_angle_rad`). Dive turun lurus tanpa yaw, karena yaw
+berbasis waktu lewat stick tidak akurat.
+
+Cek channel dengan `ros2 topic echo /mavros/rc/in` atau QGC Radio. Kalau
+`RCMAP_*` di Pixhawk berbeda, buat ulang profil dengan
+`--rc-channels forward,lateral,throttle,yaw`.
+
+Launch dan jalankan:
+
+```bash
+python3 ~/Desktop/ros2_ws_robotx/src/BANYU_ROBOTX/tools/scripts/esp32_kill_cmd.py auto --hold   # T2
+ros2 launch banyu_bringup sub_bringup.launch.py mode:=por enable_teleop:=False \
+  por_params_file:=$HOME/Desktop/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/config/por_params_dead_thruster_2_3_no_rc_no_pos.yaml
+ros2 service call /banyu/mission/start std_srvs/srv/Trigger "{}"
+```
+
+Berhenti: `/banyu/mission/abort`, lalu
+`ros2 service call /mavros/cmd/arming mavros_msgs/srv/CommandBool "{value: false}"`,
+lalu `esp32_kill_cmd.py kill`.

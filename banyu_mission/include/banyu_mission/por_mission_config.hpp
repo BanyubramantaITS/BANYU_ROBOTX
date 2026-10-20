@@ -97,6 +97,8 @@ struct PorMissionConfig
   double timed_pass_gate_speed_y_mps {0.0};
   double timed_pass_gate_speed_z_mps {0.0};
   double timed_pass_gate_yaw_rate_rad_s {0.0};
+  // > 0: end the pass_gate segment on the IMU once it has turned this far (0 = timed).
+  double timed_pass_gate_target_angle_rad {0.0};
 
   double approach_pole_duration_s {8.0};
   double approach_pole_speed_x_mps {0.6};

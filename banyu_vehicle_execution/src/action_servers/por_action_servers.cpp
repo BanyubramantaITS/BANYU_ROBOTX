@@ -761,15 +761,18 @@ MotionIntent TimedMoveServer::tick(
   if (active_handle_->is_canceling()) {cancelActive(); return zeroIntent();}
   const auto goal = active_handle_->get_goal();
   const double elapsed_s = std::max(0.0, (now - start_time_).seconds());
-  const bool pose_fresh = freshPose(telemetry, now);
+  // Heading from the local pose, else the IMU (no position estimate), else dead
+  // reckoning from the commanded yaw rate. The IMU turn cap works on either sensor.
+  double heading = 0.0;
+  const bool pose_fresh = freshHeading(telemetry, now, &heading);
   if (pose_fresh && !yaw_initialized_) {
-    last_yaw_ = telemetry.yaw;
-    dead_reckon_yaw_ = telemetry.yaw;
+    last_yaw_ = heading;
+    dead_reckon_yaw_ = heading;
     yaw_initialized_ = true;
   } else if (pose_fresh) {
-    accumulated_yaw_ += normalizeAngle(telemetry.yaw - last_yaw_);
-    last_yaw_ = telemetry.yaw;
-    dead_reckon_yaw_ = telemetry.yaw;
+    accumulated_yaw_ += normalizeAngle(heading - last_yaw_);
+    last_yaw_ = heading;
+    dead_reckon_yaw_ = heading;
   } else if (std::isfinite(dt) && dt > 0.0) {
     const double delta_yaw = goal->yaw_rate_rad_s * dt;
     accumulated_yaw_ += delta_yaw;
@@ -815,8 +818,7 @@ MotionIntent TimedMoveServer::tick(
     const double error = goal->target_depth_m - depth;
     vz = -clampFinite(kp * error, -max_vz, max_vz);
   }
-  const double yaw = (pose_fresh && std::isfinite(telemetry.yaw)) ?
-    telemetry.yaw : dead_reckon_yaw_;
+  const double yaw = pose_fresh ? heading : dead_reckon_yaw_;
   const auto converted = bodyFluToLocalEnu(
     MotionIntent::bodyFlu(goal->speed_x_mps, goal->speed_y_mps, vz, goal->yaw_rate_rad_s), yaw);
   return converted ? *converted : zeroIntent();

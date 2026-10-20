@@ -42,6 +42,34 @@ def main():
                         "mission needs no RC switches (launch with enable_teleop:=False)")
     p.add_argument("--live-diagonal", choices=["forward-left", "forward-right"], default="forward-left",
                    help="direction the LIVE thruster pair pushes for +forward (2+3 dead -> forward-left)")
+    p.add_argument("--no-position", action="store_true",
+                   help="vehicle has no position estimate (no DVL/GPS): fly ALT_HOLD and drive the "
+                        "sticks over /mavros/rc/override instead of GUIDED setpoints")
+    p.add_argument("--no-depth-sensor", action="store_true",
+                   help="Pixhawk only, no external depth sensor (Bar30): implies --no-position, flies "
+                        "STABILIZE (ALT_HOLD needs a water baro), dives open-loop and does the first "
+                        "45 deg turn on the IMU")
+    p.add_argument("--dive-depth", type=float, default=1.8, help="--no-position: target depth for the open-loop dive (m)")
+    p.add_argument("--dive-time", type=float, default=None,
+                   help="--no-position: open-loop dive time (s); default dive-depth / dive-vz + 1.5 s lag")
+    p.add_argument("--dive-vz", type=float, default=0.4, help="--no-depth-sensor: dive command (m/s, down)")
+    p.add_argument("--depth-trim", type=float, default=0.0,
+                   help="--no-depth-sensor: constant down command on every leg (m/s) to cancel buoyancy")
+    p.add_argument("--flight-mode", default="ALT_HOLD", choices=["ALT_HOLD", "STABILIZE", "MANUAL"],
+                   help="flight mode for --no-position")
+    p.add_argument("--rc-channels", default="3,4,2,1",
+                   help="--no-position: forward,lateral,throttle,yaw RC channels (1-based, = RCMAP_*)")
+    p.add_argument("--rc-gain-xy", type=float, default=300.0, help="PWM per m/s forward/lateral")
+    p.add_argument("--rc-gain-z", type=float, default=300.0, help="PWM per m/s up/down")
+    p.add_argument("--rc-gain-yaw", type=float, default=None,
+                   help="PWM per rad/s yaw (default: computed from --acro-yaw-p)")
+    p.add_argument("--rc-yaw-dz", type=float, default=40.0, help="Pixhawk RCx_DZ of the yaw channel (BANYU RC1_DZ 40)")
+    p.add_argument("--thr-dz", type=float, default=100.0, help="Pixhawk THR_DZ (BANYU 100)")
+    p.add_argument("--js-gain", type=float, default=0.5, help="Pixhawk JS_GAIN_DEFAULT; scales the dead zones")
+    p.add_argument("--pilot-speed", type=float, default=200.0, help="Pixhawk PILOT_SPEED (cm/s); ALT_HOLD climb rate at full stick")
+    p.add_argument("--acro-yaw-p", type=float, default=3.375,
+                   help="Pixhawk ACRO_YAW_P (BANYU: 3.375). Full yaw stick = 4500 cdeg x ACRO_YAW_P "
+                        "per s, so the yaw gain is 400 PWM / that rate")
     p.add_argument("--speed-cmd", type=float, default=0.5, help="commanded speed along the diagonal (m/s)")
     p.add_argument("--measured-speed", type=float, default=None,
                    help="real speed along the diagonal at --speed-cmd (m/s); default = --speed-cmd")
@@ -58,8 +86,24 @@ def main():
     p.add_argument("--orbit-cap", type=float, default=6.23,
                    help="IMU stop angle for the orbit (rad, just short of 2*pi)")
     a = p.parse_args()
+    if a.no_depth_sensor:
+        a.no_position = True
+        a.flight_mode = "STABILIZE"
+    # ArduSub stick maths (ArduSub/Attitude.cpp, RC_Channel::pwm_to_angle_dz_trim):
+    #   yaw rate  = 4500 cdeg * ACRO_YAW_P per s over the 400 - dead-zone PWM past the dead zone
+    #   climb     = PILOT_SPEED * (stick - THR_DZ dead zone) in ALT_HOLD
+    #   forward / lateral / STABILIZE throttle = thrust fraction, no dead zone (open loop)
+    yaw_dz = round(a.rc_yaw_dz * a.js_gain)
+    if a.rc_gain_yaw is None:
+        full_stick_rate = math.radians(4500.0 * a.acro_yaw_p / 100.0)
+        a.rc_gain_yaw = round((400.0 - yaw_dz) / full_stick_rate, 1)
+    z_dz, z_gain = 0, a.rc_gain_z
+    if a.flight_mode == "ALT_HOLD":
+        z_dz = round(a.thr_dz * a.js_gain)
+        z_gain = round(400.0 / (a.pilot_speed / 100.0), 1)
     if a.out is None:
-        name = "por_params_dead_thruster_2_3_no_rc.yaml" if a.no_rc else "por_params_dead_thruster_2_3.yaml"
+        name = "por_params_dead_thruster_2_3" + ("_no_rc" if a.no_rc else "") + \
+            ("_pixhawk_only" if a.no_depth_sensor else "_no_pos" if a.no_position else "") + ".yaml"
         a.out = os.path.join(CONFIG, name)
 
     v_cmd = a.speed_cmd
@@ -68,7 +112,9 @@ def main():
     sy = 1.0 if a.live_diagonal == "forward-left" else -1.0
     # Yaw that points the live diagonal down the course: forward-left needs -45 deg.
     yaw_sign = -sy
-    omega = v_cmd / a.orbit_radius
+    # Orbit yaw rate from the REAL speed: with RC override the speed is open loop, so a
+    # rate from the commanded speed would give radius = v_real / omega != orbit_radius.
+    omega = v_real / a.orbit_radius
     approach_m = a.start_to_gate + a.gate_to_marker - a.orbit_radius
     return_m = a.gate_to_marker - a.orbit_radius + a.past_gate
 
@@ -100,7 +146,32 @@ def main():
         "return_to_gate_yaw_rate_rad_s": 0.0,
     }
 
+    if a.dive_time is None:
+        a.dive_time = round(a.dive_depth / a.dive_vz + 1.5, 1)
+    if a.no_position:
+        # Stick (RC override) output is open-loop, so a timed yaw would not land on 45 deg:
+        # dive straight down, then do the 45 deg alignment turn in pass_gate, where it ends
+        # on the IMU. ALT_HOLD holds the reached depth itself (Bar30); without a depth
+        # sensor (STABILIZE) a constant --depth-trim cancels buoyancy instead. The
+        # vehicle's own depth estimate is not used by the legs (no pose -> no rel_alt).
+        turn = math.radians(a.dive_turn_deg)
+        values.update({
+            "use_baro_depth": "false",
+            "dive_duration_s": a.dive_time, "dive_speed_z_mps": round(-a.dive_vz, 3),
+            "dive_yaw_rate_rad_s": 0.0,
+            "timed_pass_gate_duration_s": round(turn / 0.3 + 3.0, 1),
+            "timed_pass_gate_speed_x_mps": 0.0, "timed_pass_gate_speed_y_mps": 0.0,
+            "timed_pass_gate_speed_z_mps": round(-a.depth_trim, 3),
+            "timed_pass_gate_yaw_rate_rad_s": round(yaw_sign * 0.3, 3),
+            "timed_pass_gate_target_angle_rad": round(max(0.05, turn - 0.05), 3),
+        })
+        for seg in ("approach_pole", "circle_turn_1", "circle_turn_2", "circle_turn_3", "return_to_gate"):
+            values[f"{seg}_speed_z_mps"] = round(-a.depth_trim, 3)
     text = open(a.base).read()
+    anchor_pg = "      timed_pass_gate_yaw_rate_rad_s: "
+    if "timed_pass_gate_target_angle_rad" not in text and anchor_pg in text:
+        i = text.index(anchor_pg); j = text.index("\n", i) + 1
+        text = text[:i] + text[i:j] + "      timed_pass_gate_target_angle_rad: 0.0\n" + text[j:]
     for key, value in values.items():
         text, n = re.subn(rf"^(\s+{key}:) [^\s#]+", lambda m: f"{m.group(1)} {value}", text,
                           count=1, flags=re.M)
@@ -117,6 +188,35 @@ def main():
     start = text.index("      # FAST strafe-box profile")
     end = text.index("      # =====", start)
     text = text[:start] + header + text[end:]
+    if a.no_position:
+        try:
+            fwd, lat, thr, yaw = (int(c) for c in a.rc_channels.split(","))
+        except ValueError:
+            sys.exit("--rc-channels needs four integers: forward,lateral,throttle,yaw")
+        mode = a.flight_mode
+        edits = [
+            ('    mission_mode: "por"\n',
+             f'    mission_mode: "por"\n    autonomy_mode: "{mode}"   # no position estimate: not GUIDED\n'),
+            ("      require_guided: true\n",
+             f'      require_guided: true\n      autonomy_mode: "{mode}"\n'
+             '      output_mode: "rc_override"   # sticks over /mavros/rc/override\n'),
+            ('    autonomy_mode: "GUIDED"\n', f'    autonomy_mode: "{mode}"\n'),
+        ]
+        for old, new in edits:
+            if text.count(old) != 1:
+                sys.exit(f"anchor {old.strip()!r} not found exactly once in {a.base}")
+            text = text.replace(old, new)
+        block = ("    rc_override:   # channels must match the Pixhawk RCMAP_* (1-based)\n"
+                 f"      channel_forward: {fwd}\n      channel_lateral: {lat}\n"
+                 f"      channel_throttle: {thr}\n      channel_yaw: {yaw}\n"
+                 f"      gain_xy_pwm_per_mps: {a.rc_gain_xy}\n      gain_z_pwm_per_mps: {z_gain}\n"
+                 f"      gain_yaw_pwm_per_rad_s: {a.rc_gain_yaw}\n      max_delta_pwm: 400\n"
+                 "      neutral_pwm: 1500\n      deadzone_xy_pwm: 0\n"
+                 f"      deadzone_z_pwm: {z_dz}\n      deadzone_yaw_pwm: {yaw_dz}\n")
+        anchor_ve = "vehicle_execution_node:\n  ros__parameters:\n"
+        if text.count(anchor_ve) != 1:
+            sys.exit("vehicle_execution_node section not found in " + a.base)
+        text = text.replace(anchor_ve, anchor_ve + block)
     if a.no_rc:
         anchor = "    kill_switch_timeout_s: 1.0\n"
         if text.count(anchor) != 1:

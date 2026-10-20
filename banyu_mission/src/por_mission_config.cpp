@@ -140,6 +140,8 @@ PorMissionConfig PorMissionConfig::load(rclcpp::Node & node)
     "timed_pass_gate_speed_z_mps", config.timed_pass_gate_speed_z_mps);
   config.timed_pass_gate_yaw_rate_rad_s = parameter(
     "timed_pass_gate_yaw_rate_rad_s", config.timed_pass_gate_yaw_rate_rad_s);
+  config.timed_pass_gate_target_angle_rad = parameter(
+    "timed_pass_gate_target_angle_rad", config.timed_pass_gate_target_angle_rad);
 
   config.approach_pole_duration_s = parameter(
     "approach_pole_duration_s", config.approach_pole_duration_s);
@@ -314,6 +316,7 @@ void PorMissionConfig::validate() const
   const std::array nonnegative_values {
     surface_watchdog_timeout_s, assist_gate_align_max_s, assist_marker_align_max_s,
     dive_duration_s, timed_pass_gate_duration_s, approach_pole_duration_s,
+    timed_pass_gate_target_angle_rad,
     circle_turn_1_duration_s, circle_turn_1_target_angle_rad, circle_forward_1_duration_s,
     circle_turn_2_duration_s, circle_turn_2_target_angle_rad, circle_forward_2_duration_s,
     circle_turn_3_duration_s, circle_turn_3_target_angle_rad, circle_forward_3_duration_s,
@@ -455,6 +458,7 @@ void PorMissionConfig::apply(const BT::Blackboard::Ptr & blackboard) const
   blackboard->set("timed_pass_gate_speed_y_mps", timed_pass_gate_speed_y_mps);
   blackboard->set("timed_pass_gate_speed_z_mps", timed_pass_gate_speed_z_mps);
   blackboard->set("timed_pass_gate_yaw_rate_rad_s", timed_pass_gate_yaw_rate_rad_s);
+  blackboard->set("timed_pass_gate_target_angle_rad", timed_pass_gate_target_angle_rad);
 
   blackboard->set("approach_pole_duration_s", approach_pole_duration_s);
   blackboard->set("approach_pole_speed_x_mps", approach_pole_speed_x_mps);

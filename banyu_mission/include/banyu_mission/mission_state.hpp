@@ -79,6 +79,8 @@ public:
 
   bool autonomyInterrupted() const;
   bool vehicleReady() const;
+  // Flight mode used while autonomous ("GUIDED", or "ALT_HOLD" without a position estimate).
+  const std::string & autonomyMode() const {return autonomy_mode_;}
   bool gpsAvailable() const;
   bool gpsRequired() const;
   bool pipelineLost() const;

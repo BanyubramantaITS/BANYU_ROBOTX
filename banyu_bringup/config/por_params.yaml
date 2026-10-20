@@ -120,6 +120,7 @@ banyu_mission:
       timed_pass_gate_speed_y_mps: 0.0
       timed_pass_gate_speed_z_mps: 0.0
       timed_pass_gate_yaw_rate_rad_s: 0.0
+      timed_pass_gate_target_angle_rad: 0.0 # > 0: end pass_gate on the IMU at this turn angle
 
       # 3. Go forward approaching the pole
       approach_pole_duration_s: 8.0

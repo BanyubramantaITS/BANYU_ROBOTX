@@ -99,6 +99,14 @@ private:
 
   bool enable_mavros_publish_{false};
   bool require_guided_{true};
+  // Flight mode the vehicle must be in while autonomous ("GUIDED" for setpoint
+  // output; "ALT_HOLD"/"STABILIZE"/"MANUAL" for rc_override, no position needed).
+  std::string autonomy_mode_{"GUIDED"};
+  // "setpoint" (/mavros/setpoint_raw/local, GUIDED) or "rc_override" (/mavros/rc/override).
+  std::string output_mode_{"setpoint"};
+  RcOverrideConfig rc_override_config_{};
+  bool rc_override_neutral_sent_{false};
+  void publishRcOverride(const MotionIntent & intent, bool output_allowed);
   bool status_ever_received_{false};
   bool require_run_authorization_{false};
   double run_lifecycle_timeout_s_{1.0};
@@ -143,6 +151,7 @@ private:
 
   rclcpp::Publisher<mavros_msgs::msg::PositionTarget>::SharedPtr preview_target_pub_;
   rclcpp::Publisher<mavros_msgs::msg::PositionTarget>::SharedPtr mavros_target_pub_;
+  rclcpp::Publisher<mavros_msgs::msg::OverrideRCIn>::SharedPtr rc_override_pub_;
   rclcpp::Publisher<banyu_msgs::msg::ExecutionReadiness>::SharedPtr readiness_pub_;
 
   rclcpp::TimerBase::SharedPtr loop_timer_;
