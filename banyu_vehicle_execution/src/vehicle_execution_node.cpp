@@ -711,9 +711,11 @@ void VehicleExecutionNode::handleStatus(const banyu_msgs::msg::VehicleStatus::Sh
 void VehicleExecutionNode::publishRcOverride(const MotionIntent & intent, bool output_allowed)
 {
   // While autonomous: stream sticks. Otherwise hold neutral while the vehicle is still
-  // armed in the autonomy mode (a clean stop), and release the sticks to the
-  // transmitter once it is disarmed or in another mode.
-  const bool armed_in_autonomy = telemetry_.armed && telemetry_.mode == autonomy_mode_;
+  // armed in the autonomy mode with autonomy selected (a clean stop), and release the
+  // sticks to the transmitter at once on an RC takeover / MANUAL switch, a disarm or a
+  // mode change, so the pilot is never locked out.
+  const bool armed_in_autonomy = telemetry_.armed && telemetry_.mode == autonomy_mode_ &&
+    telemetry_.operational_mode == 2 && !telemetry_.operator_takeover;
   mavros_msgs::msg::OverrideRCIn msg;
   if (output_allowed) {
     double heading = 0.0;

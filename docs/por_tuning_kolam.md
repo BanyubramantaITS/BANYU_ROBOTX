@@ -478,3 +478,26 @@ ros2 service call /banyu/mission/start std_srvs/srv/Trigger "{}"
 Berhenti: `/banyu/mission/abort`, lalu
 `ros2 service call /mavros/cmd/arming mavros_msgs/srv/CommandBool "{value: false}"`,
 lalu `esp32_kill_cmd.py kill`.
+
+### Versi dengan RC (TX16S): `por_params_dead_thruster_2_3_no_pos.yaml`
+
+Sama dengan profil no-position (ALT_HOLD + RC override), tetapi **RC tetap
+dipakai**:
+- SB atas = autonomous.
+- SB tengah = takeover manual. Override dari stack **langsung dilepas**, jadi
+  stick langsung berfungsi.
+- SB bawah = kill.
+- Mission tetap di-start dari terminal.
+
+Mode uji darat dari teleop wajib dimatikan (`enable_mock_auto:=False`). Kalau
+tidak, SB atas mengaktifkan mode uji darat (MANUAL + override 1540), bukan
+mission:
+
+```bash
+ros2 launch banyu_bringup sub_bringup.launch.py mode:=por enable_mock_auto:=False \
+  por_params_file:=$HOME/Desktop/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/config/por_params_dead_thruster_2_3_no_pos.yaml
+# TX16S: SB atas (autonomous), lalu:
+ros2 service call /banyu/mission/start std_srvs/srv/Trigger "{}"
+```
+
+Buat ulang profil ini dengan `dead_thruster_por.py --no-position` (tanpa `--no-rc`).

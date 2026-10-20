@@ -11,6 +11,7 @@ from launch.substitutions import (
     LaunchConfiguration,
     PythonExpression,
 )
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.actions import Node, SetParameter
 
 
@@ -92,6 +93,14 @@ def generate_launch_description():
         name="enable_teleop",
         default_value="True",
         description="Whether to launch banyu_teleop for TX16S RC switches and ESP32 kill relay.",
+        choices=["True", "False"],
+    )
+
+    enable_mock_auto_arg = DeclareLaunchArgument(
+        name="enable_mock_auto",
+        default_value="True",
+        description="banyu_teleop land-test mode: SB up arms, sets MANUAL and spins all thrusters "
+        "slowly. Set False for a real POR run so SB up means AUTONOMOUS for the mission.",
         choices=["True", "False"],
     )
 
@@ -184,7 +193,12 @@ def generate_launch_description():
         executable="banyu_teleop",
         name="banyu_teleop",
         output="screen",
-        parameters=[active_params, hardware_params],
+        parameters=[
+            active_params,
+            hardware_params,
+            {"enable_mock_auto": ParameterValue(
+                LaunchConfiguration("enable_mock_auto"), value_type=bool)},
+        ],
         condition=IfCondition(
             EqualsSubstitution(LaunchConfiguration("enable_teleop"), "True")
         ),
@@ -235,6 +249,7 @@ def generate_launch_description():
             use_gps_arg,
             debug_arg,
             enable_teleop_arg,
+            enable_mock_auto_arg,
             enable_esp32_bridge_arg,
             enable_esp32_trigger_arg,
             enable_cameras_arg,
