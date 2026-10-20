@@ -354,7 +354,7 @@ banyu_teleop:
       serial_port: "/dev/ttyUSB0"
       baud_rate: 115200
       kill_switch_topic: "/banyu/hardware/kill_switch"
-    enable_mock_auto: true
+    enable_mock_auto: false
     auto_arm_on_auto_mode: true
     mock_auto_flight_mode: "MANUAL"
     mock_auto_publish_rate_hz: 20.0

@@ -293,7 +293,7 @@ banyu_vehicle_status:
     fcu_timeout_s: 5.0
     rc_timeout_s: 3.0
     gps_timeout_s: 5.0
-    rc_takeover_channel: 4
+    rc_takeover_channel: -1
     rc_takeover_threshold: 1700
     autonomy_mode: "ALT_HOLD"
     default_operational_mode: 0
@@ -352,7 +352,7 @@ banyu_teleop:
       serial_port: "/dev/ttyUSB0"
       baud_rate: 115200
       kill_switch_topic: "/banyu/hardware/kill_switch"
-    enable_mock_auto: true
+    enable_mock_auto: false
     auto_arm_on_auto_mode: true
     mock_auto_flight_mode: "MANUAL"
     mock_auto_publish_rate_hz: 20.0

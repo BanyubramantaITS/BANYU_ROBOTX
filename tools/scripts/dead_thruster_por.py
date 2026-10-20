@@ -45,6 +45,9 @@ def main():
     p.add_argument("--no-position", action="store_true",
                    help="vehicle has no position estimate (no DVL/GPS): fly ALT_HOLD and drive the "
                         "sticks over /mavros/rc/override instead of GUIDED setpoints")
+    p.add_argument("--rc-takeover-channel", type=int, default=None,
+                   help="banyu_vehicle_status.rc_takeover_channel (0-based; -1 = no stick takeover). "
+                        "Default -1 for the RC (non --no-rc) no-position profile, as set on BANYU")
     p.add_argument("--no-depth-sensor", action="store_true",
                    help="Pixhawk only, no external depth sensor (Bar30): implies --no-position, flies "
                         "STABILIZE (ALT_HOLD needs a water baro), dives open-loop and does the first "
@@ -252,6 +255,17 @@ def main():
         if text.count(anchor_ve) != 1:
             sys.exit("vehicle_execution_node section not found in " + a.base)
         text = text.replace(anchor_ve, anchor_ve + block)
+    takeover = a.rc_takeover_channel
+    if takeover is None and a.no_position and not a.no_rc:
+        takeover = -1
+    if takeover is not None:
+        text, n = re.subn(r"^(    rc_takeover_channel:) [^\s#]+", lambda m: f"{m.group(1)} {takeover}",
+                          text, count=1, flags=re.M)
+        if n != 1:
+            sys.exit("banyu_vehicle_status.rc_takeover_channel not found in " + a.base)
+    if a.no_position:
+        text, n = re.subn(r"^(    enable_mock_auto:) [^\s#]+", lambda m: f"{m.group(1)} false",
+                          text, count=1, flags=re.M)
     if a.no_rc:
         anchor = "    kill_switch_timeout_s: 1.0\n"
         if text.count(anchor) != 1:

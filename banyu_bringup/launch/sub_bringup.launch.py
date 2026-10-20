@@ -98,7 +98,7 @@ def generate_launch_description():
 
     enable_mock_auto_arg = DeclareLaunchArgument(
         name="enable_mock_auto",
-        default_value="True",
+        default_value="False",
         description="banyu_teleop land-test mode: SB up arms, sets MANUAL and spins all thrusters "
         "slowly. Set False for a real POR run so SB up means AUTONOMOUS for the mission.",
         choices=["True", "False"],
