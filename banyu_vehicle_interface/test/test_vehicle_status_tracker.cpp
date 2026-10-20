@@ -229,4 +229,54 @@ TEST(VehicleStatusTrackerTest, KillSwitchFreshnessTimeoutFailsafe)
   EXPECT_EQ(recovered_res.authority, "AUTONOMY");
 }
 
+TEST(VehicleStatusTrackerTest, BypassRcRunsAutonomousWithoutTransmitter)
+{
+  auto config = testConfig();
+  config.bypass_rc = true;
+  VehicleStatusTracker tracker(config);
+  tracker.updateState(state(true, "GUIDED"), timeAt(0.0));
+
+  // No RC message and no kill_switch message at all.
+  auto status = tracker.status(timeAt(0.5));
+  EXPECT_TRUE(status.rc_fresh);
+  EXPECT_FALSE(status.operator_takeover);
+  EXPECT_EQ(status.operational_mode, 2);
+  EXPECT_FALSE(status.hardware_kill_active);
+  EXPECT_EQ(status.authority, "AUTONOMY");
+
+  // An RC takeover stick value is ignored in bypass mode.
+  tracker.updateRc(rc(2000), timeAt(0.6));
+  EXPECT_FALSE(tracker.status(timeAt(0.7)).operator_takeover);
+}
+
+TEST(VehicleStatusTrackerTest, BypassRcHonoursFreshKillSwitchButNotStaleOne)
+{
+  auto config = testConfig();
+  config.bypass_rc = true;
+  config.kill_switch_timeout_s = 1.0;
+  VehicleStatusTracker tracker(config);
+  tracker.updateState(state(true, "GUIDED"), timeAt(0.0));
+
+  tracker.updateKillSwitch(0, timeAt(0.5));   // explicit kill, e.g. SB down or topic pub
+  auto killed = tracker.status(timeAt(0.8));
+  EXPECT_EQ(killed.operational_mode, 0);
+  EXPECT_TRUE(killed.hardware_kill_active);
+
+  // The kill message goes stale: bypass falls back to autonomous instead of killing.
+  tracker.updateState(state(true, "GUIDED"), timeAt(1.9));
+  auto stale = tracker.status(timeAt(2.0));
+  EXPECT_EQ(stale.operational_mode, 2);
+  EXPECT_FALSE(stale.hardware_kill_active);
+}
+
+TEST(VehicleStatusTrackerTest, BypassRcStillNeedsAConnectedFcu)
+{
+  auto config = testConfig();
+  config.bypass_rc = true;
+  VehicleStatusTracker tracker(config);
+  auto status = tracker.status(timeAt(0.1));   // no FCU state received
+  EXPECT_FALSE(status.fcu_connected);
+  EXPECT_EQ(status.authority, "UNKNOWN");
+}
+
 }  // namespace banyu_vehicle_interface

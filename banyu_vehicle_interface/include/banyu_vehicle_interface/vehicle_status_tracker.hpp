@@ -27,6 +27,12 @@ public:
     int rc_takeover_threshold{1700};
     std::string autonomy_mode{"GUIDED"};
     int default_operational_mode{0};
+    // Run without a transmitter: RC counts as fresh, there is no operator takeover, and
+    // the vehicle is AUTONOMOUS (bypass_operational_mode) unless a FRESH kill_switch
+    // message says otherwise (teleop SB, ESP32 or `ros2 topic pub`). A stale or absent
+    // kill_switch topic does NOT kill in this mode; stop with /banyu/mission/abort.
+    bool bypass_rc{false};
+    int bypass_operational_mode{2};
   };
 
   VehicleStatusTracker();

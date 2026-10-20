@@ -58,6 +58,9 @@ private:
       "default_operational_mode", config.default_operational_mode);
     config.kill_switch_timeout_s = declare_parameter<double>(
       "kill_switch_timeout_s", config.kill_switch_timeout_s);
+    config.bypass_rc = declare_parameter<bool>("bypass_rc", config.bypass_rc);
+    config.bypass_operational_mode = declare_parameter<int>(
+      "bypass_operational_mode", config.bypass_operational_mode);
     return config;
   }
 

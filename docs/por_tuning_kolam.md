@@ -357,3 +357,48 @@ python3 src/BANYU_ROBOTX/tools/scripts/dead_thruster_por.py \
    Error heading di sini menjadi error samping di gate, sekitar 0,17 m per
    derajat.
 5. Lakukan full run, lalu ulangi langkah 3–4 sampai lewat gate di tengah.
+
+## 11. Jalankan mission dari terminal tanpa RC (`bypass_rc`)
+
+Mission hanya mau jalan kalau `vehicle_status` melaporkan `rc_fresh = true` dan
+`operational_mode = 2`, dan keduanya normalnya datang dari transmitter (channel
+RC dan switch SB). Dengan `bypass_rc: true` (parameter node `banyu_vehicle_status`):
+
+- `rc_fresh` selalu benar dan tidak ada `operator_takeover` dari stick.
+- `operational_mode` = `bypass_operational_mode` (2 = autonomous).
+- Pesan **baru** di `/banyu/hardware/kill_switch` tetap dihormati, jadi
+  `ros2 topic pub` bisa mematikan mission. Pesan yang basi **tidak** membunuh,
+  tidak seperti mode biasa.
+- FCU tetap harus terhubung (`/mavros/state connected`), dan mission tetap
+  mengarm sendiri lewat `ArmAndSetGuided`.
+
+Profil: `por_params_dead_thruster_2_3_no_rc.yaml`
+(`dead_thruster_por.py --no-rc` membuat ulang profil ini dari angka hasil ukur).
+Parameter yang sama bisa ditambahkan ke profil mana pun:
+
+```yaml
+banyu_vehicle_status:
+  ros__parameters:
+    bypass_rc: true
+    bypass_operational_mode: 2
+```
+
+Launch (teleop dimatikan supaya mode uji darat dan switch SB tidak ikut campur):
+
+```bash
+ros2 launch banyu_bringup sub_bringup.launch.py mode:=por enable_teleop:=False \
+  por_params_file:=$HOME/Desktop/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/config/por_params_dead_thruster_2_3_no_rc.yaml
+ros2 topic echo /banyu/vehicle_status --once    # fcu_connected, rc_fresh, operational_mode: 2
+ros2 service call /banyu/mission/start std_srvs/srv/Trigger "{}"
+```
+
+Pengaman tanpa RC (RC tidak lagi bisa mengambil alih):
+- Berhenti: `ros2 service call /banyu/mission/abort std_srvs/srv/Trigger "{}"`.
+- Kill lewat topic: `ros2 topic pub -r 5 /banyu/hardware/kill_switch std_msgs/msg/UInt8 "{data: 0}"`.
+- Ctrl+C pada launch menghentikan setpoint, dan tetap sediakan kill relay fisik.
+- Relay ESP32 tidak lagi diperintah oleh teleop. Kalau perlu mengaktifkannya
+  tanpa teleop: `stty -F /dev/ttyUSB0 115200 raw -echo; printf '0' > /dev/ttyUSB0`
+  (autonomous), dan `printf '2' > /dev/ttyUSB0` untuk kill. Itu byte yang sama
+  dengan yang dikirim teleop.
+- ArduSub tetap memeriksa pre-arm. Kalau arming ditolak karena tidak ada input
+  RC, cek `ARMING_CHECK` di QGC; jangan matikan pemeriksaan lain.

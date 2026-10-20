@@ -116,14 +116,21 @@ banyu_msgs::msg::VehicleStatus VehicleStatusTracker::status(const rclcpp::Time &
   result.fcu_status_fresh = isFresh(state_received_, now, last_state_, config_.fcu_timeout_s);
   result.fcu_connected = result.fcu_status_fresh && state_connected_;
   result.armed = result.fcu_connected && state_armed_;
-  result.rc_fresh = isFresh(rc_received_, now, last_rc_, config_.rc_timeout_s);
-  result.operator_takeover = result.rc_fresh && rc_takeover_;
+  result.rc_fresh = config_.bypass_rc ||
+    isFresh(rc_received_, now, last_rc_, config_.rc_timeout_s);
+  result.operator_takeover = !config_.bypass_rc && result.rc_fresh && rc_takeover_;
   result.mode = mode_;
   result.gps_fresh = isFresh(gps_received_, now, last_gps_, config_.gps_timeout_s) && gps_valid_;
   result.gps_valid = gps_received_ && gps_valid_;
 
   uint8_t effective_mode = current_hw_mode_;
-  if (kill_switch_received_ && config_.kill_switch_timeout_s > 0.0 &&
+  if (config_.bypass_rc) {
+    const bool kill_fresh = kill_switch_received_ && last_kill_switch_.nanoseconds() > 0 &&
+      isFresh(true, now, last_kill_switch_, config_.kill_switch_timeout_s);
+    effective_mode = kill_fresh ?
+      current_hw_mode_ :
+      static_cast<uint8_t>(std::clamp(config_.bypass_operational_mode, 0, 2));
+  } else if (kill_switch_received_ && config_.kill_switch_timeout_s > 0.0 &&
     last_kill_switch_.nanoseconds() > 0)
   {
     if (!isFresh(true, now, last_kill_switch_, config_.kill_switch_timeout_s)) {

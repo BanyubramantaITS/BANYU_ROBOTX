@@ -34,7 +34,12 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--base", default=os.path.join(CONFIG, "por_params_timed_fast.yaml"),
                    help="profile to copy everything else from")
-    p.add_argument("--out", default=os.path.join(CONFIG, "por_params_dead_thruster_2_3.yaml"))
+    p.add_argument("--out", default=None,
+                   help="output file (default: por_params_dead_thruster_2_3.yaml, or "
+                        "..._no_rc.yaml with --no-rc)")
+    p.add_argument("--no-rc", action="store_true",
+                   help="run without a transmitter: sets banyu_vehicle_status.bypass_rc so the "
+                        "mission needs no RC switches (launch with enable_teleop:=False)")
     p.add_argument("--live-diagonal", choices=["forward-left", "forward-right"], default="forward-left",
                    help="direction the LIVE thruster pair pushes for +forward (2+3 dead -> forward-left)")
     p.add_argument("--speed-cmd", type=float, default=0.5, help="commanded speed along the diagonal (m/s)")
@@ -53,6 +58,9 @@ def main():
     p.add_argument("--orbit-cap", type=float, default=6.23,
                    help="IMU stop angle for the orbit (rad, just short of 2*pi)")
     a = p.parse_args()
+    if a.out is None:
+        name = "por_params_dead_thruster_2_3_no_rc.yaml" if a.no_rc else "por_params_dead_thruster_2_3.yaml"
+        a.out = os.path.join(CONFIG, name)
 
     v_cmd = a.speed_cmd
     v_real = a.measured_speed or v_cmd
@@ -109,6 +117,12 @@ def main():
     start = text.index("      # FAST strafe-box profile")
     end = text.index("      # =====", start)
     text = text[:start] + header + text[end:]
+    if a.no_rc:
+        anchor = "    kill_switch_timeout_s: 1.0\n"
+        if text.count(anchor) != 1:
+            sys.exit("banyu_vehicle_status.kill_switch_timeout_s not found in " + a.base)
+        text = text.replace(anchor, anchor + "    bypass_rc: true            # no transmitter needed\n"
+                            "    bypass_operational_mode: 2  # 2 = autonomous\n")
     open(a.out, "w").write(text)
     print(f"wrote {a.out}")
     for key in ("dive_duration_s", "approach_pole_duration_s", "circle_turn_2_duration_s",
