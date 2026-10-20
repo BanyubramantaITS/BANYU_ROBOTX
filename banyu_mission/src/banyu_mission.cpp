@@ -129,6 +129,8 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
   fallback_mode_ = declare_parameter<std::string>("fallback_mode", "SURFACE");
   set_mode_service_ = declare_parameter<std::string>("services.set_mode", "/mavros/set_mode");
   set_mode_client_ = create_client<mavros_msgs::srv::SetMode>(set_mode_service_);
+  arming_service_ = declare_parameter<std::string>("services.arming", "/mavros/cmd/arming");
+  arming_client_ = create_client<mavros_msgs::srv::CommandBool>(arming_service_);
 
   preparation_timeout_s_ = declare_parameter<double>("timing.preparation_timeout_s", 30.0);
   reset_timeout_s_ = declare_parameter<double>("timing.run_reset_timeout_s", 3.0);
@@ -855,6 +857,11 @@ void BanyuMission::tickLoop(int tick_period_ms)
         {terminateRun(true, "MISSION_COMPLETION_TRANSITION_FAILED", false);} else {
           state_->markSucceeded();
           if (run_) {publishLifecycle(banyu_msgs::msg::RunLifecycle::TERMINAL);}
+          RCLCPP_INFO(
+            get_logger(),
+            "Mission completed successfully: disarming vehicle to protect thrusters");
+          disarmVehicle();
+          setFlightMode("MANUAL");
         }
       } else {
         state_->markFailed();
@@ -880,7 +887,51 @@ void BanyuMission::fallbackToSurface()
     return;
   }
   last_fallback_time_ = current_time;
-  setFlightMode(fallback_mode_);
+
+  if (fallback_mode_ == "DISARM" || fallback_mode_ == "disarm") {
+    RCLCPP_WARN(get_logger(), "Fallback mode is DISARM: disarming vehicle and switching to MANUAL");
+    disarmVehicle();
+    setFlightMode("MANUAL");
+  } else {
+    setFlightMode(fallback_mode_);
+  }
+}
+
+void BanyuMission::disarmVehicle()
+{
+  if (!arming_client_) {
+    return;
+  }
+  if (!arming_client_->service_is_ready()) {
+    if (!arming_client_->wait_for_service(std::chrono::milliseconds(100))) {
+      RCLCPP_WARN(
+        get_logger(),
+        "Arming service '%s' not ready; could not disarm vehicle",
+        arming_service_.c_str());
+      return;
+    }
+  }
+
+  auto request = std::make_shared<mavros_msgs::srv::CommandBool::Request>();
+  request->value = false;
+  RCLCPP_WARN(get_logger(), "Commanding vehicle DISARM via %s", arming_service_.c_str());
+
+  arming_client_->async_send_request(
+    request,
+    [this](rclcpp::Client<mavros_msgs::srv::CommandBool>::SharedFuture future) {
+      try {
+        auto response = future.get();
+        if (response->success) {
+          RCLCPP_INFO(get_logger(), "Vehicle successfully DISARMED");
+        } else {
+          RCLCPP_WARN(
+            get_logger(), "Failed to disarm vehicle (result: %d)",
+            response->result);
+        }
+      } catch (const std::exception & e) {
+        RCLCPP_ERROR(get_logger(), "Disarming service call threw an exception: %s", e.what());
+      }
+    });
 }
 
 void BanyuMission::setFlightMode(const std::string & mode)

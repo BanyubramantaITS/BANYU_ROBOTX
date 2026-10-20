@@ -1,7 +1,7 @@
 banyu_mission:
   ros__parameters:
     mission_mode: "por"
-    fallback_mode: "SURFACE"
+    fallback_mode: "DISARM"
     topics:
       pipeline_end_state: "/banyu/pipeline/end_state"
       run_lifecycle: "/banyu/mission/run_lifecycle"

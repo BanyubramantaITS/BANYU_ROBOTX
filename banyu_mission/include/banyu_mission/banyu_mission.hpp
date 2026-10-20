@@ -26,6 +26,7 @@
 #include "banyu_msgs/srv/reset_task2.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "rx_msgs/msg/command.hpp"
+#include "mavros_msgs/srv/command_bool.hpp"
 #include "mavros_msgs/srv/set_mode.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_srvs/srv/trigger.hpp"
@@ -56,6 +57,7 @@ private:
   void configurePorBlackboard(const BT::Blackboard::Ptr & blackboard);
   void setFlightMode(const std::string & mode);
   void fallbackToSurface();
+  void disarmVehicle();
   void commandCallback(const rx_msgs::msg::Command::SharedPtr command);
   void publishLifecycle(
     uint8_t event = 0, const std::string & reason = "",
@@ -131,6 +133,8 @@ private:
   std::string fallback_mode_{"SURFACE"};
   std::string set_mode_service_{"/mavros/set_mode"};
   rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr set_mode_client_;
+  std::string arming_service_{"/mavros/cmd/arming"};
+  rclcpp::Client<mavros_msgs::srv::CommandBool>::SharedPtr arming_client_;
   rclcpp::Time last_fallback_time_{0, 0, RCL_ROS_TIME};
 };
 

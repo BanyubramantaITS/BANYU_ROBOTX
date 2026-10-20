@@ -266,6 +266,8 @@ def main():
     if a.no_position:
         text, n = re.subn(r"^(    enable_mock_auto:) [^\s#]+", lambda m: f"{m.group(1)} false",
                           text, count=1, flags=re.M)
+        text, n = re.subn(r"^(    fallback_mode:) [^\s#]+", lambda m: f"{m.group(1)} \"DISARM\"",
+                          text, count=1, flags=re.M)
     if a.no_rc:
         anchor = "    kill_switch_timeout_s: 1.0\n"
         if text.count(anchor) != 1:
