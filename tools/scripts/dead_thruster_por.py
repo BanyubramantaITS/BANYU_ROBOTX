@@ -76,8 +76,21 @@ def main():
     p.add_argument("--start-to-gate", type=float, default=3.2, help="start to gate plane (m)")
     p.add_argument("--gate-to-marker", type=float, default=10.0, help="gate plane to marker (m)")
     p.add_argument("--orbit-radius", type=float, default=2.3, help="orbit radius around the marker (m)")
-    p.add_argument("--past-gate", type=float, default=2.0, help="how far to back up past the gate (m)")
+    p.add_argument("--past-gate", type=float, default=None,
+                   help="how far to back up past the gate (m); default 3.0 with --no-position, else 2.0")
     p.add_argument("--dead-time", type=float, default=0.8, help="per-leg start-up lag (s)")
+    p.add_argument("--settle-s", type=float, default=None,
+                   help="neutral-stick pause before the orbit and before the turn back, so the "
+                        "vehicle stops gliding before it spins in place (default 1.5 with "
+                        "--no-position, 0 for GUIDED)")
+    p.add_argument("--brake-s", type=float, default=None,
+                   help="after the orbit, push back along the live diagonal this long to kill the "
+                        "orbit glide before the turn back (default 0.5 with --no-position, 0 = off; "
+                        "sim: 1.0 s over-corrects)")
+    p.add_argument("--coast-s", type=float, default=None,
+                   help="seconds the vehicle keeps gliding after a leg (and drifts in the next turn); "
+                        "the approach stops short by speed x coast-s. Default 1.2 with --no-position "
+                        "(open-loop sticks, sim: 1.4 m at 1.15 m/s), 0 for GUIDED")
     p.add_argument("--dive-turn-deg", type=float, default=45.0, help="yaw during the dive (deg)")
     p.add_argument("--dive-yaw-rate", type=float, default=0.49, help="dive yaw rate (rad/s, timed)")
     p.add_argument("--turn-rate", type=float, default=0.5, help="90 deg turn yaw rate (rad/s)")
@@ -115,7 +128,15 @@ def main():
     # Orbit yaw rate from the REAL speed: with RC override the speed is open loop, so a
     # rate from the commanded speed would give radius = v_real / omega != orbit_radius.
     omega = v_real / a.orbit_radius
-    approach_m = a.start_to_gate + a.gate_to_marker - a.orbit_radius
+    if a.brake_s is None:
+        a.brake_s = 0.5 if (a.no_position or a.no_depth_sensor) else 0.0
+    if a.past_gate is None:
+        a.past_gate = 3.0 if (a.no_position or a.no_depth_sensor) else 2.0
+    if a.settle_s is None:
+        a.settle_s = 1.5 if (a.no_position or a.no_depth_sensor) else 0.0
+    if a.coast_s is None:
+        a.coast_s = 1.2 if (a.no_position or a.no_depth_sensor) else 0.0
+    approach_m = a.start_to_gate + a.gate_to_marker - a.orbit_radius - v_real * a.coast_s
     return_m = a.gate_to_marker - a.orbit_radius + a.past_gate
 
     values = {
@@ -167,6 +188,20 @@ def main():
         })
         for seg in ("approach_pole", "circle_turn_1", "circle_turn_2", "circle_turn_3", "return_to_gate"):
             values[f"{seg}_speed_z_mps"] = round(-a.depth_trim, 3)
+    if a.settle_s > 0.0:
+        # circle_forward_1 runs between turn_1 and the orbit, circle_forward_2 between the
+        # orbit and turn_3: hold neutral sticks there so the glide dies out first.
+        for seg in ("circle_forward_1", "circle_forward_2"):
+            values.update({f"{seg}_duration_s": a.settle_s, f"{seg}_speed_x_mps": 0.0,
+                           f"{seg}_speed_y_mps": 0.0, f"{seg}_speed_z_mps": round(-a.depth_trim, 3),
+                           f"{seg}_yaw_rate_rad_s": 0.0})
+    if a.brake_s > 0.0:
+        # The orbit ends still gliding along its tangent (= the live diagonal): brake by
+        # pushing the other way along it, then the turn back starts from (nearly) rest.
+        values.update({"circle_forward_2_duration_s": a.brake_s,
+                       "circle_forward_2_speed_x_mps": -comp,
+                       "circle_forward_2_speed_y_mps": round(-sy * comp, 3),
+                       "circle_forward_2_yaw_rate_rad_s": 0.0})
     text = open(a.base).read()
     anchor_pg = "      timed_pass_gate_yaw_rate_rad_s: "
     if "timed_pass_gate_target_angle_rad" not in text and anchor_pg in text:
