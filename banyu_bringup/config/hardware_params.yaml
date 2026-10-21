@@ -49,8 +49,8 @@ esp32_trigger_node:
 banyu_teleop:
   ros__parameters:
     rc_in:
-      arm_channel: 4
-      mode_channel: 6
+      arm_channel: 6
+      mode_channel: 7
       kill_channel: 5
       serial_port: "/dev/ttyUSB0"
       baud_rate: 115200
