@@ -149,6 +149,14 @@ private:
   double accumulated_yaw_{0.0};
   double dead_reckon_yaw_{0.0};
   bool yaw_initialized_{false};
+  // Straight legs hold the heading captured at the start to counter thruster-asymmetry yaw drift.
+  bool heading_hold_enabled_{false};
+  double heading_hold_kp_{1.0};
+  double heading_hold_max_rate_rad_s_{0.3};
+  double heading_hold_deadband_rad_{0.02};
+  // Hard cap on |vx| and |vy| for timed legs; 0 disables.
+  double max_horizontal_speed_mps_{0.0};
+  double heading_ref_{0.0};
 };
 
 }  // namespace banyu_vehicle_execution

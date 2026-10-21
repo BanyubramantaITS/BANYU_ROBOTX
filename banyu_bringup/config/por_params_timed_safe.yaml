@@ -232,6 +232,15 @@ por_detection:
 
 vehicle_execution_node:
   ros__parameters:
+    timed_move:
+      # Hard cap on horizontal (forward and lateral) speed in m/s; 0 disables
+      max_horizontal_speed_mps: 0.0
+      heading_hold:
+        # Straight timed legs hold the heading from segment start (thruster 2/3 yaw drift)
+        enabled: true
+        kp: 1.0
+        max_yaw_rate_rad_s: 0.3
+        deadband_rad: 0.02
     control:
       require_calibrated_surface_depth: false
       surface_hold_time_s: 1.0

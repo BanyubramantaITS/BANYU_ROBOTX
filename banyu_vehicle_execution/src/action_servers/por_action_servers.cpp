@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <utility>
 
@@ -158,7 +159,17 @@ TurnAroundServer::TurnAroundServer(
 TimedMoveServer::TimedMoveServer(
   rclcpp::Node * node, const std::string & name,
   ActionServerCoordinator * coordinator)
-: TypedActionServer(node, name, coordinator) {}
+: TypedActionServer(node, name, coordinator)
+{
+  heading_hold_enabled_ = node->declare_parameter<bool>("timed_move.heading_hold.enabled", false);
+  heading_hold_kp_ = node->declare_parameter<double>("timed_move.heading_hold.kp", 1.0);
+  heading_hold_max_rate_rad_s_ =
+    node->declare_parameter<double>("timed_move.heading_hold.max_yaw_rate_rad_s", 0.3);
+  heading_hold_deadband_rad_ =
+    node->declare_parameter<double>("timed_move.heading_hold.deadband_rad", 0.02);
+  max_horizontal_speed_mps_ =
+    node->declare_parameter<double>("timed_move.max_horizontal_speed_mps", 0.0);
+}
 
 bool AcquireGateServer::validateGoal(const Goal & goal, std::string & reason)
 {
@@ -741,6 +752,7 @@ void TimedMoveServer::onGoalStarted()
   last_yaw_ = 0.0;
   accumulated_yaw_ = 0.0;
   yaw_initialized_ = false;
+  heading_ref_ = std::numeric_limits<double>::quiet_NaN();
   if (active_handle_) {
     const auto goal = active_handle_->get_goal();
     RCLCPP_INFO(
@@ -819,8 +831,25 @@ MotionIntent TimedMoveServer::tick(
     vz = -clampFinite(kp * error, -max_vz, max_vz);
   }
   const double yaw = pose_fresh ? heading : dead_reckon_yaw_;
-  const auto converted = bodyFluToLocalEnu(
-    MotionIntent::bodyFlu(goal->speed_x_mps, goal->speed_y_mps, vz, goal->yaw_rate_rad_s), yaw);
+  double yaw_rate = goal->yaw_rate_rad_s;
+  const bool translating = goal->speed_x_mps != 0.0 || goal->speed_y_mps != 0.0;
+  if (heading_hold_enabled_ && pose_fresh &&
+    translating && goal->yaw_rate_rad_s == 0.0)
+  {
+    if (!std::isfinite(heading_ref_)) {heading_ref_ = heading;}
+    const double error = normalizeAngle(heading_ref_ - heading);
+    if (std::abs(error) > heading_hold_deadband_rad_) {
+      yaw_rate = clampFinite(
+        heading_hold_kp_ * error, -heading_hold_max_rate_rad_s_, heading_hold_max_rate_rad_s_);
+    }
+  }
+  double vx = goal->speed_x_mps;
+  double vy = goal->speed_y_mps;
+  if (max_horizontal_speed_mps_ > 0.0) {
+    vx = clampFinite(vx, -max_horizontal_speed_mps_, max_horizontal_speed_mps_);
+    vy = clampFinite(vy, -max_horizontal_speed_mps_, max_horizontal_speed_mps_);
+  }
+  const auto converted = bodyFluToLocalEnu(MotionIntent::bodyFlu(vx, vy, vz, yaw_rate), yaw);
   return converted ? *converted : zeroIntent();
 }
 

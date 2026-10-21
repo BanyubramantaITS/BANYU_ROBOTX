@@ -1,0 +1,9 @@
+# OPT-IN: remove thrusters 2 and 3 from the ArduSub mixer so only thrusters 1 and 4
+# (plus the vertical 5-8) produce horizontal force and yaw correction.
+# NOT applied by banyu_defaults.parm. Load manually in QGC, then reboot the Pixhawk.
+#
+# Bench-verify BEFORE any dive (props clear, vehicle restrained): QGC Motor Test on 1 and 4,
+# then in MANUAL push forward and yaw and check the vehicle still translates and turns both ways.
+# Revert with SERVO2_FUNCTION 34 and SERVO3_FUNCTION 35 (motor2/motor3), then reboot.
+SERVO2_FUNCTION 0
+SERVO3_FUNCTION 0

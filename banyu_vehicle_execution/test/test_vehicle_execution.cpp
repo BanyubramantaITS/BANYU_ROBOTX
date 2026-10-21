@@ -1710,3 +1710,61 @@ TEST_F(VehicleExecutionNodeTest, TimedMoveExecutesTimedSegmentAndSupportsZeroDur
   EXPECT_EQ(zero_result_future.get().code, rclcpp_action::ResultCode::SUCCEEDED);
   EXPECT_TRUE(zero_result_future.get().result->success);
 }
+
+TEST_F(VehicleExecutionNodeTest, TimedMoveHoldsHeadingAndCapsHorizontalSpeed)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("timed_move.heading_hold.enabled", true);
+  options.append_parameter_override("timed_move.heading_hold.kp", 1.0);
+  options.append_parameter_override("timed_move.heading_hold.max_yaw_rate_rad_s", 0.3);
+  options.append_parameter_override("timed_move.max_horizontal_speed_mps", 0.1);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::TimedMove;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/timed_move");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+
+  double max_speed = 0.0;
+  double last_yaw_rate = 0.0;
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&](const mavros_msgs::msg::PositionTarget::SharedPtr m) {
+      max_speed = std::max(max_speed, std::hypot(m->velocity.x, m->velocity.y));
+      last_yaw_rate = m->yaw_rate;
+    });
+
+  Action::Goal goal;
+  goal.segment_name = "approach_pole";
+  goal.duration_s = 5.0;
+  goal.speed_x_mps = 0.5;
+  goal.yaw_rate_rad_s = 0.0;
+  auto send_future = client->async_send_goal(goal);
+  for (int i = 0; i < 5; ++i) {
+    publishPose(node, pose_pub, 0.0, 0.0);
+    spinFor(node, 1);
+  }
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+
+  for (int i = 0; i < 5; ++i) {
+    publishPose(node, pose_pub, 0.0, 0.0);
+    spinFor(node, 1);
+  }
+  // Vehicle yawed right (clockwise) by 0.2 rad: the hold must command a positive (left) rate.
+  for (int i = 0; i < 10; ++i) {
+    publishPose(node, pose_pub, 0.0, -0.2);
+    spinFor(node, 1);
+  }
+  EXPECT_GT(last_yaw_rate, 0.15);
+  EXPECT_LE(last_yaw_rate, 0.3 + 1e-6);
+  EXPECT_GT(max_speed, 0.0);
+  EXPECT_LE(max_speed, 0.1 + 1e-6);
+
+  auto cancel_future = client->async_cancel_goal(handle);
+  ASSERT_TRUE(waitForFuture(node, cancel_future));
+  ASSERT_TRUE(waitForFuture(node, result_future));
+}
