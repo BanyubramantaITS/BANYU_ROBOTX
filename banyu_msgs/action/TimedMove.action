@@ -11,6 +11,10 @@ float64 depth_kp
 float64 max_depth_speed_mps
 bool use_imu_yaw_cap
 float64 target_yaw_delta_rad
+bool enable_collision_guard
+float64 collision_distance_m
+bool check_depth_reached
+float64 depth_tolerance_m
 ---
 bool success
 string reason

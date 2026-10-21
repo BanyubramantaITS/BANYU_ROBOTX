@@ -157,6 +157,7 @@ private:
   // Hard cap on |vx| and |vy| for timed legs; 0 disables.
   double max_horizontal_speed_mps_{0.0};
   double heading_ref_{0.0};
+  rclcpp::Time depth_reached_since_{0, 0, RCL_ROS_TIME};
 };
 
 }  // namespace banyu_vehicle_execution

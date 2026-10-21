@@ -11,12 +11,19 @@ PorMissionConfig PorMissionConfig::load(rclcpp::Node & node)
 {
   PorMissionConfig config;
   const auto parameter = [&node](const std::string & name, double fallback) {
-      return node.declare_parameter<double>("mission." + name, fallback);
+      const std::string param_name = "mission." + name;
+      if (node.has_parameter(param_name)) {
+        return node.get_parameter(param_name).as_double();
+      }
+      return node.declare_parameter<double>(param_name, fallback);
     };
 
   config.gate_depth_m = parameter("gate_depth_m", config.gate_depth_m);
   config.gate_depth_tolerance_m =
     parameter("gate_depth_tolerance_m", config.gate_depth_tolerance_m);
+  config.surface_depth_m = parameter("surface_depth_m", config.surface_depth_m);
+  config.surface_tolerance_m =
+    parameter("surface_tolerance_m", config.surface_tolerance_m);
   config.surface_watchdog_timeout_s = parameter(
     "surface_watchdog_timeout_s", config.surface_watchdog_timeout_s);
   config.acquire_gate_timeout_s =
@@ -101,7 +108,11 @@ PorMissionConfig PorMissionConfig::load(rclcpp::Node & node)
     "return_gate_pass_timeout_s", config.return_gate_pass_timeout_s);
 
   const auto bool_param = [&node](const std::string & name, bool fallback) {
-      return node.declare_parameter<bool>("mission." + name, fallback);
+      const std::string param_name = "mission." + name;
+      if (node.has_parameter(param_name)) {
+        return node.get_parameter(param_name).as_bool();
+      }
+      return node.declare_parameter<bool>(param_name, fallback);
     };
   config.use_vision = bool_param("use_vision", config.use_vision);
   config.use_vision_return = bool_param("use_vision_return", config.use_vision_return);
@@ -123,6 +134,9 @@ PorMissionConfig PorMissionConfig::load(rclcpp::Node & node)
   config.use_imu_yaw_cap = bool_param("use_imu_yaw_cap", config.use_imu_yaw_cap);
   config.depth_kp = parameter("depth_kp", config.depth_kp);
   config.max_depth_speed_mps = parameter("max_depth_speed_mps", config.max_depth_speed_mps);
+  config.enable_collision_guard = bool_param(
+    "enable_collision_guard", config.enable_collision_guard);
+  config.collision_distance_m = parameter("collision_distance_m", config.collision_distance_m);
 
   config.dive_duration_s = parameter("dive_duration_s", config.dive_duration_s);
   config.dive_speed_x_mps = parameter("dive_speed_x_mps", config.dive_speed_x_mps);
@@ -374,6 +388,8 @@ void PorMissionConfig::apply(const BT::Blackboard::Ptr & blackboard) const
 {
   blackboard->set("gate_depth_m", gate_depth_m);
   blackboard->set("gate_depth_tolerance_m", gate_depth_tolerance_m);
+  blackboard->set("surface_depth_m", surface_depth_m);
+  blackboard->set("surface_tolerance_m", surface_tolerance_m);
   blackboard->set("surface_watchdog_timeout_s", surface_watchdog_timeout_s);
   blackboard->set("acquire_gate_timeout_s", acquire_gate_timeout_s);
   blackboard->set("gate_align_deadband_x", gate_align_deadband_x);
@@ -446,6 +462,8 @@ void PorMissionConfig::apply(const BT::Blackboard::Ptr & blackboard) const
   blackboard->set("use_imu_yaw_cap", use_sensors && use_imu_yaw_cap);
   blackboard->set("depth_kp", depth_kp);
   blackboard->set("max_depth_speed_mps", max_depth_speed_mps);
+  blackboard->set("enable_collision_guard", enable_collision_guard);
+  blackboard->set("collision_distance_m", collision_distance_m);
 
   blackboard->set("dive_duration_s", dive_duration_s);
   blackboard->set("dive_speed_x_mps", dive_speed_x_mps);

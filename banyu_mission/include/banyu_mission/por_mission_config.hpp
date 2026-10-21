@@ -13,6 +13,8 @@ struct PorMissionConfig
 {
   double gate_depth_m {2.5};
   double gate_depth_tolerance_m {0.3};
+  double surface_depth_m {0.0};
+  double surface_tolerance_m {0.25};
   // Continuous missing-prerequisite watchdog for POR Surface; not a phase duration.
   double surface_watchdog_timeout_s {5.0};
   double acquire_gate_timeout_s {20.0};
@@ -85,6 +87,8 @@ struct PorMissionConfig
   bool use_imu_yaw_cap {true};
   double depth_kp {0.7};
   double max_depth_speed_mps {0.4};
+  bool enable_collision_guard {false};
+  double collision_distance_m {0.8};
 
   double dive_duration_s {5.0};
   double dive_speed_x_mps {0.0};

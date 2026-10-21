@@ -146,7 +146,7 @@ struct VehicleTelemetry
 
 inline bool detectionIsFresh(
   const VehicleTelemetry & telemetry, const rclcpp::Time & now, double timeout_s,
-  int64_t object_id, banyu_msgs::msg::Detection * result = nullptr)
+  int64_t object_id = -1, banyu_msgs::msg::Detection * result = nullptr)
 {
   if (object_id >= 0 && object_id < VehicleTelemetry::kDetectionSlots &&
     telemetry.detection_slot_valid[object_id])
@@ -164,7 +164,24 @@ inline bool detectionIsFresh(
     }
     return true;
   }
-  if (!telemetry.detection_valid || telemetry.detection.object_id != object_id ||
+  if (object_id < 0) {
+    for (int i = 0; i < VehicleTelemetry::kDetectionSlots; ++i) {
+      if (telemetry.detection_slot_valid[i]) {
+        const auto & stamp = telemetry.detection_slot_stamp[i];
+        if (stamp.nanoseconds() != 0 && std::isfinite(timeout_s) && timeout_s >= 0.0) {
+          const double slot_age = (now - stamp).seconds();
+          if (slot_age >= 0.0 && slot_age <= timeout_s) {
+            if (result != nullptr) {
+              *result = telemetry.detection_slot[i];
+            }
+            return true;
+          }
+        }
+      }
+    }
+  }
+  if (!telemetry.detection_valid ||
+    (object_id >= 0 && telemetry.detection.object_id != object_id) ||
     telemetry.detection_stamp.nanoseconds() == 0 || !std::isfinite(timeout_s) || timeout_s < 0.0)
   {
     return false;

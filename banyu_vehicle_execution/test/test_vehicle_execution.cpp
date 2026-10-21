@@ -1768,3 +1768,128 @@ TEST_F(VehicleExecutionNodeTest, TimedMoveHoldsHeadingAndCapsHorizontalSpeed)
   ASSERT_TRUE(waitForFuture(node, cancel_future));
   ASSERT_TRUE(waitForFuture(node, result_future));
 }
+
+TEST_F(VehicleExecutionNodeTest, TimedMoveCollisionProximityGuardAbortsWhenObstacleDetected)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  auto detection_pub = node->create_publisher<banyu_msgs::msg::Detection>(
+    "/banyu/detection", rclcpp::SensorDataQoS());
+
+  using Action = banyu_msgs::action::TimedMove;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/timed_move");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+
+  Action::Goal goal;
+  goal.segment_name = "approach_pole";
+  goal.duration_s = 2.0;
+  goal.speed_x_mps = 0.5;
+  goal.enable_collision_guard = true;
+  goal.collision_distance_m = 0.8;
+
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+
+  // Publish obstacle detection closer than collision safety distance (0.4 m < 0.8 m)
+  for (int i = 0; i < 20 && result_future.wait_for(0ms) != std::future_status::ready; ++i) {
+    publishDetection(node, detection_pub, 1, 0.0, 0.0, 0.4);
+    spinFor(node, 2);
+  }
+
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  auto wrapped = result_future.get();
+  EXPECT_EQ(wrapped.code, rclcpp_action::ResultCode::ABORTED);
+  EXPECT_FALSE(wrapped.result->success);
+  EXPECT_EQ(wrapped.result->reason, "Collision guard triggered: object detected within safety distance");
+}
+
+TEST_F(VehicleExecutionNodeTest, TimedMoveCompletesWhenImuYawTargetReached)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+
+  using Action = banyu_msgs::action::TimedMove;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/timed_move");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+
+  Action::Goal goal;
+  goal.segment_name = "turn_90deg";
+  goal.duration_s = 5.0;
+  goal.yaw_rate_rad_s = 0.6;
+  goal.use_imu_yaw_cap = true;
+  goal.target_yaw_delta_rad = 1.570796327;
+
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+
+  // Initialize baseline yaw at 0.0
+  for (int i = 0; i < 5; ++i) {
+    publishPose(node, pose_pub, 0.0, 0.0);
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+
+  // Turn to 1.58 rad (delta = 1.58 > 1.570796327)
+  for (int i = 0; i < 30 && result_future.wait_for(0ms) != std::future_status::ready; ++i) {
+    publishPose(node, pose_pub, 0.0, 1.58);
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  auto wrapped = result_future.get();
+  EXPECT_EQ(wrapped.code, rclcpp_action::ResultCode::SUCCEEDED);
+  EXPECT_TRUE(wrapped.result->success);
+  EXPECT_NE(wrapped.result->reason.find("Target yaw delta reached"), std::string::npos);
+  EXPECT_LT(wrapped.result->elapsed_s, 4.0);
+}
+
+TEST_F(VehicleExecutionNodeTest, TimedMoveCompletesWhenBaroDepthReached)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  auto depth_pub = node->create_publisher<std_msgs::msg::Float64>(
+    "/mavros/global_position/rel_alt", rclcpp::SensorDataQoS());
+
+  using Action = banyu_msgs::action::TimedMove;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/timed_move");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+
+  Action::Goal goal;
+  goal.segment_name = "dive_to_gate";
+  goal.duration_s = 5.0;
+  goal.use_baro_depth = true;
+  goal.target_depth_m = 2.0;
+  goal.check_depth_reached = true;
+  goal.depth_tolerance_m = 0.2;
+
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+
+  for (int i = 0; i < 35; ++i) {
+    publishDepth(node, depth_pub, 2.0);
+    rclcpp::spin_some(node);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  auto wrapped = result_future.get();
+  EXPECT_EQ(wrapped.code, rclcpp_action::ResultCode::SUCCEEDED);
+  EXPECT_TRUE(wrapped.result->success);
+  EXPECT_NE(wrapped.result->reason.find("Target depth reached"), std::string::npos);
+  EXPECT_LT(wrapped.result->elapsed_s, 4.0);
+}

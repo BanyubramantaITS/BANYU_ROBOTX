@@ -179,7 +179,11 @@ BANYU_POR_PORTS(
   BT::InputPort<double>("depth_kp"),
   BT::InputPort<double>("max_depth_speed_mps"),
   BT::InputPort<bool>("use_imu_yaw_cap"),
-  BT::InputPort<double>("target_yaw_delta_rad"))
+  BT::InputPort<double>("target_yaw_delta_rad"),
+  BT::InputPort<bool>("check_depth_reached", false, "Wait for target depth to be reached"),
+  BT::InputPort<double>("depth_tolerance_m", 0.0, "Depth tolerance in meters"),
+  BT::InputPort<bool>("enable_collision_guard", false, "Halt forward motion if obstacle near"),
+  BT::InputPort<double>("collision_distance_m", 0.0, "Safety distance in meters"))
 banyu_msgs::action::TimedMove::Goal TimedMoveNode::makeGoal()
 {
   Goal goal;
@@ -191,10 +195,14 @@ banyu_msgs::action::TimedMove::Goal TimedMoveNode::makeGoal()
   goal.yaw_rate_rad_s = input<double>("yaw_rate_rad_s");
   goal.use_baro_depth = input<bool>("use_baro_depth");
   goal.target_depth_m = input<double>("target_depth_m");
+  goal.check_depth_reached = input<bool>("check_depth_reached");
+  goal.depth_tolerance_m = input<double>("depth_tolerance_m");
   goal.depth_kp = input<double>("depth_kp");
   goal.max_depth_speed_mps = input<double>("max_depth_speed_mps");
   goal.use_imu_yaw_cap = input<bool>("use_imu_yaw_cap");
   goal.target_yaw_delta_rad = input<double>("target_yaw_delta_rad");
+  goal.enable_collision_guard = input<bool>("enable_collision_guard");
+  goal.collision_distance_m = input<double>("collision_distance_m");
   return goal;
 }
 

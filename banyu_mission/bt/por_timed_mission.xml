@@ -17,8 +17,10 @@
           speed_x_mps="{dive_speed_x_mps}" speed_y_mps="{dive_speed_y_mps}"
           speed_z_mps="{dive_speed_z_mps}" yaw_rate_rad_s="{dive_yaw_rate_rad_s}"
           use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
+          check_depth_reached="{use_sensors}" depth_tolerance_m="{gate_depth_tolerance_m}"
           depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
-          use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+          use_imu_yaw_cap="false" target_yaw_delta_rad="0.0"
+          enable_collision_guard="{enable_collision_guard}" collision_distance_m="{collision_distance_m}" />
         <!-- 2. Go forward to pass through the gate (optionally ends on the IMU at
              timed_pass_gate_target_angle_rad, e.g. an initial turn) -->
         <TimedMove name="pass_gate" segment_name="pass_gate"
@@ -27,7 +29,8 @@
           speed_z_mps="{timed_pass_gate_speed_z_mps}" yaw_rate_rad_s="{timed_pass_gate_yaw_rate_rad_s}"
           use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
           depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
-          use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{timed_pass_gate_target_angle_rad}" />
+          use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{timed_pass_gate_target_angle_rad}"
+          enable_collision_guard="{enable_collision_guard}" collision_distance_m="{collision_distance_m}" />
         <!-- 3. Go forward approaching the pole -->
         <TimedMove name="approach_pole" segment_name="approach_pole"
           duration_s="{approach_pole_duration_s}"
@@ -35,7 +38,8 @@
           speed_z_mps="{approach_pole_speed_z_mps}" yaw_rate_rad_s="{approach_pole_yaw_rate_rad_s}"
           use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
           depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
-          use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+          use_imu_yaw_cap="false" target_yaw_delta_rad="0.0"
+          enable_collision_guard="{enable_collision_guard}" collision_distance_m="{collision_distance_m}" />
         <!-- 4. Circle the pole (4-sided polygon: Turn 90 deg -> Forward x 4) -->
         <Sequence name="circle_pole_polygon">
           <TimedMove name="circle_turn_1" segment_name="circle_turn_1"
@@ -44,56 +48,64 @@
             speed_z_mps="{circle_turn_1_speed_z_mps}" yaw_rate_rad_s="{circle_turn_1_yaw_rate_rad_s}"
             use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
             depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
-            use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{circle_turn_1_target_angle_rad}" />
+            use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{circle_turn_1_target_angle_rad}"
+            enable_collision_guard="{enable_collision_guard}" collision_distance_m="{collision_distance_m}" />
           <TimedMove name="circle_forward_1" segment_name="circle_forward_1"
             duration_s="{circle_forward_1_duration_s}"
             speed_x_mps="{circle_forward_1_speed_x_mps}" speed_y_mps="{circle_forward_1_speed_y_mps}"
             speed_z_mps="{circle_forward_1_speed_z_mps}" yaw_rate_rad_s="{circle_forward_1_yaw_rate_rad_s}"
             use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
             depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
-            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0"
+            enable_collision_guard="{enable_collision_guard}" collision_distance_m="{collision_distance_m}" />
           <TimedMove name="circle_turn_2" segment_name="circle_turn_2"
             duration_s="{circle_turn_2_duration_s}"
             speed_x_mps="{circle_turn_2_speed_x_mps}" speed_y_mps="{circle_turn_2_speed_y_mps}"
             speed_z_mps="{circle_turn_2_speed_z_mps}" yaw_rate_rad_s="{circle_turn_2_yaw_rate_rad_s}"
             use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
             depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
-            use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{circle_turn_2_target_angle_rad}" />
+            use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{circle_turn_2_target_angle_rad}"
+            enable_collision_guard="{enable_collision_guard}" collision_distance_m="{collision_distance_m}" />
           <TimedMove name="circle_forward_2" segment_name="circle_forward_2"
             duration_s="{circle_forward_2_duration_s}"
             speed_x_mps="{circle_forward_2_speed_x_mps}" speed_y_mps="{circle_forward_2_speed_y_mps}"
             speed_z_mps="{circle_forward_2_speed_z_mps}" yaw_rate_rad_s="{circle_forward_2_yaw_rate_rad_s}"
             use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
             depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
-            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0"
+            enable_collision_guard="{enable_collision_guard}" collision_distance_m="{collision_distance_m}" />
           <TimedMove name="circle_turn_3" segment_name="circle_turn_3"
             duration_s="{circle_turn_3_duration_s}"
             speed_x_mps="{circle_turn_3_speed_x_mps}" speed_y_mps="{circle_turn_3_speed_y_mps}"
             speed_z_mps="{circle_turn_3_speed_z_mps}" yaw_rate_rad_s="{circle_turn_3_yaw_rate_rad_s}"
             use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
             depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
-            use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{circle_turn_3_target_angle_rad}" />
+            use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{circle_turn_3_target_angle_rad}"
+            enable_collision_guard="{enable_collision_guard}" collision_distance_m="{collision_distance_m}" />
           <TimedMove name="circle_forward_3" segment_name="circle_forward_3"
             duration_s="{circle_forward_3_duration_s}"
             speed_x_mps="{circle_forward_3_speed_x_mps}" speed_y_mps="{circle_forward_3_speed_y_mps}"
             speed_z_mps="{circle_forward_3_speed_z_mps}" yaw_rate_rad_s="{circle_forward_3_yaw_rate_rad_s}"
             use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
             depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
-            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0"
+            enable_collision_guard="{enable_collision_guard}" collision_distance_m="{collision_distance_m}" />
           <TimedMove name="circle_turn_4" segment_name="circle_turn_4"
             duration_s="{circle_turn_4_duration_s}"
             speed_x_mps="{circle_turn_4_speed_x_mps}" speed_y_mps="{circle_turn_4_speed_y_mps}"
             speed_z_mps="{circle_turn_4_speed_z_mps}" yaw_rate_rad_s="{circle_turn_4_yaw_rate_rad_s}"
             use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
             depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
-            use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{circle_turn_4_target_angle_rad}" />
+            use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{circle_turn_4_target_angle_rad}"
+            enable_collision_guard="{enable_collision_guard}" collision_distance_m="{collision_distance_m}" />
           <TimedMove name="circle_forward_4" segment_name="circle_forward_4"
             duration_s="{circle_forward_4_duration_s}"
             speed_x_mps="{circle_forward_4_speed_x_mps}" speed_y_mps="{circle_forward_4_speed_y_mps}"
             speed_z_mps="{circle_forward_4_speed_z_mps}" yaw_rate_rad_s="{circle_forward_4_yaw_rate_rad_s}"
             use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
             depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
-            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0"
+            enable_collision_guard="{enable_collision_guard}" collision_distance_m="{collision_distance_m}" />
         </Sequence>
         <!-- 5. Final turn to face the gate & go forward back to gate -->
         <TimedMove name="return_turn" segment_name="return_turn"
@@ -102,22 +114,26 @@
           speed_z_mps="{return_turn_speed_z_mps}" yaw_rate_rad_s="{return_turn_yaw_rate_rad_s}"
           use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
           depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
-          use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{return_turn_target_angle_rad}" />
+          use_imu_yaw_cap="{use_imu_yaw_cap}" target_yaw_delta_rad="{return_turn_target_angle_rad}"
+          enable_collision_guard="{enable_collision_guard}" collision_distance_m="{collision_distance_m}" />
         <TimedMove name="return_to_gate" segment_name="return_to_gate"
           duration_s="{return_to_gate_duration_s}"
           speed_x_mps="{return_to_gate_speed_x_mps}" speed_y_mps="{return_to_gate_speed_y_mps}"
           speed_z_mps="{return_to_gate_speed_z_mps}" yaw_rate_rad_s="{return_to_gate_yaw_rate_rad_s}"
           use_baro_depth="{use_baro_depth}" target_depth_m="{gate_depth_m}"
           depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
-          use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+          use_imu_yaw_cap="false" target_yaw_delta_rad="0.0"
+          enable_collision_guard="{enable_collision_guard}" collision_distance_m="{collision_distance_m}" />
         <!-- 6. Surface -->
         <TimedMove name="surface" segment_name="surface"
           duration_s="{timed_surface_duration_s}"
           speed_x_mps="{timed_surface_speed_x_mps}" speed_y_mps="{timed_surface_speed_y_mps}"
           speed_z_mps="{timed_surface_speed_z_mps}" yaw_rate_rad_s="{timed_surface_yaw_rate_rad_s}"
-          use_baro_depth="{use_baro_depth}" target_depth_m="{surface_depth}"
+          use_baro_depth="{use_baro_depth}" target_depth_m="{surface_depth_m}"
+          check_depth_reached="{use_sensors}" depth_tolerance_m="{surface_tolerance_m}"
           depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
-          use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+          use_imu_yaw_cap="false" target_yaw_delta_rad="0.0"
+          enable_collision_guard="false" collision_distance_m="{collision_distance_m}" />
       </Sequence>
     </ReactiveFallback>
   </BehaviorTree>

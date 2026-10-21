@@ -743,6 +743,12 @@ bool TimedMoveServer::validateGoal(const Goal & goal, std::string & reason)
     reason = "target_yaw_delta_rad must be finite and non-negative";
     return false;
   }
+  if (goal.check_depth_reached &&
+    (!nonnegative(goal.target_depth_m) || !nonnegative(goal.depth_tolerance_m)))
+  {
+    reason = "target_depth_m and depth_tolerance_m must be finite and non-negative when check_depth_reached is true";
+    return false;
+  }
   return true;
 }
 
@@ -753,15 +759,18 @@ void TimedMoveServer::onGoalStarted()
   accumulated_yaw_ = 0.0;
   yaw_initialized_ = false;
   heading_ref_ = std::numeric_limits<double>::quiet_NaN();
+  depth_reached_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
   if (active_handle_) {
     const auto goal = active_handle_->get_goal();
     RCLCPP_INFO(
       node_->get_logger(),
       "[TimedMove] Starting '%s' (duration=%.2fs, vx=%.2f, vy=%.2f, vz=%.2f, wz=%.2f, "
-      "baro_depth=%s target_depth=%.2fm)",
+      "baro_depth=%s target_depth=%.2fm check_depth=%s depth_tol=%.2fm imu_yaw=%s yaw_target=%.2frad)",
       goal->segment_name.c_str(), goal->duration_s,
       goal->speed_x_mps, goal->speed_y_mps, goal->speed_z_mps, goal->yaw_rate_rad_s,
-      goal->use_baro_depth ? "true" : "false", goal->target_depth_m);
+      goal->use_baro_depth ? "true" : "false", goal->target_depth_m,
+      goal->check_depth_reached ? "true" : "false", goal->depth_tolerance_m,
+      goal->use_imu_yaw_cap ? "true" : "false", goal->target_yaw_delta_rad);
   }
 }
 
@@ -800,22 +809,76 @@ MotionIntent TimedMoveServer::tick(
   feedback->accumulated_yaw_rad = accumulated_yaw_;
   active_handle_->publish_feedback(feedback);
 
-  if (goal->duration_s <= 0.0 || elapsed_s >= goal->duration_s) {
-    auto result = std::make_shared<Result>();
-    result->success = true;
-    result->reason = "Timed segment completed: " + goal->segment_name;
-    result->elapsed_s = elapsed_s;
-    result->final_depth_m = depth;
-    result->accumulated_yaw_rad = accumulated_yaw_;
-    succeedActive(result);
-    return zeroIntent();
+  if (goal->enable_collision_guard && goal->speed_x_mps > 0.0) {
+    banyu_msgs::msg::Detection detection;
+    if (detectionIsFresh(telemetry, now, kDetectionTimeout, -1, &detection)) {
+      const double stop_dist = goal->collision_distance_m > 0.0 ? goal->collision_distance_m : 0.8;
+      if (std::isfinite(detection.distance) && detection.distance > 0.0 && detection.distance < stop_dist) {
+        RCLCPP_WARN(
+          node_->get_logger(),
+          "[TimedMove] Collision guard alert: object %ld at distance %.2fm < %.2fm; halting forward motion",
+          static_cast<long>(detection.object_id), detection.distance, stop_dist);
+        auto result = std::make_shared<Result>();
+        result->success = false;
+        result->reason = "Collision guard triggered: object detected within safety distance";
+        result->elapsed_s = elapsed_s;
+        result->final_depth_m = depth;
+        result->accumulated_yaw_rad = accumulated_yaw_;
+        abortActiveWithResult(result);
+        return zeroIntent();
+      }
+    }
   }
+
+  // 1. Check IMU yaw cap completion
   if (goal->use_imu_yaw_cap && goal->target_yaw_delta_rad > 0.0 &&
     pose_fresh && std::abs(accumulated_yaw_) >= goal->target_yaw_delta_rad)
   {
     auto result = std::make_shared<Result>();
     result->success = true;
     result->reason = "Target yaw delta reached: " + goal->segment_name;
+    result->elapsed_s = elapsed_s;
+    result->final_depth_m = depth;
+    result->accumulated_yaw_rad = accumulated_yaw_;
+    succeedActive(result);
+    return zeroIntent();
+  }
+
+  // 2. Check Bar30 depth reached completion
+  if (goal->check_depth_reached && depth_fresh) {
+    const double tol = goal->depth_tolerance_m > 0.0 ? goal->depth_tolerance_m : 0.2;
+    const bool reached = (goal->target_depth_m <= tol) ? (depth <= tol) :
+      (std::abs(depth - goal->target_depth_m) <= tol);
+    if (reached) {
+      if (depth_reached_since_.nanoseconds() == 0) {
+        depth_reached_since_ = now;
+      }
+      if ((now - depth_reached_since_).seconds() >= 0.5) {
+        auto result = std::make_shared<Result>();
+        result->success = true;
+        result->reason = "Target depth reached: " + goal->segment_name;
+        result->elapsed_s = elapsed_s;
+        result->final_depth_m = depth;
+        result->accumulated_yaw_rad = accumulated_yaw_;
+        succeedActive(result);
+        return zeroIntent();
+      }
+    } else {
+      depth_reached_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+    }
+  }
+
+  // 3. Fall back to duration expiration
+  if (goal->duration_s <= 0.0 || elapsed_s >= goal->duration_s) {
+    auto result = std::make_shared<Result>();
+    result->success = true;
+    if (goal->check_depth_reached) {
+      result->reason = "Timed segment duration expired waiting for depth: " + goal->segment_name;
+    } else if (goal->use_imu_yaw_cap) {
+      result->reason = "Timed segment duration expired waiting for yaw: " + goal->segment_name;
+    } else {
+      result->reason = "Timed segment completed: " + goal->segment_name;
+    }
     result->elapsed_s = elapsed_s;
     result->final_depth_m = depth;
     result->accumulated_yaw_rad = accumulated_yaw_;
