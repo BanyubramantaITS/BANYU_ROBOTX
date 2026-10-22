@@ -73,8 +73,8 @@ Load or verify the parameters in `banyu_bringup/config/banyu_defaults.parm` on t
    - `EK3_SRC2_VELZ = 0` (None)
    - `EK3_SRC2_YAW = 1` (Compass)
 2. **Failsafes:**
-   - `FS_EKF_ACTION = 0` (Disabled for GPS-less operation; `FS_EKF_THRESH = 0.8`)
-   - `ARMING_CHECK = 1`
+   - `FS_EKF_ACTION = 0` (Disabled for GPS-less operation; set in `banyu_defaults.parm`)
+   - `FS_EKF_THRESH = 0.8` and `ARMING_CHECK = 1`: check these in QGC; `banyu_defaults.parm` does not set them.
 3. Reboot the Pixhawk if `VISO_TYPE` was changed from `0` to `1`.
 
 ---
@@ -161,14 +161,14 @@ bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && \
 ```
 
 What happens automatically:
-- **In Timed Mode (`mission.use_vision: false`, default on `feat/por-timed-strategy` — loads `bt/por_timed_mission.xml`):**
+- **In Timed Mode (`mission.use_vision: false`, the default in every timed profile — loads `bt/por_timed_mission.xml`):**
   1. `ArmAndSetGuided` switches ArduSub to `ALT_HOLD` (the configured `autonomy_mode`) and arms the thrusters.
-  2. `dive_to_gate` dives in place to `gate_depth_m` (`2.0 m`) for `dive_duration_s` (`5.0 s`).
-  3. `pass_gate` drives forward (`pass_gate_forward_speed_mps: 0.6 m/s`) for `pass_gate_duration_s` (`8.0 s`) while holding `gate_depth_m`.
-  4. `approach_pole` drives forward (`approach_pole_forward_speed_mps: 0.6 m/s`) for `approach_pole_duration_s` (`8.0 s`) toward the marker pole.
+  2. `dive_to_gate` dives in place to `gate_depth_m` (`2.0 m`); it ends when the depth is reached (`check_depth_reached`) or after `dive_duration_s` (`5.0 s`).
+  3. `pass_gate` drives forward (`timed_pass_gate_speed_x_mps: 0.6`) for `timed_pass_gate_duration_s` (`6.0 s`) while holding `gate_depth_m`.
+  4. `approach_pole` drives forward (`approach_pole_speed_x_mps: 0.6`) for `approach_pole_duration_s` (`8.0 s`) toward the marker pole.
   5. `circle_pole_polygon` executes 4 compartmentalized turn+forward legs around the pole (`circle_turn_1` → `circle_forward_1` → `circle_turn_2` → `circle_forward_2` → `circle_turn_3` → `circle_forward_3` → `circle_turn_4` → `circle_forward_4`).
-  6. `return_turn` turns to face the gate (`return_turn_duration_s` / `return_turn_yaw_rate_rad_s`), and `return_to_gate` drives forward back through the gate (`return_to_gate_duration_s` / `return_to_gate_forward_speed_mps`).
-  7. `Surface` ascends to `surface_depth_m` (`0.0 m`).
+  6. `return_turn` turns to face the gate (`return_turn_duration_s` / `return_turn_yaw_rate_rad_s`), and `return_to_gate` drives forward back through the gate (`return_to_gate_duration_s` / `return_to_gate_speed_x_mps`).
+  7. `surface` ascends (`timed_surface_duration_s` / `timed_surface_speed_z_mps`) until `surface_depth_m` (`0.0 m`).
 - **In Vision Mode (`mission.use_vision: true` — loads `bt/por_mission.xml`):**
   1. `ArmAndSetGuided` → `AcquireGate` → `AlignGate` → `PassGate` → `SearchMarker` → `AlignMarker` → `OrbitMarker` → `TurnAround` → `SearchGate` → `AlignGate` → `PassGate` → `Surface`.
 

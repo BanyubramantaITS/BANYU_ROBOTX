@@ -62,7 +62,9 @@ so enum fields copy across unchanged.
 - Holds position until a valid `CMD_RUN_START`; duplicate starts are ignored without restarting;
   commands for other vehicle types are ignored.
 - A new RoboCommand session may restart `RxCommand.seq` at 1: the UUV accepts it after the operator
-  re-prepares autonomy. An already accepted `run_id` never restarts.
+  re-prepares autonomy. Each preparation opens a new run identity window (the console may also reset
+  `run_id` to 1); within one window an already accepted `run_id` is never restarted, and reports stay
+  tied to the run epoch.
 - Task 4: `IncidentAck` with the original `command_seq` for assistance, keep-out and all-clear; no
   ACK for moving-object alerts; no `ReadinessReport` (Task 4 is not attempted yet).
 - `PipelineSurvey` is published once per run, after surfacing, with the active (GREEN) buoy

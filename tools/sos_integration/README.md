@@ -28,12 +28,10 @@ python src/BANYU_ROBOTX/tools/sos_integration/rc_observer.py mqtt.jsonl         
 ROS_DOMAIN_ID=10 python src/BANYU_ROBOTX/tools/sos_integration/gcs_ros_bridge.py --team ITSN --state-file gcs_state.json
 python3 src/BANYU_ROBOTX/tools/sos_integration/dds_relay.py 40 10
 
-# 2. UUV side (headless SITL: point the status node at the supervisor RC, sim only)
-sed 's#^\(\s*rc_topic:\s*\).*#\1"/sim/supervisor_rc"#' \
-  install/banyu_bringup/share/banyu_bringup/config/task2_params.yaml > /tmp/task2_sim_rc.yaml
+# 2. UUV side (use_sim:=True already points the status node at /sim/supervisor_rc and starts
+#    sim_rc_deadman_node; sim_supervisor.py adds the lifecycle/course/command/buoy log)
 ROS_DOMAIN_ID=40 python3 src/BANYU_ROBOTX/tools/sos_integration/sim_supervisor.py uuv.jsonl
-ROS_DOMAIN_ID=40 ros2 launch banyu_bringup main_launch.launch.py mode:=task2 \
-  task2_params_file:=/tmp/task2_sim_rc.yaml
+ROS_DOMAIN_ID=40 ros2 launch banyu_bringup main_launch.launch.py mode:=task2
 # On PRIME on-demand laptops add: __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia
 
 # 3. RoboCommand (official test client, interactive mode keeps the connection open)

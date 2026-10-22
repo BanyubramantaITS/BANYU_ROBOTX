@@ -3,6 +3,13 @@
 Panduan ini untuk strategi POR tanpa kamera (timer + kecepatan per segmen).
 Hasil simulasi dan model gerak ada di [`por_timed_tuning.md`](por_timed_tuning.md).
 
+> [!NOTE]
+> Waktu dan toleransi di tabel ini diukur saat POR masih `GUIDED`. Sekarang POR
+> terbang `ALT_HOLD` + RC override (kecepatan open-loop), jadi `speed_*` adalah
+> kekuatan stick, bukan m/s. Hasil sim ALT_HOLD terbaru (FAST ~31 s, SAFE ~36 s
+> lewat gate kembali) ada di [`por_timed_tuning.md`](por_timed_tuning.md). Langkah
+> kalibrasi di bawah tetap berlaku: ukur kecepatan asli, lalu atur durasi.
+
 | Profil | File | Waktu sim (lewat gate kembali) | Toleransi sim |
 |---|---|---|---|
 | Strafe box (**paling aman**) | `por_params_timed_fast.yaml` | 55 s | kecepatan −8%..+5%, heading ±6° |

@@ -15,11 +15,11 @@ The autonomy stack is cleanly decoupled into transport-neutral mission coordinat
   - Config files: `por_params.yaml`, `task2_params.yaml`, `mavros_config.yaml`, and `banyu_defaults.parm`.
 - **`banyu_msgs`**: ROS 2 message, service, and action definitions for mission coordination, perception, tracking, and vehicle status.
 - **`banyu_mission`**: BehaviorTree.CPP v4 mission manager.
-  - Evaluates `bt/por_mission.xml` (for POR) or `bt/banyu_mission.xml` (for Task 2).
+  - Evaluates `bt/por_timed_mission.xml` (POR default; `por_mission.xml`, `por_hybrid_mission.xml` or `por_vision_assisted_mission.xml` depending on `mission.use_vision*`) or `bt/banyu_mission.xml` (Task 2).
   - Handles mission lifecycle, blackboard management, action clients, and reactive safety fallbacks.
 - **`banyu_detection`**:
   - `por_detection`: Classical vision HSV detector for gate and marker buoy detection.
-  - `task2_pipeline_detector`: Line-fitting and color-component detector for underwater pipeline and repair rings from camera imagery (`/front_camera/image_raw`).
+  - `task2_pipeline_detector`: Line-fitting and color-component detector for underwater pipeline and repair rings from the downward camera (`/bottom_camera/image_raw`).
   - `ring_tracker_node`: Temporal ring tracker associating detections with vehicle map poses.
   - `pipeline_end_node`: End-of-pipe confirmation logic.
   - `survey_evidence_node`: Aggregates active buoy fixes and ring detections to assemble complete `Task2SurveyEvidence`.
@@ -129,7 +129,7 @@ src/BANYU_ROBOTX/
 ## 4. Behavior Tree Flow
 
 The source of truth for mission execution is:
-- **`banyu_mission/bt/por_mission.xml`** for POR.
+- **`banyu_mission/bt/por_timed_mission.xml`** for POR by default (`por_mission.xml` for the vision variant).
 - **`banyu_mission/bt/banyu_mission.xml`** for Task 2.
 
 ### Task 2 Behavior Tree (`banyu_mission.xml`)
@@ -274,5 +274,5 @@ Communication with the external Ground Control Station (GCS) and RoboCommand use
 - **Run Lifecycle**:
   1. Operator prepares autonomy via `/banyu/mission/prepare_autonomy`. This opens a fresh epoch window and resets sequence expectations.
   2. RoboCommand sends `CMD_RUN_START` via `/system/mission/command`.
-  3. `uuv_comm_node` authorizes the run, transitions `RunLifecycle` to `STATE_ACTIVE`, and unlocks mission execution.
+  3. `uuv_comm_node` authorizes the run, transitions `RunLifecycle` to `ACTIVE`, and unlocks mission execution.
   4. On mission completion and surface ascent, `survey_evidence_node` triggers survey assembly and `uuv_comm_node` publishes the sealed `PipelineSurvey` report.

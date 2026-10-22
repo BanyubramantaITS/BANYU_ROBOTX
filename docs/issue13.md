@@ -14,7 +14,7 @@ Scope decisions from the UUV team: Task 2 is attempted at the **Disruptive** tie
 
 | Area | Problem found in integration/simulation | Fix |
 |---|---|---|
-| RoboCommand starts | Journal enforced a globally increasing `RxCommand.seq`; a restarted RoboCommand session (seq 1) was rejected as replay forever | `prepare_autonomy` opens a new sequence window; journal V2 stores each run's epoch (V1 still loads); accepted `run_id`s never restart |
+| RoboCommand starts | Journal enforced a globally increasing `RxCommand.seq`; a restarted RoboCommand session (seq 1) was rejected as replay forever | `prepare_autonomy` opens a new sequence window; journal V2 stores each run's epoch (V1 still loads); within one preparation window accepted `run_id`s never restart (re-preparing forgets them, epochs keep increasing) |
 | Heartbeat state | `MAV_STATE_CRITICAL` (ArduSub pilot-input failsafe) reported `STATE_KILLED` while driving | Only EMERGENCY/POWEROFF/TERMINATION count as killed |
 | Action goals | Task 2 action nodes read run context from an unpublished topic; every goal was `(0, 0)` and rejected | Use `topics.run_lifecycle` |
 | Simulation clock | No `/clock` bridge and `SetUseSimTime` does not reach launched nodes; sim-stamped camera vs wall-time nodes dropped every observation; MAVROS stamped zero | `/clock` bridge, `SetParameter(use_sim_time)` only with `use_sim:=True`, MAVROS from the same condition |

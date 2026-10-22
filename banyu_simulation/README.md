@@ -6,7 +6,8 @@ This package provides the Gazebo simulation environment, 3D world models, and la
 
 ## 📦 Package Contents
 
-- **`worlds/proof_of_readiness.world`**: Main simulation world featuring buoyancy physics, underwater environment settings, lighting, and the DVL system plugin.
+- **`worlds/main_world.world`**: Task 2 world (`mode:=task2`); loads `banyu::DvlMavlink` and `banyu::UnderwaterTurbidity`.
+- **`worlds/proof_of_readiness.world`**: POR world (`mode:=por`) featuring buoyancy physics, underwater environment settings, lighting, and the DVL system plugin.
 - **`worlds/pipeline_lights.sdf`**: RobotX 2026 Task 2 underwater pipeline world with 4 optical light nodes, magnetometer sensor plugin, and inspection camera.
 - **`models/Gate/`**: 3D underwater gate model (`model.xacro` & `model.sdf`) with PBR textures.
 - **`models/por_pool/`**: Proof of Readiness pool model (`model.xacro`).
@@ -34,10 +35,12 @@ This package provides the Gazebo simulation environment, 3D world models, and la
 
 ## 🧩 World Systems (`src/`)
 
-`main_world.world` gets its Task 2 props from `banyu_robotx_models` (see `import.repos`) and loads two systems built here:
+`main_world.world` gets its Task 2 props from `banyu_robotx_models` (a `package.xml` dependency of this package; it is not listed in `import.repos`). Systems built here:
 
-- **`banyu::PipelineLights`**: turns one listed light node RED and the rest GREEN. The seed comes from `<seed>`, or from `BANYU_LIGHT_SEED` (the launch arg `light_seed`) if that is set.
-- **`banyu::UnderwaterTurbidity`**: an Ogre2 post-process on the listed `<camera>` sensors. It applies range-based per-channel attenuation plus backscatter veil. Only the server-side sensor image gets it; the GUI view stays clear. The coefficients are placeholders, not measured venue water.
+- **`banyu::DvlMavlink`** (loaded by `main_world.world`, simulation only): DVL velocity → ArduSub SITL as `VISION_POSITION_DELTA`; see `banyu_bringup/README.md`.
+- **`banyu::HydrophoneArray`** (loaded by the `bluerov2_task2` model): pinger TDOA arrivals.
+- **`banyu::PipelineLights`** (built here; no world in this repo loads it directly): turns one listed light node RED and the rest GREEN. The seed comes from `<seed>`, or from `BANYU_LIGHT_SEED` (the launch arg `light_seed`) if that is set.
+- **`banyu::UnderwaterTurbidity`** (loaded by `main_world.world`): an Ogre2 post-process on the listed `<camera>` sensors. It applies range-based per-channel attenuation plus backscatter veil. Only the server-side sensor image gets it; the GUI view stays clear. The coefficients are placeholders, not measured venue water.
 
 ---
 

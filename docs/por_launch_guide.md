@@ -16,7 +16,7 @@ Run every command from the colcon workspace root (`ros2_ws_robotx/`, which conta
 
 ### A. Gazebo Harmonic Simulation (SITL)
 
-1. **Launch with 3D GUI (default fastest diamond profile):**
+1. **Launch with 3D GUI (fastest diamond profile; without `--profile` the sim uses `por_params.yaml`):**
    ```bash
    ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --profile fastest
    ```
@@ -84,6 +84,9 @@ Run every command from the colcon workspace root (`ros2_ws_robotx/`, which conta
 
 All profile files live in [`banyu_bringup/config/`](../banyu_bringup/config/):
 
+> [!NOTE]
+> The estimated times below were measured in the sim when POR still flew `GUIDED` from an underwater spawn. In `ALT_HOLD` with RC override, `fast` and `safe` were re-timed and pass the sim course (gate back at ~31 s and ~36 s sim time); the other timed profiles still need re-timing.
+
 | Preset Alias | YAML File | Strategy Description | Estimated Time | Best For |
 | :--- | :--- | :--- | :--- | :--- |
 | `fastest` / `fastest-diamond` | [`por_params_timed_fastest.yaml`](../banyu_bringup/config/por_params_timed_fastest.yaml) | Reverse diamond trajectory (no yaw changes). Outbound 0.8 m/s, strafes 0.6 m/s, returns backward through gate. | **~33.3 s** | Fastest competition scoring. |
@@ -95,7 +98,7 @@ All profile files live in [`banyu_bringup/config/`](../banyu_bringup/config/):
 | `dead-thruster-norc` | [`por_params_dead_thruster_2_3_no_rc_no_pos.yaml`](../banyu_bringup/config/por_params_dead_thruster_2_3_no_rc_no_pos.yaml) | Dead-thruster profile configured for headless operation (`bypass_rc: true`, `esp32_trigger`). | **~48.0 s** | Dead-thruster testing when transmitter is unavailable. |
 | `vision` | [`por_params_vision_assisted.yaml`](../banyu_bringup/config/por_params_vision_assisted.yaml) | Closed-loop vision centering on gate at start, lateral alignment on marker, and camera turn-and-pass return. | Variable | Water with good visibility (front camera tracking). |
 | `hybrid` | [`por_params_hybrid.yaml`](../banyu_bringup/config/por_params_hybrid.yaml) | Timed outbound legs + camera-guided gate return with timed fallback. | Variable | Environments where outbound marker detection is difficult. |
-| `default` | [`por_params.yaml`](../banyu_bringup/config/por_params.yaml) | Baseline POR profile with closed-loop gate/marker vision tracking. | Variable | Baseline testing in simulation and standard operations. |
+| `default` | [`por_params.yaml`](../banyu_bringup/config/por_params.yaml) | Timed turn-box profile (`use_vision: false`, loads `bt/por_timed_mission.xml`); set `use_vision: true` for the closed-loop vision tree. Known to miss the course in sim (see `por_timed_tuning.md`). | Variable | Baseline testing in simulation. |
 
 ---
 
@@ -108,7 +111,7 @@ All profile files live in [`banyu_bringup/config/`](../banyu_bringup/config/):
    - `por_params_file`: Absolute path to selected YAML profile.
    - `headless`: `"False"` (default, GUI) or `"True"` (server-only).
    - `use_sim`: `"True"`.
-   - `spawn_x`, `spawn_y`, `spawn_z`, `spawn_yaw`: Vehicle spawn location.
+   - `spawn_x`, `spawn_y`, `spawn_z`: Vehicle spawn location, Task 2 world only. The POR spawn is fixed at (-7, 0, -0.1), at the surface.
 
 2. **Real AUV:** [`banyu_bringup/launch/sub_bringup.launch.py`](../banyu_bringup/launch/sub_bringup.launch.py)
    - `mode`: `"por"` (default) or `"task2"`.

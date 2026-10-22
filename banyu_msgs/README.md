@@ -10,8 +10,8 @@ Actions follow the ROS order `Goal --- Result --- Feedback`. Every terminal resu
   - `AcquireGate.action` — Acquire gate in field of view (defaults to dive in place).
   - `AlignGate.action` — Visually center and align vehicle heading and depth to the gate.
   - `PassGate.action` — Traverse through the gate; supports blind push on return leg if visual lock is temporarily lost.
-  - `SearchMarker.action` — Search pattern to locate the yellow buoy.
-  - `AlignMarker.action` — Visually center on the yellow buoy.
+  - `SearchMarker.action` — Search pattern to locate the marker (orange in the per-object HSV profiles).
+  - `AlignMarker.action` — Visually center on the marker.
   - `OrbitMarker.action` — Clockwise/counter-clockwise orbit around marker applying feedforward yaw rate ($\omega_{\text{ff}} = -y / r$).
   - `TurnAround.action` — 180° in-place yaw maneuver.
   - `SearchGate.action` — Search pattern to re-acquire gate on return leg.
@@ -31,13 +31,13 @@ Actions follow the ROS order `Goal --- Result --- Feedback`. Every terminal resu
 
 ## Key Messages
 
-- `VehicleStatus.msg` — MAVROS-neutral health summary (`fcu_connected`, `rc_fresh`, `gps_fresh`, `calibrated_depth_m`, `battery_voltage`).
+- `VehicleStatus.msg` — MAVROS-neutral health summary (`fcu_connected`, `armed`, `fcu_status_fresh`, `rc_fresh`, `operator_takeover`, `mode`, `authority`, `gps_valid`, `gps_fresh`, `operational_mode` 0=DISARMED/1=MANUAL/2=AUTONOMOUS, `hardware_kill_active`). Calibrated depth is published separately by `calibrated_depth_node`.
 - `ActiveBuoyFix.msg` & `Task2BuoyTarget.msg` — USV pipeline buoy coordinates and locked target navigation state.
-- `Detection.msg` — Single best visual detection per frame for POR (`object_id`: 0=gate, 1=yellow buoy; normalized `[-1, 1]` offsets).
+- `Detection.msg` — Single best visual detection per frame for POR (`object_id`: 0=gate, 1=marker buoy, 2/3=green/red blob for Task 2; normalized `[-1, 1]` offsets).
 - `PipelineObservation.msg` & `PipelineRingObservation.msg` — Line fit, lookahead angles, and detected rings from downward inspection camera.
 - `PipelineRingState.msg` — Associated ring tracker state across temporal observations.
 - `Task2SurveyEvidence.msg` & `Task2Report.msg` — Survey evidence assembled during pipeline inspection for RoboCommand / GCS reporting.
-- `RunLifecycle.msg` — Epoch-tagged autonomy state transitions (`STATE_IDLE`, `STATE_PREPARED`, `STATE_ACTIVE`, `STATE_COMPLETED`).
+- `RunLifecycle.msg` — Epoch-tagged autonomy state transitions (phases `IDLE`, `PREPARING`, `READY`, `INITIALIZING`, `ACTIVE`, `SURVEY_COMPLETE`, `SURFACED`, `SUCCEEDED`, `FAILED`, `INTERRUPTED`; events `SNAPSHOT`, `START_ACCEPTED`, `START_DUPLICATE`, `START_REJECTED`, `TERMINAL`).
 
 ## Services
 

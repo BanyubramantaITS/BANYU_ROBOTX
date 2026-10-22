@@ -17,7 +17,7 @@ Why this exists rather than a ros_gz_bridge + MAVROS chain:
 So this speaks MAVLink straight to SITL on its own endpoint. Nothing here goes
 through MAVROS, which means this script owns the *entire* frame conversion.
 
-Run alongside the sim; see proof_of_readiness.launch.py.
+Launched by sitl_mavros.launch.py when use_sim and use_dvl are True (simulation only).
 """
 
 import argparse

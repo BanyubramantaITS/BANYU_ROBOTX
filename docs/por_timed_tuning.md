@@ -1,10 +1,33 @@
 # Timed (camera-free) POR: Sim Results and Real-Pool Tuning
 
 Course: start → 3 m → gate (2 m wide, bar 1 m deep) → 10 m → marker. In sim
-the start is at x = -7.2, the gate at x = -4 and the marker at x = +6. The pool
+the start is at x = -7, the gate at x = -4 and the marker at x = +6. The pool
 is 19 × 10 × 2.5 m.
 
+## ALT_HOLD update (October 2026)
+
+Everything below this section was measured when POR flew `GUIDED` with velocity
+setpoints, from an underwater spawn (z = -2). POR now flies `ALT_HOLD` with RC
+override (`control.output_mode: rc_override`) and the sim spawns at the surface,
+so the motion model below no longer applies:
+
+- Speed is open loop. In sim, actual speed ~= 1.34 * sqrt(speed_x) forward/back and
+  ~= 1.39 * sqrt(speed_y) sideways (gain_xy 300); e.g. 0.9 -> 1.28 m/s.
+- The vehicle coasts ~0.7-1 m after each leg (no active braking as in GUIDED).
+- The dive happens in place from the surface and ends on `check_depth_reached`.
+- Measured in sim time; Gazebo runs at ~0.7x real time on the dev laptop.
+
+| Profile | ALT_HOLD sim result | Gate back (sim time) |
+|---|---|---|
+| `por_params_timed_fast.yaml` | ✅ re-timed | ~31 s |
+| `por_params_timed_safe.yaml` | ✅ re-timed | ~36 s |
+| `por_params_timed_fastest.yaml`, `..._fastest_turn.yaml` | ❌ diamond does not close; not re-timed yet | - |
+| `por_params.yaml` (turn box) | ❌ as before | - |
+| hybrid, vision_assisted, slow, dead-thruster | not run yet | - |
+
 ## Results (Gazebo + ArduSub SITL, ground-truth scored)
+
+_GUIDED-era results (historical):_
 
 A run passes when it crosses the gate going out (|y| ≤ 0.66 m, below the bar,
 above the floor), makes a full loop around the marker with ≥ 0.5 m clearance,
