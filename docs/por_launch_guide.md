@@ -85,7 +85,7 @@ Run every command from the colcon workspace root (`ros2_ws_robotx/`, which conta
 All profile files live in [`banyu_bringup/config/`](../banyu_bringup/config/):
 
 > [!NOTE]
-> The estimated times below were measured in the sim when POR still flew `GUIDED` from an underwater spawn. In `ALT_HOLD` with RC override and no GPS, every profile except the dead-thruster ones was re-timed and passes the sim course with no GPS at all; gate-back times (sim time): fastest ~25 s, turn ~28 s, fast ~32 s, safe/default ~37 s, vision ~36 s, hybrid ~44 s, slow ~71 s. `default` now uses the SAFE strafe box. See `por_timed_tuning.md`.
+> The estimated times below were measured in the sim when POR still flew `GUIDED` from an underwater spawn. In `ALT_HOLD` with RC override and no GPS, every profile except the dead-thruster ones was re-timed and passes the sim course with no GPS at all; gate-back times (sim time): fastest ~25 s, turn ~28 s, fast ~32 s, safe/default ~37 s, vision ~36 s, hybrid ~44 s, slow ~71 s. `default` now uses the SAFE strafe box. See `por_timed_tuning.md`. Full-timer/blind variants (no sensors, no camera) are in `config/blind/` (`--profile blind/por_params_timed_fastest.yaml`), and sim-tuned dead-thruster profiles in `config/sim_dead_thruster/`; fault-scenario results are in `por_timed_tuning.md`.
 
 | Preset Alias | YAML File | Strategy Description | Estimated Time | Best For |
 | :--- | :--- | :--- | :--- | :--- |

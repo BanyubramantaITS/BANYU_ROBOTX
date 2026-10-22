@@ -33,9 +33,40 @@ TX16S (`kill_switch = 2`), positive buoyancy, same pool and course as the sim.
 | `por_params_hybrid.yaml` | ✅ re-timed, camera return (`turn_max_angle_rad` 0.1) | ~44 s | 1.03 m |
 | `por_params_timed_slow.yaml` | ✅ re-timed (stick 0.12 -> ~0.47 m/s) | ~71 s | 1.05 m |
 
-Fault scenarios (camera dead, full timer/blind, thrusters 2+3 dead, Bar30 dead) use
-`main_launch.launch.py extra_sitl_params:=.../config/sim_faults/<fault>.parm`; their
-results are added below once verified.
+### Fault scenarios (no GPS in every run)
+
+Camera dead = `por_detection` gets no images. Thrusters dead =
+`extra_sitl_params:=.../config/sim_faults/dead_thrusters_2_3.parm` (`SERVOx_FUNCTION 135`
+holds motors 2 and 3 at 1500 us; `SERVOx_FUNCTION 0` does not work in ArduSub, the frame
+setup re-assigns the motor). Full timer / full blind = `config/blind/*.yaml`
+(`use_sensors: false`, heading hold off, open-loop dive and 180 deg turns) with the camera dead.
+
+| Scenario | Profile | Result | Gate back |
+|---|---|---|---|
+| Camera dead | `por_params_vision_assisted.yaml` | ✅ falls back to the timed legs | ~39 s |
+| Camera dead | `por_params_hybrid.yaml` | ✅ falls back to the timed return | ~41 s |
+| Full blind | `blind/por_params_timed_fastest.yaml` | ✅ | ~24 s |
+| Full blind | `blind/por_params_timed_fastest_turn.yaml` | ✅ | ~28 s |
+| Full blind | `blind/por_params_timed_fast.yaml` | ✅ | ~32 s |
+| Full blind | `blind/por_params_vision_assisted.yaml` | ✅ | ~34 s |
+| Full blind | `blind/por_params.yaml`, `blind/..._safe.yaml` | ✅ | ~37 s |
+| Full blind | `blind/por_params_hybrid.yaml` | ✅ (timed 180 deg turn: 0.1 s = 0.4 m at the gate) | ~37 s |
+| Full blind | `blind/por_params_timed_slow.yaml` | ✅ | ~70 s |
+| Thrusters 2+3 dead | `por_params_timed_fast.yaml` (control) | ❌ drifts diagonally into the side wall | - |
+| Thrusters 2+3 dead | `sim_dead_thruster/..._no_pos.yaml` (RC) | ✅ orbit around the marker, y -0.09 at the gate | ~47 s |
+| Thrusters 2+3 dead | `sim_dead_thruster/..._no_rc_no_pos.yaml` | ✅ y -0.10 at the gate | ~46 s |
+| Thrusters 2+3 dead + no Bar30 | `..._no_rc_pixhawk_only.yaml` (STABILIZE) | ❌ see below | - |
+
+Dead-thruster profiles must be regenerated with the measured diagonal speed: in sim it is
+1.15 m/s at `--speed-cmd 0.5`, and `--orbit-cap 6.29` centres the return. The profiles in
+`config/` keep the values measured on the robot and its RC channels.
+
+**No depth sensor (Bar30 dead) cannot pass with the current buoyancy.** In STABILIZE the
+vehicle rises ~0.12 m/s with neutral stick and sinks to the floor with a down trim of
+only ~6 PWM (`--depth-trim` 0.02-0.1 all sank), so no open-loop trim holds a depth. Fix the
+hardware (Bar30) or trim the vehicle much closer to neutral buoyancy. The sim cannot model
+this fault exactly either: every SITL ArduSub baro is a water baro, ArduPilot does not boot
+with all of them disabled, and `SIM_BAROx_FREEZE` had no effect in these runs.
 
 \* Vehicle-centre to marker distance; the pass threshold is 0.8 m (~0.5 m physical gap).
 Pass = through the gate out and back (|y| <= 0.66 m, below the bar, above the floor),
