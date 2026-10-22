@@ -55,19 +55,22 @@ setup re-assigns the motor). Full timer / full blind = `config/blind/*.yaml`
 | Thrusters 2+3 dead | `por_params_timed_fast.yaml` (control) | ❌ drifts diagonally into the side wall | - |
 | Thrusters 2+3 dead | `sim_dead_thruster/..._no_pos.yaml` (RC) | ✅ orbit around the marker, y -0.09 at the gate | ~47 s |
 | Thrusters 2+3 dead | `sim_dead_thruster/..._no_rc_no_pos.yaml` | ✅ y -0.10 at the gate | ~46 s |
-| Thrusters 2+3 dead + no Bar30 | `..._no_rc_pixhawk_only.yaml` (STABILIZE) | ❌ see below | - |
+| Thrusters 2+3 dead + no Bar30 | `sim_dead_thruster/..._no_rc_pixhawk_only.yaml` (STABILIZE) | ✅ with per-leg trim dithering, depth 1.7-2.2 m | ~44 s |
 
 Dead-thruster profiles must be regenerated with the measured diagonal speed: in sim it is
 1.15 m/s at `--speed-cmd 0.5`, and `--orbit-cap 6.29` centres the return. The profiles in
 `config/` keep the values measured on the robot and its RC channels.
 
-**No depth sensor (Bar30 dead) cannot hold a mid-water depth with the current buoyancy.**
+**No depth sensor (Bar30 dead): no single open-loop trim holds a depth.**
 In STABILIZE, `--depth-trim` sweep (dive 4 s, `--orbit-cap 6.29`): 1500 us rises ~0.12 m/s,
 1498 us ~0.10 m/s, 1497 us ~0.045 m/s (all reach the surface before the gate back), and
 1496 us already sinks to the floor. The balance lies between two whole-microsecond stick
-values, so no open-loop trim holds a depth. At 1496 us (`--depth-trim 0.015`) the vehicle
-rides the pool floor and still completes the course (gate out, 360 deg orbit, gate back at
-y 0.04), but with the hull on the floor; treat that only as a last resort. Fix the
+values, so no open-loop trim holds a depth. What works is dithering per leg: each leg's
+`speed_z_mps` is -0.015 (1496 us, sinks ~0.05 m/s) or -0.01 (1497 us, rises ~0.045 m/s),
+chosen so the depth stays mid-water (sim: 1.7-2.2 m, gate back at ~44 s). See
+`config/sim_dead_thruster/por_params_dead_thruster_2_3_no_rc_pixhawk_only.yaml`. The rates
+depend on the exact buoyancy, so measure them on the real vehicle (rise/sink at 1497/1496 us)
+before using it; a Bar30 or near-neutral buoyancy is still the robust fix. Fix the
 hardware (Bar30) or trim the vehicle much closer to neutral buoyancy. The sim cannot model
 this fault exactly either: every SITL ArduSub baro is a water baro, ArduPilot does not boot
 with all of them disabled, and `SIM_BAROx_FREEZE` had no effect in these runs.

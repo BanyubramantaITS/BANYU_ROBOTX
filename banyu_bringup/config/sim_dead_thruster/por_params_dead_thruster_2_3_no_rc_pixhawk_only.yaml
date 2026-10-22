@@ -1,8 +1,11 @@
-# SIM-TUNED LAST RESORT: thrusters 2+3 dead AND no depth sensor (Bar30 dead), STABILIZE.
-# No open-loop trim holds mid-water depth with this buoyancy; --depth-trim 0.015 (1496 us)
-# makes the vehicle ride the pool floor, which completed the sim course. Hull touches the floor.
-# Generated with: tools/scripts/dead_thruster_por.py --no-depth-sensor --no-rc --measured-speed 1.15
-#   --rc-channels 5,6,3,4 --rc-gain-z 300 --orbit-cap 6.29 --depth-trim 0.015 --dive-time 4.0
+# SIM-TUNED: thrusters 2+3 dead AND no depth sensor (Bar30 dead), STABILIZE, no GPS.
+# No single open-loop trim holds depth (balance lies between 1496 and 1497 us), so the legs
+# alternate: speed_z -0.015 (1496 us, sinks ~0.05 m/s) and -0.01 (1497 us, rises ~0.045 m/s).
+# Sim depth stays 1.7-2.2 m through the course. These rates depend on the exact buoyancy;
+# re-measure on the real vehicle before use.
+# Base: tools/scripts/dead_thruster_por.py --no-depth-sensor --no-rc --measured-speed 1.15
+#   --rc-channels 5,6,3,4 --rc-gain-z 300 --orbit-cap 6.29 --depth-trim 0.01 --dive-time 4.0,
+#   then dive_duration_s 3.0 and per-leg speed_z as above.
 banyu_mission:
   ros__parameters:
     mission_mode: "por"
@@ -111,7 +114,7 @@ banyu_mission:
       max_depth_speed_mps: 0.6
 
       # 1. Dive to center of gate depth
-      dive_duration_s: 4.0
+      dive_duration_s: 3.0
       dive_speed_x_mps: 0.0
       dive_speed_y_mps: 0.0
       dive_speed_z_mps: -0.4
@@ -129,7 +132,7 @@ banyu_mission:
       approach_pole_duration_s: 9.1
       approach_pole_speed_x_mps: 0.354
       approach_pole_speed_y_mps: 0.354
-      approach_pole_speed_z_mps: -0.015
+      approach_pole_speed_z_mps: -0.01
       approach_pole_yaw_rate_rad_s: 0.0
 
       # 4. Circle the pole (4-sided polygon: Turn 90 deg -> Forward x 4, default clockwise)
@@ -137,7 +140,7 @@ banyu_mission:
       circle_turn_1_duration_s: 4.0
       circle_turn_1_speed_x_mps: 0.0
       circle_turn_1_speed_y_mps: 0.0
-      circle_turn_1_speed_z_mps: -0.015
+      circle_turn_1_speed_z_mps: -0.01
       circle_turn_1_yaw_rate_rad_s: -0.5
       circle_turn_1_target_angle_rad: 1.45
       circle_forward_1_duration_s: 1.5
@@ -163,7 +166,7 @@ banyu_mission:
       circle_turn_3_duration_s: 4.0
       circle_turn_3_speed_x_mps: 0.0
       circle_turn_3_speed_y_mps: 0.0
-      circle_turn_3_speed_z_mps: -0.015
+      circle_turn_3_speed_z_mps: -0.01
       circle_turn_3_yaw_rate_rad_s: 0.5
       circle_turn_3_target_angle_rad: 1.45
       circle_forward_3_duration_s: 0.0
@@ -195,7 +198,7 @@ banyu_mission:
       return_to_gate_duration_s: 10.2
       return_to_gate_speed_x_mps: -0.354
       return_to_gate_speed_y_mps: -0.354
-      return_to_gate_speed_z_mps: -0.015
+      return_to_gate_speed_z_mps: -0.01
       return_to_gate_yaw_rate_rad_s: 0.0
 
       # 6. Surface
