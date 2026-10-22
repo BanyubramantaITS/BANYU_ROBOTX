@@ -10,7 +10,7 @@ in order, while watching the UUV over ROS:
 
 Needs the procedure in README.md running (broker, gcs_ros_bridge.py, dds_relay.py, sim). Run with
 ROS sourced; GCS_REPO points at the robocommand-rx-ui-itsn checkout:
-  GCS_REPO=~/Desktop/ROBOTX/robocommand-rx-ui-itsn python3 rc_host_scenario.py OUT_DIR
+  python3 rc_host_scenario.py OUT_DIR   # GCS_REPO defaults to <workspace>/../robocommand-rx-ui-itsn
 """
 import argparse
 import json
@@ -20,7 +20,11 @@ import threading
 import time
 from pathlib import Path
 
-GCS_REPO = os.environ.get('GCS_REPO', os.path.expanduser('~/Desktop/robocommand-rx-ui-itsn'))
+# Default: robocommand-rx-ui-itsn checked out next to the colcon workspace.
+_DEFAULT_GCS_REPO = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..', '..',
+    'robocommand-rx-ui-itsn'))
+GCS_REPO = os.environ.get('GCS_REPO', _DEFAULT_GCS_REPO)
 sys.path.insert(0, GCS_REPO)
 os.environ.setdefault('ROBOCOMMAND_MAP_TILES', '0')
 

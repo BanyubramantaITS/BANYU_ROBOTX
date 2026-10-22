@@ -15,7 +15,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-WS_DIR="$(cd "${REPO_DIR}/.." && pwd)"
+WS_DIR="$(cd "${REPO_DIR}/../.." && pwd)"   # <ws>/src/BANYU_ROBOTX -> <ws>
 CONFIG_DIR="${REPO_DIR}/banyu_bringup/config"
 
 # --- Detect active git branch ---
@@ -160,8 +160,6 @@ fi
 
 if [ -f "${WS_DIR}/install/setup.bash" ]; then
   source "${WS_DIR}/install/setup.bash"
-elif [ -f "${REPO_DIR}/../../install/setup.bash" ]; then
-  source "${REPO_DIR}/../../install/setup.bash"
 fi
 
 # --- Resolve profile if not explicitly provided ---

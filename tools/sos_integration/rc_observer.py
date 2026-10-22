@@ -9,7 +9,11 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.environ.get('GCS_REPO', os.path.expanduser('~/Desktop/robocommand-rx-ui-itsn')))
+# Default: robocommand-rx-ui-itsn checked out next to the colcon workspace.
+_DEFAULT_GCS_REPO = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..', '..',
+    'robocommand-rx-ui-itsn'))
+sys.path.insert(0, os.environ.get('GCS_REPO', _DEFAULT_GCS_REPO))
 
 import paho.mqtt.client as mqtt  # noqa: E402
 from google.protobuf.json_format import MessageToDict  # noqa: E402

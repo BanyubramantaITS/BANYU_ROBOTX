@@ -27,7 +27,11 @@ import sys
 import threading
 import time
 
-GCS_REPO = os.environ.get('GCS_REPO', os.path.expanduser('~/Desktop/robocommand-rx-ui-itsn'))
+# Default: robocommand-rx-ui-itsn checked out next to the colcon workspace.
+_DEFAULT_GCS_REPO = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..', '..',
+    'robocommand-rx-ui-itsn'))
+GCS_REPO = os.environ.get('GCS_REPO', _DEFAULT_GCS_REPO)
 sys.path.insert(0, GCS_REPO)
 # rclpy message packages need numpy/yaml from the system; appended so the venv protobuf wins.
 sys.path.append('/usr/lib/python3/dist-packages')
