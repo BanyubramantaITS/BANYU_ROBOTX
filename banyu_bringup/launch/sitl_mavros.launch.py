@@ -61,7 +61,7 @@ def generate_launch_description():
         default_value="",
         description=(
             "Optional extra ArduPilot .parm file for sim_vehicle.py (fault injection, e.g. "
-            "dead thrusters or a failed depth sensor). Simulation only."
+            "config/sim_faults/dead_thrusters_2_3.parm). Simulation only."
         ),
     )
 

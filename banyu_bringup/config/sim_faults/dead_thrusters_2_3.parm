@@ -1,0 +1,10 @@
+# SITL fault injection: thrusters 2 (front-left) and 3 (back-right) produce no thrust.
+# The mixer still drives them, as on the real vehicle with failed motors.
+# SERVOx_FUNCTION 0 does NOT work in ArduSub (the frame setup re-assigns motor 2/3 to an
+# unassigned channel) and 1 (RCPassThru) copies RC input, e.g. the throttle override.
+# 135 (k_trim) holds the output at SERVOx_TRIM = 1500 us, i.e. zero thrust.
+# Use: main_launch.launch.py extra_sitl_params:=<this file>
+SERVO2_FUNCTION 135
+SERVO2_TRIM 1500
+SERVO3_FUNCTION 135
+SERVO3_TRIM 1500
