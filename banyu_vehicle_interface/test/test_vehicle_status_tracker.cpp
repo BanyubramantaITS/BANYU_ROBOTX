@@ -114,6 +114,23 @@ TEST(VehicleStatusTrackerTest, HighRcTakeoverWinsOverAutonomy)
   EXPECT_EQ(result.authority, "OPERATOR");
 }
 
+TEST(VehicleStatusTrackerTest, NegativeTakeoverChannelKeepsRcFreshWithoutTakeover)
+{
+  auto config = testConfig();
+  config.rc_takeover_channel = -1;
+  VehicleStatusTracker tracker(config);
+  tracker.updateState(state(true, "GUIDED"), timeAt(0.0));
+  tracker.updateRc(rc(1900), timeAt(0.0));
+
+  const auto result = tracker.status(timeAt(0.1));
+  EXPECT_TRUE(result.rc_fresh);
+  EXPECT_FALSE(result.operator_takeover);
+
+  mavros_msgs::msg::RCIn malformed;
+  tracker.updateRc(malformed, timeAt(0.2));
+  EXPECT_FALSE(tracker.status(timeAt(0.2)).rc_fresh);
+}
+
 TEST(VehicleStatusTrackerTest, PublishesCurrentMode)
 {
   VehicleStatusTracker tracker(testConfig());

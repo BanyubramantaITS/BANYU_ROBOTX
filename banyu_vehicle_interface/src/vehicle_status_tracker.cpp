@@ -49,9 +49,16 @@ void VehicleStatusTracker::updateRc(
 {
   rc_received_ = false;
   rc_takeover_ = false;
-  if (config_.rc_takeover_channel < 0 ||
-    static_cast<size_t>(config_.rc_takeover_channel) >= rc.channels.size())
-  {
+  if (rc.channels.empty()) {
+    return;
+  }
+  // A negative takeover channel disables stick takeover only; RC freshness still counts.
+  if (config_.rc_takeover_channel < 0) {
+    rc_received_ = true;
+    last_rc_ = received_at;
+    return;
+  }
+  if (static_cast<size_t>(config_.rc_takeover_channel) >= rc.channels.size()) {
     return;
   }
 
