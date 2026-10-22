@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Send an operating-mode byte to the ESP32 kill-switch relay without banyu_teleop.
 
-Same protocol banyu_teleop uses for the TX16S SB switch (single ASCII byte, no newline):
-  auto   '0'  autonomous (LED green)
-  remote '1'  remote / manual
-  kill   '2'  hardware kill (cuts relay power)
+Same protocol banyu_teleop uses for the TX16S SB switch (single ASCII byte, no newline;
+encoding from issue #15, equal to VehicleStatus.operational_mode):
+  kill   '0'  disarmed / hardware kill (cuts relay power, LED red)
+  remote '1'  remote / manual (LED yellow)
+  auto   '2'  autonomous (LED green)
 
 Opening a USB-serial port usually pulses DTR and reboots the ESP32, and the board
 then only keeps its state while someone holds the port open (teleop normally does).
@@ -23,7 +24,7 @@ import sys
 import termios
 import time
 
-MODES = {"auto": b"0", "remote": b"1", "kill": b"2"}
+MODES = {"kill": b"0", "remote": b"1", "auto": b"2"}
 
 
 def main():

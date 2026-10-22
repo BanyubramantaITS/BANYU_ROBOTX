@@ -181,18 +181,17 @@ void BanyuTeleop::handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg
   }
   const uint16_t pwm = msg->channels[_killChannel];
 
-  int command;
+  // ESP32 bytes match VehicleStatus.operational_mode (issue #15):
+  // '0' = disarmed / kill, '1' = manual, '2' = autonomous.
   uint8_t operational_mode;
   if (pwm < _switchLowThreshold) {
-    command = 0;            // ESP32: '0' = autonomous
-    operational_mode = 2;   // VehicleStatus: 2 = AUTONOMOUS
+    operational_mode = 2;   // SB Up: AUTONOMOUS
   } else if (pwm > _switchHighThreshold) {
-    command = 2;            // ESP32: '2' = kill / disarmed
-    operational_mode = 0;   // VehicleStatus: 0 = DISARMED / KILL
+    operational_mode = 0;   // SB Down: DISARMED / KILL
   } else {
-    command = 1;            // ESP32: '1' = remote / manual
-    operational_mode = 1;   // VehicleStatus: 1 = MANUAL
+    operational_mode = 1;   // SB Mid: MANUAL
   }
+  const int command = operational_mode;
 
   _currentOperationalMode = operational_mode;
 
