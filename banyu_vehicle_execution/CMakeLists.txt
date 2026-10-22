@@ -14,6 +14,7 @@ find_package(banyu_msgs REQUIRED)
 find_package(banyu_guidance REQUIRED)
 find_package(mavros_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(unique_identifier_msgs REQUIRED)
@@ -74,13 +75,17 @@ ament_target_dependencies(calibrated_depth_node
   banyu_msgs
   std_msgs)
 
+add_executable(dive_trajectory_node src/dive_trajectory_node.cpp)
+target_compile_features(dive_trajectory_node PUBLIC cxx_std_17)
+ament_target_dependencies(dive_trajectory_node rclcpp banyu_msgs geometry_msgs nav_msgs)
+
 install(TARGETS ${PROJECT_NAME}
   EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)
 
-install(TARGETS vehicle_execution_node calibrated_depth_node
+install(TARGETS vehicle_execution_node calibrated_depth_node dive_trajectory_node
   DESTINATION lib/${PROJECT_NAME})
 
 ament_export_include_directories(include)

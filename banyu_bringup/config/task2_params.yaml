@@ -371,3 +371,14 @@ ekf_source_switch:
     dive_depth: 0.5
     surface_depth: 0.2
     require_gps: true
+dive_trajectory_node:
+  ros__parameters:
+    dive_depth_m: 0.5
+    surface_depth_m: 0.2
+    max_poses: 5000
+    min_step_m: 0.05
+    frame_id: "dive_origin"
+    topics:
+      pose: "/mavros/local_position/pose"
+      water_depth: "/banyu/vehicle/water_depth"
+      path: "/banyu/dive/path"
