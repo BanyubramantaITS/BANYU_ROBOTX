@@ -61,9 +61,13 @@ Dead-thruster profiles must be regenerated with the measured diagonal speed: in 
 1.15 m/s at `--speed-cmd 0.5`, and `--orbit-cap 6.29` centres the return. The profiles in
 `config/` keep the values measured on the robot and its RC channels.
 
-**No depth sensor (Bar30 dead) cannot pass with the current buoyancy.** In STABILIZE the
-vehicle rises ~0.12 m/s with neutral stick and sinks to the floor with a down trim of
-only ~6 PWM (`--depth-trim` 0.02-0.1 all sank), so no open-loop trim holds a depth. Fix the
+**No depth sensor (Bar30 dead) cannot hold a mid-water depth with the current buoyancy.**
+In STABILIZE, `--depth-trim` sweep (dive 4 s, `--orbit-cap 6.29`): 1500 us rises ~0.12 m/s,
+1498 us ~0.10 m/s, 1497 us ~0.045 m/s (all reach the surface before the gate back), and
+1496 us already sinks to the floor. The balance lies between two whole-microsecond stick
+values, so no open-loop trim holds a depth. At 1496 us (`--depth-trim 0.015`) the vehicle
+rides the pool floor and still completes the course (gate out, 360 deg orbit, gate back at
+y 0.04), but with the hull on the floor; treat that only as a last resort. Fix the
 hardware (Bar30) or trim the vehicle much closer to neutral buoyancy. The sim cannot model
 this fault exactly either: every SITL ArduSub baro is a water baro, ArduPilot does not boot
 with all of them disabled, and `SIM_BAROx_FREEZE` had no effect in these runs.
