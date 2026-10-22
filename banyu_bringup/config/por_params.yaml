@@ -108,15 +108,17 @@ banyu_mission:
       depth_kp: 0.7
       max_depth_speed_mps: 0.4
 
-      # 1. Dive to center of gate depth
-      dive_duration_s: 5.0
+      # Default = SAFE strafe box (same timing as por_params_timed_safe.yaml); the old
+      # right-then-three-left turn box never circled the marker.
+      # 1. Dive in place to gate depth (ends on check_depth_reached)
+      dive_duration_s: 8.0
       dive_speed_x_mps: 0.0
       dive_speed_y_mps: 0.0
       dive_speed_z_mps: -0.4
       dive_yaw_rate_rad_s: 0.0
 
       # 2. Go forward to pass through the gate
-      timed_pass_gate_duration_s: 6.0
+      timed_pass_gate_duration_s: 2.8
       timed_pass_gate_speed_x_mps: 0.6
       timed_pass_gate_speed_y_mps: 0.0
       timed_pass_gate_speed_z_mps: 0.0
@@ -124,74 +126,74 @@ banyu_mission:
       timed_pass_gate_target_angle_rad: 0.0 # > 0: end pass_gate on the IMU at this turn angle
 
       # 3. Go forward approaching the pole
-      approach_pole_duration_s: 8.0
+      approach_pole_duration_s: 7.14
       approach_pole_speed_x_mps: 0.6
       approach_pole_speed_y_mps: 0.0
       approach_pole_speed_z_mps: 0.0
       approach_pole_yaw_rate_rad_s: 0.0
 
-      # 4. Circle the pole (4-sided polygon: Turn 90 deg -> Forward x 4, default clockwise)
-      # Step 1: Turn right (-90 deg) and move forward
-      circle_turn_1_duration_s: 2.62
+      # 4. Box around the pole with fixed yaw (circle_turn_* slots are strafes)
+      # Step 1: strafe right, then forward past the pole
+      circle_turn_1_duration_s: 1.61
       circle_turn_1_speed_x_mps: 0.0
-      circle_turn_1_speed_y_mps: 0.0
+      circle_turn_1_speed_y_mps: -0.5
       circle_turn_1_speed_z_mps: 0.0
-      circle_turn_1_yaw_rate_rad_s: -0.6
-      circle_turn_1_target_angle_rad: 1.570796327
-      circle_forward_1_duration_s: 3.0
+      circle_turn_1_yaw_rate_rad_s: 0.0
+      circle_turn_1_target_angle_rad: 0.0
+      circle_forward_1_duration_s: 3.16
       circle_forward_1_speed_x_mps: 0.5
       circle_forward_1_speed_y_mps: 0.0
       circle_forward_1_speed_z_mps: 0.0
       circle_forward_1_yaw_rate_rad_s: 0.0
 
-      # Step 2: Turn left (+90 deg) and move forward past pole
-      circle_turn_2_duration_s: 2.62
+      # Step 2: strafe left behind the pole, then back up
+      circle_turn_2_duration_s: 4.0
       circle_turn_2_speed_x_mps: 0.0
-      circle_turn_2_speed_y_mps: 0.0
+      circle_turn_2_speed_y_mps: 0.5
       circle_turn_2_speed_z_mps: 0.0
-      circle_turn_2_yaw_rate_rad_s: 0.6
-      circle_turn_2_target_angle_rad: 1.570796327
-      circle_forward_2_duration_s: 5.0
-      circle_forward_2_speed_x_mps: 0.5
+      circle_turn_2_yaw_rate_rad_s: 0.0
+      circle_turn_2_target_angle_rad: 0.0
+      circle_forward_2_duration_s: 3.58
+      circle_forward_2_speed_x_mps: -0.5
       circle_forward_2_speed_y_mps: 0.0
       circle_forward_2_speed_z_mps: 0.0
       circle_forward_2_yaw_rate_rad_s: 0.0
 
-      # Step 3: Turn left (+90 deg) and move forward behind pole
-      circle_turn_3_duration_s: 2.62
+      # Step 3: strafe right back to the centre line (forward_3 unused)
+      circle_turn_3_duration_s: 1.61
       circle_turn_3_speed_x_mps: 0.0
-      circle_turn_3_speed_y_mps: 0.0
+      circle_turn_3_speed_y_mps: -0.5
       circle_turn_3_speed_z_mps: 0.0
-      circle_turn_3_yaw_rate_rad_s: 0.6
-      circle_turn_3_target_angle_rad: 1.570796327
-      circle_forward_3_duration_s: 5.0
+      circle_turn_3_yaw_rate_rad_s: 0.0
+      circle_turn_3_target_angle_rad: 0.0
+      circle_forward_3_duration_s: 0.0
       circle_forward_3_speed_x_mps: 0.5
       circle_forward_3_speed_y_mps: 0.0
       circle_forward_3_speed_z_mps: 0.0
       circle_forward_3_yaw_rate_rad_s: 0.0
 
-      # Step 4: Turn left (+90 deg) and move forward alongside pole
-      circle_turn_4_duration_s: 2.62
+      # Step 4: unused
+      circle_turn_4_duration_s: 0.0
       circle_turn_4_speed_x_mps: 0.0
       circle_turn_4_speed_y_mps: 0.0
       circle_turn_4_speed_z_mps: 0.0
       circle_turn_4_yaw_rate_rad_s: 0.6
       circle_turn_4_target_angle_rad: 1.570796327
-      circle_forward_4_duration_s: 5.0
+      circle_forward_4_duration_s: 0.0
       circle_forward_4_speed_x_mps: 0.5
       circle_forward_4_speed_y_mps: 0.0
       circle_forward_4_speed_z_mps: 0.0
       circle_forward_4_yaw_rate_rad_s: 0.0
 
-      # 5. Final turn to face the gate & go forward back to gate
-      return_turn_duration_s: 2.62
+      # 5. Back up through the gate (no turn)
+      return_turn_duration_s: 0.0
       return_turn_speed_x_mps: 0.0
       return_turn_speed_y_mps: 0.0
       return_turn_speed_z_mps: 0.0
       return_turn_yaw_rate_rad_s: 0.6
       return_turn_target_angle_rad: 1.570796327
-      return_to_gate_duration_s: 14.0
-      return_to_gate_speed_x_mps: 0.6
+      return_to_gate_duration_s: 9.85
+      return_to_gate_speed_x_mps: -0.6
       return_to_gate_speed_y_mps: 0.0
       return_to_gate_speed_z_mps: 0.0
       return_to_gate_yaw_rate_rad_s: 0.0

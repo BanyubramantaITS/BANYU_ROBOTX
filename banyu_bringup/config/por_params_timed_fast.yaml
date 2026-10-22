@@ -138,7 +138,7 @@ banyu_mission:
       circle_turn_1_speed_z_mps: 0.0
       circle_turn_1_yaw_rate_rad_s: 0.0
       circle_turn_1_target_angle_rad: 0.0
-      circle_forward_1_duration_s: 2.77
+      circle_forward_1_duration_s: 2.97
       circle_forward_1_speed_x_mps: 0.7
       circle_forward_1_speed_y_mps: 0.0
       circle_forward_1_speed_z_mps: 0.0
@@ -151,7 +151,7 @@ banyu_mission:
       circle_turn_2_speed_z_mps: 0.0
       circle_turn_2_yaw_rate_rad_s: 0.0
       circle_turn_2_target_angle_rad: 0.0
-      circle_forward_2_duration_s: 2.77
+      circle_forward_2_duration_s: 2.97
       circle_forward_2_speed_x_mps: -0.7
       circle_forward_2_speed_y_mps: 0.0
       circle_forward_2_speed_z_mps: 0.0

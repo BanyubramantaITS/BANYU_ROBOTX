@@ -1,5 +1,5 @@
-# Very slow timed POR profile for the real AUV (thrusters 2 & 3 degraded, yaws right under thrust).
-# Forward/back legs run at 0.12 m/s with durations scaled to keep the safe-profile distances;
+# Slow timed POR profile (SAFE strafe box with a weak forward/back stick of 0.12).
+# In ALT_HOLD that stick still gives ~0.47 m/s in sim (open loop); durations keep the SAFE distances;
 # heading hold (vehicle_execution_node.timed_move.heading_hold) counters the drift.
 banyu_mission:
   ros__parameters:
@@ -79,16 +79,17 @@ banyu_mission:
       return_gate_pass_timeout_s: 35.0
 
       # =======================================================================
-      # SAFE strafe-box profile (sim-verified, ~87 s, gate back at ~75 s)
+      # SLOW strafe-box profile (ALT_HOLD sim, no GPS: gate back ~71 s sim time)
       # Yaw is never changed: the circle_turn_* slots are used as STRAFES.
-      #   dive in place -> forward 0.6 m/s to ~2 m before pole
+      #   dive in place from the surface -> forward to ~2 m before pole
       #   turn_1: strafe right 2 m   forward_1: forward 3.5 m (pass pole)
       #   turn_2: strafe left 4 m    forward_2: backward 3.5 m
       #   turn_3: strafe right 2 m   (back on the centre line)
-      #   return_to_gate: BACK UP through the gate at 0.6 m/s, then surface.
-      # Sim tolerance: speed error +/-5%, start heading +/-5 deg, start
-      # offset 0.5 m. Distance ~= speed * (duration - 0.55 s fwd / 0.85 s back).
-      # See docs/por_timed_tuning.md for the stopwatch tuning procedure.
+      #   return_to_gate: BACK UP through the gate, then surface.
+      # ALT_HOLD + RC override is open loop: speed_* is stick strength, not m/s.
+      # In sim the actual speed is ~1.34 * sqrt(speed_x) (fwd/back) and ~1.39 *
+      # sqrt(speed_y) (strafe), with ~0.7-1 m of coast after each leg. Calibrate
+      # on the real vehicle (docs/por_tuning_kolam.md) before trusting durations.
       # =======================================================================
       # -----------------------------------------------------------------------
       # Timed POR Strategy Parameters (used when use_vision is false)
@@ -105,28 +106,28 @@ banyu_mission:
       # true: timed outbound + loop, then camera TurnAround/SearchGate/AlignGate/PassGate
       # return (bt/por_hybrid_mission.xml); timed return_to_gate is the fallback.
       use_vision_return: false
-      use_sensors: true   # pure timer: false (sim-verified, no other change)
+      use_sensors: true   # false = pure timer (not re-verified in ALT_HOLD)
       use_baro_depth: true
       use_imu_yaw_cap: true
       depth_kp: 0.7
       max_depth_speed_mps: 0.4
 
       # 1. Dive to center of gate depth
-      dive_duration_s: 5.0
+      dive_duration_s: 8.0
       dive_speed_x_mps: 0.0
       dive_speed_y_mps: 0.0
       dive_speed_z_mps: -0.4
       dive_yaw_rate_rad_s: 0.0
 
       # 2. Go forward to pass through the gate
-      timed_pass_gate_duration_s: 30.0
+      timed_pass_gate_duration_s: 7.26
       timed_pass_gate_speed_x_mps: 0.12
       timed_pass_gate_speed_y_mps: 0.0
       timed_pass_gate_speed_z_mps: 0.0
       timed_pass_gate_yaw_rate_rad_s: 0.0
 
       # 3. Go forward approaching the pole
-      approach_pole_duration_s: 67.5
+      approach_pole_duration_s: 16.96
       approach_pole_speed_x_mps: 0.12
       approach_pole_speed_y_mps: 0.0
       approach_pole_speed_z_mps: 0.0
@@ -134,33 +135,33 @@ banyu_mission:
 
       # 4. Circle the pole (4-sided polygon: Turn 90 deg -> Forward x 4, default clockwise)
       # Step 1: Turn right (-90 deg) and move forward
-      circle_turn_1_duration_s: 4.5
+      circle_turn_1_duration_s: 1.61
       circle_turn_1_speed_x_mps: 0.0
       circle_turn_1_speed_y_mps: -0.5
       circle_turn_1_speed_z_mps: 0.0
       circle_turn_1_yaw_rate_rad_s: 0.0
       circle_turn_1_target_angle_rad: 0.0
-      circle_forward_1_duration_s: 30.0
+      circle_forward_1_duration_s: 7.26
       circle_forward_1_speed_x_mps: 0.12
       circle_forward_1_speed_y_mps: 0.0
       circle_forward_1_speed_z_mps: 0.0
       circle_forward_1_yaw_rate_rad_s: 0.0
 
       # Step 2: Turn left (+90 deg) and move forward past pole
-      circle_turn_2_duration_s: 9.2
+      circle_turn_2_duration_s: 4.0
       circle_turn_2_speed_x_mps: 0.0
       circle_turn_2_speed_y_mps: 0.5
       circle_turn_2_speed_z_mps: 0.0
       circle_turn_2_yaw_rate_rad_s: 0.0
       circle_turn_2_target_angle_rad: 0.0
-      circle_forward_2_duration_s: 34.6
+      circle_forward_2_duration_s: 8.37
       circle_forward_2_speed_x_mps: -0.12
       circle_forward_2_speed_y_mps: 0.0
       circle_forward_2_speed_z_mps: 0.0
       circle_forward_2_yaw_rate_rad_s: 0.0
 
       # Step 3: Turn left (+90 deg) and move forward behind pole
-      circle_turn_3_duration_s: 4.5
+      circle_turn_3_duration_s: 1.61
       circle_turn_3_speed_x_mps: 0.0
       circle_turn_3_speed_y_mps: -0.5
       circle_turn_3_speed_z_mps: 0.0
@@ -192,7 +193,7 @@ banyu_mission:
       return_turn_speed_z_mps: 0.0
       return_turn_yaw_rate_rad_s: 0.6
       return_turn_target_angle_rad: 1.570796327
-      return_to_gate_duration_s: 92.5
+      return_to_gate_duration_s: 23.34
       return_to_gate_speed_x_mps: -0.12
       return_to_gate_speed_y_mps: 0.0
       return_to_gate_speed_z_mps: 0.0
