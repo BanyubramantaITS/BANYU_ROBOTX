@@ -283,7 +283,7 @@ else
     echo "MAVProxy Process  : RUNNING (127.0.0.1:14551)"
   else
     echo "Warning: MAVProxy does not appear to be running."
-    echo "  Run first: ./tools/scripts/run_mavproxy.sh"
+    echo "  Run first: ./src/BANYU_ROBOTX/tools/scripts/run_mavproxy.sh"
   fi
 
   echo "----------------------------------------------------------"
@@ -313,9 +313,9 @@ else
     )
     echo "Operator Instructions (No-RC Mode):"
     echo "  1. ESP32 relay is handled by esp32_trigger_node (/dev/ttyUSB0)."
-    echo "  2. Power ON relay: ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String \"{data: '0'}\""
+    echo "  2. Power ON relay (autonomous): ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String \"{data: '2'}\""
     echo "  3. In water: start mission: ros2 service call /banyu/mission/start std_srvs/srv/Trigger \"{}\""
-    echo "  Emergency Kill: ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String \"{data: '2'}\""
+    echo "  Emergency Kill: ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String \"{data: '0'}\""
     echo "  Software Abort: ros2 service call /banyu/mission/abort std_srvs/srv/Trigger \"{}\""
   fi
 
