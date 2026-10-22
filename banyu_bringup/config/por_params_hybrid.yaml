@@ -186,8 +186,8 @@ banyu_mission:
       return_turn_speed_y_mps: 0.0
       return_turn_speed_z_mps: 0.0
       return_turn_yaw_rate_rad_s: 0.6
-      return_turn_target_angle_rad: 2.9
-      return_to_gate_duration_s: 4.5
+      return_turn_target_angle_rad: 2.8
+      return_to_gate_duration_s: 4.0
       return_to_gate_speed_x_mps: 0.9
       return_to_gate_speed_y_mps: 0.0
       return_to_gate_speed_z_mps: 0.0
