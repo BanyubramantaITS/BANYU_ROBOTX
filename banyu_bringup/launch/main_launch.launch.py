@@ -53,7 +53,7 @@ def generate_launch_description():
         default_value="udp://127.0.0.1:14551@",
         description=(
             "FCU connection URL (udp://127.0.0.1:14551@ for SITL or "
-            "udp://192.168.2.1:14550@ for real ROV). SITL keeps 14550 free for QGC."
+            "sub_bringup.launch.py for the real AUV). SITL keeps 14550 free for QGC."
         ),
     )
 

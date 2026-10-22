@@ -65,7 +65,7 @@ def generate_launch_description():
     fcu_url_arg = DeclareLaunchArgument(
         name="fcu_url",
         default_value="udp://127.0.0.1:14551@",
-        description="FCU connection URL (udp://127.0.0.1:14551@ for SITL or udp://192.168.2.1:14550@ for real ROV). SITL keeps 14550 free for QGC.",
+        description="FCU connection URL (udp://127.0.0.1:14551@ for SITL or the run_mavproxy.sh endpoint on the real AUV). SITL keeps 14550 free for QGC.",
     )
 
     # SetUseSimTime only configures launch's own node; SetParameter reaches every launched node.

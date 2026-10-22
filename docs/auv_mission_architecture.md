@@ -98,7 +98,7 @@ src/BANYU_ROBOTX/
 │   ├── action/           # 18 POR and Task 2 action contracts
 │   └── srv/              # AcknowledgeRingRepair, TriggerPipelineSurvey, ResetTask2, TriggerCommand
 ├── banyu_mission/
-│   ├── bt/{banyu_mission,por_mission,por_timed_mission,por_hybrid_mission,por_vision_assisted_mission,pipeline_survey_tree}.xml
+│   ├── bt/{banyu_mission,por_mission,por_timed_mission,por_hybrid_mission,por_vision_assisted_mission}.xml  (+ pipeline_survey_tree.xml: legacy Task 2 tree, not loaded)
 │   ├── include/banyu_mission/{banyu_mission,mission_state,run_coordinator,action_nodes}.hpp
 │   └── src/{banyu_mission,main}.cpp
 ├── banyu_detection/

@@ -141,7 +141,7 @@ ros2 launch banyu_bringup sub_bringup.launch.py mode:=por fcu_url:=udp://127.0.0
 | `use_sim` | `True` | Set to `True` for Gazebo + SITL simulation; set to `False` for real hardware deployment. |
 | `use_sim_time` | `True` | Enables ROS 2 simulation time (`/clock`). |
 | `use_ardusub_sitl` | `True` | Set to `True` for `sim_vehicle.py` (with UDP 14550 for QGC); `False` for bare `ardusub`. |
-| `fcu_url` | `udp://127.0.0.1:14551@` | MAVLink FCU endpoint URL (`udp://127.0.0.1:14551@` for SITL; `udp://192.168.2.1:14550@` for real ROV tether). |
+| `fcu_url` | `udp://127.0.0.1:14551@` | MAVLink FCU endpoint URL (`udp://127.0.0.1:14551@` for SITL; the real AUV uses `sub_bringup.launch.py`, fed by `tools/scripts/run_mavproxy.sh`). |
 
 ---
 

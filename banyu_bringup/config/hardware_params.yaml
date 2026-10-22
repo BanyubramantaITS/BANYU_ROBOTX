@@ -46,6 +46,8 @@ esp32_trigger_node:
     port: "/dev/ttyUSB0"
     baud: 115200
 
+# Not read at runtime: sitl_mavros.launch.py loads por_params.yaml for ekf_source_switch
+# and sets require_gps from the use_gps launch argument. Kept for reference only.
 ekf_source_switch:
   ros__parameters:
     dive_depth: 0.5

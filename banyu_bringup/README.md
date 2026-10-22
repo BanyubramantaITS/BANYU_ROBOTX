@@ -53,7 +53,7 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL, MAVR
 | `use_sim` | `True` / `False` | `True` | Runs Gazebo simulation and SITL when `True`; skips sim for real ROV hardware when `False`. |
 | `use_sim_time` | `True` / `False` | `True` | Sets `use_sim_time` parameter for ROS 2 nodes. |
 | `use_ardusub_sitl` | `True` / `False` | `True` | Uses `sim_vehicle.py` SITL wrapper (UDP 14550 for QGC) when `True`; uses bare `ardusub` when `False`. |
-| `fcu_url` | string | `udp://127.0.0.1:14551@` | Target MAVLink FCU address (`udp://127.0.0.1:14551@` for SITL to reserve 14550 for QGC; `udp://192.168.2.1:14550@` for physical BlueROV2). |
+| `fcu_url` | string | `udp://127.0.0.1:14551@` | Target MAVLink FCU address (`udp://127.0.0.1:14551@` for SITL to reserve 14550 for QGC; the real AUV uses `sub_bringup.launch.py` with the same default, fed by `tools/scripts/run_mavproxy.sh`). |
 
 ---
 
@@ -268,12 +268,12 @@ sent, since water-track velocity is relative to a moving medium.
 Stated plainly, because the failure mode of this whole exercise is a config that
 reads green while proving nothing:
 
-- **The `proof_of_readiness` mission never surfaces.** The vehicle spawns at
-  `z = -2` in a 2.5 m pool, i.e. already past `dive_depth`, so a mission run
-  selects SRC2 at the first depth sample and stays there. The handover has been
-  verified by driving the vehicle by hand, **not** by any automated mission run.
+- **The source handover has not been exercised by a mission run.** The POR sim
+  now spawns at the surface (z = -0.1) and the timed missions dive from there,
+  but those runs used `use_dvl:=False`, so the switch was not active. The
+  handover has been verified by driving the vehicle by hand only.
 - **The mission has not been re-run on this configuration.** The evidence above
-  is a hold-surface-hold cycle, not `NavToGate`→`MarkerOrbit`. The earlier full
+  is a hold-surface-hold cycle, not a full POR mission. The earlier full
   mission run was made with the DVL wired into SRC1 and `SIM_GPS1_ENABLE 0`.
 - **Real DVL hardware, and a real GPS.** The team has no DVL, so the DVL half
   is never used in the real world. A BlueROV2 has no GPS antenna as

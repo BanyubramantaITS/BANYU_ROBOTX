@@ -8,7 +8,7 @@ This is the single maintained document for [Issue #13: integrate the RobotX SoS 
 
 ## 0. Update — October 11, 2026
 
-Scope decisions from the UUV team: Task 2 is attempted at the **Disruptive** tier; Task 4 is **undecided** (keep the ACK-only stub); use of the acoustic pinger on the robot is **undecided** (no pinger processing yet).
+Scope decisions from the UUV team: Task 2 is attempted at the **Disruptive** tier; Task 4 is **undecided** (keep the ACK-only stub); use of the acoustic pinger on the robot is **undecided**. (`pinger_localization` already turns hydrophone TDOA arrivals into `/banyu/pinger/observation` and `SearchPipeline` steers on it, but nothing filters on the course's pinger frequency yet.)
 
 ### Fixed (each with regression tests)
 

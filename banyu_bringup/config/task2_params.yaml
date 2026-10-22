@@ -364,6 +364,8 @@ sim_rc_deadman_node:
     num_channels: 8
     channel_value: 1500
 
+# Not read at runtime: sitl_mavros.launch.py loads por_params.yaml for ekf_source_switch
+# and sets require_gps from the use_gps launch argument. Kept for reference only.
 ekf_source_switch:
   ros__parameters:
     dive_depth: 0.5
