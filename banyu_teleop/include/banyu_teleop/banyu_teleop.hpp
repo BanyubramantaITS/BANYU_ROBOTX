@@ -36,7 +36,6 @@ private:
   void declareParameters();
   void initCommunication();
 
-  void handleArmSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg);
   void handleModeSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg);
   void handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg);
 
@@ -47,7 +46,7 @@ private:
   void writeKillCommand(int command);
 
   void startMockAutoMode();
-  void stopMockAutoMode(bool disarm);
+  void stopMockAutoMode();
   void mockAutoTimerCallback();
   void publishMockAutoOutputs();
   void publishZeroSetpoint();
@@ -69,9 +68,6 @@ private:
   std::string _setpointTopic;
   std::string _stateTopic;
 
-  int _armChannel = 6;
-  int _armThreshold = 1500;
-
   int _modeChannel = 7;
   int _killChannel = 5;
   double _switchLowThreshold = 1200.0;
@@ -80,15 +76,13 @@ private:
   std::string _serialDevice = "/dev/ttyUSB0";
   int _serialBaud = 115200;
 
-  bool _armStateInitialized = false;
-  bool _lastArmRequest = false;
-
   std::string _lastMode;
   bool _modeStateInitialized = false;
 
   int _lastKillCommand = -1;
   bool _killStateInitialized = false;
   uint8_t _currentOperationalMode = 1;
+  uint8_t _prevOperationalMode = 1;
   bool _isArmed = false;
   std::string _currentMode = "MANUAL";
 
@@ -97,7 +91,6 @@ private:
   bool _serialConnected = false;
 
   bool _enableMockAuto = true;
-  bool _autoArmOnAutoMode = true;
   std::string _mockAutoFlightMode = "MANUAL";
   double _mockAutoPublishRateHz = 20.0;
 

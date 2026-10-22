@@ -43,16 +43,19 @@ channels:
 - Menggunakan ArduSub
 
 ### Mode flight Controller
-Dikontroll menggunakan SA atau channel 5
-900 - stabilize
-1500 - manual (default)
-2000 - depth hold
+Dikontrol menggunakan SC (channel 8 / index 7):
+- 900: stabilize
+- 1500: manual (default)
+- 2000: depth hold (alt_hold)
+Catatan: SC hanya aktif saat SB berada di posisi manual atau disarmed. Saat autonomous mode, input pergantian mode dari SC di-reject dan akan disinkronkan saat kembali ke manual.
 
-### Mode Kill Switch
-kill switch menggunakan esp32 yang menerima perintah serial 0/1/2 
-900 - 0 --- autonomous
-1500 - 1 --- remote
-2000 - 2 --- kill
+### Mode Kill Switch & Arming
+Kill switch ESP32 dan arming Pixhawk di-unify pada saklar SB (channel 6 / index 5):
+- 900 (Up): Autonomous mode (ESP32 serial '0', operational_mode = 2) + otomatis arm Pixhawk (jika belum armed). Mengunci gimbals dan SC mode change.
+- 1500 (Mid): Manual mode (ESP32 serial '1', operational_mode = 1) + otomatis arm Pixhawk. Mengizinkan kontrol gimbal dan SC mode switch.
+- 2000 (Down): Disarmed / Kill mode (ESP32 serial '2', operational_mode = 0) + disarm Pixhawk.
+
+Catatan: Saklar SF di-unmap dan tidak digunakan lagi.
 
 contoh program ros2:
 ```python

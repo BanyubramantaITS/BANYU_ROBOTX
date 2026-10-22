@@ -140,11 +140,11 @@ All profile files live in [`banyu_bringup/config/`](file:///home/gryd/Dev/ros2_w
 ## 5. Physical Switch Operations & Safety Procedures
 
 ### With TX16S Radio Active:
-- **`SF` UP (`↑`)**: **Disarmed** (Pixhawk thrusters unpowered). Must be kept UP while handling vehicle on land or deck.
-- **`SF` DOWN (`↓`)**: **Armed** (only toggle DOWN once the vehicle is submerged in water).
-- **`SB` UP (`↑`)**: **Autonomous Mode** (ESP32 relay energized, LED GREEN, autonomy mission permitted).
-- **`SB` MID (`-`)**: **Manual Takeover** (instantly relinquishes software control to physical transmitter sticks).
-- **`SB` DOWN (`↓`)**: **Hardware Emergency Kill** (ESP32 relay cuts all thruster power, LED RED, Pixhawk disarmed).
+- **`SB` UP (`↑`)**: **Autonomous Mode** (ESP32 relay energized, LED GREEN, automatically arms Pixhawk if not armed, autonomy mission permitted; locks out manual gimbals and SC flight mode changes).
+- **`SB` MID (`-`)**: **Manual Mode** (automatically arms Pixhawk, allows gimbal control and SC flight mode changes).
+- **`SB` DOWN (`↓`)**: **Hardware Kill & Disarm** (ESP32 relay cuts thruster power, LED RED, Pixhawk disarmed). Must be kept DOWN while handling vehicle on deck.
+- **`SC`**: **Flight Mode Switch** (`STABILIZE` UP, `MANUAL` MID, `ALT_HOLD` DOWN). Active in Manual/Disarmed mode; rejected during Autonomous mode.
+- **`SF`**: **Unmapped** (Pixhawk arm/disarm unified on `SB`).
 
 ### Without RC Active (`--no-rc`):
 - **Power ON ESP32 Relay**:
