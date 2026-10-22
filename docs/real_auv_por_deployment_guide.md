@@ -49,7 +49,7 @@ Ensure the TX16S is powered on and bound before starting the software stack:
 
 | TX16S Control | RC Channel (`0`-indexed) | Position | PWM | Action |
 | :--- | :--- | :--- | :--- | :--- |
-| **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Up (`↑`) | `988` | **Autonomous (`2`)**: ESP32 `'0'`, arms Pixhawk (if not armed), enables autonomous mission execution. Locks out manual gimbals & SC flight mode changes. |
+| **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Up (`↑`) | `988` | **Autonomous (`2`)**: ESP32 `'0'`, automatically arms Pixhawk (if not armed), enables autonomous mission execution. Locks out manual gimbals & SC flight mode changes. |
 | **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Mid (`-`) | `1500` | **Remote / Manual (`1`)**: ESP32 `'1'`, automatically arms Pixhawk, enables gimbal manual control and SC flight mode changes. |
 | **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Down (`↓`) | `2011` | **Hardware Kill / Disarm (`0`)**: ESP32 `'2'` (cuts relay power) + disarms Pixhawk thrusters. |
 | **`SC`** (3-pos) | `CH8` (`mode_channel: 7`) | Up / Mid / Down | `988` / `1500` / `2011` | Flight mode: `STABILIZE` (`↑`) / `MANUAL` (`-`) / `ALT_HOLD` (`↓`). Active only in Manual/Disarmed mode; rejected in Autonomous mode. |

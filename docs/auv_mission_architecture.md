@@ -35,7 +35,7 @@ The autonomy stack is cleanly decoupled into transport-neutral mission coordinat
   - `uuv_comm_node`: Public RobotX SoS interface bridge speaking `rx_msgs` over domain 40/10 (`/system/...`). Manages run preparation, run lifecycle, 2 Hz heartbeats, and publishes the final pipeline survey.
   - `pipeline_buoys_node`: Consumes USV buoy reports (`rx_msgs/PipelineBuoys`), validates positions, and provides locked target coordinates (`/banyu/task2/buoy_target`) and active buoy fixes (`/banyu/task2/active_buoy_fix`).
 - **`banyu_teleop`**:
-  - Gamepad interface mapping joystick axes to MAVROS manual control, serving as a safety override input.
+  - RadioMaster TX16S RC transmitter interface and safety switch handler: processes `/mavros/rc/in` for unified Pixhawk thruster arming and ESP32 kill relay control (`SB`, `kill_channel: 5`), and flight mode selection (`SC`, `mode_channel: 7`). Unmaps `SF`. Also provides land-test mock auto mode with manual stick lockout for safe bench testing. Single source of truth: `banyu_teleop/config/teleop_rcin.yaml`.
 
 ---
 
@@ -90,15 +90,15 @@ The autonomy stack is cleanly decoupled into transport-neutral mission coordinat
 ```text
 src/BANYU_ROBOTX/
 ├── banyu_bringup/
-│   ├── launch/{main_launch,mission,sitl_mavros,gazebo_main,gazebo_por,teleop}.launch.py
-│   ├── config/{por_params,task2_params,mavros_config}.yaml
-│   └── scripts/{task2_sim_provider,ekf_source_switch,dvl_mavlink_bridge,dvl_health}.py
+│   ├── launch/{main_launch,mission,sub_bringup,sitl_mavros,gazebo_main,gazebo_por,teleop}.launch.py
+│   ├── config/{por_params,task2_params,hardware_params,mavros_config}.yaml
+│   └── scripts/{task2_sim_provider,ekf_source_switch,dvl_mavlink_bridge,dvl_health,nogps_odom_beacon}.py
 ├── banyu_msgs/
 │   ├── msg/              # VehicleStatus, ActiveBuoyFix, PipelineObservation, Detection, etc.
-│   ├── action/           # 17 POR and Task 2 action contracts
-│   └── srv/              # AcknowledgeRingRepair, TriggerPipelineSurvey, ResetTask2
+│   ├── action/           # 18 POR and Task 2 action contracts
+│   └── srv/              # AcknowledgeRingRepair, TriggerPipelineSurvey, ResetTask2, TriggerCommand
 ├── banyu_mission/
-│   ├── bt/{banyu_mission,por_mission}.xml
+│   ├── bt/{banyu_mission,por_mission,por_timed_mission,por_hybrid_mission,por_vision_assisted_mission,pipeline_survey_tree}.xml
 │   ├── include/banyu_mission/{banyu_mission,mission_state,run_coordinator,action_nodes}.hpp
 │   └── src/{banyu_mission,main}.cpp
 ├── banyu_detection/

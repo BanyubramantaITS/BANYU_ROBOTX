@@ -118,10 +118,10 @@ ros2 launch banyu_bringup main_launch.launch.py mode:=por use_ardusub_sitl:=Fals
 ```
 
 ### 3. Real ROV Hardware Mode
-Disables Gazebo Sim and SITL processes to run autonomy nodes connected to a physical ROV tether:
+Disables Gazebo Sim and SITL processes to run autonomy nodes connected to a physical ROV:
 
 ```bash
-ros2 launch banyu_bringup mission.launch.py mode:=por use_sim:=False fcu_url:=udp://192.168.2.1:14550@
+ros2 launch banyu_bringup sub_bringup.launch.py mode:=por fcu_url:=udp://127.0.0.1:14551@
 ```
 
 ---

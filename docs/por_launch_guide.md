@@ -109,11 +109,12 @@ All profile files live in [`banyu_bringup/config/`](file:///home/gryd/Dev/ros2_w
    - `spawn_x`, `spawn_y`, `spawn_z`, `spawn_yaw`: Vehicle spawn location.
 
 2. **Real AUV:** [`banyu_bringup/launch/sub_bringup.launch.py`](file:///home/gryd/Dev/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/launch/sub_bringup.launch.py)
-   - `mode`: `"por"`.
+   - `mode`: `"por"` (default) or `"task2"`.
    - `por_params_file`: Absolute path to selected YAML profile.
-   - `enable_teleop`: `"True"` (when using TX16S) or `"False"`.
+   - `teleop_params_file`: Path to teleop parameters (default: `banyu_teleop/config/teleop_rcin.yaml`, the single source of truth).
+   - `enable_teleop`: `"True"` (default, when using TX16S) or `"False"`.
    - `enable_esp32_trigger`: `"True"` (when running `--no-rc`) or `"False"`.
-   - `enable_cameras`: `"True"` or `"False"`.
+   - `enable_cameras`: `"True"` (default) or `"False"`.
    - `enable_mock_auto`: `"True"` (land motor spin) or `"False"`.
    - `fcu_url`: `"udp://127.0.0.1:14551@"`.
 
@@ -140,10 +141,11 @@ All profile files live in [`banyu_bringup/config/`](file:///home/gryd/Dev/ros2_w
 ## 5. Physical Switch Operations & Safety Procedures
 
 ### With TX16S Radio Active:
-- **`SB` UP (`↑`)**: **Autonomous Mode** (ESP32 relay energized, LED GREEN, automatically arms Pixhawk if not armed, autonomy mission permitted; locks out manual gimbals and SC flight mode changes).
-- **`SB` MID (`-`)**: **Manual Mode** (automatically arms Pixhawk, allows gimbal control and SC flight mode changes).
-- **`SB` DOWN (`↓`)**: **Hardware Kill & Disarm** (ESP32 relay cuts thruster power, LED RED, Pixhawk disarmed). Must be kept DOWN while handling vehicle on deck.
-- **`SC`**: **Flight Mode Switch** (`STABILIZE` UP, `MANUAL` MID, `ALT_HOLD` DOWN). Active in Manual/Disarmed mode; rejected during Autonomous mode.
+*(Single source of truth: [`banyu_teleop/config/teleop_rcin.yaml`](../banyu_teleop/config/teleop_rcin.yaml))*
+- **`SB` UP (`↑`)**: **Autonomous Mode** (`kill_channel: 5`, CH6: ESP32 relay energized, LED GREEN, automatically arms Pixhawk if not armed, autonomy mission permitted; locks out manual gimbals and SC flight mode changes).
+- **`SB` MID (`-`)**: **Manual Mode** (`kill_channel: 5`, CH6: automatically arms Pixhawk, allows gimbal control and SC flight mode changes).
+- **`SB` DOWN (`↓`)**: **Hardware Kill & Disarm** (`kill_channel: 5`, CH6: ESP32 relay cuts thruster power, LED RED, Pixhawk disarmed). Must be kept DOWN while handling vehicle on deck.
+- **`SC`**: **Flight Mode Switch** (`mode_channel: 7`, CH8: `STABILIZE` UP, `MANUAL` MID, `ALT_HOLD` DOWN). Active in Manual/Disarmed mode; rejected during Autonomous mode.
 - **`SF`**: **Unmapped** (Pixhawk arm/disarm unified on `SB`).
 
 ### Without RC Active (`--no-rc`):

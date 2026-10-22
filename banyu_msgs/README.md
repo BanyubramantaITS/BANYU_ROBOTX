@@ -15,6 +15,7 @@ Actions follow the ROS order `Goal --- Result --- Feedback`. Every terminal resu
   - `OrbitMarker.action` — Clockwise/counter-clockwise orbit around marker applying feedforward yaw rate ($\omega_{\text{ff}} = -y / r$).
   - `TurnAround.action` — 180° in-place yaw maneuver.
   - `SearchGate.action` — Search pattern to re-acquire gate on return leg.
+  - `TimedMove.action` — Open-loop / sensor-assisted timed leg execution with depth and heading hold for timed and dead-thruster POR strategies.
   - `Surface.action` — Ascent to surface with surfaced-depth verification.
 
 - **Task 2 (Pipeline & Rings)**:
@@ -42,4 +43,5 @@ Actions follow the ROS order `Goal --- Result --- Feedback`. Every terminal resu
 
 - `AcknowledgeRingRepair.srv` — Confirms physical interaction with damaged ring before vehicle resumes pipeline traverse.
 - `TriggerPipelineSurvey.srv` — Triggers generation and sealing of the final pipeline survey report.
+- `TriggerCommand.srv` — Generic trigger service returning status and message.
 - `ResetTask2.srv` — Resets Task 2 state between test runs.

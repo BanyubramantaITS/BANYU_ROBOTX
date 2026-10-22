@@ -73,11 +73,21 @@ Launch the unified simulation stack (Gazebo Harmonic + SITL + MAVROS + Autonomy)
   ros2 launch banyu_bringup main_launch.launch.py mode:=task2
   ```
 
-Headless mission runs (without Gazebo GUI):
+Headless simulation runs (without Gazebo GUI):
+```sh
+ros2 launch banyu_bringup main_launch.launch.py headless:=True mode:=por
+```
+
+Autonomy mission stack only (against running simulation or hardware):
 ```sh
 ros2 launch banyu_bringup mission.launch.py mode:=por
 # or for Task 2 sim fixture:
 ros2 launch banyu_bringup mission.launch.py mode:=task2 use_sim:=True
+```
+
+Physical AUV hardware bringup (MAVROS, cameras, teleop safety, mission):
+```sh
+ros2 launch banyu_bringup sub_bringup.launch.py mode:=por
 ```
 
 ## Hardware Setup: USB udev Rules
