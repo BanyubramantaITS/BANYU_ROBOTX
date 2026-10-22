@@ -85,7 +85,7 @@ Run every command from the colcon workspace root (`ros2_ws_robotx/`, which conta
 All profile files live in [`banyu_bringup/config/`](../banyu_bringup/config/):
 
 > [!NOTE]
-> The estimated times below were measured in the sim when POR still flew `GUIDED` from an underwater spawn. In `ALT_HOLD` with RC override, `fast` and `safe` were re-timed and pass the sim course (gate back at ~31 s and ~36 s sim time); the other timed profiles still need re-timing.
+> The estimated times below were measured in the sim when POR still flew `GUIDED` from an underwater spawn. In `ALT_HOLD` with RC override and no GPS, every profile except the dead-thruster ones was re-timed and passes the sim course with no GPS at all; gate-back times (sim time): fastest ~25 s, turn ~28 s, fast ~32 s, safe/default ~37 s, vision ~36 s, hybrid ~44 s, slow ~71 s. `default` now uses the SAFE strafe box. See `por_timed_tuning.md`.
 
 | Preset Alias | YAML File | Strategy Description | Estimated Time | Best For |
 | :--- | :--- | :--- | :--- | :--- |
@@ -98,7 +98,7 @@ All profile files live in [`banyu_bringup/config/`](../banyu_bringup/config/):
 | `dead-thruster-norc` | [`por_params_dead_thruster_2_3_no_rc_no_pos.yaml`](../banyu_bringup/config/por_params_dead_thruster_2_3_no_rc_no_pos.yaml) | Dead-thruster profile configured for headless operation (`bypass_rc: true`, `esp32_trigger`). | **~48.0 s** | Dead-thruster testing when transmitter is unavailable. |
 | `vision` | [`por_params_vision_assisted.yaml`](../banyu_bringup/config/por_params_vision_assisted.yaml) | Closed-loop vision centering on gate at start, lateral alignment on marker, and camera turn-and-pass return. | Variable | Water with good visibility (front camera tracking). |
 | `hybrid` | [`por_params_hybrid.yaml`](../banyu_bringup/config/por_params_hybrid.yaml) | Timed outbound legs + camera-guided gate return with timed fallback. | Variable | Environments where outbound marker detection is difficult. |
-| `default` | [`por_params.yaml`](../banyu_bringup/config/por_params.yaml) | Timed turn-box profile (`use_vision: false`, loads `bt/por_timed_mission.xml`); set `use_vision: true` for the closed-loop vision tree. Known to miss the course in sim (see `por_timed_tuning.md`). | Variable | Baseline testing in simulation. |
+| `default` | [`por_params.yaml`](../banyu_bringup/config/por_params.yaml) | Same timed strafe box as `safe` (`use_vision: false`, loads `bt/por_timed_mission.xml`); set `use_vision: true` for the closed-loop vision tree. | ~37 s (sim) | Baseline testing in simulation. |
 
 ---
 

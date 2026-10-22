@@ -17,13 +17,30 @@ so the motion model below no longer applies:
 - The dive happens in place from the surface and ends on `check_depth_reached`.
 - Measured in sim time; Gazebo runs at ~0.7x real time on the dev laptop.
 
-| Profile | ALT_HOLD sim result | Gate back (sim time) |
-|---|---|---|
-| `por_params_timed_fast.yaml` | ✅ re-timed | ~31 s |
-| `por_params_timed_safe.yaml` | ✅ re-timed | ~36 s |
-| `por_params_timed_fastest.yaml`, `..._fastest_turn.yaml` | ❌ diamond does not close; not re-timed yet | - |
-| `por_params.yaml` (turn box) | ❌ as before | - |
-| hybrid, vision_assisted, slow, dead-thruster | not run yet | - |
+Runs below match the real AUV as of October 2026: all 8 thrusters, Bar30 depth,
+compass, front camera, **no GPS at all** (`use_gps:=False`: the SITL GPS is removed from
+boot by `sim_no_gps.parm`, and `nogps_odom_beacon` runs as on the robot), SB Up on the
+TX16S (`kill_switch = 2`), positive buoyancy, same pool and course as the sim.
+
+| Profile | ALT_HOLD sim result (no GPS) | Gate back (sim time) | Marker clearance* |
+|---|---|---|---|
+| `por_params_timed_fastest.yaml` | ✅ re-timed, diamond closes | ~25 s | 0.98 m |
+| `por_params_timed_fastest_turn.yaml` | ✅ re-timed, `return_turn_target_angle_rad` 2.96 | ~28 s | 0.96 m |
+| `por_params_timed_fast.yaml` | ✅ re-timed, loop legs +0.2 s for margin | ~32 s | 1.13 m |
+| `por_params_timed_safe.yaml` | ✅ re-timed | ~37 s | 1.13 m |
+| `por_params.yaml` (default) | ✅ now the SAFE strafe box (the old turn box never circled the marker) | ~37 s | 1.12 m |
+| `por_params_vision_assisted.yaml` | ✅ re-timed, camera AlignMarker + camera return | ~36 s | 1.03 m |
+| `por_params_hybrid.yaml` | ✅ re-timed, camera return (`turn_max_angle_rad` 0.1) | ~44 s | 1.03 m |
+| `por_params_timed_slow.yaml` | ✅ re-timed (stick 0.12 -> ~0.47 m/s) | ~71 s | 1.05 m |
+
+Fault scenarios (camera dead, full timer/blind, thrusters 2+3 dead, Bar30 dead) use
+`main_launch.launch.py extra_sitl_params:=.../config/sim_faults/<fault>.parm`; their
+results are added below once verified.
+
+\* Vehicle-centre to marker distance; the pass threshold is 0.8 m (~0.5 m physical gap).
+Pass = through the gate out and back (|y| <= 0.66 m, below the bar, above the floor),
+a full loop around the marker, and >= 0.6 m from every wall. These are single nominal
+runs; speed and heading tolerance have not been re-measured in ALT_HOLD.
 
 ## Results (Gazebo + ArduSub SITL, ground-truth scored)
 

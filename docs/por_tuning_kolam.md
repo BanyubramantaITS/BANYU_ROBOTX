@@ -6,8 +6,9 @@ Hasil simulasi dan model gerak ada di [`por_timed_tuning.md`](por_timed_tuning.m
 > [!NOTE]
 > Waktu dan toleransi di tabel ini diukur saat POR masih `GUIDED`. Sekarang POR
 > terbang `ALT_HOLD` + RC override (kecepatan open-loop), jadi `speed_*` adalah
-> kekuatan stick, bukan m/s. Hasil sim ALT_HOLD terbaru (FAST ~31 s, SAFE ~36 s
-> lewat gate kembali) ada di [`por_timed_tuning.md`](por_timed_tuning.md). Langkah
+> kekuatan stick, bukan m/s. Hasil sim ALT_HOLD tanpa GPS sama sekali (lewat gate kembali): fastest ~25 s,
+> turn ~28 s, fast ~32 s, safe/default ~37 s, vision ~36 s, hybrid ~44 s, slow ~71 s; detail di
+> [`por_timed_tuning.md`](por_timed_tuning.md). Langkah
 > kalibrasi di bawah tetap berlaku: ukur kecepatan asli, lalu atur durasi.
 
 | Profil | File | Waktu sim (lewat gate kembali) | Toleransi sim |
