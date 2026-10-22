@@ -232,18 +232,18 @@ def main():
         except ValueError:
             sys.exit("--rc-channels needs four integers: forward,lateral,throttle,yaw")
         mode = a.flight_mode
-        edits = [
-            ('    mission_mode: "por"\n',
-             f'    mission_mode: "por"\n    autonomy_mode: "{mode}"   # no position estimate: not GUIDED\n'),
-            ("      require_guided: true\n",
-             f'      require_guided: true\n      autonomy_mode: "{mode}"\n'
-             '      output_mode: "rc_override"   # sticks over /mavros/rc/override\n'),
-            ('    autonomy_mode: "GUIDED"\n', f'    autonomy_mode: "{mode}"\n'),
-        ]
-        for old, new in edits:
-            if text.count(old) != 1:
-                sys.exit(f"anchor {old.strip()!r} not found exactly once in {a.base}")
-            text = text.replace(old, new)
+        # The POR base profiles already fly ALT_HOLD + rc_override; set the mode in all three nodes.
+        for pattern, what in [(r'^(    autonomy_mode: )"[A-Z_]+".*$', "banyu_mission/banyu_vehicle_status"),
+                              (r'^(      autonomy_mode: )"[A-Z_]+"', "vehicle_execution_node control")]:
+            text, n = re.subn(pattern, lambda m: f'{m.group(1)}"{mode}"', text, flags=re.M)
+            expected = 2 if what.startswith("banyu_mission") else 1
+            if n != expected:
+                sys.exit(f"{what} autonomy_mode not found in {a.base}")
+        if not re.search(r'^      output_mode: "rc_override"', text, flags=re.M):
+            sys.exit("control.output_mode rc_override not found in " + a.base)
+        text, n = re.subn(r"^    rc_override:.*\n(?:      .*\n)+", "", text, count=1, flags=re.M)
+        if n != 1:
+            sys.exit("vehicle_execution_node rc_override block not found in " + a.base)
         block = ("    rc_override:   # channels must match the Pixhawk RCMAP_* (1-based)\n"
                  f"      channel_forward: {fwd}\n      channel_lateral: {lat}\n"
                  f"      channel_throttle: {thr}\n      channel_yaw: {yaw}\n"

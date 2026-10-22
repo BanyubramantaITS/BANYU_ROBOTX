@@ -1,7 +1,8 @@
 banyu_mission:
   ros__parameters:
     mission_mode: "por"
-    fallback_mode: "SURFACE"
+    autonomy_mode: "ALT_HOLD"   # POR flies ALT_HOLD + RC override, not GUIDED
+    fallback_mode: "DISARM"
     topics:
       pipeline_end_state: "/banyu/pipeline/end_state"
       run_lifecycle: "/banyu/mission/run_lifecycle"
@@ -108,21 +109,21 @@ banyu_mission:
       max_depth_speed_mps: 0.4
 
       # 1. Dive to center of gate depth
-      dive_duration_s: 5.0
+      dive_duration_s: 8.0
       dive_speed_x_mps: 0.0
       dive_speed_y_mps: 0.0
       dive_speed_z_mps: -0.4
       dive_yaw_rate_rad_s: 0.0
 
       # 2. Go forward to pass through the gate
-      timed_pass_gate_duration_s: 6.0
+      timed_pass_gate_duration_s: 2.8
       timed_pass_gate_speed_x_mps: 0.6
       timed_pass_gate_speed_y_mps: 0.0
       timed_pass_gate_speed_z_mps: 0.0
       timed_pass_gate_yaw_rate_rad_s: 0.0
 
       # 3. Go forward approaching the pole
-      approach_pole_duration_s: 13.5
+      approach_pole_duration_s: 7.14
       approach_pole_speed_x_mps: 0.6
       approach_pole_speed_y_mps: 0.0
       approach_pole_speed_z_mps: 0.0
@@ -130,33 +131,33 @@ banyu_mission:
 
       # 4. Circle the pole (4-sided polygon: Turn 90 deg -> Forward x 4, default clockwise)
       # Step 1: Turn right (-90 deg) and move forward
-      circle_turn_1_duration_s: 4.5
+      circle_turn_1_duration_s: 1.61
       circle_turn_1_speed_x_mps: 0.0
       circle_turn_1_speed_y_mps: -0.5
       circle_turn_1_speed_z_mps: 0.0
       circle_turn_1_yaw_rate_rad_s: 0.0
       circle_turn_1_target_angle_rad: 0.0
-      circle_forward_1_duration_s: 7.2
+      circle_forward_1_duration_s: 3.16
       circle_forward_1_speed_x_mps: 0.5
       circle_forward_1_speed_y_mps: 0.0
       circle_forward_1_speed_z_mps: 0.0
       circle_forward_1_yaw_rate_rad_s: 0.0
 
       # Step 2: Turn left (+90 deg) and move forward past pole
-      circle_turn_2_duration_s: 9.2
+      circle_turn_2_duration_s: 4.0
       circle_turn_2_speed_x_mps: 0.0
       circle_turn_2_speed_y_mps: 0.5
       circle_turn_2_speed_z_mps: 0.0
       circle_turn_2_yaw_rate_rad_s: 0.0
       circle_turn_2_target_angle_rad: 0.0
-      circle_forward_2_duration_s: 8.3
+      circle_forward_2_duration_s: 3.58
       circle_forward_2_speed_x_mps: -0.5
       circle_forward_2_speed_y_mps: 0.0
       circle_forward_2_speed_z_mps: 0.0
       circle_forward_2_yaw_rate_rad_s: 0.0
 
       # Step 3: Turn left (+90 deg) and move forward behind pole
-      circle_turn_3_duration_s: 4.5
+      circle_turn_3_duration_s: 1.61
       circle_turn_3_speed_x_mps: 0.0
       circle_turn_3_speed_y_mps: -0.5
       circle_turn_3_speed_z_mps: 0.0
@@ -188,7 +189,7 @@ banyu_mission:
       return_turn_speed_z_mps: 0.0
       return_turn_yaw_rate_rad_s: 0.6
       return_turn_target_angle_rad: 1.570796327
-      return_to_gate_duration_s: 18.5
+      return_to_gate_duration_s: 9.85
       return_to_gate_speed_x_mps: -0.6
       return_to_gate_speed_y_mps: 0.0
       return_to_gate_speed_z_mps: 0.0
@@ -232,6 +233,19 @@ por_detection:
 
 vehicle_execution_node:
   ros__parameters:
+    rc_override:   # channels must match the Pixhawk RCMAP_* (1-based); verify on the real vehicle
+      channel_forward: 5
+      channel_lateral: 6
+      channel_throttle: 3
+      channel_yaw: 4
+      gain_xy_pwm_per_mps: 300.0
+      gain_z_pwm_per_mps: 400.0
+      gain_yaw_pwm_per_rad_s: 143.4
+      max_delta_pwm: 400
+      neutral_pwm: 1500
+      deadzone_xy_pwm: 0
+      deadzone_z_pwm: 50
+      deadzone_yaw_pwm: 20
     timed_move:
       # Hard cap on horizontal (forward and lateral) speed in m/s; 0 disables
       max_horizontal_speed_mps: 0.0
@@ -251,6 +265,8 @@ vehicle_execution_node:
       enable_mavros_publish: true
       publish_rate_hz: 20.0
       require_guided: true
+      autonomy_mode: "ALT_HOLD"
+      output_mode: "rc_override"   # sticks over /mavros/rc/override
       max_linear_speed: 1.2
       max_yaw_rate: 0.8
     surface:
@@ -288,9 +304,9 @@ banyu_vehicle_status:
     fcu_timeout_s: 5.0
     rc_timeout_s: 3.0
     gps_timeout_s: 5.0
-    rc_takeover_channel: 4
+    rc_takeover_channel: -1   # RC override drives the stick channels; takeover is SB (operational_mode)
     rc_takeover_threshold: 1700
-    autonomy_mode: "GUIDED"
+    autonomy_mode: "ALT_HOLD"
     default_operational_mode: 0
     kill_switch_timeout_s: 1.0
 

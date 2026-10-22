@@ -90,8 +90,9 @@ def generate_launch_description():
             "bluerov2_heavy",
             "-x",
             "-7",
+            # Start at the surface like the real vehicle: ArduSub zeroes rel_alt (depth) on arming.
             "-z",
-            "-2",
+            "-0.1",
         ],
         condition=IfCondition(LaunchConfiguration("use_sim")),
     )

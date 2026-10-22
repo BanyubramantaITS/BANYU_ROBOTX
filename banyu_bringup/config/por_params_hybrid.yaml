@@ -1,7 +1,8 @@
 banyu_mission:
   ros__parameters:
     mission_mode: "por"
-    fallback_mode: "SURFACE"
+    autonomy_mode: "ALT_HOLD"   # POR flies ALT_HOLD + RC override, not GUIDED
+    fallback_mode: "DISARM"
     topics:
       pipeline_end_state: "/banyu/pipeline/end_state"
       run_lifecycle: "/banyu/mission/run_lifecycle"
@@ -229,6 +230,19 @@ por_detection:
 
 vehicle_execution_node:
   ros__parameters:
+    rc_override:   # channels must match the Pixhawk RCMAP_* (1-based); verify on the real vehicle
+      channel_forward: 5
+      channel_lateral: 6
+      channel_throttle: 3
+      channel_yaw: 4
+      gain_xy_pwm_per_mps: 300.0
+      gain_z_pwm_per_mps: 400.0
+      gain_yaw_pwm_per_rad_s: 143.4
+      max_delta_pwm: 400
+      neutral_pwm: 1500
+      deadzone_xy_pwm: 0
+      deadzone_z_pwm: 50
+      deadzone_yaw_pwm: 20
     timed_move:
       # Hard cap on horizontal (forward and lateral) speed in m/s; 0 disables
       max_horizontal_speed_mps: 0.0
@@ -248,6 +262,8 @@ vehicle_execution_node:
       enable_mavros_publish: true
       publish_rate_hz: 20.0
       require_guided: true
+      autonomy_mode: "ALT_HOLD"
+      output_mode: "rc_override"   # sticks over /mavros/rc/override
       max_linear_speed: 1.2
       max_yaw_rate: 0.8
     surface:
@@ -285,9 +301,9 @@ banyu_vehicle_status:
     fcu_timeout_s: 5.0
     rc_timeout_s: 3.0
     gps_timeout_s: 5.0
-    rc_takeover_channel: 4
+    rc_takeover_channel: -1   # RC override drives the stick channels; takeover is SB (operational_mode)
     rc_takeover_threshold: 1700
-    autonomy_mode: "GUIDED"
+    autonomy_mode: "ALT_HOLD"
     default_operational_mode: 0
     kill_switch_timeout_s: 1.0
 
