@@ -50,9 +50,19 @@ def generate_launch_description():
         default_value="True",
         description=(
             "Whether GPS is available for surface EKF aiding. When False, "
-            "ekf_source_switch forces EKF3 SRC2 (baro + compass, no GPS) at all depths."
+            "ekf_source_switch forces EKF3 SRC2 (baro + compass, no GPS) at all depths, "
+            "and in simulation the SITL GPS is removed from boot (sim_no_gps.parm)."
         ),
         choices=["True", "False"],
+    )
+
+    extra_sitl_params_arg = DeclareLaunchArgument(
+        name="extra_sitl_params",
+        default_value="",
+        description=(
+            "Optional extra ArduPilot .parm file for sim_vehicle.py (fault injection, e.g. "
+            "dead thrusters or a failed depth sensor). Simulation only."
+        ),
     )
 
     headless_arg = DeclareLaunchArgument(
@@ -85,6 +95,10 @@ def generate_launch_description():
         _banyu_bringup_share, "config", "banyu_defaults.parm"
     )
 
+    # use_gps:=False removes the simulated GPS from boot, like the real AUV.
+    _no_gps_file = os.path.join(_banyu_bringup_share, "config", "sim_no_gps.parm")
+    _no_gps = ["'", LaunchConfiguration("use_gps"), "'.lower() == 'false'"]
+
     _ardusub_cmd = [
         "ardusub",
         "-w",
@@ -92,7 +106,10 @@ def generate_launch_description():
         "JSON",
         "-I0",
         "--defaults",
-        _banyu_defaults_file,
+        PythonExpression(
+            ["'" + _banyu_defaults_file + ",' + '" + _no_gps_file + "' if "] + _no_gps
+            + [" else '" + _banyu_defaults_file + "'"]
+        ),
     ]
     ardusub_launch = ExecuteProcess(
         cmd=_ardusub_cmd,
@@ -122,6 +139,15 @@ def generate_launch_description():
         "--mavproxy-args=--streamrate=10",
         "-w",
         "--add-param-file=" + _banyu_defaults_file,
+        PythonExpression(
+            ["'--add-param-file=" + _no_gps_file + "' if "] + _no_gps
+            + [" else '--add-param-file=" + _banyu_defaults_file + "'"]
+        ),
+        PythonExpression([
+            "'--add-param-file=' + '", LaunchConfiguration("extra_sitl_params"),
+            "' if '", LaunchConfiguration("extra_sitl_params"),
+            "' else '--add-param-file=" + _banyu_defaults_file + "'",
+        ]),
     ]
     ardusub_sitl_launch = ExecuteProcess(
         cmd=_ardusub_sitl_base_cmd + ["--console"],
@@ -269,6 +295,7 @@ def generate_launch_description():
             use_ardusub_sitl_arg,
             use_sim_time_arg,
             headless_arg,
+            extra_sitl_params_arg,
             fcu_url_arg,
             use_dvl_arg,
             use_gps_arg,

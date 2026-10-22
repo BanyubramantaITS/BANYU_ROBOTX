@@ -1,0 +1,4 @@
+# SITL only: no GPS at all, from boot (the real AUV has none for POR).
+# sitl_mavros.launch.py adds this file when use_sim:=True and use_gps:=False.
+SIM_GPS1_ENABLE 0
+GPS1_TYPE 0
