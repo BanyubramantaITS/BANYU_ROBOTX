@@ -42,16 +42,19 @@ This guide covers the end-to-end hardware wiring, ArduSub/Pixhawk configuration,
 
 ## 2. RadioMaster TX16S Switch Mapping (`banyu_teleop`)
 
+> [!NOTE]
+> Single source of truth for all `banyu_teleop` parameters and channel assignments is [`banyu_teleop/config/teleop_rcin.yaml`](../banyu_teleop/config/teleop_rcin.yaml).
+
 Ensure the TX16S is powered on and bound before starting the software stack:
 
 | TX16S Control | RC Channel (`0`-indexed) | Position | PWM | Action |
 | :--- | :--- | :--- | :--- | :--- |
-| **`SF`** (2-pos) | `CH5` (`arm_channel: 4`) | Up (`↑`) | `988` | Disarm Pixhawk thrusters |
-| **`SF`** (2-pos) | `CH5` (`arm_channel: 4`) | Down (`↓`) | `2011` | Arm Pixhawk thrusters |
+| **`SF`** (2-pos) | `CH7` (`arm_channel: 6`) | Up (`↑`) | `988` | Disarm Pixhawk thrusters |
+| **`SF`** (2-pos) | `CH7` (`arm_channel: 6`) | Down (`↓`) | `2011` | Arm Pixhawk thrusters |
 | **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Up (`↑`) | `988` | **Autonomous (`2`)**: ESP32 `'0'`, enables autonomous mission execution |
 | **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Mid (`-`) | `1500` | **Remote / Manual (`1`)**: ESP32 `'1'`, immediately aborts autonomous motion (`operator_takeover`) |
 | **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Down (`↓`) | `2011` | **Hardware Kill (`0`)**: ESP32 `'2'` (cuts relay power) + disarms Pixhawk |
-| **`SE`** (3-pos) | `CH7` (`mode_channel: 6`) | Up / Mid / Down | `988` / `1500` / `2011` | Flight mode: `MANUAL` / `ALT_HOLD` / `STABILIZE` |
+| **`SE`** (3-pos) | `CH8` (`mode_channel: 7`) | Up / Mid / Down | `988` / `1500` / `2011` | Flight mode: `MANUAL` / `ALT_HOLD` / `STABILIZE` |
 
 ---
 
@@ -88,9 +91,9 @@ ls -l /dev/ttyUSB*
 v4l2-ctl --list-devices
 ```
 
-If the front camera is not `/dev/video0` or the ESP32 is not `/dev/ttyUSB0`, update `banyu_bringup/config/hardware_params.yaml`:
-- `front_camera.ros__parameters.video_device`
-- `banyu_teleop.ros__parameters.rc_in.serial_port`
+If the front camera is not `/dev/video0` or the ESP32 is not `/dev/ttyUSB0`, update:
+- `banyu_bringup/config/hardware_params.yaml`: `front_camera.ros__parameters.video_device`
+- `banyu_teleop/config/teleop_rcin.yaml`: `banyu_teleop.ros__parameters.serial_port`
 
 ---
 

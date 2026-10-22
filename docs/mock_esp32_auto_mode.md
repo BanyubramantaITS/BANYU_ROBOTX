@@ -64,7 +64,7 @@ Because `banyu_teleop` streams overrides for all motion axes (Pitch, Roll, Throt
 
 ## 5. Parameter Reference
 
-Add or customize parameters in `por_params.yaml`, `task2_params.yaml`, or `hardware_params.yaml`:
+The single source of truth for `banyu_teleop` parameters is `banyu_teleop/config/teleop_rcin.yaml`:
 
 ```yaml
 banyu_teleop:

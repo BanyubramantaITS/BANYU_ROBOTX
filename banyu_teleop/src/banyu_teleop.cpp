@@ -523,7 +523,8 @@ void BanyuTeleop::openSerial()
     _serialPort.reset();
     _serialConnected = false;
     RCLCPP_WARN(
-      this->get_logger(), "Could not open kill switch serial %s: %s (continuing without hardware ESP32 serial)",
+      this->get_logger(),
+      "Could not open kill switch serial %s: %s (continuing without hardware ESP32 serial)",
       _serialDevice.c_str(), e.what());
   }
 }

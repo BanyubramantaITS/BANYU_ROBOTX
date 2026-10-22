@@ -37,6 +37,7 @@ def _make_camera_node(name, image_topic, info_topic, hardware_params, enable_cam
 
 def generate_launch_description():
     banyu_bringup_share = get_package_share_directory("banyu_bringup")
+    banyu_teleop_share = get_package_share_directory("banyu_teleop")
 
     default_por_params = os.path.join(
         banyu_bringup_share, "config", "por_params.yaml"
@@ -46,6 +47,9 @@ def generate_launch_description():
     )
     default_hardware_params = os.path.join(
         banyu_bringup_share, "config", "hardware_params.yaml"
+    )
+    default_teleop_params = os.path.join(
+        banyu_teleop_share, "config", "teleop_rcin.yaml"
     )
 
     mode_arg = DeclareLaunchArgument(
@@ -143,6 +147,12 @@ def generate_launch_description():
         description="Path to ROS 2 parameter YAML file for hardware camera/sensor nodes.",
     )
 
+    teleop_params_arg = DeclareLaunchArgument(
+        name="teleop_params_file",
+        default_value=default_teleop_params,
+        description="Path to ROS 2 parameter YAML file for banyu_teleop node.",
+    )
+
     set_wall_time = SetParameter(name="use_sim_time", value=False)
 
     mode = LaunchConfiguration("mode")
@@ -150,6 +160,8 @@ def generate_launch_description():
     por_params = LaunchConfiguration("por_params_file")
     task2_params = LaunchConfiguration("task2_params_file")
     hardware_params = LaunchConfiguration("hardware_params_file")
+
+    teleop_params = LaunchConfiguration("teleop_params_file")
 
     active_params = PythonExpression([
         "'", por_params, "' if '", mode, "' == 'por' else '", task2_params, "'"
@@ -194,8 +206,7 @@ def generate_launch_description():
         name="banyu_teleop",
         output="screen",
         parameters=[
-            active_params,
-            hardware_params,
+            teleop_params,
             {"enable_mock_auto": ParameterValue(
                 LaunchConfiguration("enable_mock_auto"), value_type=bool)},
         ],
@@ -256,6 +267,7 @@ def generate_launch_description():
             por_params_arg,
             task2_params_arg,
             hardware_params_arg,
+            teleop_params_arg,
             set_wall_time,
             mavros_launch,
             nogps_odom_beacon,

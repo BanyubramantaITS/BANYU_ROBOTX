@@ -24,10 +24,10 @@ public:
   explicit BanyuTeleop(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
   ~BanyuTeleop() override;
 
-  bool isMockAutoActive() const { return _mockAutoActive; }
-  uint8_t getOperationalMode() const { return _currentOperationalMode; }
-  bool isVehicleArmed() const { return _isArmed; }
-  const std::string & getCurrentMode() const { return _currentMode; }
+  bool isMockAutoActive() const {return _mockAutoActive;}
+  uint8_t getOperationalMode() const {return _currentOperationalMode;}
+  bool isVehicleArmed() const {return _isArmed;}
+  const std::string & getCurrentMode() const {return _currentMode;}
 
   void rcinCallback(const mavros_msgs::msg::RCIn::SharedPtr msg);
   void stateCallback(const mavros_msgs::msg::State::SharedPtr msg);

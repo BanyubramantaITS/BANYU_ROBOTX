@@ -59,9 +59,9 @@ TEST_F(BanyuTeleopTest, ActivatesMockAutoModeOnRCAutoSwitch)
   options.parameter_overrides({
     {"serial_port", "none"},
     {"enable_mock_auto", true},
-    {"arm_channel", 4},
+    {"arm_channel", 6},
     {"kill_channel", 5},
-    {"mode_channel", 6},
+    {"mode_channel", 7},
     {"switch_low_threshold", 1200.0},
     {"switch_high_threshold", 1750.0},
     {"mock_auto_forward_pwm", 1540},
@@ -88,11 +88,11 @@ TEST_F(BanyuTeleopTest, ActivatesMockAutoModeOnRCAutoSwitch)
       kill_received = true;
     });
 
-  // Send RC input commanding autonomous mode (CH6 / kill_channel index 5 < 1200)
+  // Send RC input commanding autonomous mode (CH6 / kill_channel index 5 < 1200) and armed (CH7 / arm_channel index 6 >= 1500)
   auto rc_msg = std::make_shared<mavros_msgs::msg::RCIn>();
-  rc_msg->channels = {1500, 1500, 1500, 1500, 2000, 1000, 1500, 1500};
-  // CH5 (index 4) = 2000 (armed)
+  rc_msg->channels = {1500, 1500, 1500, 1500, 1500, 1000, 2000, 1500};
   // CH6 (index 5) = 1000 (< 1200 -> Auto mode!)
+  // CH7 (index 6) = 2000 (>= 1500 -> armed)
 
   teleop->rcinCallback(rc_msg);
 
@@ -105,7 +105,7 @@ TEST_F(BanyuTeleopTest, ActivatesMockAutoModeOnRCAutoSwitch)
   exec.add_node(test_node_);
   exec.add_node(teleop);
   while ((!override_received || !kill_received) &&
-         std::chrono::steady_clock::now() - start < 1s)
+    std::chrono::steady_clock::now() - start < 1s)
   {
     exec.spin_some();
     std::this_thread::sleep_for(10ms);
@@ -117,10 +117,10 @@ TEST_F(BanyuTeleopTest, ActivatesMockAutoModeOnRCAutoSwitch)
   EXPECT_TRUE(override_received);
   // Throttle is index 2 (CH3)
   EXPECT_EQ(last_override.channels[2], 1540);
-  // Switch channels 4, 5, 6 must remain CHAN_RELEASE (0)
-  EXPECT_EQ(last_override.channels[4], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
+  // Switch channels 5, 6, 7 must remain CHAN_RELEASE (0)
   EXPECT_EQ(last_override.channels[5], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
   EXPECT_EQ(last_override.channels[6], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
+  EXPECT_EQ(last_override.channels[7], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
 }
 
 TEST_F(BanyuTeleopTest, RejectsManualSticksWhileInAutoMode)

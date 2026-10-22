@@ -324,16 +324,6 @@ sim_rc_deadman_node:
     num_channels: 8
     channel_value: 1500
 
-banyu_teleop:
-  ros__parameters:
-    rc_in:
-      arm_channel: 4
-      mode_channel: 6
-      kill_channel: 5
-      serial_port: "/dev/ttyUSB0"
-      baud_rate: 115200
-      kill_switch_topic: "/banyu/hardware/kill_switch"
-
 ekf_source_switch:
   ros__parameters:
     dive_depth: 0.5
