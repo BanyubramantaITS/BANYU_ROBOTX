@@ -304,11 +304,10 @@ else
       enable_esp32_trigger:=False
     )
     echo "Operator Instructions (TX16S Active):"
-    echo "  1. Switch SF UP (Disarmed) before entering water."
-    echo "  2. Switch SB UP (Autonomous, ESP32 relay ON, LED GREEN)."
-    echo "  3. In water: Switch SF DOWN (Armed)."
-    echo "  4. Start mission: ros2 service call /banyu/mission/start std_srvs/srv/Trigger \"{}\""
-    echo "  Takeover: Switch SB MID (Manual). Emergency: Switch SB DOWN (Kill)."
+    echo "  1. Switch SB DOWN (Disarmed / Kill) before entering water."
+    echo "  2. In water: Switch SB UP (Autonomous mode, ESP32 relay ON, arms Pixhawk)."
+    echo "  3. Start mission: ros2 service call /banyu/mission/start std_srvs/srv/Trigger \"{}\""
+    echo "  Takeover: Switch SB MID (Manual mode, auto-armed). Emergency: Switch SB DOWN (Kill & Disarm)."
   else
     LAUNCH_CMD+=(
       enable_teleop:=False

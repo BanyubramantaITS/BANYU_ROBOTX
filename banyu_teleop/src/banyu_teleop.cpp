@@ -20,7 +20,7 @@ BanyuTeleop::BanyuTeleop(const rclcpp::NodeOptions & options)
 BanyuTeleop::~BanyuTeleop()
 {
   if (_mockAutoActive) {
-    stopMockAutoMode(false);
+    stopMockAutoMode();
   }
   if (_serialConnected && _serialPort && _serialPort->is_open()) {
     try {
@@ -38,8 +38,6 @@ void BanyuTeleop::declareParameters()
   this->declare_parameter<std::string>("setpoint_topic", "/mavros/setpoint_raw/local");
   this->declare_parameter<std::string>("state_topic", "/mavros/state");
 
-  this->declare_parameter<int>("arm_channel", 6);
-  this->declare_parameter<int>("arm_threshold", 1500);
   this->declare_parameter<int>("mode_channel", 7);
   this->declare_parameter<int>("kill_channel", 5);
   this->declare_parameter<double>("switch_low_threshold", 1200.0);
@@ -48,18 +46,8 @@ void BanyuTeleop::declareParameters()
   this->declare_parameter<std::string>("serial_port", "/dev/ttyUSB0");
   this->declare_parameter<int>("serial_baud", 115200);
 
-  // Fallback / alternate nested parameters (matches hardware_params.yaml & por_params.yaml)
-  this->declare_parameter<int>("rc_in.arm_channel", -1);
-  this->declare_parameter<int>("rc_in.arm_threshold", -1);
-  this->declare_parameter<int>("rc_in.mode_channel", -1);
-  this->declare_parameter<int>("rc_in.kill_channel", -1);
-  this->declare_parameter<std::string>("rc_in.serial_port", "");
-  this->declare_parameter<int>("rc_in.baud_rate", -1);
-  this->declare_parameter<std::string>("rc_in.kill_switch_topic", "");
-
   // Mock auto / mission mode parameters
   this->declare_parameter<bool>("enable_mock_auto", true);
-  this->declare_parameter<bool>("auto_arm_on_auto_mode", true);
   this->declare_parameter<std::string>("mock_auto_flight_mode", "MANUAL");
   this->declare_parameter<double>("mock_auto_publish_rate_hz", 20.0);
 
@@ -87,8 +75,6 @@ void BanyuTeleop::declareParameters()
   this->get_parameter("setpoint_topic", _setpointTopic);
   this->get_parameter("state_topic", _stateTopic);
 
-  this->get_parameter("arm_channel", _armChannel);
-  this->get_parameter("arm_threshold", _armThreshold);
   this->get_parameter("mode_channel", _modeChannel);
   this->get_parameter("kill_channel", _killChannel);
   this->get_parameter("switch_low_threshold", _switchLowThreshold);
@@ -97,51 +83,7 @@ void BanyuTeleop::declareParameters()
   this->get_parameter("serial_port", _serialDevice);
   this->get_parameter("serial_baud", _serialBaud);
 
-  // Apply rc_in.* overrides if set
-  int nested_arm_ch = -1;
-  this->get_parameter("rc_in.arm_channel", nested_arm_ch);
-  if (nested_arm_ch >= 0) {
-    _armChannel = nested_arm_ch;
-  }
-
-  int nested_arm_thresh = -1;
-  this->get_parameter("rc_in.arm_threshold", nested_arm_thresh);
-  if (nested_arm_thresh >= 0) {
-    _armThreshold = nested_arm_thresh;
-  }
-
-  int nested_mode_ch = -1;
-  this->get_parameter("rc_in.mode_channel", nested_mode_ch);
-  if (nested_mode_ch >= 0) {
-    _modeChannel = nested_mode_ch;
-  }
-
-  int nested_kill_ch = -1;
-  this->get_parameter("rc_in.kill_channel", nested_kill_ch);
-  if (nested_kill_ch >= 0) {
-    _killChannel = nested_kill_ch;
-  }
-
-  std::string nested_serial_port;
-  this->get_parameter("rc_in.serial_port", nested_serial_port);
-  if (!nested_serial_port.empty()) {
-    _serialDevice = nested_serial_port;
-  }
-
-  int nested_baud = -1;
-  this->get_parameter("rc_in.baud_rate", nested_baud);
-  if (nested_baud > 0) {
-    _serialBaud = nested_baud;
-  }
-
-  std::string nested_kill_topic;
-  this->get_parameter("rc_in.kill_switch_topic", nested_kill_topic);
-  if (!nested_kill_topic.empty()) {
-    _killSwitchTopic = nested_kill_topic;
-  }
-
   this->get_parameter("enable_mock_auto", _enableMockAuto);
-  this->get_parameter("auto_arm_on_auto_mode", _autoArmOnAutoMode);
   this->get_parameter("mock_auto_flight_mode", _mockAutoFlightMode);
   this->get_parameter("mock_auto_publish_rate_hz", _mockAutoPublishRateHz);
 
@@ -164,7 +106,7 @@ void BanyuTeleop::declareParameters()
 
   RCLCPP_INFO(this->get_logger(), "RC input: %s", _rcTopic.c_str());
   RCLCPP_INFO(
-    this->get_logger(), "Switches - arm:%d mode:%d kill:%d (low<%.0f, high>%.0f)", _armChannel,
+    this->get_logger(), "Switches - mode (SC):%d kill/arm (SB):%d (low<%.0f, high>%.0f)",
     _modeChannel, _killChannel, _switchLowThreshold, _switchHighThreshold);
 }
 
@@ -190,23 +132,6 @@ void BanyuTeleop::stateCallback(const mavros_msgs::msg::State::SharedPtr msg)
   _currentMode = msg->mode;
 }
 
-void BanyuTeleop::handleArmSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg)
-{
-  if (static_cast<size_t>(_armChannel) >= msg->channels.size()) {
-    return;
-  }
-  const auto threshold = static_cast<uint16_t>(std::clamp(_armThreshold, 0, 65535));
-  const bool arm_request = msg->channels[_armChannel] >= threshold;
-  if (_armStateInitialized && arm_request != _lastArmRequest) {
-    if (!arm_request && _mockAutoActive) {
-      stopMockAutoMode(true);
-    }
-    armVehicle(arm_request);
-  }
-  _lastArmRequest = arm_request;
-  _armStateInitialized = true;
-}
-
 void BanyuTeleop::handleModeSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg)
 {
   if (static_cast<size_t>(_modeChannel) >= msg->channels.size()) {
@@ -223,20 +148,30 @@ void BanyuTeleop::handleModeSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg
     mode = "MANUAL";
   }
 
+  const bool exited_autonomous = (_prevOperationalMode == 2 && _currentOperationalMode != 2);
+
   if (!_modeStateInitialized) {
-    RCLCPP_INFO(this->get_logger(), "Mode switch initial position: %s", mode.c_str());
-  } else if (mode != _lastMode) {
-    if (_mockAutoActive) {
-      RCLCPP_INFO(
+    RCLCPP_INFO(this->get_logger(), "Flight mode switch (SC) initial position: %s", mode.c_str());
+    _lastMode = mode;
+    _modeStateInitialized = true;
+  } else if (_currentOperationalMode == 2) {
+    // In Autonomous mode (SB Up): reject flight mode changes from SC
+    if (mode != _lastMode) {
+      RCLCPP_WARN(
         this->get_logger(),
-        "Mode switch moved to %s while Mock Auto Mode active. Saved for restore upon exit to MANUAL.",
+        "Flight mode change to %s rejected while in Autonomous mode (SB Up). "
+        "Operator must switch SB to Manual mode first.",
         mode.c_str());
-    } else {
+    }
+    _lastMode = mode;
+  } else {
+    // In Manual (1) or Disarmed (0) mode:
+    // Apply mode change if SC was toggled OR vehicle just exited Autonomous mode
+    if (mode != _lastMode || exited_autonomous) {
       setFlightMode(mode);
     }
+    _lastMode = mode;
   }
-  _lastMode = mode;
-  _modeStateInitialized = true;
 }
 
 void BanyuTeleop::handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg)
@@ -252,10 +187,10 @@ void BanyuTeleop::handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg
     command = 0;            // ESP32: '0' = autonomous
     operational_mode = 2;   // VehicleStatus: 2 = AUTONOMOUS
   } else if (pwm > _switchHighThreshold) {
-    command = 2;            // ESP32: '2' = kill
+    command = 2;            // ESP32: '2' = kill / disarmed
     operational_mode = 0;   // VehicleStatus: 0 = DISARMED / KILL
   } else {
-    command = 1;            // ESP32: '1' = remote
+    command = 1;            // ESP32: '1' = remote / manual
     operational_mode = 1;   // VehicleStatus: 1 = MANUAL
   }
 
@@ -272,13 +207,27 @@ void BanyuTeleop::handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg
       command, operational_mode);
     writeKillCommand(command);
 
-    if (_enableMockAuto) {
-      if (operational_mode == 2) {
+    if (operational_mode == 0) {
+      // SB Down: disarm both ESP32 kill switch and Pixhawk
+      if (_mockAutoActive) {
+        stopMockAutoMode();
+      }
+      armVehicle(false);
+    } else if (operational_mode == 1) {
+      // SB Middle: manual mode, automatically arm Pixhawk
+      if (_mockAutoActive) {
+        stopMockAutoMode();
+      }
+      if (!_isArmed) {
+        armVehicle(true);
+      }
+    } else if (operational_mode == 2) {
+      // SB Up: autonomous mode, arm Pixhawk if not armed
+      if (!_isArmed) {
+        armVehicle(true);
+      }
+      if (_enableMockAuto) {
         startMockAutoMode();
-      } else if (operational_mode == 1) {
-        stopMockAutoMode(false);
-      } else if (operational_mode == 0) {
-        stopMockAutoMode(true);
       }
     }
   }
@@ -288,9 +237,9 @@ void BanyuTeleop::handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg
 
 void BanyuTeleop::rcinCallback(const mavros_msgs::msg::RCIn::SharedPtr msg)
 {
-  handleArmSwitch(msg);
-  handleModeSwitch(msg);
   handleKillSwitch(msg);
+  handleModeSwitch(msg);
+  _prevOperationalMode = _currentOperationalMode;
 }
 
 void BanyuTeleop::startMockAutoMode()
@@ -305,11 +254,6 @@ void BanyuTeleop::startMockAutoMode()
     "Commanding all thrusters slowly (Forward=%d, Throttle=%d PWM), "
     "rejecting manual RC stick commands.",
     _mockAutoForwardPwm, _mockAutoThrottlePwm);
-
-  if (_autoArmOnAutoMode && !_isArmed) {
-    RCLCPP_INFO(this->get_logger(), "Auto-arming vehicle for mock mission mode...");
-    armVehicle(true);
-  }
 
   if (!_mockAutoFlightMode.empty() && _currentMode != _mockAutoFlightMode) {
     RCLCPP_INFO(this->get_logger(), "Setting flight mode to %s for mock auto test",
@@ -326,7 +270,7 @@ void BanyuTeleop::startMockAutoMode()
   publishMockAutoOutputs();
 }
 
-void BanyuTeleop::stopMockAutoMode(bool disarm)
+void BanyuTeleop::stopMockAutoMode()
 {
   if (!_mockAutoActive) {
     return;
@@ -348,13 +292,6 @@ void BanyuTeleop::stopMockAutoMode(bool disarm)
   }
 
   publishZeroSetpoint();
-
-  if (disarm) {
-    RCLCPP_INFO(this->get_logger(), "Disarming vehicle on exit from auto mode...");
-    armVehicle(false);
-  } else if (_modeStateInitialized && !_lastMode.empty()) {
-    setFlightMode(_lastMode);
-  }
 }
 
 void BanyuTeleop::mockAutoTimerCallback()
@@ -368,7 +305,7 @@ void BanyuTeleop::mockAutoTimerCallback()
 bool BanyuTeleop::isSwitchChannel(int chan_1indexed) const
 {
   const int idx = chan_1indexed - 1;
-  return idx == _armChannel || idx == _modeChannel || idx == _killChannel;
+  return idx == _modeChannel || idx == _killChannel;
 }
 
 void BanyuTeleop::publishMockAutoOutputs()
@@ -399,9 +336,6 @@ void BanyuTeleop::publishMockAutoOutputs()
     override_msg.channels[_throttleChannel - 1] = static_cast<uint16_t>(_mockAutoThrottlePwm);
   }
 
-  if (_armChannel >= 0 && _armChannel < 18) {
-    override_msg.channels[_armChannel] = mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE;
-  }
   if (_modeChannel >= 0 && _modeChannel < 18) {
     override_msg.channels[_modeChannel] = mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE;
   }
@@ -441,6 +375,10 @@ void BanyuTeleop::publishZeroSetpoint()
 
 void BanyuTeleop::armVehicle(bool arm)
 {
+  if (!arm) {
+    _isArmed = false;
+  }
+
   if (!_armingClient->wait_for_service(std::chrono::seconds(1))) {
     RCLCPP_WARN(this->get_logger(), "Arming service not available");
     return;

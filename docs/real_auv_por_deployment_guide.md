@@ -49,12 +49,11 @@ Ensure the TX16S is powered on and bound before starting the software stack:
 
 | TX16S Control | RC Channel (`0`-indexed) | Position | PWM | Action |
 | :--- | :--- | :--- | :--- | :--- |
-| **`SF`** (2-pos) | `CH7` (`arm_channel: 6`) | Up (`↑`) | `988` | Disarm Pixhawk thrusters |
-| **`SF`** (2-pos) | `CH7` (`arm_channel: 6`) | Down (`↓`) | `2011` | Arm Pixhawk thrusters |
-| **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Up (`↑`) | `988` | **Autonomous (`2`)**: ESP32 `'0'`, enables autonomous mission execution |
-| **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Mid (`-`) | `1500` | **Remote / Manual (`1`)**: ESP32 `'1'`, immediately aborts autonomous motion (`operator_takeover`) |
-| **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Down (`↓`) | `2011` | **Hardware Kill (`0`)**: ESP32 `'2'` (cuts relay power) + disarms Pixhawk |
-| **`SE`** (3-pos) | `CH8` (`mode_channel: 7`) | Up / Mid / Down | `988` / `1500` / `2011` | Flight mode: `MANUAL` / `ALT_HOLD` / `STABILIZE` |
+| **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Up (`↑`) | `988` | **Autonomous (`2`)**: ESP32 `'0'`, arms Pixhawk (if not armed), enables autonomous mission execution. Locks out manual gimbals & SC flight mode changes. |
+| **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Mid (`-`) | `1500` | **Remote / Manual (`1`)**: ESP32 `'1'`, automatically arms Pixhawk, enables gimbal manual control and SC flight mode changes. |
+| **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Down (`↓`) | `2011` | **Hardware Kill / Disarm (`0`)**: ESP32 `'2'` (cuts relay power) + disarms Pixhawk thrusters. |
+| **`SC`** (3-pos) | `CH8` (`mode_channel: 7`) | Up / Mid / Down | `988` / `1500` / `2011` | Flight mode: `STABILIZE` (`↑`) / `MANUAL` (`-`) / `ALT_HOLD` (`↓`). Active only in Manual/Disarmed mode; rejected in Autonomous mode. |
+| **`SF`** (2-pos) | — | — | — | **Unmapped / Unused**: Pixhawk arming and disarming are unified with the ESP32 kill switch on `SB`. |
 
 ---
 
@@ -128,7 +127,7 @@ Run these checks in a second terminal on the mini-PC:
        ros2 topic hz /mavros/local_position/pose'
      ```
 2. **Verify TX16S switches and `/banyu/vehicle_status`:**
-   - Place TX16S **`SB` in Up (`↑`, Autonomous)** and **`SF` in Up (`↑`, Disarmed)**.
+   - Place TX16S **`SB` in Up (`↑`, Autonomous)** (note: keep on bench/stand or disable thrusters before arming).
    - Echo `/banyu/vehicle_status`:
      ```bash
      bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && \

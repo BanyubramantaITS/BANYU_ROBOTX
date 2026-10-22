@@ -21,11 +21,11 @@ The mock auto mode triggers directly from the 3-position **`SB`** switch (kill/a
 
 | Control | Function | Position | PWM Band | Action in Mock Auto Mode |
 | :--- | :--- | :--- | :--- | :--- |
-| **`SB`** (3-pos) | **Auto / Kill Switch** | **Up (`↑`)** | `< 1200` (e.g. `988`) | **Starts Mock Auto Mode**: Automatically arms (if configured), switches flight mode to `MANUAL`, streams slow forward + slow heave commands to turn on all 8 thrusters, and locks out manual sticks. |
-| **`SB`** (3-pos) | **Auto / Kill Switch** | **Mid (`-`)** | `1200`–`1750` (`1500`) | **Cancels Mock Auto Mode**: Immediately releases RC overrides and restores full manual stick control on the transmitter. |
-| **`SB`** (3-pos) | **Auto / Kill Switch** | **Down (`↓`)** | `> 1750` (e.g. `2011`) | **Emergency Kill / Disarm**: Immediately cancels mock mode, releases overrides, sends disarm to Pixhawk, and sends kill command `'2'` to ESP32. |
-| **`SF`** (2-pos) | **Arm / Disarm Switch** | **Up (`↑`)** | `< 1500` (e.g. `988`) | **Disarm**: Cancels mock auto mode immediately and disarms thrusters. |
-| **`SF`** (2-pos) | **Arm / Disarm Switch** | **Down (`↓`)** | `>= 1500` (e.g. `2011`) | **Arm**: Manual vehicle arming. |
+| **`SB`** (3-pos) | **Auto / Kill & Arm Switch** | **Up (`↑`)** | `< 1200` (e.g. `988`) | **Starts Mock Auto Mode**: Automatically arms Pixhawk (if not armed), switches flight mode to `MANUAL`, streams slow forward + slow heave commands to turn on all 8 thrusters, and locks out manual sticks & SC flight mode changes. |
+| **`SB`** (3-pos) | **Auto / Kill & Arm Switch** | **Mid (`-`)** | `1200`–`1750` (`1500`) | **Cancels Mock Auto Mode**: Immediately releases RC overrides, automatically arms Pixhawk, and restores full manual stick control & SC flight mode changes. |
+| **`SB`** (3-pos) | **Auto / Kill & Arm Switch** | **Down (`↓`)** | `> 1750` (e.g. `2011`) | **Emergency Kill / Disarm**: Immediately cancels mock mode, releases overrides, sends disarm to Pixhawk, and sends kill command `'2'` to ESP32 relay. |
+| **`SC`** (3-pos) | **Flight Mode Switch** | **Up / Mid / Down** | `988` / `1500` / `2011` | Flight mode: `STABILIZE` / `MANUAL` / `ALT_HOLD`. Active only in Manual or Disarmed mode; rejected while in Autonomous mode. |
+| **`SF`** (2-pos) | **Unmapped** | — | — | **Unused**: Arm/disarm is unified on `SB`. |
 
 ---
 
@@ -39,7 +39,7 @@ When mock auto mode activates, `banyu_teleop` streams continuous override pulses
 - `Forward` (Channel 5): set to `mock_auto_forward_pwm` (default **`1540`** PWM, neutral is 1500).
 - `Throttle` (Channel 3): set to `mock_auto_throttle_pwm` (default **`1540`** PWM, neutral is 1500).
 - `Pitch`, `Roll`, `Yaw`, `Lateral`: set to **`1500`** PWM (neutral hold).
-- Switch channels (`arm_channel`, `mode_channel`, `kill_channel`): kept strictly at **`0` (`CHAN_RELEASE`)** so switch operations are never overridden.
+- Switch channels (`mode_channel`, `kill_channel`): kept strictly at **`0` (`CHAN_RELEASE`)** so switch operations are never overridden.
 
 **Result:**
 - Motors 1, 2, 3, 4 spin slowly forward.
