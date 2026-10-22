@@ -23,7 +23,7 @@ The mock auto mode triggers directly from the 3-position **`SB`** switch (kill/a
 | :--- | :--- | :--- | :--- | :--- |
 | **`SB`** (3-pos) | **Auto / Kill & Arm Switch** | **Up (`↑`)** | `< 1200` (e.g. `988`) | **Starts Mock Auto Mode**: Automatically arms Pixhawk (if not armed), switches flight mode to `MANUAL`, streams slow forward + slow heave commands to turn on all 8 thrusters, and locks out manual sticks & SC flight mode changes. |
 | **`SB`** (3-pos) | **Auto / Kill & Arm Switch** | **Mid (`-`)** | `1200`–`1750` (`1500`) | **Cancels Mock Auto Mode**: Immediately releases RC overrides, automatically arms Pixhawk, and restores full manual stick control & SC flight mode changes. |
-| **`SB`** (3-pos) | **Auto / Kill & Arm Switch** | **Down (`↓`)** | `> 1750` (e.g. `2011`) | **Emergency Kill / Disarm**: Immediately cancels mock mode, releases overrides, sends disarm to Pixhawk, and sends kill command `'2'` to ESP32 relay. |
+| **`SB`** (3-pos) | **Auto / Kill & Arm Switch** | **Down (`↓`)** | `> 1750` (e.g. `2011`) | **Emergency Kill / Disarm**: Immediately cancels mock mode, releases overrides, sends disarm to Pixhawk, and sends kill command `'0'` to ESP32 relay. |
 | **`SC`** (3-pos) | **Flight Mode Switch** | **Up / Mid / Down** | `988` / `1500` / `2011` | Flight mode: `STABILIZE` / `MANUAL` / `ALT_HOLD` (`mode_channel: 7`, CH8). Active in Manual or Disarmed mode; rejected while in Autonomous mode. |
 | **`SF`** (2-pos) | **Unmapped** | — | — | **Unused**: Pixhawk arm/disarm is unified on `SB`. |
 
@@ -71,9 +71,6 @@ banyu_teleop:
   ros__parameters:
     # Enable/disable mock auto mode
     enable_mock_auto: true
-
-    # Automatically call /mavros/cmd/arming when entering auto mode if not already armed
-    auto_arm_on_auto_mode: true
 
     # Flight mode used during mock auto (MANUAL provides pure open-loop motor spin without sensor windup)
     mock_auto_flight_mode: "MANUAL"

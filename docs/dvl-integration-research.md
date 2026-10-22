@@ -1,5 +1,7 @@
 # DVL integration research — BANYU_ROBOTX
 
+> **Note:** simulation only. The team has no physical DVL, so none of this is used in the real world.
+
 Research date: 2026-08-15. Every claim below carries an inline citation to a primary source
 (upstream source file + line, official protocol doc, or a locally installed upstream artifact).
 Anything not confirmed from a primary source is marked **UNVERIFIED**.

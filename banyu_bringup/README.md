@@ -59,6 +59,13 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL, MAVR
 
 ## 🛁 Navigation Sources: GPS on the Surface, DVL Underwater
 
+> [!WARNING]
+> **Simulation only — the team has no physical DVL.** Everything about the DVL in
+> this section applies to Gazebo/SITL. Real-world runs never use a DVL: keep
+> `use_dvl:=False` on hardware (`sub_bringup.launch.py`). Without GPS the real
+> AUV relies on baro depth and compass/IMU heading (see
+> `docs/por_tuning_kolam.md` §12).
+
 ArduSub's EKF3 carries three switchable source sets. Two are used:
 
 | | Set | Horizontal position | Horizontal velocity | Depth | Yaw |
@@ -94,8 +101,7 @@ Gazebo DVL sensor  ──gz topic /dvl/velocity──▶  banyu::DvlMavlink (wor
                                              writeBodyFrameOdom() → EKF3
 ```
 
-Sim only. Real hardware runs the A50's own driver instead; everything downstream
-of `VISION_POSITION_DELTA` is unchanged.
+Sim only. The real AUV has no DVL, so this chain has no hardware counterpart.
 
 **Why MAVLink straight to SITL and not MAVROS:**
 
@@ -269,7 +275,8 @@ reads green while proving nothing:
 - **The mission has not been re-run on this configuration.** The evidence above
   is a hold-surface-hold cycle, not `NavToGate`→`MarkerOrbit`. The earlier full
   mission run was made with the DVL wired into SRC1 and `SIM_GPS1_ENABLE 0`.
-- **Real DVL hardware, and a real GPS.** A BlueROV2 has no GPS antenna as
+- **Real DVL hardware, and a real GPS.** The team has no DVL, so the DVL half
+  is never used in the real world. A BlueROV2 has no GPS antenna as
   standard — surface float, mast, or USBL is an open hardware question. Until
   that is settled, SRC1 on real hardware points at a source the vehicle does
   not have.

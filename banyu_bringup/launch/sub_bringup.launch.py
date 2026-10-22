@@ -72,7 +72,7 @@ def generate_launch_description():
     use_dvl_arg = DeclareLaunchArgument(
         name="use_dvl",
         default_value="False",
-        description="Enable DVL source switching when a DVL is fitted on the AUV.",
+        description="Keep False: the AUV has no physical DVL (DVL is simulation only).",
         choices=["True", "False"],
     )
 

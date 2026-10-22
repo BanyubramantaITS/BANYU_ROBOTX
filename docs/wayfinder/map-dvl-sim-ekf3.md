@@ -1,5 +1,7 @@
 # Map: DVL in sim, fused by ArduSub EKF3
 
+> **Note:** simulation only. The team has no physical DVL, so none of this is used in the real world.
+
 `wayfinder:map` · tracker: local markdown · tickets in `./tickets/`
 
 ## Destination

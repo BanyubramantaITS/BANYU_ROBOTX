@@ -1,27 +1,29 @@
 # Proof of Readiness (POR) Unified Launch & Deployment Guide
 
-This guide covers the **unified POR mission stack** on branch [`feat/por-unified`](file:///home/gryd/Dev/ros2_ws_robotx/src/BANYU_ROBOTX/), combining all capabilities from the `feat/por-*` branches into a single, cohesive architecture:
+This guide covers the **unified POR mission stack** on branch [`feat/por-unified`](../), combining all capabilities from the `feat/por-*` branches into a single, cohesive architecture:
 - **Dead-Thruster Compensation** (`feat/por-dead-thruster`): 45° diagonal surge/sway mapping for damaged thrusters 2 & 3, GPS-denied `ALT_HOLD` flight via RC override, no-RC headless mode via ESP32 trigger, and `DISARM` fallback.
 - **Fast Timed Strategies** (`feat/por-fast-strategies`): Ultra-fast strafe-box (~55s), diamond reverse (~33.3s), diamond 180° turn (~39.1s), and land-test mock auto mode.
 - **Timed Strategies & Heading Hold** (`feat/por-timed-strategy`): Straight-leg IMU heading hold, speed capping, obstacle collision proximity guard, sensor-driven depth reached completion, and slow tuning profile (0.12 m/s).
 - **Vision-Assisted Servoing** (`feat/por-vision-assisted`): Per-object HSV filtering for yellow gate and orange marker with live slider tuning (`por_hsv_tuner.py`), lateral-only alignment, and camera-guided return legs.
 
-The launcher script [`tools/scripts/launch_por.sh`](file:///home/gryd/Dev/ros2_ws_robotx/src/BANYU_ROBOTX/tools/scripts/launch_por.sh) easily starts the entire stack both in **Gazebo Harmonic SITL simulation** and on **physical AUV hardware**.
+The launcher script [`tools/scripts/launch_por.sh`](../tools/scripts/launch_por.sh) easily starts the entire stack both in **Gazebo Harmonic SITL simulation** and on **physical AUV hardware**.
 
 ---
 
 ## 1. Quick Start Guide
 
+Run every command from the colcon workspace root (`ros2_ws_robotx/`, which contains `src/BANYU_ROBOTX`).
+
 ### A. Gazebo Harmonic Simulation (SITL)
 
 1. **Launch with 3D GUI (default fastest diamond profile):**
    ```bash
-   ./tools/scripts/launch_por.sh --sim --profile fastest
+   ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --profile fastest
    ```
 
 2. **Launch headless (Gazebo server only, optimal for CI or low-spec machines):**
    ```bash
-   ./tools/scripts/launch_por.sh --sim --headless --profile safe
+   ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --headless --profile safe
    ```
 
 3. **Check link and trigger mission:**
@@ -42,25 +44,25 @@ The launcher script [`tools/scripts/launch_por.sh`](file:///home/gryd/Dev/ros2_w
 
 1. **Autonomous Run with Radio Transmitter (TX16S):**
    ```bash
-   ./tools/scripts/launch_por.sh --real
+   ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real
    ```
-   *(Or simply `./tools/scripts/launch_por.sh`)*
+   *(Or simply `./src/BANYU_ROBOTX/tools/scripts/launch_por.sh`)*
 
 2. **Headless / No-RC Mode (when transmitter battery is flat or running without RC):**
    ```bash
-   ./tools/scripts/launch_por.sh --real --no-rc --profile dead-thruster-norc
+   ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --no-rc --profile dead-thruster-norc
    ```
 
 3. **Dry Run (verify ports, MAVProxy, parameters, and generated command without launching):**
    ```bash
-   ./tools/scripts/launch_por.sh --real --dry-run
+   ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --dry-run
    ```
 
 ---
 
 ## 2. Launch Script Reference (`tools/scripts/launch_por.sh`)
 
-[`tools/scripts/launch_por.sh`](file:///home/gryd/Dev/ros2_ws_robotx/src/BANYU_ROBOTX/tools/scripts/launch_por.sh) unifies execution flags:
+[`tools/scripts/launch_por.sh`](../tools/scripts/launch_por.sh) unifies execution flags:
 
 | Flag | Category | Default | Description |
 | :--- | :--- | :--- | :--- |
@@ -80,20 +82,20 @@ The launcher script [`tools/scripts/launch_por.sh`](file:///home/gryd/Dev/ros2_w
 
 ## 3. Strategy Profiles Catalog
 
-All profile files live in [`banyu_bringup/config/`](file:///home/gryd/Dev/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/config/):
+All profile files live in [`banyu_bringup/config/`](../banyu_bringup/config/):
 
 | Preset Alias | YAML File | Strategy Description | Estimated Time | Best For |
 | :--- | :--- | :--- | :--- | :--- |
-| `fastest` / `fastest-diamond` | [`por_params_timed_fastest.yaml`](file:///home/gryd/Dev/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/config/por_params_timed_fastest.yaml) | Reverse diamond trajectory (no yaw changes). Outbound 0.8 m/s, strafes 0.6 m/s, returns backward through gate. | **~33.3 s** | Fastest competition scoring. |
-| `turn` / `fastest-turn` | [`por_params_timed_fastest_turn.yaml`](file:///home/gryd/Dev/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/config/por_params_timed_fastest_turn.yaml) | Forward diamond with 180° turn around marker and forward return pass. | **~39.1 s** | Pool runs where forward cameras monitor the return leg. |
-| `fast` / `fast-strafe` | [`por_params_timed_fast.yaml`](file:///home/gryd/Dev/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/config/por_params_timed_fast.yaml) | Strafe box polygon (forward -> strafe right -> pass pole -> strafe left -> reverse return). | **~55.0 s** | Reliable open-loop timed run with maximum obstacle clearance. |
-| `safe` | [`por_params_timed_safe.yaml`](file:///home/gryd/Dev/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/config/por_params_timed_safe.yaml) | Conservative timed strafe box with wider safety margins and gentle accelerations. | **~87.0 s** | Initial verification in unfamiliar pools. |
-| `slow` | [`por_params_timed_slow.yaml`](file:///home/gryd/Dev/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/config/por_params_timed_slow.yaml) | Slow 0.12 m/s timed legs with straight-line heading hold. | **~120.0 s** | Gentle initial debugging, hydrophone tests, or water leaks checks. |
-| `dead-thruster` | [`por_params_dead_thruster_2_3_no_pos.yaml`](file:///home/gryd/Dev/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/config/por_params_dead_thruster_2_3_no_pos.yaml) | 45° forward-left thrust compensation for dead thrusters 2 & 3 in `ALT_HOLD` mode with TX16S RC active. | **~48.0 s** | Real vehicle with thrusters 2 and 3 unpowered or disabled. |
-| `dead-thruster-norc` | [`por_params_dead_thruster_2_3_no_rc_no_pos.yaml`](file:///home/gryd/Dev/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/config/por_params_dead_thruster_2_3_no_rc_no_pos.yaml) | Dead-thruster profile configured for headless operation (`bypass_rc: true`, `esp32_trigger`). | **~48.0 s** | Dead-thruster testing when transmitter is unavailable. |
-| `vision` | [`por_params_vision_assisted.yaml`](file:///home/gryd/Dev/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/config/por_params_vision_assisted.yaml) | Closed-loop vision centering on gate at start, lateral alignment on marker, and camera turn-and-pass return. | Variable | Water with good visibility (front camera tracking). |
-| `hybrid` | [`por_params_hybrid.yaml`](file:///home/gryd/Dev/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/config/por_params_hybrid.yaml) | Timed outbound legs + camera-guided gate return with timed fallback. | Variable | Environments where outbound marker detection is difficult. |
-| `default` | [`por_params.yaml`](file:///home/gryd/Dev/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/config/por_params.yaml) | Baseline POR profile with closed-loop gate/marker vision tracking. | Variable | Baseline testing in simulation and standard operations. |
+| `fastest` / `fastest-diamond` | [`por_params_timed_fastest.yaml`](../banyu_bringup/config/por_params_timed_fastest.yaml) | Reverse diamond trajectory (no yaw changes). Outbound 0.8 m/s, strafes 0.6 m/s, returns backward through gate. | **~33.3 s** | Fastest competition scoring. |
+| `turn` / `fastest-turn` | [`por_params_timed_fastest_turn.yaml`](../banyu_bringup/config/por_params_timed_fastest_turn.yaml) | Forward diamond with 180° turn around marker and forward return pass. | **~39.1 s** | Pool runs where forward cameras monitor the return leg. |
+| `fast` / `fast-strafe` | [`por_params_timed_fast.yaml`](../banyu_bringup/config/por_params_timed_fast.yaml) | Strafe box polygon (forward -> strafe right -> pass pole -> strafe left -> reverse return). | **~55.0 s** | Reliable open-loop timed run with maximum obstacle clearance. |
+| `safe` | [`por_params_timed_safe.yaml`](../banyu_bringup/config/por_params_timed_safe.yaml) | Conservative timed strafe box with wider safety margins and gentle accelerations. | **~87.0 s** | Initial verification in unfamiliar pools. |
+| `slow` | [`por_params_timed_slow.yaml`](../banyu_bringup/config/por_params_timed_slow.yaml) | Slow 0.12 m/s timed legs with straight-line heading hold. | **~120.0 s** | Gentle initial debugging, hydrophone tests, or water leaks checks. |
+| `dead-thruster` | [`por_params_dead_thruster_2_3_no_pos.yaml`](../banyu_bringup/config/por_params_dead_thruster_2_3_no_pos.yaml) | 45° forward-left thrust compensation for dead thrusters 2 & 3 in `ALT_HOLD` mode with TX16S RC active. | **~48.0 s** | Real vehicle with thrusters 2 and 3 unpowered or disabled. |
+| `dead-thruster-norc` | [`por_params_dead_thruster_2_3_no_rc_no_pos.yaml`](../banyu_bringup/config/por_params_dead_thruster_2_3_no_rc_no_pos.yaml) | Dead-thruster profile configured for headless operation (`bypass_rc: true`, `esp32_trigger`). | **~48.0 s** | Dead-thruster testing when transmitter is unavailable. |
+| `vision` | [`por_params_vision_assisted.yaml`](../banyu_bringup/config/por_params_vision_assisted.yaml) | Closed-loop vision centering on gate at start, lateral alignment on marker, and camera turn-and-pass return. | Variable | Water with good visibility (front camera tracking). |
+| `hybrid` | [`por_params_hybrid.yaml`](../banyu_bringup/config/por_params_hybrid.yaml) | Timed outbound legs + camera-guided gate return with timed fallback. | Variable | Environments where outbound marker detection is difficult. |
+| `default` | [`por_params.yaml`](../banyu_bringup/config/por_params.yaml) | Baseline POR profile with closed-loop gate/marker vision tracking. | Variable | Baseline testing in simulation and standard operations. |
 
 ---
 
@@ -101,14 +103,14 @@ All profile files live in [`banyu_bringup/config/`](file:///home/gryd/Dev/ros2_w
 
 ### Bringup Launch Files
 
-1. **Simulation:** [`banyu_bringup/launch/main_launch.launch.py`](file:///home/gryd/Dev/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/launch/main_launch.launch.py)
+1. **Simulation:** [`banyu_bringup/launch/main_launch.launch.py`](../banyu_bringup/launch/main_launch.launch.py)
    - `mode`: `"por"` (default) or `"task2"`.
    - `por_params_file`: Absolute path to selected YAML profile.
    - `headless`: `"False"` (default, GUI) or `"True"` (server-only).
    - `use_sim`: `"True"`.
    - `spawn_x`, `spawn_y`, `spawn_z`, `spawn_yaw`: Vehicle spawn location.
 
-2. **Real AUV:** [`banyu_bringup/launch/sub_bringup.launch.py`](file:///home/gryd/Dev/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/launch/sub_bringup.launch.py)
+2. **Real AUV:** [`banyu_bringup/launch/sub_bringup.launch.py`](../banyu_bringup/launch/sub_bringup.launch.py)
    - `mode`: `"por"` (default) or `"task2"`.
    - `por_params_file`: Absolute path to selected YAML profile.
    - `teleop_params_file`: Path to teleop parameters (default: `banyu_teleop/config/teleop_rcin.yaml`, the single source of truth).
@@ -121,14 +123,14 @@ All profile files live in [`banyu_bringup/config/`](file:///home/gryd/Dev/ros2_w
 ### Flight & Control Parameters
 
 - **`autonomy_mode`**:
-  - `"ALT_HOLD"`: Essential for GPS-denied pools without DVL. ArduSub arms and flies without any local position estimate (`position_ok() == false`), using Bar30 for depth and IMU compass for heading.
-  - `"GUIDED"`: Used in simulation or on vehicles with active DVL/position odometry.
+  - `"ALT_HOLD"`: **Used by every POR profile (sim and real).** ArduSub arms and flies without any local position estimate (`position_ok() == false`), using Bar30 for depth and IMU compass for heading. Set in three places per profile: `banyu_mission.autonomy_mode`, `vehicle_execution_node.control.autonomy_mode` and `banyu_vehicle_status.autonomy_mode`.
+  - `"GUIDED"`: Task 2 only (`task2_params.yaml`); not used for POR.
 - **`control.output_mode`**:
-  - `"rc_override"`: Converts velocity intents into RC stick deflections streamed over `/mavros/rc/override`. Required for `ALT_HOLD` autonomy.
-  - `"mavros_setpoint"`: Streams velocity setpoints on `/mavros/setpoint_raw/local` (requires `GUIDED`).
+  - `"rc_override"`: Converts velocity intents into RC stick deflections streamed over `/mavros/rc/override`. Required for `ALT_HOLD`; used by every POR profile. The `rc_override.channel_*` values must match the Pixhawk `RCMAP_*`.
+  - `"setpoint"`: Streams velocity setpoints on `/mavros/setpoint_raw/local` (requires `GUIDED`; Task 2 only).
 - **`fallback_mode`**:
   - `"DISARM"`: Immediately disarms the vehicle (`/mavros/cmd/arming value: false`) upon mission completion or abort, ensuring props do not spin in the air when surfaced.
-  - `"SURFACE"`: Classic ArduSub surface flight mode.
+  - `"SURFACE"`: ArduSub SURFACE mode (thrusters climb until surfaced; needs a depth sensor). Not used for POR: every POR profile uses `DISARM`; Task 2 keeps `SURFACE`.
 - **`timed_move.heading_hold.enabled`**:
   - `true`: Timed straight segments capture the initial heading and command proportional yaw corrections to eliminate drift from thruster asymmetry or current.
 - **`timed_move.max_horizontal_speed_mps`**:
@@ -151,11 +153,11 @@ All profile files live in [`banyu_bringup/config/`](file:///home/gryd/Dev/ros2_w
 ### Without RC Active (`--no-rc`):
 - **Power ON ESP32 Relay**:
   ```bash
-  ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '0'}"
+  ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '2'}"   # '2' = autonomous (issue #15)
   ```
 - **Hardware Kill Relay**:
   ```bash
-  ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '2'}"
+  ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '0'}"   # '0' = kill / disarmed
   ```
 - **Software Mission Abort & Immediate Disarm**:
   ```bash
@@ -168,15 +170,15 @@ All profile files live in [`banyu_bringup/config/`](file:///home/gryd/Dev/ros2_w
 
 - **Color Tuning for Gate & Marker**:
   ```bash
-  python3 tools/scripts/por_hsv_tuner.py
+  python3 src/BANYU_ROBOTX/tools/scripts/por_hsv_tuner.py
   ```
   Provides live OpenCV GUI sliders over WiFi or USB to adjust gate and marker HSV boundaries, then saves directly to YAML via ROS 2 trigger service.
 - **Dead Thruster Parameter Generator**:
   ```bash
-  python3 tools/scripts/dead_thruster_por.py --help
+  python3 src/BANYU_ROBOTX/tools/scripts/dead_thruster_por.py --help
   ```
   Generates custom timed profiles tailored to any thruster degradation or pool geometry.
 - **ESP32 Command CLI**:
   ```bash
-  python3 tools/scripts/esp32_kill_cmd.py --cmd auto   # (or remote / kill)
+  python3 src/BANYU_ROBOTX/tools/scripts/esp32_kill_cmd.py auto   # (or remote / kill)
   ```

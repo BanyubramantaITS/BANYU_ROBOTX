@@ -13,22 +13,25 @@ These are test tools, not part of the vehicle software. Interface spec: `docs/gc
 | `rc_host_scenario.py` | ROS + robocommand-rx-ui-itsn | Presses the RoboCommand host console's buttons: course, two runs, End run, GCS `new_run`, **Reset run ID & seq**; screenshots and JSONL |
 
 The GCS venv needs PyYAML for `rclpy` (`pip install pyyaml`); numpy is taken from the system.
-`GCS_REPO` defaults to `~/Desktop/robocommand-rx-ui-itsn`.
+`GCS_REPO` defaults to `robocommand-rx-ui-itsn` checked out next to the colcon workspace
+(`<ros2_ws_robotx>/../robocommand-rx-ui-itsn`); set `GCS_REPO` to override.
 
 ## Procedure
+
+Run from the colcon workspace root (`ros2_ws_robotx/`).
 
 ```bash
 # 0. MQTT broker on 127.0.0.1:1883 (docker compose in robocommand/RobotX_2026, or any mosquitto)
 
 # 1. GCS side
-python tools/sos_integration/rc_observer.py mqtt.jsonl                       # GCS venv
-ROS_DOMAIN_ID=10 python tools/sos_integration/gcs_ros_bridge.py --team ITSN --state-file gcs_state.json
-python3 tools/sos_integration/dds_relay.py 40 10
+python src/BANYU_ROBOTX/tools/sos_integration/rc_observer.py mqtt.jsonl                       # GCS venv
+ROS_DOMAIN_ID=10 python src/BANYU_ROBOTX/tools/sos_integration/gcs_ros_bridge.py --team ITSN --state-file gcs_state.json
+python3 src/BANYU_ROBOTX/tools/sos_integration/dds_relay.py 40 10
 
 # 2. UUV side (headless SITL: point the status node at the supervisor RC, sim only)
 sed 's#^\(\s*rc_topic:\s*\).*#\1"/sim/supervisor_rc"#' \
   install/banyu_bringup/share/banyu_bringup/config/task2_params.yaml > /tmp/task2_sim_rc.yaml
-ROS_DOMAIN_ID=40 python3 tools/sos_integration/sim_supervisor.py uuv.jsonl
+ROS_DOMAIN_ID=40 python3 src/BANYU_ROBOTX/tools/sos_integration/sim_supervisor.py uuv.jsonl
 ROS_DOMAIN_ID=40 ros2 launch banyu_bringup main_launch.launch.py mode:=task2 \
   task2_params_file:=/tmp/task2_sim_rc.yaml
 # On PRIME on-demand laptops add: __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia
@@ -51,7 +54,7 @@ In the simulator `task2_sim_provider.py` already publishes `PipelineBuoys` like 
 the sim, or to try other buoy cases, publish it from the GCS side and let the relay forward it:
 
 ```bash
-ROS_DOMAIN_ID=10 python3 tools/sos_integration/mock_usv.py \
+ROS_DOMAIN_ID=10 python3 src/BANYU_ROBOTX/tools/sos_integration/mock_usv.py \
   --a 33.810438 -118.393392 --b 33.810438 -118.393272 --active a --second-after-s 5
 ROS_DOMAIN_ID=40 ros2 topic echo --qos-durability transient_local /banyu/task2/buoy_target
 ```
@@ -60,7 +63,7 @@ The whole host-side flow, including RoboCommand's **Reset run ID & seq**, can be
 real host console instead of `test_client.py` (system Python with PyQt5, paho-mqtt and protobuf):
 
 ```bash
-GCS_REPO=~/Desktop/ROBOTX/robocommand-rx-ui-itsn python3 tools/sos_integration/rc_host_scenario.py out/
+python3 src/BANYU_ROBOTX/tools/sos_integration/rc_host_scenario.py out/
 ```
 
 Between runs the operator ends the run on the host, asks the GCS for a new declaration

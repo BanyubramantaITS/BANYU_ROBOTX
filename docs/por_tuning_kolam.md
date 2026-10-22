@@ -26,7 +26,7 @@ satu. Mulai dari strafe box, setelah itu diamond.
   voltasenya.
 - **Sensor:** set `use_sensors: true` supaya depth hold baro aktif.
 
-Launch di robot:
+Launch di robot (semua perintah dijalankan dari root workspace `ros2_ws_robotx/`):
 
 ```bash
 ros2 launch banyu_bringup sub_bringup.launch.py mode:=por \
@@ -387,7 +387,7 @@ Launch (teleop dimatikan supaya mode uji darat dan switch SB tidak ikut campur):
 
 ```bash
 ros2 launch banyu_bringup sub_bringup.launch.py mode:=por enable_teleop:=False \
-  por_params_file:=$HOME/Desktop/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/config/por_params_dead_thruster_2_3_no_rc.yaml
+  por_params_file:=$PWD/src/BANYU_ROBOTX/banyu_bringup/config/por_params_dead_thruster_2_3_no_rc.yaml
 ros2 topic echo /banyu/vehicle_status --once    # fcu_connected, rc_fresh, operational_mode: 2
 ros2 service call /banyu/mission/start std_srvs/srv/Trigger "{}"
 ```
@@ -397,8 +397,8 @@ Pengaman tanpa RC (RC tidak lagi bisa mengambil alih):
 - Kill lewat topic: `ros2 topic pub -r 5 /banyu/hardware/kill_switch std_msgs/msg/UInt8 "{data: 0}"`.
 - Ctrl+C pada launch menghentikan setpoint, dan tetap sediakan kill relay fisik.
 - Relay ESP32 tidak lagi diperintah oleh teleop. Kalau perlu mengaktifkannya
-  tanpa teleop: `stty -F /dev/ttyUSB0 115200 raw -echo; printf '0' > /dev/ttyUSB0`
-  (autonomous), dan `printf '2' > /dev/ttyUSB0` untuk kill. Itu byte yang sama
+  tanpa teleop: `stty -F /dev/ttyUSB0 115200 raw -echo; printf '2' > /dev/ttyUSB0`
+  (autonomous), dan `printf '0' > /dev/ttyUSB0` untuk kill (encoding issue #15). Itu byte yang sama
   dengan yang dikirim teleop.
 - ArduSub tetap memeriksa pre-arm. Kalau arming ditolak karena tidak ada input
   RC, cek `ARMING_CHECK` di QGC; jangan matikan pemeriksaan lain.
@@ -469,9 +469,9 @@ Cek channel dengan `ros2 topic echo /mavros/rc/in` atau QGC Radio. Kalau
 Launch dan jalankan:
 
 ```bash
-python3 ~/Desktop/ros2_ws_robotx/src/BANYU_ROBOTX/tools/scripts/esp32_kill_cmd.py auto --hold   # T2
+python3 src/BANYU_ROBOTX/tools/scripts/esp32_kill_cmd.py auto --hold   # T2
 ros2 launch banyu_bringup sub_bringup.launch.py mode:=por enable_teleop:=False \
-  por_params_file:=$HOME/Desktop/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/config/por_params_dead_thruster_2_3_no_rc_no_pos.yaml
+  por_params_file:=$PWD/src/BANYU_ROBOTX/banyu_bringup/config/por_params_dead_thruster_2_3_no_rc_no_pos.yaml
 ros2 service call /banyu/mission/start std_srvs/srv/Trigger "{}"
 ```
 
@@ -495,7 +495,7 @@ mission:
 
 ```bash
 ros2 launch banyu_bringup sub_bringup.launch.py mode:=por enable_mock_auto:=False \
-  por_params_file:=$HOME/Desktop/ros2_ws_robotx/src/BANYU_ROBOTX/banyu_bringup/config/por_params_dead_thruster_2_3_no_pos.yaml
+  por_params_file:=$PWD/src/BANYU_ROBOTX/banyu_bringup/config/por_params_dead_thruster_2_3_no_pos.yaml
 # TX16S: SB atas (autonomous), lalu:
 ros2 service call /banyu/mission/start std_srvs/srv/Trigger "{}"
 ```

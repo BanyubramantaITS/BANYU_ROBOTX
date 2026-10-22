@@ -43,6 +43,10 @@ This package provides the Gazebo simulation environment, 3D world models, and la
 
 ## 🛁 DVL System Plugin
 
+> [!NOTE]
+> The DVL exists only in simulation. The team has no physical DVL, so it is
+> never used on the real AUV.
+
 `worlds/proof_of_readiness.world` declares `gz-sim-dvl-system`, which services
 the Water Linked A50 mounted on `bluerov2_heavy` (the sensor itself lives in the
 `bluerov2_gz` repo) and publishes `gz.msgs.DVLVelocityTracking` on `/dvl/velocity`.

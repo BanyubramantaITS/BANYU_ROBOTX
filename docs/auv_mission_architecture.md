@@ -253,6 +253,8 @@ The source of truth for mission execution is:
 
 ## 5. Vehicle Execution & Velocity Control
 
+> POR uses `ALT_HOLD` with `control.output_mode: rc_override` (velocity intents become RC stick overrides on `/mavros/rc/override`). The `0x5C7` setpoint contract below applies to Task 2 (`GUIDED`).
+
 Navigation is implemented as a **velocity-loop** controller, not a position-setpoint controller. ArduSub's position-target mode (`0xDF8`) routes through AC_WPNav, which drifts in depth and crawls in simulation.
 
 ### Velocity Control Contract (`0x5C7`)

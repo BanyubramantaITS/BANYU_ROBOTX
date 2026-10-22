@@ -15,7 +15,7 @@ This guide covers the end-to-end hardware wiring, ArduSub/Pixhawk configuration,
                                  [tools/scripts/run_mavproxy.sh]
                                   ├──► udp:192.168.0.155:14550  (QGroundControl Laptop)
                                   ├──► udp:127.0.0.1:14551      (MAVROS on Mini-PC)
-                                  └──► udp:127.0.0.1:14552      (nogps_odom_beacon / DVL)
+                                  └──► udp:127.0.0.1:14552      (nogps_odom_beacon)
 
 [USB Front Camera (/dev/video0)] ──► [v4l2_camera_node] ──► /front_camera/image_raw
                                                                     │
@@ -32,8 +32,12 @@ This guide covers the end-to-end hardware wiring, ArduSub/Pixhawk configuration,
 ```
 
 ### Why POR Works Without GPS
+
+> [!IMPORTANT]
+> **No DVL on the real AUV.** The team does not own a DVL, so real-world runs never use one. Always keep `use_dvl:=False` on hardware; DVL support exists for simulation only.
+
 - Every POR phase (`AcquireGate` → `AlignGate` → `PassGate` → `SearchMarker` → `AlignMarker` → `OrbitMarker` → `TurnAround` → `SearchGate` → `AlignGate` → `PassGate` → `Surface`) uses **barometer depth**, **IMU/compass heading**, and **camera visual servoing** (`/banyu/detection`).
-- ArduSub requires its EKF3 estimator to be in `AID_RELATIVE` (`position_ok() == true`) before entering `GUIDED` mode or publishing `/mavros/local_position/pose`.
+- POR flies in **`ALT_HOLD` with RC override** (`control.output_mode: rc_override`), never `GUIDED`. `ALT_HOLD` needs no position estimate: depth comes from the Bar30 and heading from the compass/IMU (`/mavros/imu/data` when no pose is available).
 - When launched with `use_gps:=False` (the default in `sub_bringup.launch.py`):
   1. `ekf_source_switch.py` sets `EK3_SRC_OPTION` to **Source Set 2 (`SRC2`)** even at the surface (`POSXY=NONE`, `VELXY=EXTNAV`, `POSZ=BARO`, `YAW=COMPASS`).
   2. When `use_dvl:=False`, `nogps_odom_beacon.py` streams 10 Hz zero-delta `VISION_POSITION_DELTA` to `127.0.0.1:14552` so EKF3 immediately enters `AID_RELATIVE` and publishes real barometer depth and compass yaw on `/mavros/local_position/pose`.
@@ -49,9 +53,9 @@ Ensure the TX16S is powered on and bound before starting the software stack:
 
 | TX16S Control | RC Channel (`0`-indexed) | Position | PWM | Action |
 | :--- | :--- | :--- | :--- | :--- |
-| **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Up (`↑`) | `988` | **Autonomous (`2`)**: ESP32 `'0'`, automatically arms Pixhawk (if not armed), enables autonomous mission execution. Locks out manual gimbals & SC flight mode changes. |
+| **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Up (`↑`) | `988` | **Autonomous (`2`)**: ESP32 `'2'`, automatically arms Pixhawk (if not armed), enables autonomous mission execution. Locks out manual gimbals & SC flight mode changes. |
 | **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Mid (`-`) | `1500` | **Remote / Manual (`1`)**: ESP32 `'1'`, automatically arms Pixhawk, enables gimbal manual control and SC flight mode changes. |
-| **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Down (`↓`) | `2011` | **Hardware Kill / Disarm (`0`)**: ESP32 `'2'` (cuts relay power) + disarms Pixhawk thrusters. |
+| **`SB`** (3-pos) | `CH6` (`kill_channel: 5`) | Down (`↓`) | `2011` | **Hardware Kill / Disarm (`0`)**: ESP32 `'0'` (cuts relay power) + disarms Pixhawk thrusters. |
 | **`SC`** (3-pos) | `CH8` (`mode_channel: 7`) | Up / Mid / Down | `988` / `1500` / `2011` | Flight mode: `STABILIZE` (`↑`) / `MANUAL` (`-`) / `ALT_HOLD` (`↓`). Active only in Manual/Disarmed mode; rejected in Autonomous mode. |
 | **`SF`** (2-pos) | — | — | — | **Unmapped / Unused**: Pixhawk arming and disarming are unified with the ESP32 kill switch on `SB`. |
 
@@ -61,7 +65,7 @@ Ensure the TX16S is powered on and bound before starting the software stack:
 
 Load or verify the parameters in `banyu_bringup/config/banyu_defaults.parm` on the Pixhawk via QGroundControl:
 
-1. **EKF3 & Visual Odometry (Required for GPS-denied `GUIDED` mode):**
+1. **EKF3 & Visual Odometry (only needed for `/mavros/local_position/pose`; POR itself flies `ALT_HOLD`):**
    - `VISO_TYPE = 1` (MAVLink)
    - `EK3_SRC2_POSXY = 0` (None)
    - `EK3_SRC2_VELXY = 6` (ExternalNav)
@@ -158,7 +162,7 @@ bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && \
 
 What happens automatically:
 - **In Timed Mode (`mission.use_vision: false`, default on `feat/por-timed-strategy` — loads `bt/por_timed_mission.xml`):**
-  1. `ArmAndSetGuided` switches ArduSub to `GUIDED` mode and arms the thrusters.
+  1. `ArmAndSetGuided` switches ArduSub to `ALT_HOLD` (the configured `autonomy_mode`) and arms the thrusters.
   2. `dive_to_gate` dives in place to `gate_depth_m` (`2.0 m`) for `dive_duration_s` (`5.0 s`).
   3. `pass_gate` drives forward (`pass_gate_forward_speed_mps: 0.6 m/s`) for `pass_gate_duration_s` (`8.0 s`) while holding `gate_depth_m`.
   4. `approach_pole` drives forward (`approach_pole_forward_speed_mps: 0.6 m/s`) for `approach_pole_duration_s` (`8.0 s`) toward the marker pole.
@@ -204,15 +208,15 @@ All timed POR parameters live under `banyu_mission.ros__parameters.mission` in `
 At any point during the run, you can interrupt or stop the AUV immediately:
 
 1. **TX16S `SB` → Middle (`-`, Remote/Manual):**
-   - Immediately sets `operational_mode = 1` (`MANUAL`), triggering `vehicle_execution_node`'s safety fault, aborting all active goals, and zeroing velocity setpoints. You can then fly manually using `SE` (`MANUAL` / `ALT_HOLD` / `STABILIZE`).
+   - Immediately sets `operational_mode = 1` (`MANUAL`), triggering `vehicle_execution_node`'s safety fault, aborting all active goals, and zeroing velocity setpoints. You can then fly manually using `SC` (`MANUAL` / `ALT_HOLD` / `STABILIZE`).
 2. **TX16S `SB` → Down (`↓`, Kill):**
-   - Immediately sends `'2'` to the ESP32 over `/dev/ttyUSB0` (cutting thruster relay power), sets `hardware_kill_active = true`, and disarms the Pixhawk.
+   - Immediately sends `'0'` to the ESP32 over `/dev/ttyUSB0` (cutting thruster relay power), sets `hardware_kill_active = true`, and disarms the Pixhawk.
 3. **Software Abort Service:**
    ```bash
    bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && \
      ros2 service call /banyu/mission/abort std_srvs/srv/Trigger "{}"'
    ```
-   - Triggers the BehaviorTree abort branch, cancels the active action, and transitions the vehicle to `fallback_mode` (`SURFACE`).
+   - Triggers the BehaviorTree abort branch, cancels the active action, and applies `fallback_mode` (`DISARM`): the Pixhawk is disarmed and set to `MANUAL`, so the thrusters stop immediately and the AUV only rises by its own buoyancy.
 
 ---
 
@@ -254,7 +258,7 @@ bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && \
 ### 8.4 Verification Output
 
 During execution, watch the logs:
-1. Vehicle arms and switches flight mode to `GUIDED`.
+1. Vehicle arms and switches flight mode to `ALT_HOLD`.
 2. Segments execute sequentially:
    - `[BT] Executing: dive_to_gate (TimedMove)`
    - `[BT] Executing: pass_gate (TimedMove)`
