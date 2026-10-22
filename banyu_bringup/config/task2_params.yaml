@@ -371,14 +371,29 @@ ekf_source_switch:
     dive_depth: 0.5
     surface_depth: 0.2
     require_gps: true
-dive_trajectory_node:
+underwater_odometry_node:
   ros__parameters:
     dive_depth_m: 0.5
     surface_depth_m: 0.2
+    gps_sigma_m: 2.0
+    setpoint_timeout_s: 0.5
+    min_path_step_m: 0.05
     max_poses: 5000
-    min_step_m: 0.05
     frame_id: "dive_origin"
+    child_frame_id: "base_link"
+    # Achieved/commanded speed, calibrate in the water; the rest are 1-sigma estimates.
+    velocity_gain: 1.0
+    speed_error_fraction: 0.1
+    drift_rate_mps: 0.02
+    bearing_sigma_rad: 0.17
+    min_range_m: 1.0
+    gate_sigma: 3.0
     topics:
       pose: "/mavros/local_position/pose"
+      gps: "/mavros/global_position/global"
       water_depth: "/banyu/vehicle/water_depth"
+      setpoint: "/mavros/setpoint_raw/local"
+      pinger: "/banyu/pinger/observation"
+      buoy_target: "/banyu/task2/buoy_target"
+      odometry: "/banyu/dive/odometry"
       path: "/banyu/dive/path"

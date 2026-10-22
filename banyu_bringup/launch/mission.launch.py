@@ -313,10 +313,10 @@ def generate_launch_description():
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
 
-    task2_dive_trajectory = Node(
+    task2_underwater_odometry = Node(
         package="banyu_vehicle_execution",
-        executable="dive_trajectory_node",
-        name="dive_trajectory_node",
+        executable="underwater_odometry_node",
+        name="underwater_odometry_node",
         parameters=[task2_params],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
@@ -404,7 +404,7 @@ def generate_launch_description():
             task2_vehicle_execution,
             task2_pipeline_end,
             task2_calibrated_depth,
-            task2_dive_trajectory,
+            task2_underwater_odometry,
             task2_survey_evidence,
             task2_pinger_localization,
             esp32_bridge,

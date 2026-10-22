@@ -75,9 +75,11 @@ ament_target_dependencies(calibrated_depth_node
   banyu_msgs
   std_msgs)
 
-add_executable(dive_trajectory_node src/dive_trajectory_node.cpp)
-target_compile_features(dive_trajectory_node PUBLIC cxx_std_17)
-ament_target_dependencies(dive_trajectory_node rclcpp banyu_msgs geometry_msgs nav_msgs)
+add_executable(underwater_odometry_node src/underwater_odometry_node.cpp)
+target_compile_features(underwater_odometry_node PUBLIC cxx_std_17)
+target_include_directories(underwater_odometry_node PRIVATE include)
+ament_target_dependencies(underwater_odometry_node
+  rclcpp banyu_msgs geometry_msgs mavros_msgs nav_msgs sensor_msgs)
 
 install(TARGETS ${PROJECT_NAME}
   EXPORT export_${PROJECT_NAME}
@@ -85,7 +87,7 @@ install(TARGETS ${PROJECT_NAME}
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)
 
-install(TARGETS vehicle_execution_node calibrated_depth_node dive_trajectory_node
+install(TARGETS vehicle_execution_node calibrated_depth_node underwater_odometry_node
   DESTINATION lib/${PROJECT_NAME})
 
 ament_export_include_directories(include)
@@ -129,6 +131,10 @@ if(BUILD_TESTING)
   target_compile_features(test_calibrated_depth_node PUBLIC cxx_std_17)
   target_include_directories(test_calibrated_depth_node PRIVATE include)
   ament_target_dependencies(test_calibrated_depth_node rclcpp banyu_msgs std_msgs)
+
+  ament_add_gtest(test_underwater_filter test/test_underwater_filter.cpp)
+  target_compile_features(test_underwater_filter PUBLIC cxx_std_17)
+  target_include_directories(test_underwater_filter PRIVATE include)
 
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
