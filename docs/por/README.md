@@ -134,7 +134,7 @@ Catatan sim:
      mempublikasikan kedalaman dan heading tanpa GPS. Tanpa `EK3_SRC2_YAW 1`, EKF kehilangan
      sumber heading begitu `ekf_source_switch` pindah ke source set 2.
    - `FS_EKF_ACTION 0`, `FS_GCS_ENABLE 0`.
-   - `MAV_GCS_SYSID` harus mencakup sysid MAVROS (255), lihat §4.2.
+   - `MAV_GCS_SYSID 255` (sysid MAVROS), lihat §4.2.
    - Cek juga `FS_EKF_THRESH` dan `ARMING_CHECK` (tidak diatur file ini).
 2. **Device** di mini-PC:
    ```bash
@@ -156,7 +156,7 @@ Hasil cek robot (Oktober 2026: halaman Radio QGC + dump parameter Pixhawk):
 | Stick naik/turun (kiri vertikal) | CH3 | `RCMAP_THROTTLE 3` |
 | Stick yaw (kiri horizontal) | CH4 | `RCMAP_YAW 4` |
 | SB (kill/arm, teleop) | CH6 | – |
-| SC (mode terbang, teleop) | CH8 | `RC8_OPTION 213` (lihat bawah) |
+| SC (mode terbang, teleop) | CH8 | `RC8_OPTION 213` (mount pitch; tidak berpengaruh, kamera depan fixed) |
 | – | – | `RCMAP_PITCH 0`, `RCMAP_ROLL 0` (tidak dipakai) |
 
 Semua profil (`rc_override.channel_*` = 2/1/3/4), stick di `teleop_rcin.yaml`, default
@@ -170,14 +170,14 @@ Pengaman:
   SB/SC (`--allow-channel-overlap` untuk memaksa; jangan).
 - `banyu_teleop` mencetak ERROR saat start kalau SB/SC ada di kanal stick.
 
-**Temuan di dump parameter Pixhawk yang harus dibereskan sebelum run otonom:**
+**Temuan di dump parameter Pixhawk (Oktober 2026) dan keputusannya:**
 
 | Parameter di Pixhawk | Akibat | Perbaikan |
 |---|---|---|
-| `MAV_GCS_SYSID 1` (`_HI 0`) | ArduSub hanya menerima RC override dari sysid 1. MAVROS memakai sysid 255, jadi **semua perintah gerak misi POR diabaikan**: robot arm tapi tidak bergerak | `MAV_GCS_SYSID 255` (default ArduSub), atau rentang yang mencakup 255 kalau GCS lain butuh sysid 1. Perlu keputusan tim |
-| `VISO_TYPE 0`, `EK3_SRC2_VELXY 0`, `EK3_SRC2_YAW 0` | `banyu_defaults.parm` belum dimuat. Tanpa GPS, `ekf_source_switch` memakai source set 2, yang di Pixhawk ini tidak punya sumber yaw | Muat `banyu_defaults.parm` (§4.1) |
-| `RC8_OPTION 213` (mount pitch), `RC7_OPTION 214` (mount yaw), `MNT1_RC_RATE 30` | SC (CH8) juga menggerakkan tilt mount kamera dengan laju 30°/s selama tidak di tengah: SC atas memiringkan kamera sampai -90°, SC bawah sampai +20°. Arah kamera depan saat misi jadi tergantung riwayat posisi SC | Pindahkan tilt kamera ke kanal lain atau set `RC8_OPTION 0` kalau SC hanya untuk mode terbang. Perlu keputusan tim |
-| `BARO2_DEVID 0` | Saat dump diambil, Bar30 tidak terdeteksi (hanya baro internal). ALT_HOLD butuh Bar30 | Pastikan Bar30 tersambung; `BARO2_DEVID` harus bukan 0 |
+| `MAV_GCS_SYSID 1` (`_HI 0`) | ArduSub hanya menerima RC override dari sysid 1. MAVROS memakai sysid 255, jadi **semua perintah gerak misi POR diabaikan**: robot arm tapi tidak bergerak | **Diputuskan: set `MAV_GCS_SYSID 255`** (juga ada di `banyu_defaults.parm`). GCS lain yang mengirim joystick/override harus memakai sysid 255 juga |
+| `VISO_TYPE 0`, `EK3_SRC2_VELXY 0`, `EK3_SRC2_YAW 0` | `banyu_defaults.parm` belum dimuat. Tanpa GPS, `ekf_source_switch` memakai source set 2, yang di Pixhawk ini tidak punya sumber yaw | **Belum**: muat `banyu_defaults.parm` (§4.1) sebelum run otonom |
+| `RC8_OPTION 213` (mount pitch), `RC7_OPTION 214` (mount yaw), `MNT1_RC_RATE 30` | SC (CH8) juga menggerakkan tilt mount kamera dengan laju 30°/s selama tidak di tengah: SC atas memiringkan kamera sampai -90°, SC bawah sampai +20°. Arah kamera depan saat misi jadi tergantung riwayat posisi SC | **Aman**: kamera depan fixed, tidak ada servo tilt. Kalau suatu saat dipasang mount, set `RC8_OPTION 0` |
+| `BARO2_DEVID 0` | Saat dump diambil, Bar30 belum dipasang (hanya baro internal). ALT_HOLD butuh Bar30 | Pasang Bar30 untuk run di air; cek `BARO2_DEVID` bukan 0 sebelum menyelam |
 | `FS_EKF_ACTION 1` | Berbeda dengan repo (`0`) | Ikuti `banyu_defaults.parm` |
 
 ### 4.3 Run dengan TX16S
@@ -335,8 +335,8 @@ Tree yang dipakai ditentukan oleh flag di `banyu_mission.mission`: default
 
 ## 8. Masalah terbuka (butuh keputusan atau data dari robot)
 
-1. **Parameter Pixhawk** (§4.2): `MAV_GCS_SYSID` (sekarang 1, MAVROS 255) dan SC yang juga
-   menggerakkan tilt kamera. `banyu_defaults.parm` belum dimuat ke Pixhawk.
+1. **Parameter Pixhawk** (§4.2): set `MAV_GCS_SYSID 255` dan muat `banyu_defaults.parm`; pasang
+   Bar30 sebelum run di air.
 2. **`degraded_thrusters_2_3.parm`** memakai `SERVOx_FUNCTION 0`, yang di SITL diabaikan
    ArduSub (motor tetap jalan). `135` (k_trim) terbukti mematikan motor di sim. Perlu dicek di
    bench sebelum dipakai.

@@ -45,6 +45,10 @@ FS_EKF_ACTION 0
 # Mission abort and failure fallback to SURFACE is managed onboard by banyu_mission.
 FS_GCS_ENABLE 0
 
+# GCS sysid allowed to send RC override / MANUAL_CONTROL. MAVROS uses system_id 255
+# (mavros_config.yaml); any other value makes ArduSub ignore every POR stick command.
+MAV_GCS_SYSID 255
+
 # --- Navigation sources: GPS on the surface, DVL underwater ---
 # Names/values verified against libraries/AP_VisualOdom/AP_VisualOdom.cpp and
 # libraries/AP_NavEKF/AP_NavEKF_Source.h. Overview: banyu_bringup/README.md.
