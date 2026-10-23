@@ -351,5 +351,7 @@ Tree yang dipakai ditentukan oleh flag di `banyu_mission.mission`: default
    (`dead_thruster_por.py --measured-speed`, lihat [`tuning.md`](tuning.md) §6).
 4. **Bar30 mati** (`dead_thruster_por.py --no-depth-sensor`): trim kedalaman harus diukur di robot; di sim
    hanya berhasil dengan dithering per segmen ([`sim_results.md`](sim_results.md)).
-5. **Toleransi ALT_HOLD** (error kecepatan dan heading) belum diukur ulang; hasil sim saat ini
+5. **Task 2 di robot** (bukan POR): GUIDED kehilangan posisi saat menyelam tanpa DVL; analisis dan
+   opsi di [`../task2_underwater_position.md`](../task2_underwater_position.md).
+6. **Toleransi ALT_HOLD** (error kecepatan dan heading) belum diukur ulang; hasil sim saat ini
    satu run nominal per profil.
