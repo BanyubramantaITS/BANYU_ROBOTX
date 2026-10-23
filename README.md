@@ -33,6 +33,7 @@ git clone git@github.com:BanyubramantaITS/BANYU_ROBOTX.git
 git clone -b ros2 git@github.com:ArduPilot/ardupilot_gazebo.git
 git clone -b banyu git@github.com:BanyubramantaITS/bluerov2_gz.git
 git clone -b main https://github.com/Barunastra-ITS/rx-sos-communication-itsn.git RobotX-SoS-communication-ITSN
+git clone -b main git@github.com:BanyubramantaITS/banyu-robotx-models.git   # private; Task 2 world props
 cd <WORKSPACE>
 ln -sf src/BANYU_ROBOTX/.agents .agents
 ```

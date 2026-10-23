@@ -97,10 +97,14 @@ def generate_launch_description():
 
     use_gps_arg = DeclareLaunchArgument(
         name="use_gps",
-        default_value="False",
+        # POR runs GPS-denied; Task 2 needs the surface GPS leg (NavigateSurfaceGps).
+        default_value=PythonExpression(
+            ["'True' if '", LaunchConfiguration("mode"), "' == 'task2' else 'False'"]
+        ),
         description=(
-            "Whether GPS is available on the AUV. False (default for POR) "
-            "forces EKF3 SRC2 (baro + compass) and runs nogps_odom_beacon when use_dvl is False."
+            "Whether GPS is available on the AUV. Default: False for mode:=por (forces EKF3 "
+            "SRC2, baro + compass, and runs nogps_odom_beacon when use_dvl is False), True for "
+            "mode:=task2."
         ),
         choices=["True", "False"],
     )

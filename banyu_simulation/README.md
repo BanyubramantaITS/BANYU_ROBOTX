@@ -35,7 +35,7 @@ This package provides the Gazebo simulation environment, 3D world models, and la
 
 ## 🧩 World Systems (`src/`)
 
-`main_world.world` gets its Task 2 props from `banyu_robotx_models` (a `package.xml` dependency of this package; it is not listed in `import.repos`). Systems built here:
+`main_world.world` gets its Task 2 props from `banyu_robotx_models` (a `package.xml` dependency of this package), from the private repository `BanyubramantaITS/banyu-robotx-models` (clone it into `src/`, see the top-level README). Systems built here:
 
 - **`banyu::DvlMavlink`** (loaded by `main_world.world`, simulation only): DVL velocity → ArduSub SITL as `VISION_POSITION_DELTA`; see `banyu_bringup/README.md`.
 - **`banyu::HydrophoneArray`** (loaded by the `bluerov2_task2` model): pinger TDOA arrivals.
