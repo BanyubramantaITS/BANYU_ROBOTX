@@ -33,8 +33,7 @@ atau buka `bash` dulu lalu source kedua file itu.
 Robot sehat, kamera & warna sudah dituning  →  vision
 Robot sehat, kamera ragu                    →  safe   (lebih cepat: fast, lalu fastest)
 Uji pertama di kolam baru / cek bocor       →  slow
-Thruster 2 + 3 mati, pakai TX16S            →  dead-thruster
-Thruster 2 + 3 mati, tanpa TX16S            →  dead-thruster-norc
+Thruster 2 + 3 mati                         →  buat profil dengan dead_thruster_por.py (tuning.md §6)
 Sensor & kamera tidak bisa dipercaya        →  blind/<profil>.yaml
 ```
 
@@ -53,9 +52,6 @@ berbeda sampai kecepatan dikalibrasi ([`tuning.md`](tuning.md)).
 | `vision` | `por_params_vision_assisted.yaml` | diamond + koreksi kamera | gate & marker, fallback timer | ~36 s |
 | `hybrid` | `por_params_hybrid.yaml` | strafe box, pulang pakai kamera | gate, fallback timer | ~44 s |
 | `slow` | `por_params_timed_slow.yaml` | strafe box pelan | – | ~71 s |
-| `dead-thruster` | `por_params_dead_thruster_2_3_no_pos.yaml` | diagonal + orbit (thruster 2+3 mati), dengan TX16S | – | belum dikalibrasi |
-| `dead-thruster-norc` | `por_params_dead_thruster_2_3_no_rc_no_pos.yaml` | sama, tanpa TX16S (`bypass_rc`) | – | belum dikalibrasi |
-| `dead-thruster-pixhawk` | `por_params_dead_thruster_2_3_no_rc_pixhawk_only.yaml` | sama, Bar30 juga mati (STABILIZE) | – | belum dikalibrasi |
 
 - **Strafe box**: yaw tetap. Robot geser kanan, maju melewati marker, geser kiri, mundur, geser
   kanan, lalu mundur lewat gate. Tidak ada belokan, jadi tidak tergantung kompas. Paling toleran.
@@ -72,8 +68,10 @@ berbeda sampai kecepatan dikalibrasi ([`tuning.md`](tuning.md)).
 | `config/sim_dead_thruster/` | Profil dead-thruster yang dikalibrasi di **sim** (kecepatan sim, trim sim). | **Tidak**, ditolak `launch_por.sh --real` |
 | `config/sim_faults/` | File parameter ArduPilot untuk mensimulasikan kerusakan di SITL. | **Tidak** |
 
-`por_params_dead_thruster_2_3.yaml` dan `..._no_rc.yaml` adalah versi lama (dibuat saat POR
-masih GUIDED, dive berputar berbasis waktu). Pakai versi `_no_pos`.
+Tidak ada profil dead-thruster untuk robot di repo. Kalau thruster 2 + 3 mati, buat profilnya
+dari hasil ukur di kolam dengan `tools/scripts/dead_thruster_por.py` ([`tuning.md`](tuning.md)
+§6). Hasilnya ditulis ke `config/` dan dipakai dengan `--profile <nama file>`. Versi sim ada di
+`config/sim_dead_thruster/` sebagai contoh.
 
 ### File lain di `config/` (bukan profil)
 
@@ -215,13 +213,14 @@ Switch TX16S (sumber: [`banyu_teleop/config/teleop_rcin.yaml`](../../banyu_teleo
 
 ### 4.4 Run tanpa TX16S (`--no-rc`)
 
-Hanya untuk profil dengan `bypass_rc: true` (saat ini `dead-thruster-norc` dan
-`dead-thruster-pixhawk`; launcher menolak profil lain). Teleop tidak dijalankan; relay ESP32
-dikendalikan `esp32_trigger_node`.
+Hanya untuk profil dengan `bypass_rc: true` (launcher menolak profil lain). Saat ini tidak ada
+profil seperti itu di repo; buat dengan `dead_thruster_por.py --no-rc` atau tambahkan
+`bypass_rc: true` di bagian `banyu_vehicle_status` sebuah salinan profil. Teleop tidak
+dijalankan; relay ESP32 dikendalikan `esp32_trigger_node`.
 
 ```bash
 ./src/BANYU_ROBOTX/tools/scripts/run_mavproxy.sh
-./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --no-rc --profile dead-thruster-norc
+./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --no-rc --profile por_params_dead_thruster_2_3_no_rc_no_pos.yaml
 ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '2'}"   # relay nyala (autonomous)
 ros2 service call /banyu/mission/start std_srvs/srv/Trigger "{}"
 ```
@@ -343,7 +342,7 @@ Tree yang dipakai ditentukan oleh flag di `banyu_mission.mission`: default
    bench sebelum dipakai.
 3. **Profil dead-thruster robot** perlu kecepatan diagonal hasil ukur
    (`dead_thruster_por.py --measured-speed`, lihat [`tuning.md`](tuning.md) §6).
-4. **Bar30 mati** (`dead-thruster-pixhawk`): trim kedalaman harus diukur di robot; di sim
+4. **Bar30 mati** (`dead_thruster_por.py --no-depth-sensor`): trim kedalaman harus diukur di robot; di sim
    hanya berhasil dengan dithering per segmen ([`sim_results.md`](sim_results.md)).
 5. **Toleransi ALT_HOLD** (error kecepatan dan heading) belum diukur ulang; hasil sim saat ini
    satu run nominal per profil.

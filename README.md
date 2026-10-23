@@ -30,14 +30,16 @@ Populate the workspace:
 mkdir -p <WORKSPACE>/src
 cd <WORKSPACE>/src
 git clone git@github.com:BanyubramantaITS/BANYU_ROBOTX.git
-vcs import < BANYU_ROBOTX/import.repos
+git clone -b ros2 git@github.com:ArduPilot/ardupilot_gazebo.git
+git clone -b banyu git@github.com:BanyubramantaITS/bluerov2_gz.git
+git clone -b main https://github.com/Barunastra-ITS/rx-sos-communication-itsn.git RobotX-SoS-communication-ITSN
 cd <WORKSPACE>
-ln -sf src/BANYU_ROBOTX/AGENTS.md AGENTS.md
 ln -sf src/BANYU_ROBOTX/.agents .agents
 ```
 
-`rx_msgs` comes from `import.repos` and tracks `main`; Task 2 needs at least commit `a2a1ccc`
-(`rx_msgs/PipelineBuoys`). Update an existing checkout with `vcs pull .` from `src/` and rebuild.
+`rx_msgs` comes from `RobotX-SoS-communication-ITSN` and tracks `main`; Task 2 needs at least
+commit `a2a1ccc` (`rx_msgs/PipelineBuoys`). Update an existing checkout with `git pull` in each
+repository under `src/` and rebuild.
 
 Get dependencies:
 ```sh

@@ -1,8 +1,8 @@
 # SIM-TUNED dead-thruster profile (thrusters 2+3 dead via config/sim_faults/dead_thrusters_2_3.parm,
 # ALT_HOLD, no GPS). Generated with: tools/scripts/dead_thruster_por.py --no-position --no-rc 
 #   --measured-speed 1.15 --rc-channels 2,1,3,4 --rc-gain-z 300 --orbit-cap 6.29
-# RC channels = RCMAP 2/1/3/4 (sim and robot). For the real vehicle use the profile in config/
-# (measured on the robot) or regenerate with the robot's measured speed and RCMAP.
+# RC channels = RCMAP 2/1/3/4 (sim and robot). For the real vehicle regenerate with the
+# robot's measured speed (docs/por/tuning.md section 6).
 banyu_mission:
   ros__parameters:
     mission_mode: "por"

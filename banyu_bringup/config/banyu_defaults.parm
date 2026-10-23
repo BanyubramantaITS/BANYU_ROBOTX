@@ -1,7 +1,6 @@
 # BANYU curated ArduSub parameters. Loaded into SITL by sitl_mavros.launch.py; on the real
 # Pixhawk load it once in QGroundControl (docs/por/README.md). The VISO_* and EK3_SRC2_* lines
 # are what nogps_odom_beacon needs on the robot; the DVL notes below apply to the sim only.
-# Values mirror the working auto-dumped defaults in mav.parm (same names/types).
 # BlueROV2 Heavy frame (vectored 6DOF: 8 thrusters).
 FRAME_CONFIG 2
 ATC_RAT_RLL_P 0.6

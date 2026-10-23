@@ -54,8 +54,7 @@ Cara menjalankan ada di [`README.md`](README.md), cara tuning di [`tuning.md`](t
 | Thruster 2+3 mati | `sim_dead_thruster/..._no_rc_no_pos` | ✅ y = -0,10 di gate | ~46 s |
 | Thruster 2+3 mati + Bar30 mati | `sim_dead_thruster/..._no_rc_pixhawk_only` (STABILIZE) | ✅ dengan dithering trim per segmen, kedalaman 1,7–2,2 m | ~44 s |
 
-Profil dead-thruster di `config/` tetap memakai angka hasil ukur di robot dan kanal RC robot;
-yang di `config/sim_dead_thruster/` dibuat ulang dengan kecepatan diagonal sim (1,15 m/s pada
+Profil di `config/sim_dead_thruster/` dibuat dengan kecepatan diagonal sim (1,15 m/s pada
 `--speed-cmd 0.5`, `--orbit-cap 6.29`).
 
 ### Bar30 mati
