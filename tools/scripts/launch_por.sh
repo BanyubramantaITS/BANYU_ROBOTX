@@ -298,6 +298,11 @@ if [ "$TARGET" = "sim" ]; then
     headless:="$([ "$HEADLESS" = true ] && echo "True" || echo "False")"
   )
 
+  # The real AUV has no GPS; simulate the same unless the caller asks for use_gps:=True.
+  if [[ " ${EXTRA_ARGS[*]} " != *" use_gps:="* ]]; then
+    LAUNCH_CMD+=(use_gps:=False)
+  fi
+
   if [ ${#EXTRA_ARGS[@]} -gt 0 ]; then
     LAUNCH_CMD+=("${EXTRA_ARGS[@]}")
   fi

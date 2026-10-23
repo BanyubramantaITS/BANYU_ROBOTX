@@ -1,6 +1,15 @@
 # Title
 [Feature] Implement Bidirectional ESP32 Safety Bridge with Heartbeat Watchdog & 3-Mode Kill Switch
 
+
+> [!NOTE]
+> **Proposal, not the protocol the robot runs today.** `sub_bringup.launch.py` starts `banyu_teleop`,
+> which reads SB from `/mavros/rc/in` and writes a single byte `'0'`/`'1'`/`'2'` to the ESP32 when
+> SB changes, with no heartbeat (`banyu_teleop/teleop_transmitter.md`). `esp32_bridge_node` below
+> implements this heartbeat design and is off by default (`enable_esp32_bridge:=False`). If the
+> ESP32 firmware enforces the 500 ms heartbeat watchdog described here, teleop alone would trip it
+> in mode `2`: check which firmware is flashed before an autonomous run.
+
 ---
 
 ## 1. Context & Motivation

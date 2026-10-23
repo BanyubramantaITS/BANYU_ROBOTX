@@ -2,7 +2,12 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
@@ -33,6 +38,20 @@ def _make_camera_node(name, image_topic, info_topic, hardware_params, enable_cam
             )
         ),
     )
+
+
+def _check_single_esp32_owner(context):
+    # banyu_teleop, esp32_bridge_node and esp32_trigger_node all open the same ESP32 port.
+    owners = [
+        name for name in ("enable_teleop", "enable_esp32_bridge", "enable_esp32_trigger")
+        if LaunchConfiguration(name).perform(context) == "True"
+    ]
+    if len(owners) > 1:
+        raise RuntimeError(
+            "Only one ESP32 serial owner may run, got: " + ", ".join(owners)
+            + ". Use enable_teleop:=True with a TX16S, or enable_esp32_trigger:=True without one."
+        )
+    return []
 
 
 def generate_launch_description():
@@ -269,6 +288,7 @@ def generate_launch_description():
             hardware_params_arg,
             teleop_params_arg,
             set_wall_time,
+            OpaqueFunction(function=_check_single_esp32_owner),
             mavros_launch,
             nogps_odom_beacon,
             teleop_node,

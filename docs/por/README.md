@@ -80,7 +80,8 @@ dari hasil ukur di kolam dengan `tools/scripts/dead_thruster_por.py` ([`tuning.m
 | `task2_params.yaml` | Profil Task 2 (bukan POR) |
 | `hardware_params.yaml` | Device kamera dan port ESP32 di robot |
 | `mavros_config.yaml` | Setting MAVROS |
-| `banyu_defaults.parm` | Parameter ArduSub: dimuat otomatis ke SITL, di robot dimuat sekali lewat QGC (§4.1) |
+| `banyu_defaults.parm` | Parameter ArduSub bersama sim dan robot: dimuat otomatis ke SITL, di robot dimuat sekali lewat QGC (§4.1) |
+| `sim_only.parm` | Tuning khusus SITL (gain attitude sim). **Jangan** dimuat ke Pixhawk robot |
 | `degraded_thrusters_2_3.parm` | Parameter Pixhawk untuk mematikan thruster 2+3 (**belum diverifikasi**, lihat §8) |
 | `sim_no_gps.parm` | Sim: menghapus GPS SITL (dipakai otomatis oleh `use_gps:=False`) |
 | `*_camera_info.yaml` | Kalibrasi kamera |
@@ -107,7 +108,7 @@ Argumen tambahan diteruskan ke `main_launch.launch.py`:
 
 | Argumen | Fungsi |
 |---|---|
-| `use_gps:=False` | GPS SITL dihapus sejak boot, seperti robot asli (default POR) |
+| `use_gps:=False` | GPS SITL dihapus sejak boot dan `nogps_odom_beacon` dijalankan, seperti robot asli. `launch_por.sh --sim` mengirimnya otomatis; tambahkan `use_gps:=True` kalau ingin sim dengan GPS |
 | `extra_sitl_params:=$PWD/src/BANYU_ROBOTX/banyu_bringup/config/sim_faults/dead_thrusters_2_3.parm` | Simulasi thruster 2+3 mati |
 
 Catatan sim:
@@ -125,8 +126,14 @@ Catatan sim:
 
 ### 4.1 Persiapan sekali
 
-1. **Parameter Pixhawk** (QGroundControl): muat `banyu_bringup/config/banyu_defaults.parm`,
-   lalu reboot. Yang penting untuk robot:
+1. **Parameter Pixhawk** (QGroundControl): muat `banyu_bringup/config/banyu_defaults.parm`
+   (bukan `sim_only.parm`), lalu reboot. Setelah itu simpan dump parameter dari QGC
+   (Parameters → Tools → Save to file) dan cek:
+   ```bash
+   python3 src/BANYU_ROBOTX/tools/scripts/check_pixhawk_params.py <dump>.params
+   ```
+   Skrip ini membandingkan dump dengan `banyu_defaults.parm`, frame, fungsi motor SERVO1–8, dan
+   mendeteksi Bar30. Harus berakhir dengan `OK`. Yang penting untuk robot:
    - `RCMAP_FORWARD 2`, `RCMAP_LATERAL 1`, `RCMAP_THROTTLE 3`, `RCMAP_YAW 4`,
      `RCMAP_PITCH 0`, `RCMAP_ROLL 0` (§4.2).
    - `VISO_TYPE 1`, `EK3_SRC2_POSXY 0`, `EK3_SRC2_VELXY 6`, `EK3_SRC2_POSZ 1`,

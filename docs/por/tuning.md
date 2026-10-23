@@ -230,6 +230,10 @@ Simpan permanen: salin nilai dari `~/por_detection_tuned.yaml` ke
 ### 5.3 Kalibrasi jarak
 
 `AlignMarker` menjaga jarak 3,0–3,6 m (`assist_marker_standoff_*`) dari estimasi ukuran objek.
+Estimasi itu memakai focal length dari `/camera/camera_info`. `config/front_camera_info.yaml`
+saat ini berisi intrinsik ideal dari sim (640×480, f = 554 px), bukan hasil kalibrasi kamera
+robot. Kalibrasi kamera depan (`ros2 run camera_calibration cameracalibrator`) atau setidaknya
+lakukan koreksi reference width di bawah dengan kamera robot.
 
 1. Taruh robot 3,0 m (meteran) di depan marker.
 2. Baca jarak estimasi: `ros2 topic echo /banyu/detection/marker --once` (`distance`).
