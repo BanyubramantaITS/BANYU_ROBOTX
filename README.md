@@ -63,9 +63,11 @@ colcon build --symlink-install
 
 Launch the unified simulation stack (Gazebo Harmonic + SITL + MAVROS + Autonomy):
 
-- **Proof of Readiness (POR)**:
+- **Proof of Readiness (POR)**: use `tools/scripts/launch_por.sh` (profile selection, sim and
+  real AUV, safety checks). Guide: [`docs/por/README.md`](docs/por/README.md), tuning:
+  [`docs/por/tuning.md`](docs/por/tuning.md).
   ```sh
-  ros2 launch banyu_bringup main_launch.launch.py mode:=por
+  env -u TMUX ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --profile safe
   ```
 
 - **Task 2 (Pipeline Inspection & Ring Repair)**:

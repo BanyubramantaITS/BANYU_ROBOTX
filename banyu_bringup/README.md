@@ -64,7 +64,7 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL, MAVR
 > this section applies to Gazebo/SITL. Real-world runs never use a DVL: keep
 > `use_dvl:=False` on hardware (`sub_bringup.launch.py`). Without GPS the real
 > AUV relies on baro depth and compass/IMU heading (see
-> `docs/por_tuning_kolam.md` §12).
+> [`docs/por/README.md`](../docs/por/README.md)).
 
 ArduSub's EKF3 carries three switchable source sets. Two are used:
 
