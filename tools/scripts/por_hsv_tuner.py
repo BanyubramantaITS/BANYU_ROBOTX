@@ -49,9 +49,38 @@ def slider_max(key):
 def make_windows(values):
     for window, keys in WINDOWS.items():
         cv2.namedWindow(window, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(window, 420, 40 * len(keys))
+        cv2.resizeWindow(window, 420, 70 * len(keys) + 20)  # value panel + sliders
         for key in keys:
             cv2.createTrackbar(key, window, int(values[key]), slider_max(key), lambda _v: None)
+
+
+LABELS = {
+    "h_min": "hue min (0-179)", "h_max": "hue max (0-179)",
+    "s_min": "saturation min", "s_max": "saturation max",
+    "v_min": "brightness min", "v_max": "brightness max",
+    "min_area": "min blob area (px)", "morph_kernel": "noise filter kernel",
+    "buoy_aspect_max": "marker max w/h x100",
+}
+
+
+def label(key):
+    for suffix, text in LABELS.items():
+        if key.endswith(suffix):
+            return text
+    return ""
+
+
+def draw_panels(values):
+    """Name and value of every slider, top to bottom (the Qt backend hides trackbar labels)."""
+    for window, keys in WINDOWS.items():
+        panel = np.full((28 * len(keys) + 12, 420, 3), 40, np.uint8)
+        for i, key in enumerate(keys):
+            y = 28 * i + 26
+            cv2.putText(panel, f"{i + 1}. {key} = {values[key]}", (10, y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+            cv2.putText(panel, label(key), (265, y), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
+                        (170, 200, 255), 1, cv2.LINE_AA)
+        cv2.imshow(window, panel)
 
 
 def read_sliders():
@@ -167,6 +196,7 @@ def run_offline(source):
                 frame = images[index % len(images)]
                 index += 1
         values = read_sliders()
+        draw_panels(values)
         cv2.imshow("POR HSV tuner", tile(*offline_frame(frame, values)))
         key = cv2.waitKey(30 if capture is not None else 300) & 0xFF
         if key in (ord("q"), 27):
@@ -237,8 +267,15 @@ def run_live(args):
         if changed and set_client.service_is_ready():
             set_client.call_async(SetParameters.Request(parameters=changed))
             sent.update(values)
-        cv2.imshow("POR HSV tuner", tile(images["annotated"], images["mask_gate"],
-                                         images["mask_marker"]))
+        draw_panels(values)
+        view = tile(images["annotated"], images["mask_gate"], images["mask_marker"])
+        if images["annotated"] is None:
+            kind = "" if args.raw else "/compressed"
+            cv2.putText(view, f"waiting for /banyu/detection/debug/annotated{kind}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 1, cv2.LINE_AA)
+            cv2.putText(view, "(sim: use --raw; is por_detection running?)", (10, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 1, cv2.LINE_AA)
+        cv2.imshow("POR HSV tuner", view)
         key = cv2.waitKey(30) & 0xFF
         if key in (ord("q"), 27):
             break
