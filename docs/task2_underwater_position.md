@@ -56,3 +56,15 @@ Jadi hasil sim Task 2 saat ini **tidak** membuktikan Task 2 bisa jalan di robot.
 2. Prototipe pergantian GUIDED → ALT_HOLD setelah `DiveToDepth`, lalu `FollowPipeline` dengan
    RC override.
 3. Kalibrasi kecepatan stick di kolam (sama seperti POR, `docs/por/tuning.md`).
+
+## Catatan terkait: GPS permukaan di robot
+
+- Pixhawk robot memakai `GPS1_TYPE 14` (GPS lewat MAVLink `GPS_INPUT`), jadi Pixhawk hanya punya
+  GPS kalau ada program yang mengirimnya. Repo ini tidak punya program itu.
+- Pengirimnya ada di repo tim `BanyubramantaITS/RTK-GPS-GNSS` (`gps_to_pixhawk.py`): membaca u-blox
+  (`/dev/gps_rtk`, `docs/udev_rules.md`) dan menulis `GPS_INPUT` **langsung ke port serial USB
+  Pixhawk**. Port yang sama dipegang `tools/scripts/run_mavproxy.sh` (`/dev/pixhawk`). Dua program
+  yang menulis ke satu port serial bisa saling memotong frame MAVLink.
+- Sebelum Task 2 di robot: jalankan bridge GPS lewat MAVProxy (misalnya keluaran UDP tambahan dari
+  `run_mavproxy.sh`, atau plugin `gps_input` MAVROS) alih-alih membuka port Pixhawk kedua kalinya,
+  dan dokumentasikan langkah menjalankannya di sini.

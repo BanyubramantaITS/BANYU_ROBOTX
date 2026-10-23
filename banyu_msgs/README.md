@@ -37,6 +37,12 @@ Actions follow the ROS order `Goal --- Result --- Feedback`. Every terminal resu
 - `PipelineObservation.msg` & `PipelineRingObservation.msg` — Line fit, lookahead angles, and detected rings from downward inspection camera.
 - `PipelineRingState.msg` — Associated ring tracker state across temporal observations.
 - `Task2SurveyEvidence.msg` & `Task2Report.msg` — Survey evidence assembled during pipeline inspection for RoboCommand / GCS reporting.
+- `ExecutionReadiness.msg` — `vehicle_execution_node` readiness for the current run (`/banyu/execution/readiness`), consumed by the mission before it starts motion.
+- `WaterDepth.msg` — Run-tagged calibrated depth from `calibrated_depth_node` (`/banyu/vehicle/water_depth`; `valid`, `calibrated`).
+- `PipelineEndCandidate.msg` & `PipelineEndState.msg` — End-of-pipe candidate (sim provider / detector) and the confirmed end state from `pipeline_end_node`.
+- `PingerObservation.msg` — Horizontal bearing to the active buoy's pinger from `pinger_localization` (`/banyu/pinger/observation`), used by `SearchPipeline`.
+- `HydrophoneHeading.msg` — Relative heading to the pinger. Published only by `task2_sim_provider.py`; no node subscribes to it (superseded by `PingerObservation`).
+- `Task2RingRecord.msg` & `Task2SurveyProgress.msg` — Per-ring entry in the survey evidence and the run-tagged survey progress (`/banyu/communication/survey_progress`).
 - `RunLifecycle.msg` — Epoch-tagged autonomy state transitions (phases `IDLE`, `PREPARING`, `READY`, `INITIALIZING`, `ACTIVE`, `SURVEY_COMPLETE`, `SURFACED`, `SUCCEEDED`, `FAILED`, `INTERRUPTED`; events `SNAPSHOT`, `START_ACCEPTED`, `START_DUPLICATE`, `START_REJECTED`, `TERMINAL`).
 
 ## Services
