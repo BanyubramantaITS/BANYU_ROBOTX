@@ -105,11 +105,12 @@ def generate_launch_description():
     task2_params = LaunchConfiguration("task2_params_file")
     por_params = LaunchConfiguration("por_params_file")
     hardware_params = LaunchConfiguration("hardware_params_file")
-    enable_esp32_bridge = LaunchConfiguration("enable_esp32_bridge")
 
+    # On hardware the operational mode comes from a kill-switch source (teleop SB, ESP32 bridge
+    # or ESP32 trigger); until one reports, the vehicle counts as killed. Sim has no switch.
+    # bypass_rc profiles ignore this and use bypass_operational_mode instead.
     default_op_mode_expr = PythonExpression([
-        "0 if ('", use_sim, "'.lower() == 'false' and '",
-        enable_esp32_bridge, "'.lower() == 'true') else 2"
+        "0 if '", use_sim, "'.lower() == 'false' else 2"
     ])
 
     task2_fixture_mode = AndSubstitution(

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <utility>
 
 namespace banyu_teleop
 {
@@ -47,7 +48,7 @@ void BanyuTeleop::declareParameters()
   this->declare_parameter<int>("serial_baud", 115200);
 
   // Mock auto / mission mode parameters
-  this->declare_parameter<bool>("enable_mock_auto", true);
+  this->declare_parameter<bool>("enable_mock_auto", false);
   this->declare_parameter<std::string>("mock_auto_flight_mode", "MANUAL");
   this->declare_parameter<double>("mock_auto_publish_rate_hz", 20.0);
 
@@ -108,6 +109,30 @@ void BanyuTeleop::declareParameters()
   RCLCPP_INFO(
     this->get_logger(), "Switches - mode (SC):%d kill/arm (SB):%d (low<%.0f, high>%.0f)",
     _modeChannel, _killChannel, _switchLowThreshold, _switchHighThreshold);
+  warnOnSwitchChannelOverlap();
+}
+
+void BanyuTeleop::warnOnSwitchChannelOverlap()
+{
+  // /mavros/rc/in reports RC override values, so a switch on a stick channel reads whatever
+  // the autonomy stack streams there (e.g. neutral 1500 = SB Mid = MANUAL) instead of the switch.
+  const std::pair<const char *, int> sticks[] = {
+    {"pitch", _pitchChannel}, {"roll", _rollChannel}, {"throttle", _throttleChannel},
+    {"yaw", _yawChannel}, {"forward", _forwardChannel}, {"lateral", _lateralChannel}};
+  const std::pair<const char *, int> switches[] = {
+    {"kill/arm (SB)", _killChannel}, {"flight mode (SC)", _modeChannel}};
+  for (const auto & [switch_name, switch_index] : switches) {
+    for (const auto & [stick_name, stick_channel] : sticks) {
+      if (switch_index + 1 == stick_channel) {
+        RCLCPP_ERROR(
+          this->get_logger(),
+          "%s switch is on CH%d, which is also the %s stick channel. RC override on that "
+          "channel (POR rc_override, mock auto) is read back as the switch position. "
+          "Move the switch or the stick channel (RCMAP) before an autonomous run.",
+          switch_name, switch_index + 1, stick_name);
+      }
+    }
+  }
 }
 
 void BanyuTeleop::initCommunication()

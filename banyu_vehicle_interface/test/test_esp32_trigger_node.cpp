@@ -486,3 +486,44 @@ TEST_F(Esp32TriggerNodeTest, DisconnectDetectionOnWriteFailure)
   // Port should now be marked closed due to disconnect detection
   EXPECT_FALSE(node->isPortOpen());
 }
+
+TEST_F(Esp32TriggerNodeTest, ModeCommandsPublishKillSwitchEvenWhenWriteFails)
+{
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", "/dev/nonexistent_banyu_port"},
+    {"kill_switch_topic", "/test/kill_switch"}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  ASSERT_FALSE(node->isPortOpen());
+
+  std::vector<uint8_t> received;
+  auto sub = node->create_subscription<std_msgs::msg::UInt8>(
+    "/test/kill_switch", 10,
+    [&received](const std_msgs::msg::UInt8::SharedPtr msg) {received.push_back(msg->data);});
+
+  // The timer republishes the commanded mode, so drain the queue and check the latest.
+  auto spin_for = [&](int ms) {
+      const auto start = std::chrono::steady_clock::now();
+      while ((std::chrono::steady_clock::now() - start) < std::chrono::milliseconds(ms)) {
+        rclcpp::spin_some(node);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+    };
+  spin_for(200);   // let the subscription match before publishing
+  EXPECT_TRUE(received.empty());   // nothing commanded yet: nothing published
+
+  EXPECT_FALSE(node->sendTrigger("0"));   // serial fails, the kill still reaches ROS
+  spin_for(300);
+  ASSERT_FALSE(received.empty());
+  EXPECT_EQ(received.back(), 0);
+
+  node->sendTrigger("H");                 // not a mode byte: no change
+  spin_for(300);
+  EXPECT_EQ(received.back(), 0);
+
+  node->sendTrigger("2");
+  spin_for(300);
+  EXPECT_EQ(received.back(), 2);
+}

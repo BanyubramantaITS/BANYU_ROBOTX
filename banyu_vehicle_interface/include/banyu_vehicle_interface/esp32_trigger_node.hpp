@@ -9,6 +9,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rmw/types.h>
 #include <std_msgs/msg/string.hpp>
+#include <std_msgs/msg/u_int8.hpp>
 #include <std_srvs/srv/set_bool.hpp>
 #include <std_srvs/srv/trigger.hpp>
 
@@ -47,14 +48,16 @@ private:
   void closeSerialPort();
   void closeSerialPortLocked();
   void timerCallback();
+  void recordCommandedMode(const std::string & cmd);
+  void publishCommandedMode();
 
   std::string port_{"/dev/ttyUSB0"};
   int baud_{115200};
   double timer_period_s_{0.1};
   bool append_newline_{false};
 
-  std::string default_trigger_cmd_{"1"};
-  std::string trigger_on_cmd_{"1"};
+  std::string default_trigger_cmd_{"2"};
+  std::string trigger_on_cmd_{"2"};
   std::string trigger_off_cmd_{"0"};
 
   std::string trigger_service_name_{"/banyu/trigger/fire"};
@@ -62,6 +65,12 @@ private:
   std::string command_service_name_{"/banyu/trigger/command"};
   std::string command_topic_name_{"/banyu/trigger/cmd"};
   std::string monitor_topic_name_{"/banyu/trigger/monitor"};
+  std::string kill_switch_topic_name_{"/banyu/hardware/kill_switch"};
+  bool publish_kill_switch_{true};
+
+  // Last '0'/'1'/'2' sent to the relay, republished as the operational mode.
+  bool has_commanded_mode_{false};
+  uint8_t commanded_mode_{0};
 
   int serial_fd_{-1};
   mutable std::mutex serial_mutex_;
@@ -75,6 +84,7 @@ private:
   rclcpp::Service<banyu_msgs::srv::TriggerCommand>::SharedPtr command_service_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr command_subscriber_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr monitor_publisher_;
+  rclcpp::Publisher<std_msgs::msg::UInt8>::SharedPtr kill_switch_publisher_;
 };
 
 }  // namespace banyu_vehicle_interface

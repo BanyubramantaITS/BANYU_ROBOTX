@@ -33,6 +33,7 @@ ENABLE_CAMERAS=true
 DRY_RUN=false
 PROFILE=""
 MOCK_AUTO=false
+ALLOW_CHANNEL_OVERLAP=false
 EXTRA_ARGS=()
 
 print_usage() {
@@ -60,21 +61,29 @@ Physical Hardware Options (when using --real):
   --no-cam              Disable USB camera drivers to save CPU/bandwidth on timed runs.
   --mock-auto           Enable land-test mock auto mode in teleop (spin thrusters on land).
 
-Strategy Profile Presets (--profile <name>):
-  dead-thruster         : por_params_dead_thruster_2_3_no_pos.yaml (RC diagonal compensation)
-  dead-thruster-norc    : por_params_dead_thruster_2_3_no_rc_no_pos.yaml (No-RC bypass)
-  dead-thruster-pixhawk : por_params_dead_thruster_2_3_no_rc_pixhawk_only.yaml
-  fast, fast-strafe     : por_params_timed_fast.yaml (Strafe box, ~55s)
-  fastest               : por_params_timed_fastest.yaml (Diamond reverse, ~33.3s)
-  turn, fastest-turn    : por_params_timed_fastest_turn.yaml (Diamond 180° turn, ~39.1s)
-  slow                  : por_params_timed_slow.yaml (Gentle pool testing, 0.12 m/s legs)
-  safe                  : por_params_timed_safe.yaml (Conservative timed strafe)
-  vision                : por_params_vision_assisted.yaml (Diamond with camera gate return)
-  hybrid                : por_params_hybrid.yaml (Timed outbound + camera return)
-  default               : por_params.yaml (Standard baseline profile)
+Strategy Profile Presets (--profile <name>), sim gate-back times (ALT_HOLD, no GPS):
+  default               : por_params.yaml                    (safe strafe box, ~37 s)
+  safe                  : por_params_timed_safe.yaml         (safe strafe box, ~37 s)
+  fast, fast-strafe     : por_params_timed_fast.yaml         (fast strafe box, ~32 s)
+  fastest               : por_params_timed_fastest.yaml      (diamond, back up through gate, ~25 s)
+  turn, fastest-turn    : por_params_timed_fastest_turn.yaml (diamond, 180 deg turn, ~28 s)
+  vision                : por_params_vision_assisted.yaml    (diamond + camera corrections, ~36 s)
+  hybrid                : por_params_hybrid.yaml             (strafe box + camera return, ~44 s)
+  slow                  : por_params_timed_slow.yaml         (gentle first pool test, ~71 s)
+  dead-thruster         : por_params_dead_thruster_2_3_no_pos.yaml       (thrusters 2+3 dead, RC)
+  dead-thruster-norc    : por_params_dead_thruster_2_3_no_rc_no_pos.yaml (thrusters 2+3 dead, no RC)
+  dead-thruster-pixhawk : por_params_dead_thruster_2_3_no_rc_pixhawk_only.yaml (+ Bar30 dead)
+  Any other file under banyu_bringup/config/ by relative path, e.g.
+    --profile blind/por_params_timed_safe.yaml   (pure timer, no sensors, no camera)
+  Profiles under sim_dead_thruster/ and sim_faults/ are simulation only (refused with --real).
+  --real requires --profile; --no-rc requires a profile with bypass_rc: true.
+  Guide: docs/por/README.md
 
 General Options:
   --dry-run             Print the resolved launch command and check devices without launching.
+  --allow-channel-overlap
+                        Launch even if a profile rc_override channel is also a teleop switch
+                        channel (SB/SC). Unsafe: the switch then reads the override.
   -h, --help            Show this help message.
 
 Examples:
@@ -84,8 +93,8 @@ Examples:
   # Launch Gazebo simulation headless for CI / rapid verification:
   ./tools/scripts/launch_por.sh --sim --headless --profile safe
 
-  # Launch real AUV with TX16S transmitter (default dead-thruster / branch profile):
-  ./tools/scripts/launch_por.sh --real
+  # Launch real AUV with TX16S transmitter and the safe strafe box:
+  ./tools/scripts/launch_por.sh --real --profile safe
 
   # Launch real AUV headless without transmitter:
   ./tools/scripts/launch_por.sh --real --no-rc --profile dead-thruster-norc
@@ -139,6 +148,10 @@ while [[ $# -gt 0 ]]; do
       DRY_RUN=true
       shift
       ;;
+    --allow-channel-overlap)
+      ALLOW_CHANNEL_OVERLAP=true
+      shift
+      ;;
     -h|--help)
       print_usage
       exit 0
@@ -162,40 +175,17 @@ if [ -f "${WS_DIR}/install/setup.bash" ]; then
   source "${WS_DIR}/install/setup.bash"
 fi
 
-# --- Resolve profile if not explicitly provided ---
+# --- Resolve profile ---
 if [ -z "$PROFILE" ]; then
   if [ "$TARGET" = "sim" ]; then
-    # Simulation defaults to standard por_params.yaml or fast timed
     PROFILE="por_params.yaml"
   else
-    case "$CURRENT_BRANCH" in
-      *dead-thruster*)
-        if [ "$USE_RC" = true ]; then
-          PROFILE="por_params_dead_thruster_2_3_no_pos.yaml"
-        else
-          PROFILE="por_params_dead_thruster_2_3_no_rc_no_pos.yaml"
-        fi
-        ;;
-      *fast-strategies*)
-        PROFILE="por_params_timed_fast.yaml"
-        ;;
-      *timed-strategy*)
-        PROFILE="por_params.yaml"
-        ;;
-      *vision-assisted*)
-        PROFILE="por_params_vision_assisted.yaml"
-        ;;
-      *)
-        if [ "$USE_RC" = true ]; then
-          PROFILE="por_params_dead_thruster_2_3_no_pos.yaml"
-        else
-          PROFILE="por_params_dead_thruster_2_3_no_rc_no_pos.yaml"
-        fi
-        ;;
-    esac
+    # No silent default on the robot: each profile assumes a vehicle state (healthy or
+    # dead thrusters, RC or not) and an RC channel map.
+    echo "Error: --real needs --profile <name>. Run with --help for the list." >&2
+    exit 1
   fi
 else
-  # Resolve aliases
   case "$PROFILE" in
     dead-thruster|dead-thruster-rc) PROFILE="por_params_dead_thruster_2_3_no_pos.yaml" ;;
     dead-thruster-norc|dead-thruster-no-rc) PROFILE="por_params_dead_thruster_2_3_no_rc_no_pos.yaml" ;;
@@ -223,12 +213,69 @@ if [ ! -f "$PROFILE_PATH" ]; then
   exit 1
 fi
 
+profile_bypass_rc() {
+  grep -Eq '^[[:space:]]*bypass_rc:[[:space:]]*true' "$PROFILE_PATH"
+}
+
+if [ "$TARGET" = "real" ]; then
+  case "$PROFILE_PATH" in
+    */sim_dead_thruster/*|*/sim_faults/*)
+      echo "Error: $(basename "$(dirname "$PROFILE_PATH")")/ profiles are tuned for the simulator" \
+        "(sim speeds, sim trim) and are refused on the real AUV." >&2
+      exit 1
+      ;;
+  esac
+
+  if [ "$USE_RC" = false ] && ! profile_bypass_rc; then
+    echo "Error: --no-rc needs a profile with bypass_rc: true (e.g. dead-thruster-norc)." >&2
+    echo "  Without it vehicle status never reports AUTONOMOUS and the mission cannot start." >&2
+    exit 1
+  fi
+  if [ "$USE_RC" = true ] && profile_bypass_rc; then
+    echo "Warning: profile sets bypass_rc: true but teleop is on. Stick takeover is disabled;" >&2
+    echo "  SB still kills (fresh kill_switch), but a stale switch no longer does." >&2
+  fi
+
+  if [ "$USE_RC" = true ]; then
+    # /mavros/rc/in reports RC override values, so a teleop switch on an override channel
+    # reads the autonomy sticks instead of the switch (neutral 1500 = SB Mid = MANUAL).
+    TELEOP_YAML="${REPO_DIR}/banyu_teleop/config/teleop_rcin.yaml"
+    OVERLAP="$(python3 - "$PROFILE_PATH" "$TELEOP_YAML" << 'PYCHECK'
+import sys
+import yaml
+profile = yaml.safe_load(open(sys.argv[1]))
+teleop = yaml.safe_load(open(sys.argv[2]))["banyu_teleop"]["ros__parameters"]
+rc = profile.get("vehicle_execution_node", {}).get("ros__parameters", {}).get("rc_override", {})
+switches = {"SB (kill/arm)": teleop.get("kill_channel", 5) + 1,
+            "SC (flight mode)": teleop.get("mode_channel", 7) + 1}
+for name, ch in switches.items():
+    for key in ("channel_forward", "channel_lateral", "channel_throttle", "channel_yaw"):
+        if rc.get(key) == ch:
+            print(f"{name} is on CH{ch}, the same channel as rc_override.{key}")
+PYCHECK
+)"
+    if [ -n "$OVERLAP" ]; then
+      echo "----------------------------------------------------------" >&2
+      echo "DANGER: RC channel overlap between this profile and banyu_teleop:" >&2
+      echo "$OVERLAP" | sed 's/^/  /' >&2
+      echo "  The mission's RC override is read back as the switch: neutral = SB Mid (MANUAL)," >&2
+      echo "  a strong stick = SB Down (KILL + disarm). See docs/por/README.md (RC channels)." >&2
+      if [ "$ALLOW_CHANNEL_OVERLAP" = false ]; then
+        echo "  Refusing to launch. Fix RCMAP / teleop_rcin.yaml, or pass --allow-channel-overlap." >&2
+        exit 1
+      fi
+      echo "  --allow-channel-overlap given: launching anyway." >&2
+      echo "----------------------------------------------------------" >&2
+    fi
+  fi
+fi
+
 echo "=========================================================="
 echo " BANYU AUV — Unified POR Mission Launcher"
 echo "=========================================================="
 echo "Active Git Branch : $CURRENT_BRANCH"
 echo "Target Platform   : $([ "$TARGET" = "sim" ] && echo "Gazebo Simulation (SITL)" || echo "Real AUV Physical Hardware")"
-echo "Selected Profile  : $(basename "$PROFILE_PATH")"
+echo "Selected Profile  : ${PROFILE_PATH#"${CONFIG_DIR}/"}"
 if [ "$TARGET" = "sim" ]; then
   echo "Gazebo GUI        : $([ "$HEADLESS" = true ] && echo "HEADLESS (server only)" || echo "ENABLED")"
 else
@@ -292,8 +339,8 @@ else
     ros2 launch banyu_bringup sub_bringup.launch.py
     mode:="$MODE"
     por_params_file:="$PROFILE_PATH"
-    enable_cameras:="$ENABLE_CAMERAS"
-    enable_mock_auto:="$MOCK_AUTO"
+    enable_cameras:="$([ "$ENABLE_CAMERAS" = true ] && echo "True" || echo "False")"
+    enable_mock_auto:="$([ "$MOCK_AUTO" = true ] && echo "True" || echo "False")"
   )
 
   if [ "$USE_RC" = true ]; then
@@ -315,7 +362,8 @@ else
     echo "  1. ESP32 relay is handled by esp32_trigger_node (/dev/ttyUSB0)."
     echo "  2. Power ON relay (autonomous): ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String \"{data: '2'}\""
     echo "  3. In water: start mission: ros2 service call /banyu/mission/start std_srvs/srv/Trigger \"{}\""
-    echo "  Emergency Kill: ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String \"{data: '0'}\""
+    echo "  Emergency Kill (relay off, mission stops, Pixhawk disarms):"
+    echo "    ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String \"{data: '0'}\""
     echo "  Software Abort: ros2 service call /banyu/mission/abort std_srvs/srv/Trigger \"{}\""
   fi
 

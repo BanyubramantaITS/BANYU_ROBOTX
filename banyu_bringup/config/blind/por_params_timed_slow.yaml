@@ -93,7 +93,7 @@ banyu_mission:
       # ALT_HOLD + RC override is open loop: speed_* is stick strength, not m/s.
       # In sim the actual speed is ~1.34 * sqrt(speed_x) (fwd/back) and ~1.39 *
       # sqrt(speed_y) (strafe), with ~0.7-1 m of coast after each leg. Calibrate
-      # on the real vehicle (docs/por_tuning_kolam.md) before trusting durations.
+      # on the real vehicle (docs/por/tuning.md) before trusting durations.
       # =======================================================================
       # -----------------------------------------------------------------------
       # Timed POR Strategy Parameters (used when use_vision is false)
@@ -331,8 +331,8 @@ esp32_serial_node:
     baud: 115200
     timer_period_s: 0.1
     append_newline: false
-    default_trigger_cmd: "1"
-    trigger_on_cmd: "1"
+    default_trigger_cmd: "2"   # issue #15: 2 = autonomous
+    trigger_on_cmd: "2"
     trigger_off_cmd: "0"
     trigger_service: "/banyu/trigger/fire"
     set_trigger_service: "/banyu/trigger/set"
@@ -346,8 +346,8 @@ esp32_trigger_node:
     baud: 115200
     timer_period_s: 0.1
     append_newline: false
-    default_trigger_cmd: "1"
-    trigger_on_cmd: "1"
+    default_trigger_cmd: "2"   # issue #15: 2 = autonomous
+    trigger_on_cmd: "2"
     trigger_off_cmd: "0"
     trigger_service: "/banyu/trigger/fire"
     set_trigger_service: "/banyu/trigger/set"

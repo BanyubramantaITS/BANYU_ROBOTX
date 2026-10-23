@@ -31,7 +31,7 @@ banyu_teleop:
     serial_baud: 115200
 
     # Mock ESP32 Auto/Mission Mode (land testing)
-    enable_mock_auto: true
+    enable_mock_auto: false   # land test only: SB Up spins all thrusters; never true for a mission
     mock_auto_flight_mode: "MANUAL"
     mock_auto_publish_rate_hz: 20.0
     mock_auto_forward_pwm: 1540

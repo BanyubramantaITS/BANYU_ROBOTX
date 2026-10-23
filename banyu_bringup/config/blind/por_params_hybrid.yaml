@@ -325,8 +325,8 @@ esp32_serial_node:
     baud: 115200
     timer_period_s: 0.1
     append_newline: false
-    default_trigger_cmd: "1"
-    trigger_on_cmd: "1"
+    default_trigger_cmd: "2"   # issue #15: 2 = autonomous
+    trigger_on_cmd: "2"
     trigger_off_cmd: "0"
     trigger_service: "/banyu/trigger/fire"
     set_trigger_service: "/banyu/trigger/set"
@@ -340,8 +340,8 @@ esp32_trigger_node:
     baud: 115200
     timer_period_s: 0.1
     append_newline: false
-    default_trigger_cmd: "1"
-    trigger_on_cmd: "1"
+    default_trigger_cmd: "2"   # issue #15: 2 = autonomous
+    trigger_on_cmd: "2"
     trigger_off_cmd: "0"
     trigger_service: "/banyu/trigger/fire"
     set_trigger_service: "/banyu/trigger/set"

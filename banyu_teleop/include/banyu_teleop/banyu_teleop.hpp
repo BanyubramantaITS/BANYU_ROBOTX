@@ -34,6 +34,7 @@ public:
 
 private:
   void declareParameters();
+  void warnOnSwitchChannelOverlap();
   void initCommunication();
 
   void handleModeSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg);

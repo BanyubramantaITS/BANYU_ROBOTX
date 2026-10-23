@@ -62,8 +62,9 @@ Esp32TriggerNode::Esp32TriggerNode(const rclcpp::NodeOptions & options)
   timer_period_s_ = declare_parameter<double>("timer_period_s", 0.1);
   append_newline_ = declare_parameter<bool>("append_newline", false);
 
-  default_trigger_cmd_ = declare_parameter<std::string>("default_trigger_cmd", "1");
-  trigger_on_cmd_ = declare_parameter<std::string>("trigger_on_cmd", "1");
+  // ESP32 bytes = VehicleStatus.operational_mode (issue #15): '0' kill, '1' manual, '2' autonomous.
+  default_trigger_cmd_ = declare_parameter<std::string>("default_trigger_cmd", "2");
+  trigger_on_cmd_ = declare_parameter<std::string>("trigger_on_cmd", "2");
   trigger_off_cmd_ = declare_parameter<std::string>("trigger_off_cmd", "0");
 
   trigger_service_name_ = declare_parameter<std::string>(
@@ -76,6 +77,11 @@ Esp32TriggerNode::Esp32TriggerNode(const rclcpp::NodeOptions & options)
     "command_topic", "/banyu/trigger/cmd");
   monitor_topic_name_ = declare_parameter<std::string>(
     "monitor_topic", "/banyu/trigger/monitor");
+  kill_switch_topic_name_ = declare_parameter<std::string>(
+    "kill_switch_topic", "/banyu/hardware/kill_switch");
+  // Without teleop nothing else reports the relay state, so a '0' would cut thruster power
+  // while vehicle status still said AUTONOMOUS and the Pixhawk stayed armed.
+  publish_kill_switch_ = declare_parameter<bool>("publish_kill_switch", true);
 
   trigger_service_ = create_service<std_srvs::srv::Trigger>(
     trigger_service_name_,
@@ -101,6 +107,10 @@ Esp32TriggerNode::Esp32TriggerNode(const rclcpp::NodeOptions & options)
 
   monitor_publisher_ = create_publisher<std_msgs::msg::String>(
     monitor_topic_name_, rclcpp::QoS(10));
+  if (publish_kill_switch_) {
+    kill_switch_publisher_ = create_publisher<std_msgs::msg::UInt8>(
+      kill_switch_topic_name_, rclcpp::QoS(10));
+  }
 
   if (openSerialPort()) {
     RCLCPP_INFO(get_logger(), "Berhasil konek ke ESP32 di %s", port_.c_str());
@@ -191,6 +201,9 @@ bool Esp32TriggerNode::sendTrigger(const std::string & cmd)
     RCLCPP_WARN(get_logger(), "Perintah trigger tidak boleh kosong.");
     return false;
   }
+
+  // Record before writing: a kill must reach the software stack even if the serial write fails.
+  recordCommandedMode(cmd);
 
   std::string formatted_cmd = cmd;
   if (append_newline_ && formatted_cmd.back() != '\n') {
@@ -291,8 +304,31 @@ void Esp32TriggerNode::handleCommandTopic(const std_msgs::msg::String::SharedPtr
   sendTrigger(msg->data);
 }
 
+void Esp32TriggerNode::recordCommandedMode(const std::string & cmd)
+{
+  const std::string trimmed = trim(cmd);
+  if (trimmed.size() != 1 || trimmed[0] < '0' || trimmed[0] > '2') {
+    return;
+  }
+  commanded_mode_ = static_cast<uint8_t>(trimmed[0] - '0');
+  has_commanded_mode_ = true;
+  publishCommandedMode();
+}
+
+void Esp32TriggerNode::publishCommandedMode()
+{
+  if (!kill_switch_publisher_ || !has_commanded_mode_) {
+    return;
+  }
+  std_msgs::msg::UInt8 msg;
+  msg.data = commanded_mode_;
+  kill_switch_publisher_->publish(msg);
+}
+
 void Esp32TriggerNode::timerCallback()
 {
+  // Keep the commanded mode fresh for vehicle status (kill_switch_timeout_s).
+  publishCommandedMode();
   if (!isPortOpen()) {
     reconnect_counter_++;
     const int retry_interval = static_cast<int>(1.0 / std::max(0.01, timer_period_s_));
