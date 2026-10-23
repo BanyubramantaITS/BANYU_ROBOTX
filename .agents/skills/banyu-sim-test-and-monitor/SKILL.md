@@ -29,9 +29,9 @@ bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && <comma
 
 ### Option A: Full Gazebo Harmonic + SITL + Mission Composition
 To launch the full visual environment, vehicle model, SITL, and perception pipeline:
-- **Proof of Readiness (POR):**
+- **Proof of Readiness (POR):** GPS-denied like the robot (`use_gps:=False` also starts `nogps_odom_beacon`). Preferred: `env -u TMUX ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --profile <name>` (docs/por/README.md).
   ```bash
-  bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && ros2 launch banyu_bringup main_launch.launch.py mode:=por'
+  bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && ros2 launch banyu_bringup main_launch.launch.py mode:=por use_gps:=False'
   ```
 - **Task 2 (Pipeline & Rings):**
   ```bash
@@ -46,7 +46,7 @@ For rapid automated testing without GUI overhead:
   ```
 - **Task 2 (Pipeline Inspection & Ring Repair):**
   ```bash
-  bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && ros2 launch banyu_bringup mission.launch.py mode:=task2 use_sim:=true'
+  bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && ros2 launch banyu_bringup mission.launch.py mode:=task2 use_sim:=True'
   ```
 
 ---
@@ -85,7 +85,8 @@ Monitor key publishers to verify publishing rates, latency, and data integrity:
 Run these to ensure critical control and perception loops meet frequency requirements:
 - **Camera Bridge**: `ros2 topic hz /front_camera/image_raw` (target: ~30 Hz)
 - **MAVROS Local Position**: `ros2 topic hz /mavros/local_position/pose` (target: 20–50 Hz)
-- **Velocity Setpoint Stream**: `ros2 topic hz /mavros/setpoint_raw/local` (target: 10–50 Hz continuous; must NEVER drop to 0 in GUIDED)
+- **Velocity Setpoint Stream (Task 2, GUIDED)**: `ros2 topic hz /mavros/setpoint_raw/local` (target: 10–50 Hz continuous; must NEVER drop to 0 in GUIDED)
+- **RC Override Stream (POR, ALT_HOLD)**: `ros2 topic hz /mavros/rc/override` (target: ~20 Hz while armed in ALT_HOLD; channels 2/1/3/4 = forward/lateral/throttle/yaw)
 - **POR Perception**: `ros2 topic hz /banyu/detection` (target: ~10–30 Hz when target is in frame)
 - **Task 2 Pipeline Perception**: `ros2 topic hz /banyu/pipeline/observation`
 - **Vehicle Status**: `ros2 topic hz /banyu/vehicle_status` (target: ~10 Hz)
