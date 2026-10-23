@@ -18,6 +18,18 @@ WP_SPD_DN 1.5
 # vector on GUIDED entry, which slews yaw toward 0 deg NED (North = +90 deg ENU).
 WP_YAW_BEHAVIOR 0
 
+# Thruster output cap: the ESC power board cannot supply full thruster current.
+# AP_Motors6DOF::calc_thrust_to_pwm maps every motor's thrust (-1..1) to
+# 1500 +/- (PWM_MAX-1500 | 1500-PWM_MIN), so this range caps all motors in every
+# mode: RC MANUAL, ALT_HOLD RC override (POR) and GUIDED velocity (Task 2).
+# Full range is 1100..1900 (+/-400 us). Keep the range symmetric around 1500:
+#   50% -> 1300 1700   60% -> 1260 1740   70% -> 1220 1780
+# Electrical power falls faster than the PWM percentage; raise only after
+# measuring board current. QGC Motor Test writes raw PWM and bypasses this cap.
+# tools/scripts/check_thrust_limit.py verifies the Pixhawk against these lines.
+MOT_PWM_MIN 1300
+MOT_PWM_MAX 1700
+
 # Manual/teleop speeds (cm/s).
 PILOT_SPEED 200
 PILOT_SPEED_UP 100

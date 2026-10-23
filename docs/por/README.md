@@ -133,6 +133,15 @@ Catatan sim:
      `EK3_SRC2_VELZ 0`, `EK3_SRC2_YAW 1`: dipakai `nogps_odom_beacon` supaya EKF
      mempublikasikan kedalaman dan heading tanpa GPS.
    - `FS_EKF_ACTION 0`, `FS_GCS_ENABLE 0`.
+   - **Batas daya thruster** `MOT_PWM_MIN 1300`, `MOT_PWM_MAX 1700` (50% dari 1100..1900):
+     board power ESC tidak kuat menyuplai arus penuh thruster. Batas ini berlaku untuk semua
+     mode (MANUAL dari TX16S, ALT_HOLD + RC override POR, GUIDED Task 2) karena dipotong di
+     mixer ArduSub. 60% = `1260 1740`, 70% = `1220 1780`; naikkan hanya setelah arus board
+     diukur. `MOT_PWM_TYPE` harus 0 (DShot/8/9 membuat ArduSub mengabaikan batas ini).
+     **QGC Motor Test tidak dibatasi** (PWM mentah): jangan geser slider melewati batas.
+     `launch_por.sh --real` membaca nilai ini dari Pixhawk (`tools/scripts/check_thrust_limit.py`,
+     lewat MAVProxy port 14552) dan menolak jalan kalau batasnya tidak terpasang. Untuk Task 2
+     atau teleop tanpa `launch_por.sh`, jalankan skrip itu manual setelah `run_mavproxy.sh`.
    - Cek juga `FS_EKF_THRESH` dan `ARMING_CHECK` (tidak diatur file ini).
    - `RCMAP_*`: catat nilainya, lihat §4.2.
 2. **Device** di mini-PC:
@@ -294,6 +303,7 @@ Pengecekan yang dilakukan launcher di robot: `--profile` wajib, profil `sim_*` d
 | Misi tidak mau start, `rc_fresh: false` | TX16S mati atau `/mavros/rc/in` kosong. Tanpa TX, pakai `--no-rc` dengan profil `bypass_rc` |
 | Misi tidak mau start, `operational_mode: 0` | SB belum di atas / teleop belum menerima RC / belum kirim `'2'` (no-RC) |
 | Misi langsung berhenti setelah start dan mode bolak-balik | Bentrok kanal SB dengan override (§4.2) |
+| `DANGER: thruster output cap not confirmed` | `MOT_PWM_MIN/MAX` di Pixhawk lebih lebar dari `banyu_defaults.parm` atau MAVProxy belum jalan. Muat parm di QGC (§4.1) |
 | Arm ditolak | Lihat pesan pre-arm di QGC. Jangan matikan `ARMING_CHECK` sembarangan |
 | `/mavros/local_position/pose` tidak ada | `nogps_odom_beacon` tidak jalan atau `VISO_TYPE` belum 1. ALT_HOLD tetap bisa terbang (heading dari IMU) |
 | Sim: "Vehicle safety or run authorization fault" | Traffic robot masuk ke sim; ganti `ROS_DOMAIN_ID` |
@@ -327,5 +337,9 @@ Tree yang dipakai ditentukan oleh flag di `banyu_mission.mission`: default
    (`dead_thruster_por.py --measured-speed`, lihat [`tuning.md`](tuning.md) §6).
 4. **Bar30 mati** (`dead-thruster-pixhawk`): trim kedalaman harus diukur di robot; di sim
    hanya berhasil dengan dithering per segmen ([`sim_results.md`](sim_results.md)).
-5. **Toleransi ALT_HOLD** (error kecepatan dan heading) belum diukur ulang; hasil sim saat ini
+5. **Batas thruster 50%** (§4.1): profil timed dan gain `rc_override` dituning sebelum batas
+   ini (thrust penuh). Dengan batas, kecepatan per stick turun, jadi kaki timed menempuh jarak
+   lebih pendek; hasil di [`sim_results.md`](sim_results.md) perlu diulang dan durasi kaki
+   dituning ulang.
+6. **Toleransi ALT_HOLD** (error kecepatan dan heading) belum diukur ulang; hasil sim saat ini
    satu run nominal per profil.
