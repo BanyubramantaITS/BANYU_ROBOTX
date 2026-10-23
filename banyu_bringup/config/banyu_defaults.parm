@@ -9,6 +9,17 @@ ATC_RAT_RLL_I 0.15
 ATC_RAT_PIT_P 0.6
 ATC_RAT_PIT_I 0.15
 
+# RC channel map, same as the robot's Pixhawk and TX16S: right stick forward CH2 / lateral CH1,
+# left stick throttle CH3 / yaw CH4; pitch and roll unmapped (0 = neutral dummy channel).
+# SB (kill/arm) is CH6 and SC (flight mode) CH8, so no switch sits on a stick channel.
+# Every por_params*.yaml rc_override.channel_* and banyu_teleop's stick channels follow this.
+RCMAP_FORWARD 2
+RCMAP_LATERAL 1
+RCMAP_THROTTLE 3
+RCMAP_YAW 4
+RCMAP_PITCH 0
+RCMAP_ROLL 0
+
 # Mission speeds (m/s).
 WP_SPD 1.0
 WP_SPD_UP 2.5

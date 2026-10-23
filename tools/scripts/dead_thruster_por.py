@@ -60,13 +60,13 @@ def main():
                    help="--no-depth-sensor: constant down command on every leg (m/s) to cancel buoyancy")
     p.add_argument("--flight-mode", default="ALT_HOLD", choices=["ALT_HOLD", "STABILIZE", "MANUAL"],
                    help="flight mode for --no-position")
-    p.add_argument("--rc-channels", default="3,4,2,1",
+    p.add_argument("--rc-channels", default="2,1,3,4",
                    help="--no-position: forward,lateral,throttle,yaw RC channels (1-based, = RCMAP_*)")
     p.add_argument("--rc-gain-xy", type=float, default=300.0, help="PWM per m/s forward/lateral")
     p.add_argument("--rc-gain-z", type=float, default=300.0, help="PWM per m/s up/down")
     p.add_argument("--rc-gain-yaw", type=float, default=None,
                    help="PWM per rad/s yaw (default: computed from --acro-yaw-p)")
-    p.add_argument("--rc-yaw-dz", type=float, default=40.0, help="Pixhawk RCx_DZ of the yaw channel (BANYU RC1_DZ 40)")
+    p.add_argument("--rc-yaw-dz", type=float, default=40.0, help="Pixhawk RCx_DZ of the yaw channel (BANYU RC4_DZ 40)")
     p.add_argument("--thr-dz", type=float, default=100.0, help="Pixhawk THR_DZ (BANYU 100)")
     p.add_argument("--js-gain", type=float, default=0.5, help="Pixhawk JS_GAIN_DEFAULT; scales the dead zones")
     p.add_argument("--pilot-speed", type=float, default=200.0, help="Pixhawk PILOT_SPEED (cm/s); ALT_HOLD climb rate at full stick")

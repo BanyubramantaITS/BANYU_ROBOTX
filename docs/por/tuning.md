@@ -57,7 +57,7 @@ lurus (mengoreksi drift karena thruster tidak seimbang).
 | Warna gate/marker | `gate_*`, `marker_*`, `min_area` | `banyu_detection/config/por_detection_params.yaml` (§5) |
 | Batas kecepatan horizontal | `timed_move.max_horizontal_speed_mps` (0 = tanpa batas) | `vehicle_execution_node` |
 | Kekuatan stick | `rc_override.gain_*` | `vehicle_execution_node` |
-| Kanal stick | `rc_override.channel_*` (harus = `RCMAP_*` Pixhawk) | `vehicle_execution_node` |
+| Kanal stick | `rc_override.channel_*` = 2/1/3/4 (harus = `RCMAP_*` Pixhawk) | `vehicle_execution_node` |
 
 Yang **tidak** perlu diubah untuk tuning: `autonomy_mode` (harus `ALT_HOLD` di tiga node),
 `output_mode: rc_override`, `fallback_mode: DISARM`, topic, action, `esp32_*`,
@@ -269,7 +269,7 @@ Tambah `--no-rc` untuk versi tanpa TX16S. Opsi penting:
 | `--start-to-gate`, `--gate-to-marker`, `--orbit-radius`, `--past-gate` | geometri lintasan |
 | `--live-diagonal` | `forward-left` (2+3 mati) atau `forward-right` (1+4 mati) |
 | `--turn-cap`, `--orbit-cap` | sudut berhenti IMU (rad); sedikit kurang dari target |
-| `--rc-channels` | kanal forward,lateral,throttle,yaw (harus = `RCMAP_*`) |
+| `--rc-channels` | kanal forward,lateral,throttle,yaw (default 2,1,3,4 = `RCMAP_*` robot) |
 | `--no-depth-sensor`, `--depth-trim` | Bar30 mati: STABILIZE dengan trim kedalaman open-loop |
 
 Urutan tes di kolam:
@@ -304,14 +304,15 @@ normal harus disalin manual ke versi blind-nya.
 |---|---|---|
 | Maju / geser | dorongan langsung, tanpa deadzone | gain 300 PWM per m/s, kalibrasi dengan kecepatan ukur |
 | Throttle (ALT_HOLD) | laju naik = `PILOT_SPEED` × (stick − `THR_DZ` × gain) | deadzone 50, gain 400 (profil normal) / 200 (dead-thruster) |
-| Yaw | rate sebanding stick di luar deadzone (`RCx_DZ` kanal yaw × gain joystick) | deadzone 20, gain 143,4 PWM per rad/s |
+| Yaw | rate sebanding stick di luar deadzone (`RC4_DZ` 40 × `JS_GAIN_DEFAULT` 0,5) | deadzone 20, gain 143,4 PWM per rad/s |
 
 Tanpa kompensasi deadzone, yaw kecil (mis. 33 PWM) tertelan deadzone dan robot hampir tidak
 berbelok. Di sim, yaw asli ≈ 0,98 × perintah di 0,6 rad/s dan 0,86 × di 0,9 rad/s.
 
-`rc_override.channel_*` harus sama dengan `RCMAP_*` Pixhawk, dan tidak boleh sama dengan kanal
-switch SB/SC ([`README.md`](README.md) §4.2). RC override hanya diterima dari GCS dengan sysid
-255 (`SYSID_MYGCS`); MAVROS sudah memakai `system_id: 255`.
+`rc_override.channel_*` harus sama dengan `RCMAP_*` Pixhawk (robot: forward CH2, lateral CH1,
+throttle CH3, yaw CH4), dan tidak boleh sama dengan kanal switch SB/SC ([`README.md`](README.md)
+§4.2). RC override hanya diterima dari sysid yang cocok dengan `MAV_GCS_SYSID` Pixhawk; MAVROS
+memakai `system_id: 255`.
 
 Saat misi berhenti, stick ditahan netral selama robot masih arm di ALT_HOLD dengan mode
 autonomous, lalu dilepas ke transmitter saat takeover, disarm, atau ganti mode.

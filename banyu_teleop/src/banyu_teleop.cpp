@@ -62,12 +62,12 @@ void BanyuTeleop::declareParameters()
   this->declare_parameter<double>("mock_auto_linear_x", 0.1);
   this->declare_parameter<double>("mock_auto_linear_z", 0.1);
 
-  this->declare_parameter<int>("pitch_channel", 1);
-  this->declare_parameter<int>("roll_channel", 2);
+  this->declare_parameter<int>("pitch_channel", 0);
+  this->declare_parameter<int>("roll_channel", 0);
   this->declare_parameter<int>("throttle_channel", 3);
   this->declare_parameter<int>("yaw_channel", 4);
-  this->declare_parameter<int>("forward_channel", 5);
-  this->declare_parameter<int>("lateral_channel", 6);
+  this->declare_parameter<int>("forward_channel", 2);
+  this->declare_parameter<int>("lateral_channel", 1);
 
   // Retrieve values
   this->get_parameter("rc_topic", _rcTopic);
