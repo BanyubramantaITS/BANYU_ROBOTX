@@ -146,24 +146,37 @@ Catatan sim:
 
 ### 4.2 Peta kanal RC (wajib dicek sebelum run dengan TX16S)
 
-Saat ini ada **bentrok yang belum diputuskan**:
+Hasil cek TX16S robot (Oktober 2026, halaman Radio QGC):
 
-- Semua profil normal mengirim strafe lewat override **CH6** (`rc_override.channel_lateral: 6`).
-- Teleop membaca switch **SB** (kill/arm) juga dari **CH6** (`kill_channel: 5`, indeks 0).
-- ArduPilot melaporkan nilai override di `/mavros/rc/in`. Jadi saat misi jalan, teleop membaca
-  perintah strafe sebagai posisi SB: netral 1500 = SB tengah (MANUAL, misi berhenti), strafe
-  kanan kuat = SB bawah (**KILL + disarm**).
-- Profil dead-thruster memakai peta lain (3/4/2/1). Salah satu dari dua peta itu pasti salah
-  untuk Pixhawk robot.
+| Input | Kanal |
+|---|---|
+| Stick maju/mundur | CH2 |
+| Stick geser kiri/kanan | CH1 |
+| Stick naik/turun | CH3 |
+| Stick yaw | CH4 |
+| SB (kill/arm) | CH6 |
+| SC (mode terbang) | CH8 |
+
+Artinya forward/lateral/throttle/yaw = **2/1/3/4**. Peta di repo belum disesuaikan:
+
+- Profil normal dan `blind/` mengirim override ke 5/6/3/4, profil dead-thruster ke 3/4/2/1.
+  Keduanya **salah** untuk TX ini. Strafe di CH6 juga jatuh ke switch SB: teleop membaca
+  override itu sebagai posisi SB (netral 1500 = MANUAL, strafe kanan kuat = **KILL + disarm**),
+  karena ArduPilot melaporkan nilai override di `/mavros/rc/in`.
+- SB (CH6) dan SC (CH8) di `teleop_rcin.yaml` sudah benar.
+- Masih perlu dicek: `RCMAP_FORWARD/LATERAL/THROTTLE/YAW` di Pixhawk harus 2/1/3/4, dan
+  `RCMAP_PITCH/ROLL` dipindah dari CH1/CH2 ke kanal yang tidak dipakai (diam di 1500). Kalau
+  Pixhawk masih bawaan ArduSub (forward 5, lateral 6), **jangan arm dengan TX**: CH5 (switch,
+  999) terbaca sebagai stick maju penuh ke belakang, dan SB terbaca sebagai stick geser.
+- Setelah RCMAP pasti, semua `rc_override.channel_*` (profil, `blind/`, dead-thruster,
+  `sim_dead_thruster/`), stick di `teleop_rcin.yaml`, default `dead_thruster_por.py
+  --rc-channels`, takeover Task 2, dan RCMAP SITL di `banyu_defaults.parm` disamakan ke satu peta.
 
 Pengaman yang sudah ada:
 - `launch_por.sh --real` (mode RC) **menolak jalan** kalau kanal override sama dengan kanal
   SB/SC. Hanya bisa dipaksa dengan `--allow-channel-overlap` (jangan, kecuali tahu risikonya).
 - `banyu_teleop` mencetak ERROR saat start kalau SB/SC ada di kanal stick.
 
-Yang perlu dilakukan di robot: `ros2 topic echo /mavros/rc/in` sambil menggerakkan setiap stick
-dan switch, lalu catat `RCMAP_*` di QGC. Setelah itu SB/SC harus di kanal yang bukan sumbu
-RCMAP mana pun, dan semua `rc_override.channel_*` di profil harus sama dengan `RCMAP_*`.
 
 ### 4.3 Run dengan TX16S
 
@@ -318,8 +331,8 @@ Tree yang dipakai ditentukan oleh flag di `banyu_mission.mission`: default
 
 ## 8. Masalah terbuka (butuh keputusan atau data dari robot)
 
-1. **Peta kanal RC** (§4.2): bentrok SB dengan strafe CH6, dan dua peta kanal yang berbeda
-   (5/6/3/4 vs 3/4/2/1).
+1. **Peta kanal RC** (§4.2): TX terukur 2/1/3/4, profil masih 5/6/3/4 dan 3/4/2/1; menunggu
+   nilai `RCMAP_*` Pixhawk.
 2. **`degraded_thrusters_2_3.parm`** memakai `SERVOx_FUNCTION 0`, yang di SITL diabaikan
    ArduSub (motor tetap jalan). `135` (k_trim) terbukti mematikan motor di sim. Perlu dicek di
    bench sebelum dipakai.
