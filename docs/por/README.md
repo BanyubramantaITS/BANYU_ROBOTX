@@ -304,7 +304,7 @@ Untuk memastikan semua thruster berputar tanpa air. **Jangan pernah dipakai untu
 | `--allow-channel-overlap` | – | Paksa jalan walau kanal override = kanal switch (berbahaya) |
 | `--dry-run` | – | Cetak perintah dan cek device tanpa menjalankan |
 
-Argumen lain diteruskan ke `ros2 launch`, misalnya `use_gps:=False`.
+Argumen lain diteruskan ke `ros2 launch`, misalnya `extra_sitl_params:=...` (sim) atau `use_gps:=True`.
 
 Pengecekan yang dilakukan launcher di robot: `--profile` wajib, profil `sim_*` ditolak,
 `--no-rc` butuh `bypass_rc: true`, dan kanal override tidak boleh sama dengan kanal SB/SC.
