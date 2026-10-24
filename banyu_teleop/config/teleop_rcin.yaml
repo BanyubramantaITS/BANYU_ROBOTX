@@ -26,6 +26,9 @@ banyu_teleop:
     switch_low_threshold: 1200.0
     switch_high_threshold: 1750.0
 
+    # Deadband for detecting manual gimbal stick input around neutral (1500 PWM).
+    gimbal_deadband: 50.0
+
     # ESP32 kill switch serial link.
     serial_port: "/dev/ttyUSB0"
     serial_baud: 115200
