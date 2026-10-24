@@ -203,7 +203,7 @@ Switch TX16S (sumber: [`banyu_teleop/config/teleop_rcin.yaml`](../../banyu_teleo
 
 | Switch | Posisi | Arti |
 |---|---|---|
-| SB | atas | Autonomous (`2`): relay ESP32 nyala, arm Pixhawk, misi boleh jalan, SC dikunci |
+| SB | atas | Autonomous (`2`): relay ESP32 nyala, arm Pixhawk, misi boleh jalan, SC dan stick/gimbal dikunci |
 | SB | tengah | Manual (`1`): misi berhenti, override dilepas, stick langsung berfungsi |
 | SB | bawah | Kill (`0`): relay ESP32 putus, Pixhawk disarm |
 | SC | atas / tengah / bawah | STABILIZE / MANUAL / ALT_HOLD, hanya saat SB tengah atau bawah |
