@@ -4,6 +4,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    ExecuteProcess,
     IncludeLaunchDescription,
 )
 from launch.conditions import IfCondition
@@ -69,6 +70,14 @@ def generate_launch_description():
         name="debug",
         default_value="False",
         description="Set the debug flag for example (Detection Windows)",
+        choices=["True", "False"],
+    )
+
+    use_gps_arg = DeclareLaunchArgument(
+        name="use_gps",
+        default_value="True",
+        description="False removes the SITL GPS from boot and runs nogps_odom_beacon, like the "
+        "real AUV (POR). launch_por.sh --sim passes False.",
         choices=["True", "False"],
     )
 
@@ -175,6 +184,7 @@ def generate_launch_description():
             "use_ardusub_sitl": LaunchConfiguration("use_ardusub_sitl"),
             "fcu_url": LaunchConfiguration("fcu_url"),
             "use_dvl": LaunchConfiguration("use_dvl"),
+            "use_gps": LaunchConfiguration("use_gps"),
             "headless": LaunchConfiguration("headless"),
         }.items(),
     )
@@ -193,6 +203,23 @@ def generate_launch_description():
         }.items(),
     )
 
+    # Same GPS-denied EKF aiding as sub_bringup.launch.py on the robot.
+    nogps_odom_beacon = ExecuteProcess(
+        cmd=["ros2", "run", "banyu_bringup", "nogps_odom_beacon.py",
+             "--mavlink", "udpin:127.0.0.1:14552"],
+        name="nogps_odom_beacon",
+        output="screen",
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+                AndSubstitution(
+                    EqualsSubstitution(LaunchConfiguration("use_gps"), "False"),
+                    EqualsSubstitution(LaunchConfiguration("use_dvl"), "False"),
+                ),
+            )
+        ),
+    )
+
     return LaunchDescription(
         [
             mode_arg,
@@ -202,6 +229,7 @@ def generate_launch_description():
             fcu_url_arg,
             tier_arg,
             debug_arg,
+            use_gps_arg,
             use_dvl_arg,
             headless_arg,
             task2_params_arg,
@@ -210,6 +238,7 @@ def generate_launch_description():
             gazebo_por_launch,
             gazebo_main_launch,
             sitl_mavros_launch,
+            nogps_odom_beacon,
             mission_launch,
         ]
     )

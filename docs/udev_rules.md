@@ -10,7 +10,12 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="5741", SYMLINK+="p
 
 # u-blox GNSS RTK Receiver (Vendor: 1546, Product: 01a9)
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", SYMLINK+="gps_rtk", MODE="0666", GROUP="dialout"
+
+# Horus B / 2M WebCam (Vendor: 2ce3, Product: 3894)
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="2ce3", ATTRS{idProduct}=="3894", ATTR{index}=="0", SYMLINK+="horus_camera", MODE="0666", GROUP="video"
 ```
+
+For camera-specific setup, parameters, and troubleshooting, refer to [Horus Camera Guide](horus_camera.md).
 
 ## Installation
 

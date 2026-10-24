@@ -1,0 +1,11 @@
+# SITL-only ArduSub parameters, loaded by sitl_mavros.launch.py after banyu_defaults.parm.
+# Never load these onto the real Pixhawk: the robot keeps its own attitude gains
+# (ATC_RAT_RLL/PIT_P 0.135, _I 0.09 in the October 2026 dump).
+# Stream rates are not set here: this ArduPilot names them MAVx_* (not SRx_*), and
+# MAVProxy's --streamrate=10 (sim_vehicle.py, run_mavproxy.sh) already sets them.
+
+# Attitude rate gains the sim was tuned with (vectored 6DOF JSON model).
+ATC_RAT_RLL_P 0.6
+ATC_RAT_RLL_I 0.15
+ATC_RAT_PIT_P 0.6
+ATC_RAT_PIT_I 0.15

@@ -15,6 +15,12 @@ Cara menjalankan ada di [`README.md`](README.md), cara tuning di [`tuning.md`](t
 - Waktu = waktu sim. Gazebo berjalan ±0,7× real time di laptop dev.
 - Setiap baris adalah **satu run nominal**. Toleransi (error kecepatan dan heading) belum diukur
   ulang di ALT_HOLD.
+- **Peta RC robot (24 Okt 2026):** SITL memakai `RCMAP` yang sama dengan Pixhawk robot
+  (forward CH2, lateral CH1, throttle CH3, yaw CH4) dan semua profil mengirim override ke
+  2/1/3/4. Diulang 14 skenario (8 profil normal, `vision` kamera mati, `blind/` fast dan
+  fastest_turn, 3 dead-thruster): **semua lulus**, waktu lewat gate kembali sama dengan tabel di
+  bawah (±1,5 s), jarak ke marker ≥ 0,9 m. Lewat gate kembali dead-thruster bergeser ke
+  y = -0,25…-0,41 m (sebelumnya -0,1 m), masih di dalam ±0,66 m.
 
 ## Profil normal
 
@@ -54,8 +60,7 @@ Cara menjalankan ada di [`README.md`](README.md), cara tuning di [`tuning.md`](t
 | Thruster 2+3 mati | `sim_dead_thruster/..._no_rc_no_pos` | ✅ y = -0,10 di gate | ~46 s |
 | Thruster 2+3 mati + Bar30 mati | `sim_dead_thruster/..._no_rc_pixhawk_only` (STABILIZE) | ✅ dengan dithering trim per segmen, kedalaman 1,7–2,2 m | ~44 s |
 
-Profil dead-thruster di `config/` tetap memakai angka hasil ukur di robot dan kanal RC robot;
-yang di `config/sim_dead_thruster/` dibuat ulang dengan kecepatan diagonal sim (1,15 m/s pada
+Profil di `config/sim_dead_thruster/` dibuat dengan kecepatan diagonal sim (1,15 m/s pada
 `--speed-cmd 0.5`, `--orbit-cap 6.29`).
 
 ### Bar30 mati

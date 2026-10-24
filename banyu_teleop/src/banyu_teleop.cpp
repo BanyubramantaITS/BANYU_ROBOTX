@@ -23,6 +23,10 @@ BanyuTeleop::~BanyuTeleop()
   if (_mockAutoActive) {
     stopMockAutoMode();
   }
+  if (_gimbalOverrideActive) {
+    publishReleaseOverride();
+    _gimbalOverrideActive = false;
+  }
   if (_serialConnected && _serialPort && _serialPort->is_open()) {
     try {
       _serialPort->close();
@@ -43,6 +47,7 @@ void BanyuTeleop::declareParameters()
   this->declare_parameter<int>("kill_channel", 5);
   this->declare_parameter<double>("switch_low_threshold", 1200.0);
   this->declare_parameter<double>("switch_high_threshold", 1750.0);
+  this->declare_parameter<double>("gimbal_deadband", 50.0);
 
   this->declare_parameter<std::string>("serial_port", "/dev/ttyUSB0");
   this->declare_parameter<int>("serial_baud", 115200);
@@ -62,12 +67,12 @@ void BanyuTeleop::declareParameters()
   this->declare_parameter<double>("mock_auto_linear_x", 0.1);
   this->declare_parameter<double>("mock_auto_linear_z", 0.1);
 
-  this->declare_parameter<int>("pitch_channel", 1);
-  this->declare_parameter<int>("roll_channel", 2);
+  this->declare_parameter<int>("pitch_channel", 0);
+  this->declare_parameter<int>("roll_channel", 0);
   this->declare_parameter<int>("throttle_channel", 3);
   this->declare_parameter<int>("yaw_channel", 4);
-  this->declare_parameter<int>("forward_channel", 5);
-  this->declare_parameter<int>("lateral_channel", 6);
+  this->declare_parameter<int>("forward_channel", 2);
+  this->declare_parameter<int>("lateral_channel", 1);
 
   // Retrieve values
   this->get_parameter("rc_topic", _rcTopic);
@@ -80,6 +85,7 @@ void BanyuTeleop::declareParameters()
   this->get_parameter("kill_channel", _killChannel);
   this->get_parameter("switch_low_threshold", _switchLowThreshold);
   this->get_parameter("switch_high_threshold", _switchHighThreshold);
+  this->get_parameter("gimbal_deadband", _gimbalDeadband);
 
   this->get_parameter("serial_port", _serialDevice);
   this->get_parameter("serial_baud", _serialBaud);
@@ -199,6 +205,59 @@ void BanyuTeleop::handleModeSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg
   }
 }
 
+bool BanyuTeleop::isGimbalDeflected(const mavros_msgs::msg::RCIn::SharedPtr & msg) const
+{
+  const int stick_channels[] = {
+    _pitchChannel, _rollChannel, _throttleChannel,
+    _yawChannel, _forwardChannel, _lateralChannel};
+  for (int ch : stick_channels) {
+    if (ch >= 1 && static_cast<size_t>(ch - 1) < msg->channels.size() && !isSwitchChannel(ch)) {
+      const uint16_t pwm = msg->channels[ch - 1];
+      if (std::abs(static_cast<int>(pwm) - 1500) > _gimbalDeadband) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+void BanyuTeleop::handleGimbalInput(const mavros_msgs::msg::RCIn::SharedPtr & msg)
+{
+  const bool deflected = isGimbalDeflected(msg);
+
+  if (_currentOperationalMode == 2) {
+    // In Autonomous mode (SB Up): reject manual gimbal stick input and hold neutral override
+    if (deflected) {
+      if (!_gimbalDeflectedLast) {
+        RCLCPP_WARN(
+          this->get_logger(),
+          "Manual gimbal input rejected while in Autonomous mode (SB Up). "
+          "Operator must switch SB to Manual mode first.");
+      } else {
+        RCLCPP_WARN_THROTTLE(
+          this->get_logger(), *this->get_clock(), 2000,
+          "Manual gimbal input rejected while in Autonomous mode (SB Up). "
+          "Operator must switch SB to Manual mode first.");
+      }
+    }
+    _gimbalDeflectedLast = deflected;
+
+    if (!_mockAutoActive) {
+      publishNeutralGimbalOverride();
+      _gimbalOverrideActive = true;
+    }
+  } else {
+    // In Manual (1) or Disarmed (0) mode: gimbal input is allowed natively by ArduSub
+    if (_gimbalOverrideActive) {
+      if (!_mockAutoActive) {
+        publishReleaseOverride();
+      }
+      _gimbalOverrideActive = false;
+    }
+    _gimbalDeflectedLast = false;
+  }
+}
+
 void BanyuTeleop::handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg)
 {
   if (static_cast<size_t>(_killChannel) >= msg->channels.size()) {
@@ -233,12 +292,24 @@ void BanyuTeleop::handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg
 
     if (operational_mode == 0) {
       // SB Down: disarm both ESP32 kill switch and Pixhawk
+      if (_gimbalOverrideActive) {
+        if (!_mockAutoActive) {
+          publishReleaseOverride();
+        }
+        _gimbalOverrideActive = false;
+      }
       if (_mockAutoActive) {
         stopMockAutoMode();
       }
       armVehicle(false);
     } else if (operational_mode == 1) {
       // SB Middle: manual mode, automatically arm Pixhawk
+      if (_gimbalOverrideActive) {
+        if (!_mockAutoActive) {
+          publishReleaseOverride();
+        }
+        _gimbalOverrideActive = false;
+      }
       if (_mockAutoActive) {
         stopMockAutoMode();
       }
@@ -263,6 +334,7 @@ void BanyuTeleop::rcinCallback(const mavros_msgs::msg::RCIn::SharedPtr msg)
 {
   handleKillSwitch(msg);
   handleModeSwitch(msg);
+  handleGimbalInput(msg);
   _prevOperationalMode = _currentOperationalMode;
 }
 
@@ -395,6 +467,48 @@ void BanyuTeleop::publishZeroSetpoint()
   target.velocity.z = 0.0;
   target.yaw_rate = 0.0;
   _setpointPub->publish(target);
+}
+
+void BanyuTeleop::publishNeutralGimbalOverride()
+{
+  if (!_rcOverridePub) {
+    return;
+  }
+
+  mavros_msgs::msg::OverrideRCIn override_msg;
+  override_msg.channels.fill(mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
+
+  const int stick_channels[] = {
+    _pitchChannel, _rollChannel, _throttleChannel,
+    _yawChannel, _forwardChannel, _lateralChannel};
+
+  for (int ch : stick_channels) {
+    if (ch >= 1 && ch <= 18 && !isSwitchChannel(ch)) {
+      override_msg.channels[ch - 1] = 1500;
+    }
+  }
+
+  if (_modeChannel >= 0 && _modeChannel < 18) {
+    override_msg.channels[_modeChannel] = mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE;
+  }
+  if (_killChannel >= 0 && _killChannel < 18) {
+    override_msg.channels[_killChannel] = mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE;
+  }
+
+  _rcOverridePub->publish(override_msg);
+}
+
+void BanyuTeleop::publishReleaseOverride()
+{
+  if (!_rcOverridePub) {
+    return;
+  }
+
+  mavros_msgs::msg::OverrideRCIn release_msg;
+  release_msg.channels.fill(mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
+  for (int i = 0; i < 3; ++i) {
+    _rcOverridePub->publish(release_msg);
+  }
 }
 
 void BanyuTeleop::armVehicle(bool arm)

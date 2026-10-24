@@ -10,6 +10,7 @@ QGC_IP="${2:-192.168.0.155}"
 
 mavproxy.py --master="${MASTER_DEV}" \
   --out="udp:${QGC_IP}:14550" \
+  --out=udp:127.0.0.1:14550 \
   --out=udp:127.0.0.1:14551 \
   --out=udp:127.0.0.1:14552 \
   --streamrate=10 \

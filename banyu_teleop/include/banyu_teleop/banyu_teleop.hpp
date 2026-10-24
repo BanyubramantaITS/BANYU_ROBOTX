@@ -28,6 +28,9 @@ public:
   uint8_t getOperationalMode() const {return _currentOperationalMode;}
   bool isVehicleArmed() const {return _isArmed;}
   const std::string & getCurrentMode() const {return _currentMode;}
+  bool isGimbalDeflected() const {return _gimbalDeflectedLast;}
+  bool isGimbalInputRejected() const {return _currentOperationalMode == 2 && _gimbalDeflectedLast;}
+  bool isGimbalOverrideActive() const {return _gimbalOverrideActive;}
 
   void rcinCallback(const mavros_msgs::msg::RCIn::SharedPtr msg);
   void stateCallback(const mavros_msgs::msg::State::SharedPtr msg);
@@ -39,6 +42,10 @@ private:
 
   void handleModeSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg);
   void handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg);
+  void handleGimbalInput(const mavros_msgs::msg::RCIn::SharedPtr & msg);
+  bool isGimbalDeflected(const mavros_msgs::msg::RCIn::SharedPtr & msg) const;
+  void publishNeutralGimbalOverride();
+  void publishReleaseOverride();
 
   void armVehicle(bool arm);
   void setFlightMode(const std::string & mode);
@@ -73,6 +80,7 @@ private:
   int _killChannel = 5;
   double _switchLowThreshold = 1200.0;
   double _switchHighThreshold = 1750.0;
+  double _gimbalDeadband = 50.0;
 
   std::string _serialDevice = "/dev/ttyUSB0";
   int _serialBaud = 115200;
@@ -82,6 +90,8 @@ private:
 
   int _lastKillCommand = -1;
   bool _killStateInitialized = false;
+  bool _gimbalDeflectedLast = false;
+  bool _gimbalOverrideActive = false;
   uint8_t _currentOperationalMode = 1;
   uint8_t _prevOperationalMode = 1;
   bool _isArmed = false;

@@ -168,11 +168,12 @@ TEST_F(BanyuTeleopTest, RejectsManualSticksWhileInAutoMode)
 
   // Verify that the override outputs remained at the safe, slow mock values
   EXPECT_TRUE(teleop->isMockAutoActive());
+  // Default stick map = RCMAP 2/1/3/4 (forward CH2, lateral CH1, throttle CH3, yaw CH4)
   EXPECT_EQ(last_override.channels[2], 1540); // Throttle remains at slow value
-  EXPECT_EQ(last_override.channels[4], 1540); // Forward remains at slow value
-  EXPECT_EQ(last_override.channels[0], 1500); // Pitch remains locked neutral
-  EXPECT_EQ(last_override.channels[1], 1500); // Roll remains locked neutral
+  EXPECT_EQ(last_override.channels[1], 1540); // Forward remains at slow value
+  EXPECT_EQ(last_override.channels[0], 1500); // Lateral remains locked neutral
   EXPECT_EQ(last_override.channels[3], 1500); // Yaw remains locked neutral
+  EXPECT_EQ(last_override.channels[4], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
 }
 
 TEST_F(BanyuTeleopTest, CancelsMockAutoOnSwitchBackToManual)
@@ -313,8 +314,9 @@ TEST_F(BanyuTeleopTest, SBDrivesArmingAndDisarming)
   std::vector<bool> arm_calls;
   auto arm_service = test_node_->create_service<mavros_msgs::srv::CommandBool>(
     "/mavros/cmd/arming",
-    [&](const std::shared_ptr<mavros_msgs::srv::CommandBool::Request> request,
-        std::shared_ptr<mavros_msgs::srv::CommandBool::Response> response) {
+    [&](
+      const std::shared_ptr<mavros_msgs::srv::CommandBool::Request> request,
+      std::shared_ptr<mavros_msgs::srv::CommandBool::Response> response) {
       arm_calls.push_back(request->value);
       response->success = true;
       response->result = 0;
@@ -383,8 +385,9 @@ TEST_F(BanyuTeleopTest, SCModeChangeRejectedInAutonomousAndSyncedOnExit)
   std::vector<std::string> mode_requests;
   auto set_mode_service = test_node_->create_service<mavros_msgs::srv::SetMode>(
     "/mavros/set_mode",
-    [&](const std::shared_ptr<mavros_msgs::srv::SetMode::Request> request,
-        std::shared_ptr<mavros_msgs::srv::SetMode::Response> response) {
+    [&](
+      const std::shared_ptr<mavros_msgs::srv::SetMode::Request> request,
+      std::shared_ptr<mavros_msgs::srv::SetMode::Response> response) {
       mode_requests.push_back(request->custom_mode);
       response->mode_sent = true;
     });
@@ -407,14 +410,20 @@ TEST_F(BanyuTeleopTest, SCModeChangeRejectedInAutonomousAndSyncedOnExit)
   auto rc_init = std::make_shared<mavros_msgs::msg::RCIn>();
   rc_init->channels = {1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500};
   teleop->rcinCallback(rc_init);
-  for (int i = 0; i < 5; ++i) { exec.spin_some(); std::this_thread::sleep_for(10ms); }
+  for (int i = 0; i < 5; ++i) {
+    exec.spin_some();
+    std::this_thread::sleep_for(10ms);
+  }
   EXPECT_TRUE(mode_requests.empty());
 
   // 2. In Manual mode, toggle SC to STABILIZE (CH8 / index 7 = 900) -> accepted
   auto rc_stab = std::make_shared<mavros_msgs::msg::RCIn>();
   rc_stab->channels = {1500, 1500, 1500, 1500, 1500, 1500, 1500, 900};
   teleop->rcinCallback(rc_stab);
-  for (int i = 0; i < 5; ++i) { exec.spin_some(); std::this_thread::sleep_for(10ms); }
+  for (int i = 0; i < 5; ++i) {
+    exec.spin_some();
+    std::this_thread::sleep_for(10ms);
+  }
   ASSERT_EQ(mode_requests.size(), 1u);
   EXPECT_EQ(mode_requests.back(), "STABILIZE");
 
@@ -422,14 +431,20 @@ TEST_F(BanyuTeleopTest, SCModeChangeRejectedInAutonomousAndSyncedOnExit)
   auto rc_auto = std::make_shared<mavros_msgs::msg::RCIn>();
   rc_auto->channels = {1500, 1500, 1500, 1500, 1500, 988, 1500, 900};
   teleop->rcinCallback(rc_auto);
-  for (int i = 0; i < 5; ++i) { exec.spin_some(); std::this_thread::sleep_for(10ms); }
+  for (int i = 0; i < 5; ++i) {
+    exec.spin_some();
+    std::this_thread::sleep_for(10ms);
+  }
   EXPECT_EQ(teleop->getOperationalMode(), 2);
 
   // 4. While in Autonomous mode, toggle SC to ALT_HOLD (2000) -> REJECTED
   auto rc_auto_alt = std::make_shared<mavros_msgs::msg::RCIn>();
   rc_auto_alt->channels = {1500, 1500, 1500, 1500, 1500, 988, 1500, 2000};
   teleop->rcinCallback(rc_auto_alt);
-  for (int i = 0; i < 5; ++i) { exec.spin_some(); std::this_thread::sleep_for(10ms); }
+  for (int i = 0; i < 5; ++i) {
+    exec.spin_some();
+    std::this_thread::sleep_for(10ms);
+  }
   // Request count remains 1; no new request was sent in autonomous mode
   EXPECT_EQ(mode_requests.size(), 1u);
 
@@ -437,7 +452,167 @@ TEST_F(BanyuTeleopTest, SCModeChangeRejectedInAutonomousAndSyncedOnExit)
   auto rc_manual_restore = std::make_shared<mavros_msgs::msg::RCIn>();
   rc_manual_restore->channels = {1500, 1500, 1500, 1500, 1500, 1500, 1500, 2000};
   teleop->rcinCallback(rc_manual_restore);
-  for (int i = 0; i < 5; ++i) { exec.spin_some(); std::this_thread::sleep_for(10ms); }
+  for (int i = 0; i < 5; ++i) {
+    exec.spin_some();
+    std::this_thread::sleep_for(10ms);
+  }
   ASSERT_EQ(mode_requests.size(), 2u);
   EXPECT_EQ(mode_requests.back(), "ALT_HOLD");
+}
+
+TEST_F(BanyuTeleopTest, GimbalInputRejectedInAutonomousMode)
+{
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"serial_port", "none"},
+    {"enable_mock_auto", false},
+    {"kill_channel", 5},
+    {"mode_channel", 7},
+    {"pitch_channel", 1},
+    {"roll_channel", 2},
+    {"throttle_channel", 3},
+    {"yaw_channel", 4},
+    {"forward_channel", 5},
+    {"lateral_channel", 6},
+    {"gimbal_deadband", 50.0},
+  });
+
+  auto teleop = std::make_shared<banyu_teleop::BanyuTeleop>(options);
+
+  mavros_msgs::msg::OverrideRCIn last_override;
+  auto override_sub = test_node_->create_subscription<mavros_msgs::msg::OverrideRCIn>(
+    "/mavros/rc/override", 10,
+    [&](const mavros_msgs::msg::OverrideRCIn::SharedPtr msg) {
+      last_override = *msg;
+    });
+
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(test_node_);
+  exec.add_node(teleop);
+  auto spin_nodes = [&]() {
+      for (int i = 0; i < 5; ++i) {
+        exec.spin_some();
+        std::this_thread::sleep_for(10ms);
+      }
+    };
+
+  // 1. In Manual mode (SB index 5 = 1500), neutral sticks (1500)
+  auto rc_msg = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_msg->channels = {1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500};
+  teleop->rcinCallback(rc_msg);
+  EXPECT_EQ(teleop->getOperationalMode(), 1);
+  EXPECT_FALSE(teleop->isGimbalDeflected());
+  EXPECT_FALSE(teleop->isGimbalInputRejected());
+  EXPECT_FALSE(teleop->isGimbalOverrideActive());
+
+  // Deflect throttle stick (CH3 / index 2 = 1800) in Manual mode -> allowed
+  auto rc_manual_deflected = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_manual_deflected->channels = {1500, 1500, 1800, 1500, 1500, 1500, 1500, 1500};
+  teleop->rcinCallback(rc_manual_deflected);
+  EXPECT_FALSE(teleop->isGimbalInputRejected());
+  EXPECT_FALSE(teleop->isGimbalOverrideActive());
+
+  // 2. Switch SB to Autonomous (index 5 = 988) with neutral sticks (1500)
+  auto rc_auto_neutral = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_auto_neutral->channels = {1500, 1500, 1500, 1500, 1500, 988, 1500, 1500};
+  teleop->rcinCallback(rc_auto_neutral);
+  spin_nodes();
+  EXPECT_EQ(teleop->getOperationalMode(), 2);
+  EXPECT_FALSE(teleop->isGimbalDeflected());
+  EXPECT_FALSE(teleop->isGimbalInputRejected());
+  EXPECT_TRUE(teleop->isGimbalOverrideActive());
+  EXPECT_EQ(last_override.channels[0], 1500);
+
+  // 3. While in Autonomous mode, deflect pitch (CH1 / index 0 = 1700) -> REJECTED
+  auto rc_pitch = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_pitch->channels = {1700, 1500, 1500, 1500, 1500, 988, 1500, 1500};
+  teleop->rcinCallback(rc_pitch);
+  spin_nodes();
+  EXPECT_TRUE(teleop->isGimbalDeflected());
+  EXPECT_TRUE(teleop->isGimbalInputRejected());
+  EXPECT_TRUE(teleop->isGimbalOverrideActive());
+  EXPECT_EQ(last_override.channels[0], 1500);
+  EXPECT_EQ(last_override.channels[1], 1500);
+  EXPECT_EQ(last_override.channels[2], 1500);
+  EXPECT_EQ(last_override.channels[3], 1500);
+  EXPECT_EQ(last_override.channels[4], 1500);
+  EXPECT_EQ(last_override.channels[5], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
+  EXPECT_EQ(last_override.channels[7], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
+
+  // Return to neutral
+  teleop->rcinCallback(rc_auto_neutral);
+  spin_nodes();
+  EXPECT_FALSE(teleop->isGimbalDeflected());
+  EXPECT_FALSE(teleop->isGimbalInputRejected());
+  EXPECT_TRUE(teleop->isGimbalOverrideActive());
+  EXPECT_EQ(last_override.channels[0], 1500);
+
+  // Deflect roll (CH2 / index 1 = 1300) -> REJECTED
+  auto rc_roll = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_roll->channels = {1500, 1300, 1500, 1500, 1500, 988, 1500, 1500};
+  teleop->rcinCallback(rc_roll);
+  spin_nodes();
+  EXPECT_TRUE(teleop->isGimbalDeflected());
+  EXPECT_TRUE(teleop->isGimbalInputRejected());
+  EXPECT_TRUE(teleop->isGimbalOverrideActive());
+  EXPECT_EQ(last_override.channels[1], 1500);
+
+  // Return to neutral
+  teleop->rcinCallback(rc_auto_neutral);
+  spin_nodes();
+  EXPECT_FALSE(teleop->isGimbalDeflected());
+  EXPECT_FALSE(teleop->isGimbalInputRejected());
+  EXPECT_TRUE(teleop->isGimbalOverrideActive());
+  EXPECT_EQ(last_override.channels[1], 1500);
+
+  // Deflect throttle (CH3 / index 2 = 1900) -> REJECTED
+  auto rc_throttle = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_throttle->channels = {1500, 1500, 1900, 1500, 1500, 988, 1500, 1500};
+  teleop->rcinCallback(rc_throttle);
+  spin_nodes();
+  EXPECT_TRUE(teleop->isGimbalDeflected());
+  EXPECT_TRUE(teleop->isGimbalInputRejected());
+  EXPECT_TRUE(teleop->isGimbalOverrideActive());
+  EXPECT_EQ(last_override.channels[2], 1500);
+
+  // Return to neutral
+  teleop->rcinCallback(rc_auto_neutral);
+  spin_nodes();
+  EXPECT_FALSE(teleop->isGimbalDeflected());
+  EXPECT_FALSE(teleop->isGimbalInputRejected());
+  EXPECT_TRUE(teleop->isGimbalOverrideActive());
+
+  // Deflect yaw (CH4 / index 3 = 1100) -> REJECTED
+  auto rc_yaw = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_yaw->channels = {1500, 1500, 1500, 1100, 1500, 988, 1500, 1500};
+  teleop->rcinCallback(rc_yaw);
+  spin_nodes();
+  EXPECT_TRUE(teleop->isGimbalDeflected());
+  EXPECT_TRUE(teleop->isGimbalInputRejected());
+  EXPECT_TRUE(teleop->isGimbalOverrideActive());
+  EXPECT_EQ(last_override.channels[3], 1500);
+
+  // 4. Operator switches SB back to Manual (1500) while yaw stick is still deflected -> ALLOWED
+  auto rc_manual_with_yaw = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_manual_with_yaw->channels = {1500, 1500, 1500, 1100, 1500, 1500, 1500, 1500};
+  teleop->rcinCallback(rc_manual_with_yaw);
+  spin_nodes();
+  EXPECT_EQ(teleop->getOperationalMode(), 1);
+  EXPECT_FALSE(teleop->isGimbalInputRejected());
+  EXPECT_FALSE(teleop->isGimbalOverrideActive());
+  for (size_t i = 0; i < last_override.channels.size(); ++i) {
+    EXPECT_EQ(last_override.channels[i], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
+  }
+
+  // 5. Switch SB to Disarmed / Kill (2011) with deflected stick -> not marked as autonomous rejection
+  auto rc_kill_with_deflection = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_kill_with_deflection->channels = {1500, 1500, 1500, 1100, 1500, 2011, 1500, 1500};
+  teleop->rcinCallback(rc_kill_with_deflection);
+  spin_nodes();
+  EXPECT_EQ(teleop->getOperationalMode(), 0);
+  EXPECT_FALSE(teleop->isGimbalInputRejected());
+  EXPECT_FALSE(teleop->isGimbalOverrideActive());
+  for (size_t i = 0; i < last_override.channels.size(); ++i) {
+    EXPECT_EQ(last_override.channels[i], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
+  }
 }

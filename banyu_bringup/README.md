@@ -54,6 +54,8 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL, MAVR
 | `use_sim_time` | `True` / `False` | `True` | Sets `use_sim_time` parameter for ROS 2 nodes. |
 | `use_ardusub_sitl` | `True` / `False` | `True` | Uses `sim_vehicle.py` SITL wrapper (UDP 14550 for QGC) when `True`; uses bare `ardusub` when `False`. |
 | `fcu_url` | string | `udp://127.0.0.1:14551@` | Target MAVLink FCU address (`udp://127.0.0.1:14551@` for SITL to reserve 14550 for QGC; the real AUV uses `sub_bringup.launch.py` with the same default, fed by `tools/scripts/run_mavproxy.sh`). |
+| `use_gps` | `True` / `False` | `True` (`main_launch`); `sub_bringup`: `False` for `por`, `True` for `task2` | `False` removes the SITL GPS from boot and starts `nogps_odom_beacon` (GPS-denied, like the real AUV in POR). `launch_por.sh --sim` and `launch_sim.sh por` pass `False`. |
+| `use_dvl` | `True` / `False` | `False` | Simulated DVL bridge. Keep `False` on hardware: the AUV has no DVL. |
 
 ---
 
