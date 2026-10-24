@@ -236,9 +236,9 @@ por_detection:
 
 vehicle_execution_node:
   ros__parameters:
-    rc_override:   # channels must match the Pixhawk RCMAP_* (1-based); verify on the real vehicle
-      channel_forward: 5
-      channel_lateral: 6
+    rc_override:   # = Pixhawk RCMAP_FORWARD/LATERAL/THROTTLE/YAW (robot: 2/1/3/4, CH2/CH1/CH3/CH4)
+      channel_forward: 2
+      channel_lateral: 1
       channel_throttle: 3
       channel_yaw: 4
       gain_xy_pwm_per_mps: 300.0

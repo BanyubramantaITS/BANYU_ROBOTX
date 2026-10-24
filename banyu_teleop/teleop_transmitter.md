@@ -5,10 +5,15 @@
 TX16S --- Receiver (RS) --- Pixhawk --- MAVROS RCIN --- Package Teleop
 
 ## Button
-- Axes/Gimbal Kiri horizontal ---> sway
-- Axes/Gimbal Kiri Vertical ---> surge
-- Axes/Gimbal Kanan horizontal ---> Yaw
-- Axes/Gimbal Kanan Vertical ---> depth/naik turun
+Hasil cek di robot (Oktober 2026, QGC Radio + parameter Pixhawk):
+- Gimbal kanan vertikal ---> surge / maju-mundur (CH2, `RCMAP_FORWARD 2`)
+- Gimbal kanan horizontal ---> sway / geser (CH1, `RCMAP_LATERAL 1`)
+- Gimbal kiri vertikal ---> depth / naik-turun (CH3, `RCMAP_THROTTLE 3`)
+- Gimbal kiri horizontal ---> yaw (CH4, `RCMAP_YAW 4`)
+- SB ---> kill / manual / autonomous (CH6), SC ---> mode terbang (CH8)
+
+`RCMAP_PITCH` dan `RCMAP_ROLL` = 0 (tidak dipakai). Profil POR mengirim RC override ke kanal
+yang sama (2/1/3/4); lihat `docs/por/README.md` §4.2.
 
 ## Data yang dibaca receiver dari transmitter TX16S di RC IN
 ```header:

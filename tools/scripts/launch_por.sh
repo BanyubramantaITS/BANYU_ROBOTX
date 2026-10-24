@@ -70,9 +70,8 @@ Strategy Profile Presets (--profile <name>), sim gate-back times (ALT_HOLD, no G
   vision                : por_params_vision_assisted.yaml    (diamond + camera corrections, ~36 s)
   hybrid                : por_params_hybrid.yaml             (strafe box + camera return, ~44 s)
   slow                  : por_params_timed_slow.yaml         (gentle first pool test, ~71 s)
-  dead-thruster         : por_params_dead_thruster_2_3_no_pos.yaml       (thrusters 2+3 dead, RC)
-  dead-thruster-norc    : por_params_dead_thruster_2_3_no_rc_no_pos.yaml (thrusters 2+3 dead, no RC)
-  dead-thruster-pixhawk : por_params_dead_thruster_2_3_no_rc_pixhawk_only.yaml (+ Bar30 dead)
+  Thrusters 2+3 dead: generate a profile from pool measurements with
+    tools/scripts/dead_thruster_por.py (docs/por/tuning.md section 6) and pass its path.
   Any other file under banyu_bringup/config/ by relative path, e.g.
     --profile blind/por_params_timed_safe.yaml   (pure timer, no sensors, no camera)
   Profiles under sim_dead_thruster/ and sim_faults/ are simulation only (refused with --real).
@@ -97,7 +96,7 @@ Examples:
   ./tools/scripts/launch_por.sh --real --profile safe
 
   # Launch real AUV headless without transmitter:
-  ./tools/scripts/launch_por.sh --real --no-rc --profile dead-thruster-norc
+  ./tools/scripts/launch_por.sh --real --no-rc --profile por_params_dead_thruster_2_3_no_rc_no_pos.yaml
 EOF
 }
 
@@ -187,9 +186,6 @@ if [ -z "$PROFILE" ]; then
   fi
 else
   case "$PROFILE" in
-    dead-thruster|dead-thruster-rc) PROFILE="por_params_dead_thruster_2_3_no_pos.yaml" ;;
-    dead-thruster-norc|dead-thruster-no-rc) PROFILE="por_params_dead_thruster_2_3_no_rc_no_pos.yaml" ;;
-    dead-thruster-pixhawk) PROFILE="por_params_dead_thruster_2_3_no_rc_pixhawk_only.yaml" ;;
     fast|fast-strafe) PROFILE="por_params_timed_fast.yaml" ;;
     fastest|fastest-diamond) PROFILE="por_params_timed_fastest.yaml" ;;
     turn|fastest-turn) PROFILE="por_params_timed_fastest_turn.yaml" ;;
@@ -227,7 +223,8 @@ if [ "$TARGET" = "real" ]; then
   esac
 
   if [ "$USE_RC" = false ] && ! profile_bypass_rc; then
-    echo "Error: --no-rc needs a profile with bypass_rc: true (e.g. dead-thruster-norc)." >&2
+    echo "Error: --no-rc needs a profile with banyu_vehicle_status bypass_rc: true" >&2
+    echo "  (e.g. one generated with tools/scripts/dead_thruster_por.py --no-rc)." >&2
     echo "  Without it vehicle status never reports AUTONOMOUS and the mission cannot start." >&2
     exit 1
   fi
@@ -300,6 +297,11 @@ if [ "$TARGET" = "sim" ]; then
     por_params_file:="$PROFILE_PATH"
     headless:="$([ "$HEADLESS" = true ] && echo "True" || echo "False")"
   )
+
+  # The real AUV has no GPS; simulate the same unless the caller asks for use_gps:=True.
+  if [[ " ${EXTRA_ARGS[*]} " != *" use_gps:="* ]]; then
+    LAUNCH_CMD+=(use_gps:=False)
+  fi
 
   if [ ${#EXTRA_ARGS[@]} -gt 0 ]; then
     LAUNCH_CMD+=("${EXTRA_ARGS[@]}")

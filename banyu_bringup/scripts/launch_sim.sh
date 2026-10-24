@@ -26,7 +26,13 @@ WS_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 
 cd "$WS_ROOT"
 
+# POR runs GPS-denied on the robot; simulate the same unless use_gps:= is given.
+EXTRA="${*:2}"
+if [ "$MODE" = "por" ] && [[ " $EXTRA " != *" use_gps:="* ]]; then
+  EXTRA="use_gps:=False $EXTRA"
+fi
+
 ROS_DISTRO_TO_USE="${ROS_DISTRO:-jazzy}"
 bash -c "source /opt/ros/${ROS_DISTRO_TO_USE}/setup.bash && source install/setup.bash && \
-  ros2 launch banyu_bringup main_launch.launch.py mode:=$MODE ${*:2}"
+  ros2 launch banyu_bringup main_launch.launch.py mode:=$MODE $EXTRA"
 

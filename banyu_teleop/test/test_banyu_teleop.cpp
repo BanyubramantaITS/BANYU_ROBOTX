@@ -168,11 +168,12 @@ TEST_F(BanyuTeleopTest, RejectsManualSticksWhileInAutoMode)
 
   // Verify that the override outputs remained at the safe, slow mock values
   EXPECT_TRUE(teleop->isMockAutoActive());
+  // Default stick map = RCMAP 2/1/3/4 (forward CH2, lateral CH1, throttle CH3, yaw CH4)
   EXPECT_EQ(last_override.channels[2], 1540); // Throttle remains at slow value
-  EXPECT_EQ(last_override.channels[4], 1540); // Forward remains at slow value
-  EXPECT_EQ(last_override.channels[0], 1500); // Pitch remains locked neutral
-  EXPECT_EQ(last_override.channels[1], 1500); // Roll remains locked neutral
+  EXPECT_EQ(last_override.channels[1], 1540); // Forward remains at slow value
+  EXPECT_EQ(last_override.channels[0], 1500); // Lateral remains locked neutral
   EXPECT_EQ(last_override.channels[3], 1500); // Yaw remains locked neutral
+  EXPECT_EQ(last_override.channels[4], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
 }
 
 TEST_F(BanyuTeleopTest, CancelsMockAutoOnSwitchBackToManual)

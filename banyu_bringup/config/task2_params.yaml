@@ -127,7 +127,7 @@ banyu_vehicle_status:
     fcu_timeout_s: 5.0
     rc_timeout_s: 3.0
     gps_timeout_s: 5.0
-    rc_takeover_channel: 4
+    rc_takeover_channel: 1   # 0-based /mavros/rc/in index: CH2 = forward stick (RCMAP_FORWARD 2)
     rc_takeover_threshold: 1700
     autonomy_mode: "GUIDED"
     default_operational_mode: 0

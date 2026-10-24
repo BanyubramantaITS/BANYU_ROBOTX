@@ -375,7 +375,7 @@ TEST(CommandEncoder, RcOverrideCompensatesArduSubDeadZone)
 
 TEST(CommandEncoder, RcOverrideClampsAndNeutralReleasesOtherChannels)
 {
-  banyu_vehicle_execution::RcOverrideConfig config;   // ArduSub default channels 5,6,3,4
+  banyu_vehicle_execution::RcOverrideConfig config;   // RcOverrideConfig defaults (ArduSub stock RCMAP 5,6,3,4)
   config.max_delta_pwm = 200;
   const auto local = banyu_vehicle_execution::MotionIntent::localEnu(5.0, 0.0, 0.0, 0.0);
   const auto msg = banyu_vehicle_execution::encodeRcOverride(

@@ -33,8 +33,7 @@ atau buka `bash` dulu lalu source kedua file itu.
 Robot sehat, kamera & warna sudah dituning  →  vision
 Robot sehat, kamera ragu                    →  safe   (lebih cepat: fast, lalu fastest)
 Uji pertama di kolam baru / cek bocor       →  slow
-Thruster 2 + 3 mati, pakai TX16S            →  dead-thruster
-Thruster 2 + 3 mati, tanpa TX16S            →  dead-thruster-norc
+Thruster 2 + 3 mati                         →  buat profil dengan dead_thruster_por.py (tuning.md §6)
 Sensor & kamera tidak bisa dipercaya        →  blind/<profil>.yaml
 ```
 
@@ -53,9 +52,6 @@ berbeda sampai kecepatan dikalibrasi ([`tuning.md`](tuning.md)).
 | `vision` | `por_params_vision_assisted.yaml` | diamond + koreksi kamera | gate & marker, fallback timer | ~36 s |
 | `hybrid` | `por_params_hybrid.yaml` | strafe box, pulang pakai kamera | gate, fallback timer | ~44 s |
 | `slow` | `por_params_timed_slow.yaml` | strafe box pelan | – | ~71 s |
-| `dead-thruster` | `por_params_dead_thruster_2_3_no_pos.yaml` | diagonal + orbit (thruster 2+3 mati), dengan TX16S | – | belum dikalibrasi |
-| `dead-thruster-norc` | `por_params_dead_thruster_2_3_no_rc_no_pos.yaml` | sama, tanpa TX16S (`bypass_rc`) | – | belum dikalibrasi |
-| `dead-thruster-pixhawk` | `por_params_dead_thruster_2_3_no_rc_pixhawk_only.yaml` | sama, Bar30 juga mati (STABILIZE) | – | belum dikalibrasi |
 
 - **Strafe box**: yaw tetap. Robot geser kanan, maju melewati marker, geser kiri, mundur, geser
   kanan, lalu mundur lewat gate. Tidak ada belokan, jadi tidak tergantung kompas. Paling toleran.
@@ -69,11 +65,13 @@ berbeda sampai kecepatan dikalibrasi ([`tuning.md`](tuning.md)).
 | Folder | Isi | Boleh di robot? |
 |---|---|---|
 | `config/blind/` | Profil yang sama dengan tabel di atas, tapi **murni timer**: `use_sensors: false`, heading hold mati, dive dan putaran open-loop. Untuk kondisi baro/IMU/kamera tidak bisa dipercaya. | Ya (`--profile blind/por_params_timed_safe.yaml`) |
-| `config/sim_dead_thruster/` | Profil dead-thruster yang dikalibrasi di **sim** (kecepatan sim, trim sim, kanal 5/6/3/4). | **Tidak**, ditolak `launch_por.sh --real` |
+| `config/sim_dead_thruster/` | Profil dead-thruster yang dikalibrasi di **sim** (kecepatan sim, trim sim). | **Tidak**, ditolak `launch_por.sh --real` |
 | `config/sim_faults/` | File parameter ArduPilot untuk mensimulasikan kerusakan di SITL. | **Tidak** |
 
-`por_params_dead_thruster_2_3.yaml` dan `..._no_rc.yaml` adalah versi lama (dibuat saat POR
-masih GUIDED, dive berputar berbasis waktu). Pakai versi `_no_pos`.
+Tidak ada profil dead-thruster untuk robot di repo. Kalau thruster 2 + 3 mati, buat profilnya
+dari hasil ukur di kolam dengan `tools/scripts/dead_thruster_por.py` ([`tuning.md`](tuning.md)
+§6). Hasilnya ditulis ke `config/` dan dipakai dengan `--profile <nama file>`. Versi sim ada di
+`config/sim_dead_thruster/` sebagai contoh.
 
 ### File lain di `config/` (bukan profil)
 
@@ -82,7 +80,8 @@ masih GUIDED, dive berputar berbasis waktu). Pakai versi `_no_pos`.
 | `task2_params.yaml` | Profil Task 2 (bukan POR) |
 | `hardware_params.yaml` | Device kamera dan port ESP32 di robot |
 | `mavros_config.yaml` | Setting MAVROS |
-| `banyu_defaults.parm` | Parameter ArduSub: dimuat otomatis ke SITL, di robot dimuat sekali lewat QGC (§4.1) |
+| `banyu_defaults.parm` | Parameter ArduSub bersama sim dan robot: dimuat otomatis ke SITL, di robot dimuat sekali lewat QGC (§4.1) |
+| `sim_only.parm` | Tuning khusus SITL (gain attitude sim). **Jangan** dimuat ke Pixhawk robot |
 | `degraded_thrusters_2_3.parm` | Parameter Pixhawk untuk mematikan thruster 2+3 (**belum diverifikasi**, lihat §8) |
 | `sim_no_gps.parm` | Sim: menghapus GPS SITL (dipakai otomatis oleh `use_gps:=False`) |
 | `*_camera_info.yaml` | Kalibrasi kamera |
@@ -109,7 +108,7 @@ Argumen tambahan diteruskan ke `main_launch.launch.py`:
 
 | Argumen | Fungsi |
 |---|---|
-| `use_gps:=False` | GPS SITL dihapus sejak boot, seperti robot asli (default POR) |
+| `use_gps:=False` | GPS SITL dihapus sejak boot dan `nogps_odom_beacon` dijalankan, seperti robot asli. `launch_por.sh --sim` mengirimnya otomatis; tambahkan `use_gps:=True` kalau ingin sim dengan GPS |
 | `extra_sitl_params:=$PWD/src/BANYU_ROBOTX/banyu_bringup/config/sim_faults/dead_thrusters_2_3.parm` | Simulasi thruster 2+3 mati |
 
 Catatan sim:
@@ -127,14 +126,23 @@ Catatan sim:
 
 ### 4.1 Persiapan sekali
 
-1. **Parameter Pixhawk** (QGroundControl): muat `banyu_bringup/config/banyu_defaults.parm`,
-   lalu reboot kalau `VISO_TYPE` berubah. Yang penting untuk robot:
+1. **Parameter Pixhawk** (QGroundControl): muat `banyu_bringup/config/banyu_defaults.parm`
+   (bukan `sim_only.parm`), lalu reboot. Setelah itu simpan dump parameter dari QGC
+   (Parameters → Tools → Save to file) dan cek:
+   ```bash
+   python3 src/BANYU_ROBOTX/tools/scripts/check_pixhawk_params.py <dump>.params
+   ```
+   Skrip ini membandingkan dump dengan `banyu_defaults.parm`, frame, fungsi motor SERVO1–8, dan
+   mendeteksi Bar30. Harus berakhir dengan `OK`. Yang penting untuk robot:
+   - `RCMAP_FORWARD 2`, `RCMAP_LATERAL 1`, `RCMAP_THROTTLE 3`, `RCMAP_YAW 4`,
+     `RCMAP_PITCH 0`, `RCMAP_ROLL 0` (§4.2).
    - `VISO_TYPE 1`, `EK3_SRC2_POSXY 0`, `EK3_SRC2_VELXY 6`, `EK3_SRC2_POSZ 1`,
      `EK3_SRC2_VELZ 0`, `EK3_SRC2_YAW 1`: dipakai `nogps_odom_beacon` supaya EKF
-     mempublikasikan kedalaman dan heading tanpa GPS.
+     mempublikasikan kedalaman dan heading tanpa GPS. Tanpa `EK3_SRC2_YAW 1`, EKF kehilangan
+     sumber heading begitu `ekf_source_switch` pindah ke source set 2.
    - `FS_EKF_ACTION 0`, `FS_GCS_ENABLE 0`.
+   - `MAV_GCS_SYSID 255` (sysid MAVROS), lihat §4.2.
    - Cek juga `FS_EKF_THRESH` dan `ARMING_CHECK` (tidak diatur file ini).
-   - `RCMAP_*`: catat nilainya, lihat §4.2.
 2. **Device** di mini-PC:
    ```bash
    ls -l /dev/pixhawk /dev/ttyACM* /dev/ttyUSB*
@@ -144,39 +152,40 @@ Catatan sim:
    `/dev/video0`. Nama ini bisa tertukar setelah cabut-pasang; sebaiknya pakai udev rule
    ([`../udev_rules.md`](../udev_rules.md)).
 
-### 4.2 Peta kanal RC (wajib dicek sebelum run dengan TX16S)
+### 4.2 Peta kanal RC dan parameter Pixhawk
 
-Hasil cek TX16S robot (Oktober 2026, halaman Radio QGC):
+Hasil cek robot (Oktober 2026: halaman Radio QGC + dump parameter Pixhawk):
 
-| Input | Kanal |
-|---|---|
-| Stick maju/mundur | CH2 |
-| Stick geser kiri/kanan | CH1 |
-| Stick naik/turun | CH3 |
-| Stick yaw | CH4 |
-| SB (kill/arm) | CH6 |
-| SC (mode terbang) | CH8 |
+| Input | Kanal | Pixhawk |
+|---|---|---|
+| Stick maju/mundur (kanan vertikal) | CH2 | `RCMAP_FORWARD 2` |
+| Stick geser (kanan horizontal) | CH1 | `RCMAP_LATERAL 1` |
+| Stick naik/turun (kiri vertikal) | CH3 | `RCMAP_THROTTLE 3` |
+| Stick yaw (kiri horizontal) | CH4 | `RCMAP_YAW 4` |
+| SB (kill/arm, teleop) | CH6 | – |
+| SC (mode terbang, teleop) | CH8 | `RC8_OPTION 213` (mount pitch; tidak berpengaruh, kamera depan fixed) |
+| – | – | `RCMAP_PITCH 0`, `RCMAP_ROLL 0` (tidak dipakai) |
 
-Artinya forward/lateral/throttle/yaw = **2/1/3/4**. Peta di repo belum disesuaikan:
+Semua profil (`rc_override.channel_*` = 2/1/3/4), stick di `teleop_rcin.yaml`, default
+`dead_thruster_por.py --rc-channels`, takeover Task 2 (CH2), dan RCMAP SITL di
+`banyu_defaults.parm` sudah memakai peta ini, jadi sim dan robot sama. Tidak ada switch di kanal
+stick. Override misi tetap terbaca di `/mavros/rc/in` (ArduPilot melaporkan nilai override),
+jadi kanal SB/SC tidak boleh pernah dipakai sebagai kanal stick.
 
-- Profil normal dan `blind/` mengirim override ke 5/6/3/4, profil dead-thruster ke 3/4/2/1.
-  Keduanya **salah** untuk TX ini. Strafe di CH6 juga jatuh ke switch SB: teleop membaca
-  override itu sebagai posisi SB (netral 1500 = MANUAL, strafe kanan kuat = **KILL + disarm**),
-  karena ArduPilot melaporkan nilai override di `/mavros/rc/in`.
-- SB (CH6) dan SC (CH8) di `teleop_rcin.yaml` sudah benar.
-- Masih perlu dicek: `RCMAP_FORWARD/LATERAL/THROTTLE/YAW` di Pixhawk harus 2/1/3/4, dan
-  `RCMAP_PITCH/ROLL` dipindah dari CH1/CH2 ke kanal yang tidak dipakai (diam di 1500). Kalau
-  Pixhawk masih bawaan ArduSub (forward 5, lateral 6), **jangan arm dengan TX**: CH5 (switch,
-  999) terbaca sebagai stick maju penuh ke belakang, dan SB terbaca sebagai stick geser.
-- Setelah RCMAP pasti, semua `rc_override.channel_*` (profil, `blind/`, dead-thruster,
-  `sim_dead_thruster/`), stick di `teleop_rcin.yaml`, default `dead_thruster_por.py
-  --rc-channels`, takeover Task 2, dan RCMAP SITL di `banyu_defaults.parm` disamakan ke satu peta.
-
-Pengaman yang sudah ada:
+Pengaman:
 - `launch_por.sh --real` (mode RC) **menolak jalan** kalau kanal override sama dengan kanal
-  SB/SC. Hanya bisa dipaksa dengan `--allow-channel-overlap` (jangan, kecuali tahu risikonya).
+  SB/SC (`--allow-channel-overlap` untuk memaksa; jangan).
 - `banyu_teleop` mencetak ERROR saat start kalau SB/SC ada di kanal stick.
 
+**Temuan di dump parameter Pixhawk (Oktober 2026) dan keputusannya:**
+
+| Parameter di Pixhawk | Akibat | Perbaikan |
+|---|---|---|
+| `MAV_GCS_SYSID 1` (`_HI 0`) | ArduSub hanya menerima RC override dari sysid 1. MAVROS memakai sysid 255, jadi **semua perintah gerak misi POR diabaikan**: robot arm tapi tidak bergerak | **Diputuskan: set `MAV_GCS_SYSID 255`** (juga ada di `banyu_defaults.parm`). GCS lain yang mengirim joystick/override harus memakai sysid 255 juga |
+| `VISO_TYPE 0`, `EK3_SRC2_VELXY 0`, `EK3_SRC2_YAW 0` | `banyu_defaults.parm` belum dimuat. Tanpa GPS, `ekf_source_switch` memakai source set 2, yang di Pixhawk ini tidak punya sumber yaw | **Belum**: muat `banyu_defaults.parm` (§4.1) sebelum run otonom |
+| `RC8_OPTION 213` (mount pitch), `RC7_OPTION 214` (mount yaw), `MNT1_RC_RATE 30` | SC (CH8) juga menggerakkan tilt mount kamera dengan laju 30°/s selama tidak di tengah: SC atas memiringkan kamera sampai -90°, SC bawah sampai +20°. Arah kamera depan saat misi jadi tergantung riwayat posisi SC | **Aman**: kamera depan fixed, tidak ada servo tilt. Kalau suatu saat dipasang mount, set `RC8_OPTION 0` |
+| `BARO2_DEVID 0` | Saat dump diambil, Bar30 belum dipasang (hanya baro internal). ALT_HOLD butuh Bar30 | Pasang Bar30 untuk run di air; cek `BARO2_DEVID` bukan 0 sebelum menyelam |
+| `FS_EKF_ACTION 1` | Berbeda dengan repo (`0`) | Ikuti `banyu_defaults.parm` |
 
 ### 4.3 Run dengan TX16S
 
@@ -211,13 +220,14 @@ Switch TX16S (sumber: [`banyu_teleop/config/teleop_rcin.yaml`](../../banyu_teleo
 
 ### 4.4 Run tanpa TX16S (`--no-rc`)
 
-Hanya untuk profil dengan `bypass_rc: true` (saat ini `dead-thruster-norc` dan
-`dead-thruster-pixhawk`; launcher menolak profil lain). Teleop tidak dijalankan; relay ESP32
-dikendalikan `esp32_trigger_node`.
+Hanya untuk profil dengan `bypass_rc: true` (launcher menolak profil lain). Saat ini tidak ada
+profil seperti itu di repo; buat dengan `dead_thruster_por.py --no-rc` atau tambahkan
+`bypass_rc: true` di bagian `banyu_vehicle_status` sebuah salinan profil. Teleop tidak
+dijalankan; relay ESP32 dikendalikan `esp32_trigger_node`.
 
 ```bash
 ./src/BANYU_ROBOTX/tools/scripts/run_mavproxy.sh
-./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --no-rc --profile dead-thruster-norc
+./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --no-rc --profile por_params_dead_thruster_2_3_no_rc_no_pos.yaml
 ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '2'}"   # relay nyala (autonomous)
 ros2 service call /banyu/mission/start std_srvs/srv/Trigger "{}"
 ```
@@ -294,7 +304,7 @@ Untuk memastikan semua thruster berputar tanpa air. **Jangan pernah dipakai untu
 | `--allow-channel-overlap` | – | Paksa jalan walau kanal override = kanal switch (berbahaya) |
 | `--dry-run` | – | Cetak perintah dan cek device tanpa menjalankan |
 
-Argumen lain diteruskan ke `ros2 launch`, misalnya `use_gps:=False`.
+Argumen lain diteruskan ke `ros2 launch`, misalnya `extra_sitl_params:=...` (sim) atau `use_gps:=True`.
 
 Pengecekan yang dilakukan launcher di robot: `--profile` wajib, profil `sim_*` ditolak,
 `--no-rc` butuh `bypass_rc: true`, dan kanal override tidak boleh sama dengan kanal SB/SC.
@@ -308,6 +318,7 @@ Pengecekan yang dilakukan launcher di robot: `--profile` wajib, profil `sim_*` d
 | Misi tidak mau start, `operational_mode: 0` | SB belum di atas / teleop belum menerima RC / belum kirim `'2'` (no-RC) |
 | Misi langsung berhenti setelah start dan mode bolak-balik | Bentrok kanal SB dengan override (§4.2) |
 | Arm ditolak | Lihat pesan pre-arm di QGC. Jangan matikan `ARMING_CHECK` sembarangan |
+| Robot arm di ALT_HOLD tapi tidak bergerak sama sekali | `MAV_GCS_SYSID` Pixhawk tidak mencakup 255 (sysid MAVROS), jadi RC override ditolak (§4.2) |
 | `/mavros/local_position/pose` tidak ada | `nogps_odom_beacon` tidak jalan atau `VISO_TYPE` belum 1. ALT_HOLD tetap bisa terbang (heading dari IMU) |
 | Sim: "Vehicle safety or run authorization fault" | Traffic robot masuk ke sim; ganti `ROS_DOMAIN_ID` |
 | Sim: `ArduPilot controller has reset`, port 5501 | Proses `ardusub` lama masih hidup; jalankan tanpa `--no-clean` |
@@ -331,14 +342,16 @@ Tree yang dipakai ditentukan oleh flag di `banyu_mission.mission`: default
 
 ## 8. Masalah terbuka (butuh keputusan atau data dari robot)
 
-1. **Peta kanal RC** (§4.2): TX terukur 2/1/3/4, profil masih 5/6/3/4 dan 3/4/2/1; menunggu
-   nilai `RCMAP_*` Pixhawk.
+1. **Parameter Pixhawk** (§4.2): set `MAV_GCS_SYSID 255` dan muat `banyu_defaults.parm`; pasang
+   Bar30 sebelum run di air.
 2. **`degraded_thrusters_2_3.parm`** memakai `SERVOx_FUNCTION 0`, yang di SITL diabaikan
    ArduSub (motor tetap jalan). `135` (k_trim) terbukti mematikan motor di sim. Perlu dicek di
    bench sebelum dipakai.
 3. **Profil dead-thruster robot** perlu kecepatan diagonal hasil ukur
    (`dead_thruster_por.py --measured-speed`, lihat [`tuning.md`](tuning.md) §6).
-4. **Bar30 mati** (`dead-thruster-pixhawk`): trim kedalaman harus diukur di robot; di sim
+4. **Bar30 mati** (`dead_thruster_por.py --no-depth-sensor`): trim kedalaman harus diukur di robot; di sim
    hanya berhasil dengan dithering per segmen ([`sim_results.md`](sim_results.md)).
-5. **Toleransi ALT_HOLD** (error kecepatan dan heading) belum diukur ulang; hasil sim saat ini
+5. **Task 2 di robot** (bukan POR): GUIDED kehilangan posisi saat menyelam tanpa DVL; analisis dan
+   opsi di [`../task2_underwater_position.md`](../task2_underwater_position.md).
+6. **Toleransi ALT_HOLD** (error kecepatan dan heading) belum diukur ulang; hasil sim saat ini
    satu run nominal per profil.

@@ -95,6 +95,10 @@ def generate_launch_description():
         _banyu_bringup_share, "config", "banyu_defaults.parm"
     )
 
+    # Sim-only tuning (attitude gains); never loaded on the robot.
+    _sim_only_file = os.path.join(_banyu_bringup_share, "config", "sim_only.parm")
+    _sim_defaults = _banyu_defaults_file + "," + _sim_only_file
+
     # use_gps:=False removes the simulated GPS from boot, like the real AUV.
     _no_gps_file = os.path.join(_banyu_bringup_share, "config", "sim_no_gps.parm")
     _no_gps = ["'", LaunchConfiguration("use_gps"), "'.lower() == 'false'"]
@@ -107,8 +111,8 @@ def generate_launch_description():
         "-I0",
         "--defaults",
         PythonExpression(
-            ["'" + _banyu_defaults_file + ",' + '" + _no_gps_file + "' if "] + _no_gps
-            + [" else '" + _banyu_defaults_file + "'"]
+            ["'" + _sim_defaults + ",' + '" + _no_gps_file + "' if "] + _no_gps
+            + [" else '" + _sim_defaults + "'"]
         ),
     ]
     ardusub_launch = ExecuteProcess(
@@ -139,6 +143,7 @@ def generate_launch_description():
         "--mavproxy-args=--streamrate=10",
         "-w",
         "--add-param-file=" + _banyu_defaults_file,
+        "--add-param-file=" + _sim_only_file,
         PythonExpression(
             ["'--add-param-file=" + _no_gps_file + "' if "] + _no_gps
             + [" else '--add-param-file=" + _banyu_defaults_file + "'"]

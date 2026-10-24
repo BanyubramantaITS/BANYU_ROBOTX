@@ -46,9 +46,11 @@ banyu_teleop:
     mock_auto_linear_x: 0.1
     mock_auto_linear_z: 0.1
 
-    pitch_channel: 1
-    roll_channel: 2
+    # Stick channels (1-based) = Pixhawk RCMAP_*: right stick forward CH2 / lateral CH1,
+    # left stick throttle CH3 / yaw CH4. Pitch and roll are unmapped (RCMAP_PITCH/ROLL 0).
+    pitch_channel: 0
+    roll_channel: 0
     throttle_channel: 3
     yaw_channel: 4
-    forward_channel: 5
-    lateral_channel: 6
+    forward_channel: 2
+    lateral_channel: 1
