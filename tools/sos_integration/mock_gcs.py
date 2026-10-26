@@ -105,9 +105,13 @@ class MockGcs(Node):
             cmd.run_id = self.args.run_id
         else:
             raise SystemExit(f'unknown command {name!r}')
-        # A latched-free publisher may not have a subscriber yet; give discovery a moment.
-        end = time.time() + 5.0
-        while self.cmd_pub.get_subscription_count() == 0 and time.time() < end:
+        # The command topic is volatile: a command sent before a reader is matched is lost for that reader.
+        # Wait for the expected readers (mission manager and uuv_comm_node), then let discovery settle.
+        end = time.time() + 10.0
+        while self.cmd_pub.get_subscription_count() < self.args.min_subs and time.time() < end:
+            rclpy.spin_once(self, timeout_sec=0.1)
+        settle = time.time() + 1.5
+        while time.time() < settle:
             rclpy.spin_once(self, timeout_sec=0.1)
         self.cmd_pub.publish(cmd)
         self.log('command_sent', name=name, command_seq=cmd.command_seq,
@@ -191,6 +195,8 @@ def main():
     ap.add_argument('--run-id', type=int, default=1)
     ap.add_argument('--first-seq', type=int, default=1)
     ap.add_argument('--uuv-target', type=int, default=VehicleType.TYPE_UUV, help='target for run-start / mission-done')
+    ap.add_argument('--min-subs', type=int, default=2,
+                    help='readers of /system/mission/command to wait for before the first send')
     ap.add_argument('--timeout', type=float, default=900.0)
     ap.add_argument('--log', default=None, help='JSONL log file')
     ap.add_argument('--expect-tin')
