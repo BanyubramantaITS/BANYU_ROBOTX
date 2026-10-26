@@ -82,3 +82,4 @@ Running log for the autonomous run of `docs/task2_core_disruptive_plan.md` (bran
   mutation check: swapping tin and circle fails 5 of them), survey evidence 9 (6 new), vehicle_execution 60 (no
   regression).
 - Delegation outcome summary so far: D1 (launch_task2.sh, sonnet) accepted.
+- e2e core run 2: Gazebo/SITL did not finish loading (log stalled after the FCU frame lines, no water depth), relaunch 1 of 3.

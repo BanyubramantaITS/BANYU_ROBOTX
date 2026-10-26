@@ -39,14 +39,18 @@ def next_state(depth, gps_on, surfaced_since, now, loss_depth, resurface_depth, 
     return gps_on, (surfaced_since if not gps_on else None)
 
 
-def rebase(baseline, last, depth, step):
+def rebase(baseline, last, last_t, depth, t, min_step=0.05, max_rate=0.8):
     """
     Return the new surface baseline. Arming zeroes the baro and a new run recalibrates the depth datum, so
-    the reading jumps at the surface. A dive cannot move the depth by `step` metres between two samples
-    a fraction of a second apart, so such a jump shifts the baseline instead of counting as a dive.
+    the reading jumps at the surface. The vehicle cannot descend faster than max_rate (m/s), so a step of at
+    least min_step metres that fast shifts the baseline instead of counting as a dive.
     """
-    if last is not None and abs(depth - last) > step:
-        return baseline + (depth - last)
+    if last is None or last_t is None:
+        return baseline
+    dt = max(t - last_t, 1e-3)
+    step = depth - last
+    if abs(step) > min_step and abs(step) / dt > max_rate:
+        return baseline + step
     return baseline
 
 
@@ -69,10 +73,12 @@ def self_check():
     on, since = next_state(0.3, False, 5.0, 8.0, loss, res, delay)
     assert not on and since is None, "a new dive resets the timer"
     # Datum jump at arming: the baseline follows it, a normal descent does not.
-    assert rebase(0.0, 0.0, 0.33, 0.2) == 0.33
-    assert rebase(0.0, 0.0, -0.4, 0.2) == -0.4
-    assert rebase(0.0, 0.5, 0.52, 0.2) == 0.0, "a slow dive is not a datum jump"
-    assert rebase(0.0, None, 1.0, 0.2) == 0.0
+    assert abs(rebase(0.0, 0.0, 0.0, 0.15, 0.05) - 0.15) < 1e-9, "a 0.15 m jump in 50 ms is a datum jump"
+    assert abs(rebase(0.0, 0.0, 0.0, -0.4, 0.1) + 0.4) < 1e-9
+    assert rebase(0.0, 0.5, 0.0, 0.53, 0.1) == 0.0, "0.3 m/s is a dive"
+    assert rebase(0.0, 0.0, 0.0, 0.03, 0.01) == 0.0, "noise below min_step is ignored"
+    assert rebase(0.0, 0.0, 0.0, 0.3, 1.0) == 0.0, "0.3 m in a second is a dive, even with sparse samples"
+    assert rebase(0.0, None, None, 1.0, 1.0) == 0.0
     print("sim_gps_gate: self-check OK")
 
 
@@ -94,8 +100,8 @@ def main():
             # Calibrated depth drifts 0.1-0.4 m at the surface in SITL (AGENTS.md), so the thresholds are
             # relative to the depth at start-up (vehicle on the surface), unless surface_depth_m is set.
             self.surface_depth = float(self.declare_parameter("surface_depth_m", float("nan")).value)
-            self.datum_step = float(self.declare_parameter("datum_step_m", 0.2).value)
             self.last_depth = None
+            self.last_t = None
             self.baseline_samples = []
             self.gps_on = True
             self.surfaced_since = None
@@ -115,11 +121,11 @@ def main():
                     return
                 self.surface_depth = sorted(self.baseline_samples)[len(self.baseline_samples) // 2]
                 self.get_logger().info(f"surface depth baseline {self.surface_depth:.3f} m")
-            self.surface_depth = rebase(
-                self.surface_depth, self.last_depth, msg.depth_m, self.datum_step)
-            self.last_depth = msg.depth_m
-            depth = msg.depth_m - self.surface_depth
             now = self.get_clock().now().nanoseconds * 1e-9
+            self.surface_depth = rebase(
+                self.surface_depth, self.last_depth, self.last_t, msg.depth_m, now)
+            self.last_depth, self.last_t = msg.depth_m, now
+            depth = msg.depth_m - self.surface_depth
             gps_on, since = next_state(
                 depth, self.gps_on, self.surfaced_since, now,
                 self.loss_depth, self.resurface_depth, self.reacquire_delay)
