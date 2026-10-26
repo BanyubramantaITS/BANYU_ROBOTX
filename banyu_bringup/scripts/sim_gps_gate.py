@@ -39,6 +39,17 @@ def next_state(depth, gps_on, surfaced_since, now, loss_depth, resurface_depth, 
     return gps_on, (surfaced_since if not gps_on else None)
 
 
+def rebase(baseline, last, depth, step):
+    """
+    Return the new surface baseline. Arming zeroes the baro and a new run recalibrates the depth datum, so
+    the reading jumps at the surface. A dive cannot move the depth by `step` metres between two samples
+    a fraction of a second apart, so such a jump shifts the baseline instead of counting as a dive.
+    """
+    if last is not None and abs(depth - last) > step:
+        return baseline + (depth - last)
+    return baseline
+
+
 def self_check():
     loss, res, delay = 0.1, 0.05, 10.0
     on, since = next_state(0.0, True, None, 0.0, loss, res, delay)
@@ -57,6 +68,11 @@ def self_check():
     assert on, "inside the band an enabled GPS stays on"
     on, since = next_state(0.3, False, 5.0, 8.0, loss, res, delay)
     assert not on and since is None, "a new dive resets the timer"
+    # Datum jump at arming: the baseline follows it, a normal descent does not.
+    assert rebase(0.0, 0.0, 0.33, 0.2) == 0.33
+    assert rebase(0.0, 0.0, -0.4, 0.2) == -0.4
+    assert rebase(0.0, 0.5, 0.52, 0.2) == 0.0, "a slow dive is not a datum jump"
+    assert rebase(0.0, None, 1.0, 0.2) == 0.0
     print("sim_gps_gate: self-check OK")
 
 
@@ -78,6 +94,8 @@ def main():
             # Calibrated depth drifts 0.1-0.4 m at the surface in SITL (AGENTS.md), so the thresholds are
             # relative to the depth at start-up (vehicle on the surface), unless surface_depth_m is set.
             self.surface_depth = float(self.declare_parameter("surface_depth_m", float("nan")).value)
+            self.datum_step = float(self.declare_parameter("datum_step_m", 0.2).value)
+            self.last_depth = None
             self.baseline_samples = []
             self.gps_on = True
             self.surfaced_since = None
@@ -97,6 +115,9 @@ def main():
                     return
                 self.surface_depth = sorted(self.baseline_samples)[len(self.baseline_samples) // 2]
                 self.get_logger().info(f"surface depth baseline {self.surface_depth:.3f} m")
+            self.surface_depth = rebase(
+                self.surface_depth, self.last_depth, msg.depth_m, self.datum_step)
+            self.last_depth = msg.depth_m
             depth = msg.depth_m - self.surface_depth
             now = self.get_clock().now().nanoseconds * 1e-9
             gps_on, since = next_state(
