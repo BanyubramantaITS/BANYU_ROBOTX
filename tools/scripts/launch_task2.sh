@@ -48,17 +48,17 @@ Simulation Options (--sim only):
   --headless            Gazebo server without GUI and MAVProxy without console.
   --gui                 (Default) Gazebo GUI and MAVProxy.
   --no-clean            Skip pre-flight cleanup of stale SITL/ardusub/mavproxy processes.
-  --tier <t>            Task 2 tier: core | advanced | disruptive (default: advanced).
+  --tier <t>            Task 2 tier: core | advanced | disruptive (sim default: advanced).
   --gps-gate            Simulate GPS loss/reacquire around depth (gps_gate:=True).
   --no-gps-gate         (Default) Do not gate GPS (gps_gate:=False).
   --gps-loss-depth <m>  Depth at which GPS is lost (default: 0.1; gps_loss_depth_m).
   --gps-reacquire-delay <s>
                         Seconds after surfacing before GPS returns (default: 10.0;
                         gps_reacquire_delay_s).
-                        The gps-gate options are rejected with --real, and so is --tier
-                        (sub_bringup.launch.py has no such arguments).
+                        The gps-gate options are rejected with --real.
 
 Both targets:
+  --tier <t>            (see above) On --real the default is core, like sub_bringup.launch.py.
   --use-gps             (Default) GPS available (use_gps:=True); Task 2 needs the surface
                         GPS leg (NavigateSurfaceGps).
   --no-gps              use_gps:=False.
@@ -119,11 +119,6 @@ if [ "$TARGET" = "real" ]; then
     echo "  (the GPS gate is a sim shim); they are refused with --real. Use --sim." >&2
     exit 1
   fi
-  if [ "$TIER_SET" = true ]; then
-    echo "Error: --tier is simulation only; sub_bringup.launch.py has no tier argument." >&2
-    echo "  Use --sim, or set the tier in the Task 2 params file (task2_params_file:=...)." >&2
-    exit 1
-  fi
 fi
 
 # --- Ensure ROS 2 workspace is sourced ---
@@ -145,9 +140,9 @@ echo "=========================================================="
 echo "Active Git Branch : $CURRENT_BRANCH"
 echo "Target Platform   : $([ "$TARGET" = "sim" ] && echo "Gazebo Simulation (SITL)" || echo "Real AUV Physical Hardware")"
 echo "use_gps           : $(TF $USE_GPS)"
+echo "Tier              : $([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && echo core || echo "$TIER")"
 if [ "$TARGET" = "sim" ]; then
   echo "Gazebo GUI        : $([ "$HEADLESS" = true ] && echo "HEADLESS (server only)" || echo "ENABLED")"
-  echo "Tier              : $TIER"
   echo "GPS gate          : $(TF $GPS_GATE) (loss depth ${GPS_LOSS_DEPTH} m, reacquire delay ${GPS_REACQUIRE_DELAY} s)"
 fi
 echo "----------------------------------------------------------"
@@ -214,6 +209,7 @@ else
   LAUNCH_CMD=(
     ros2 launch banyu_bringup sub_bringup.launch.py
     mode:=task2
+    tier:="$([ "$TIER_SET" = true ] && echo "$TIER" || echo core)"
     use_gps:="$(TF $USE_GPS)"
   )
   [ ${#EXTRA_ARGS[@]} -gt 0 ] && LAUNCH_CMD+=("${EXTRA_ARGS[@]}")
