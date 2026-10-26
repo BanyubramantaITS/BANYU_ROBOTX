@@ -21,13 +21,15 @@ Run with ROS sourced, in the GCS domain, next to dds_relay.py (domains 40 <-> 10
 """
 import argparse
 import json
+import math
 import sys
 import time
 
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from rx_msgs.msg import (Color, Command, Heartbeat, PipelineSegmentStatus, PipelineSurvey,
+from rx_msgs.msg import (Color, Command, Course, Heartbeat, LatLng, PipelineSegmentStatus,
+                         PipelineSurvey,
                          ResourceDelivery, RobotState, RxTask, VehicleType)
 
 VOLATILE = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
@@ -56,6 +58,7 @@ class MockGcs(Node):
         self.uuv_hb_state = None
 
         self.cmd_pub = self.create_publisher(Command, '/system/mission/command', VOLATILE)
+        self.course_pub = self.create_publisher(Course, '/system/mission/course', LATCHED)
         self.uav_delivery_pub = self.create_publisher(
             ResourceDelivery, '/system/vehicle/uav/task2/delivery', LATCHED)
         self.uav_hb_pub = self.create_publisher(Heartbeat, '/system/vehicle/uav/heartbeat', VOLATILE)
@@ -68,6 +71,22 @@ class MockGcs(Node):
         if args.uav:
             self.create_subscription(Command, '/system/mission/command', self.on_command, VOLATILE)
             self.create_timer(0.5, self.uav_heartbeat)
+
+    def publish_course(self):
+        """Course configuration (GCS -> vehicles): the UUV rejects survey evidence without it."""
+        a = self.args
+        m_lat = 111320.0
+        m_lon = 111320.0 * math.cos(math.radians(a.home_lat))
+        pts = [(-1, -1), (1, -1), (1, 1), (-1, 1), (-1, -1)]   # closed polygon
+        corners = [LatLng(latitude=a.home_lat + y * a.half_size_m / m_lat,
+                          longitude=a.home_lon + x * a.half_size_m / m_lon) for x, y in pts]
+        course = Course()
+        course.course_id = a.course_id
+        course.pinger_freq_hz = a.pinger_hz
+        course.boundary = corners
+        course.uav_geofence = corners
+        self.course_pub.publish(course)
+        self.log('course_published', course_id=a.course_id, pinger_freq_hz=a.pinger_hz)
 
     # ---- logging
     def log(self, kind, **kw):
@@ -192,6 +211,13 @@ def main():
     ap.add_argument('--no-relay', dest='relay', action='store_false')
     ap.add_argument('--uav', action='store_true', default=True, help='run the mock UAV')
     ap.add_argument('--no-uav', dest='uav', action='store_false')
+    ap.add_argument('--course', action='store_true', default=True, help='publish /system/mission/course (default)')
+    ap.add_argument('--no-course', dest='course', action='store_false')
+    ap.add_argument('--course-id', default='ITSN-SIM-A')
+    ap.add_argument('--pinger-hz', type=int, default=25000)
+    ap.add_argument('--home-lat', type=float, default=33.810313, help='course centre (the sim spawn)')
+    ap.add_argument('--home-lon', type=float, default=-118.393866)
+    ap.add_argument('--half-size-m', type=float, default=30.0, help='half side of the square course boundary')
     ap.add_argument('--run-id', type=int, default=1)
     ap.add_argument('--first-seq', type=int, default=1)
     ap.add_argument('--uuv-target', type=int, default=VehicleType.TYPE_UUV, help='target for run-start / mission-done')
@@ -207,6 +233,11 @@ def main():
     rclpy.init()
     node = MockGcs(args)
     try:
+        if args.course:
+            node.publish_course()
+            end = time.time() + 1.5
+            while time.time() < end:
+                rclpy.spin_once(node, timeout_sec=0.1)
         for name in args.send:
             node.send(name)
             end = time.time() + args.delay_s
@@ -216,8 +247,12 @@ def main():
             need_survey = args.expect_segments is not None
             need_delivery = bool(args.expect_circle or args.expect_tin)
             end = time.time() + args.timeout
+            next_course = time.time() + 5.0
             while time.time() < end:
                 rclpy.spin_once(node, timeout_sec=0.2)
+                if args.course and time.time() > next_course:
+                    node.publish_course()
+                    next_course = time.time() + 5.0
                 if (not need_survey or node.survey) and (not need_delivery or node.uav_echoes):
                     if need_survey or need_delivery:
                         break
