@@ -83,3 +83,24 @@ Running log for the autonomous run of `docs/task2_core_disruptive_plan.md` (bran
   regression).
 - Delegation outcome summary so far: D1 (launch_task2.sh, sonnet) accepted.
 - e2e core run 2: Gazebo/SITL did not finish loading (log stalled after the FCU frame lines, no water depth), relaunch 1 of 3.
+
+## Step 3 (Core) bring-up findings
+Getting one clean end-to-end Core run in the sim took four fixes, none of them in the planned work items:
+1. `sim_gps_gate` cut the GPS at the surface when the vehicle armed: arming zeroes the baro and the calibrated depth
+   datum jumps by 0.15-0.33 m, which the gate read as a dive. Fixed by following fast depth steps (rate > 0.8 m/s)
+   as datum jumps.
+2. `mock_gcs.py` sent `run-start` before the mission manager's reader was matched (volatile topic), so the start was
+   silently lost: it now waits for both readers plus a settle time. It also had to publish `/system/mission/course`:
+   without it the UUV rejects survey evidence (`COURSE_UNAVAILABLE`) and `WaitSurveyComplete` fails.
+3. The Task 2 sim fixture coordinates in `task2_params.yaml` (buoys at 44 m east, pipe at x 47-52) did not match
+   `main_world.world` (pipeline at x 2.3, green buoy +3.8, red buoy -3.8). The end-of-pipe marker was never
+   reached, so the mission looped Follow/Search/Acquire until the traverse timeout. The fixture now follows the world.
+   The same loop also happened with the unmodified GUIDED setup, so it was not caused by the ALT_HOLD change.
+4. `main_launch.launch.py` does not forward `light_seed` to the world launch, so `light_seed:=N` is ignored and the
+   damaged node is always 2 (default). Seeds cannot select the red node until this is wired.
+- Sim start-up: Gazebo sometimes never finishes loading (one launch in three, as AGENTS.md says); the scratch e2e driver
+  retries up to three times.
+- First complete Core run (tier core, GPS cut at 0.1 m, GUIDED on the surface, ALT_HOLD under water, mock GCS):
+  mission SUCCEEDED, `PipelineSurvey` received by the mock GCS about 80 s after the start. The survey lists the red
+  ring FIRST (`RED GREEN GREEN GREEN`), but the world's damaged node is 2, which is second from the active (green)
+  buoy end: the ring order is wrong and is the next thing to investigate.
