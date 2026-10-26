@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""
+SIMULATION ONLY: cut the SITL GPS while the vehicle is submerged, like the real AUV.
+
+The real RTK GPS only works with the antenna above water: it is lost as soon as the body goes under and
+needs a reacquire delay after surfacing. SITL synthesises GPS from Gazebo ground truth and keeps it
+alive underwater, which hides the position loss Task 2 has on the robot (docs/task2_underwater_position.md).
+This node reads the calibrated depth and toggles SIM_GPS1_ENABLE through MAVROS.
+
+    depth > loss_depth_m                   -> GPS off immediately
+    depth <= resurface_depth_m for
+      reacquire_delay_s without a dive     -> GPS on again
+
+Never run this on hardware (it writes a SITL-only parameter). Self-check: `./sim_gps_gate.py --self-check`
+"""
+
+import sys
+
+PARAM_ID = "SIM_GPS1_ENABLE"
+
+
+def next_state(depth, gps_on, surfaced_since, now, loss_depth, resurface_depth, reacquire_delay):
+    """
+    Return (gps_on, surfaced_since) for one depth sample.
+
+    `surfaced_since` is the time the vehicle first came back to <= resurface_depth, or None.
+    Between resurface_depth and loss_depth the current state is held (hysteresis).
+    """
+    if depth > loss_depth:
+        return False, None
+    if depth <= resurface_depth:
+        if gps_on:
+            return True, None
+        start = now if surfaced_since is None else surfaced_since
+        if now - start >= reacquire_delay:
+            return True, None
+        return False, start
+    # Inside the band: keep the state, and restart the reacquire timer if GPS is still off.
+    return gps_on, (surfaced_since if not gps_on else None)
+
+
+def self_check():
+    loss, res, delay = 0.1, 0.05, 10.0
+    on, since = next_state(0.0, True, None, 0.0, loss, res, delay)
+    assert on and since is None, "stays on at the surface"
+    on, since = next_state(0.3, True, None, 1.0, loss, res, delay)
+    assert not on, "cut as soon as it is past the loss depth"
+    on, since = next_state(0.0, False, None, 5.0, loss, res, delay)
+    assert not on and since == 5.0, "reacquire timer starts on surfacing"
+    on, since = next_state(0.0, False, 5.0, 14.9, loss, res, delay)
+    assert not on, "still reacquiring"
+    on, since = next_state(0.0, False, 5.0, 15.0, loss, res, delay)
+    assert on and since is None, "back on after the delay"
+    on, since = next_state(0.08, False, 5.0, 8.0, loss, res, delay)
+    assert not on and since == 5.0, "inside the band the timer keeps running"
+    on, since = next_state(0.08, True, None, 8.0, loss, res, delay)
+    assert on, "inside the band an enabled GPS stays on"
+    on, since = next_state(0.3, False, 5.0, 8.0, loss, res, delay)
+    assert not on and since is None, "a new dive resets the timer"
+    print("sim_gps_gate: self-check OK")
+
+
+def main():
+    import rclpy
+    from banyu_msgs.msg import WaterDepth
+    from mavros_msgs.msg import ParamValue
+    from mavros_msgs.srv import ParamSetV2
+    from rclpy.node import Node
+
+    class SimGpsGate(Node):
+        def __init__(self):
+            super().__init__("sim_gps_gate")
+            self.loss_depth = float(self.declare_parameter("loss_depth_m", 0.1).value)
+            self.resurface_depth = float(self.declare_parameter("resurface_depth_m", 0.05).value)
+            self.reacquire_delay = float(self.declare_parameter("reacquire_delay_s", 10.0).value)
+            depth_topic = self.declare_parameter(
+                "depth_topic", "/banyu/vehicle/water_depth").value
+            self.gps_on = True
+            self.surfaced_since = None
+            self.pending = None
+            self.cli = self.create_client(ParamSetV2, "/mavros/param/set")
+            self.create_subscription(WaterDepth, depth_topic, self.on_depth, 10)
+            self.get_logger().info(
+                f"GPS gate armed: off below {self.loss_depth} m, on after "
+                f"{self.reacquire_delay} s at <= {self.resurface_depth} m")
+
+        def on_depth(self, msg):
+            if not msg.valid:
+                return
+            now = self.get_clock().now().nanoseconds * 1e-9
+            gps_on, since = next_state(
+                msg.depth_m, self.gps_on, self.surfaced_since, now,
+                self.loss_depth, self.resurface_depth, self.reacquire_delay)
+            self.surfaced_since = since
+            if gps_on != self.gps_on and gps_on != self.pending:
+                self.send(gps_on, msg.depth_m)
+
+        def send(self, enable, depth):
+            if not self.cli.service_is_ready():
+                self.get_logger().warn("/mavros/param/set not up yet; will retry")
+                return
+            req = ParamSetV2.Request()
+            req.param_id = PARAM_ID
+            req.value = ParamValue()
+            req.value.integer = 1 if enable else 0
+            req.value.real = 0.0
+            self.pending = enable
+            self.get_logger().info(f"depth {depth:.2f} m -> GPS {'ON' if enable else 'OFF'}")
+
+            def done(fut):
+                self.pending = None
+                try:
+                    if fut.result().success:
+                        self.gps_on = enable
+                        self.get_logger().info(f"{PARAM_ID} set to {int(enable)}")
+                    else:
+                        self.get_logger().error(f"{PARAM_ID} write rejected; retrying")
+                except Exception as exc:
+                    self.get_logger().error(f"param set call failed: {exc}; retrying")
+
+            self.cli.call_async(req).add_done_callback(done)
+
+    rclpy.init()
+    node = SimGpsGate()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    node.destroy_node()
+    rclpy.try_shutdown()
+    return 0
+
+
+if __name__ == "__main__":
+    if "--self-check" in sys.argv:
+        self_check()
+        sys.exit(0)
+    sys.exit(main())

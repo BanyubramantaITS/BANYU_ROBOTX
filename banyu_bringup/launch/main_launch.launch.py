@@ -81,6 +81,26 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    gps_gate_arg = DeclareLaunchArgument(
+        name="gps_gate",
+        default_value="False",
+        description="Simulation only: cut the SITL GPS while submerged (like the real AUV, whose GPS "
+        "needs the antenna above water) and restore it after a reacquire delay. Task 2 sim only.",
+        choices=["True", "False"],
+    )
+
+    gps_loss_depth_arg = DeclareLaunchArgument(
+        name="gps_loss_depth_m",
+        default_value="0.1",
+        description="gps_gate: depth in metres below which the GPS is cut (worst case 0.1).",
+    )
+
+    gps_reacquire_delay_arg = DeclareLaunchArgument(
+        name="gps_reacquire_delay_s",
+        default_value="10.0",
+        description="gps_gate: seconds at the surface before the GPS comes back.",
+    )
+
     use_dvl_arg = DeclareLaunchArgument(
         name="use_dvl",
         default_value="False",
@@ -220,6 +240,24 @@ def generate_launch_description():
         ),
     )
 
+    sim_gps_gate = ExecuteProcess(
+        cmd=["ros2", "run", "banyu_bringup", "sim_gps_gate.py", "--ros-args",
+             "-p", ["loss_depth_m:=", LaunchConfiguration("gps_loss_depth_m")],
+             "-p", ["reacquire_delay_s:=", LaunchConfiguration("gps_reacquire_delay_s")],
+             "-p", "use_sim_time:=true"],
+        name="sim_gps_gate",
+        output="screen",
+        condition=IfCondition(
+            AndSubstitution(
+                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
+                AndSubstitution(
+                    EqualsSubstitution(LaunchConfiguration("gps_gate"), "True"),
+                    EqualsSubstitution(LaunchConfiguration("mode"), "task2"),
+                ),
+            )
+        ),
+    )
+
     return LaunchDescription(
         [
             mode_arg,
@@ -230,6 +268,9 @@ def generate_launch_description():
             tier_arg,
             debug_arg,
             use_gps_arg,
+            gps_gate_arg,
+            gps_loss_depth_arg,
+            gps_reacquire_delay_arg,
             use_dvl_arg,
             headless_arg,
             task2_params_arg,
@@ -239,6 +280,7 @@ def generate_launch_description():
             gazebo_main_launch,
             sitl_mavros_launch,
             nogps_odom_beacon,
+            sim_gps_gate,
             mission_launch,
         ]
     )

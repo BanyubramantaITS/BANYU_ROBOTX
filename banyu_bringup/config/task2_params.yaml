@@ -85,7 +85,7 @@ task2_pipeline_detector:
     max_heading_error_rad: 1.571
     # Refit a band of +-ratio*height around the lookahead row when bends spoil the global fit.
     local_fit_band_ratio: 0.2
-    probe_rect: []
+    # probe_rect: [x, y, w, h] masks the probe tip; leave unset (an empty YAML list cannot be typed by rclcpp).
 
     # Pipeline mask HSV and grayscale thresholds
     gray_threshold: 170
