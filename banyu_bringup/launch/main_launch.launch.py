@@ -218,6 +218,7 @@ def generate_launch_description():
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "debug": LaunchConfiguration("debug"),
+            "tier": LaunchConfiguration("tier"),
             "task2_params_file": LaunchConfiguration("task2_params_file"),
             "por_params_file": LaunchConfiguration("por_params_file"),
         }.items(),

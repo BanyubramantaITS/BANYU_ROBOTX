@@ -55,6 +55,14 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    tier_arg = DeclareLaunchArgument(
+        name="tier",
+        default_value="core",
+        description="Task 2 tier the UUV attempts: 'core' (2), 'advanced' (3) or 'disruptive' (4). "
+        "Sets the mission, survey evidence, report and flash-code decoder tier.",
+        choices=["core", "advanced", "disruptive"],
+    )
+
     task2_params_arg = DeclareLaunchArgument(
         name="task2_params_file",
         default_value=default_task2_params,
@@ -103,6 +111,10 @@ def generate_launch_description():
     use_sim = LaunchConfiguration("use_sim")
     debug = LaunchConfiguration("debug")
     task2_params = LaunchConfiguration("task2_params_file")
+    task2_tier = ParameterValue(
+        PythonExpression(["{'core': 2, 'advanced': 3, 'disruptive': 4}['", LaunchConfiguration("tier"), "']"]),
+        value_type=int,
+    )
     por_params = LaunchConfiguration("por_params_file")
     hardware_params = LaunchConfiguration("hardware_params_file")
 
@@ -146,6 +158,7 @@ def generate_launch_description():
             task2_hardware_override,
             {
                 "mission_mode": mode,
+                "mission.task2_tier": task2_tier,
             },
         ],
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
@@ -272,7 +285,7 @@ def generate_launch_description():
         package="banyu_communication",
         executable="uuv_comm_node",
         name="uuv_comm_node",
-        parameters=[task2_params],
+        parameters=[task2_params, {"survey.task2_tier": task2_tier}],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -326,7 +339,16 @@ def generate_launch_description():
         package="banyu_detection",
         executable="survey_evidence_node",
         name="survey_evidence_node",
-        parameters=[task2_params],
+        parameters=[task2_params, {"tier": task2_tier}],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+    )
+
+    task2_resource_code_decoder = Node(
+        package="banyu_detection",
+        executable="resource_code_decoder_node",
+        name="resource_code_decoder",
+        parameters=[task2_params, {"tier": task2_tier}],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -383,6 +405,7 @@ def generate_launch_description():
             use_sim_arg,
             use_sim_time_arg,
             debug_arg,
+            tier_arg,
             task2_params_arg,
             por_params_arg,
             hardware_params_arg,
@@ -406,6 +429,7 @@ def generate_launch_description():
             task2_calibrated_depth,
             task2_underwater_odometry,
             task2_survey_evidence,
+            task2_resource_code_decoder,
             task2_pinger_localization,
             esp32_bridge,
             esp32_trigger,

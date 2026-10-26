@@ -78,6 +78,13 @@ def generate_launch_description():
         choices=["por", "task2"],
     )
 
+    tier_arg = DeclareLaunchArgument(
+        name="tier",
+        default_value="core",
+        description="Task 2 tier the UUV attempts: 'core', 'advanced' or 'disruptive' (mode:=task2 only).",
+        choices=["core", "advanced", "disruptive"],
+    )
+
     fcu_url_arg = DeclareLaunchArgument(
         name="fcu_url",
         default_value="udp://127.0.0.1:14551@",
@@ -301,6 +308,7 @@ def generate_launch_description():
             "use_sim": "False",
             "use_sim_time": "False",
             "debug": LaunchConfiguration("debug"),
+            "tier": LaunchConfiguration("tier"),
             "enable_esp32_trigger": LaunchConfiguration("enable_esp32_trigger"),
             "enable_esp32_bridge": LaunchConfiguration("enable_esp32_bridge"),
             "por_params_file": por_params,
@@ -312,6 +320,7 @@ def generate_launch_description():
     return LaunchDescription(
         [
             mode_arg,
+            tier_arg,
             fcu_url_arg,
             use_dvl_arg,
             use_gps_arg,

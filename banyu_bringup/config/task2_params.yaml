@@ -25,7 +25,7 @@ banyu_mission:
       state_timeout_s: 5.0
       gps_timeout_s: 5.0
     mission:
-      task2_tier: 2
+      task2_tier: 2   # launch argument tier:= overrides this (core 2, advanced 3, disruptive 4)
       surface_depth_m: 0.0
       surface_tolerance_m: 0.5
       max_retries: 3
@@ -40,6 +40,8 @@ banyu_mission:
       traverse_timeout_s: 600.0
       inspection_depth_m: 12.5
       depth_tolerance_m: 0.3
+      # Advanced and Disruptive: time to stay on the repaired ring while the flash code is read.
+      decode_window_s: 40.0
 
 task2_sim_provider:
   ros__parameters:
@@ -393,3 +395,21 @@ underwater_odometry_node:
       buoy_target: "/banyu/task2/buoy_target"
       odometry: "/banyu/dive/odometry"
       path: "/banyu/dive/path"
+
+resource_code_decoder:
+  ros__parameters:
+    tier: 2                 # launch argument tier:= overrides this; 4 reads tin and circle, 3 the circle only
+    topics:
+      ring_observation: "/banyu/pipeline/ring_observation"
+      run_lifecycle: "/banyu/mission/run_lifecycle"
+      resource_code: "/banyu/pipeline/resource_code"
+    services:
+      decode_window: "/banyu/pipeline/decode_resource_code"
+    min_on_s: 0.5           # a flash lasts about 1 s
+    max_on_s: 1.7
+    steady_on_s: 3.0        # longer runs are the steady green after the repair
+    long_gap_s: 1.6         # dark gap between cycles (nominally 2 s)
+    merge_gap_s: 0.25       # dropout shorter than this does not split a flash
+    min_cycles: 2           # cycles that must agree before the code counts as read
+    max_window_s: 45.0
+    publish_period_s: 1.0
