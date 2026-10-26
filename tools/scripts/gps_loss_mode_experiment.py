@@ -44,6 +44,7 @@ class Experiment(Node):
         self.out = open(args.out, 'a')
         self.state = State()
         self.depth = None
+        self.surface_depth = None   # depth reading at the surface at start (sim datum drifts)
         self.yaw = None
         self.pose_stamp = None
         self.texts = []
@@ -53,7 +54,7 @@ class Experiment(Node):
         self.create_subscription(PoseStamped, '/mavros/local_position/pose', self.on_pose,
                                  qos_profile_sensor_data)
         self.create_subscription(StatusText, '/mavros/statustext/recv',
-                                 lambda m: self.texts.append((self.now_s(), m.text)), 50)
+                                 lambda m: self.texts.append((self.now_s(), m.text)), qos_profile_sensor_data)
         self.rc_pub = self.create_publisher(OverrideRCIn, '/mavros/rc/override', 10)
         self.sp_pub = self.create_publisher(PositionTarget, '/mavros/setpoint_raw/local', 10)
         self.mode_cli = self.create_client(SetMode, '/mavros/set_mode')
@@ -140,14 +141,14 @@ class Experiment(Node):
     def dive(self, mode, target_depth, timeout):
         """Descend with the mode under test when it can, with ALT_HOLD sticks otherwise."""
         end = self.now_s() + timeout
-        while self.now_s() < end and (self.depth is None or self.depth < target_depth):
+        while self.now_s() < end and (self.depth is None or self.depth < self.surface_depth + target_depth):
             if mode == 'GUIDED' and self.state.mode == 'GUIDED':
                 self.velocity_setpoint(vz=-0.3)
             else:
                 self.rc(throttle=1400)
             self.wait(0.1)
             self.sample(mode, 'dive')
-        return self.depth is not None and self.depth >= target_depth
+        return self.depth is not None and self.depth >= self.surface_depth + target_depth
 
     def hold(self, mode, seconds):
         end = self.now_s() + seconds
@@ -162,12 +163,12 @@ class Experiment(Node):
     def surface(self, timeout=90.0):
         end = self.now_s() + timeout
         self.set_mode('ALT_HOLD')
-        while self.now_s() < end and (self.depth is None or self.depth > 0.05):
+        while self.now_s() < end and (self.depth is None or self.depth > self.surface_depth + 0.1):
             self.rc(throttle=1600)
             self.wait(0.1)
             self.sample('-', 'surfacing')
         self.rc()
-        return self.depth is not None and self.depth <= 0.05
+        return self.depth is not None and self.depth <= self.surface_depth + 0.1
 
     def recover_guided(self, timeout):
         """Seconds until GUIDED is accepted again after surfacing, or None."""
@@ -218,7 +219,9 @@ def main():
     rclpy.init()
     node = Experiment(args)
     try:
-        node.wait(3.0)
+        node.wait(5.0)
+        node.surface_depth = node.depth if node.depth is not None else 0.0
+        node.log(kind='baseline', surface_depth=node.surface_depth)
         for mode in args.modes:
             node.trial(mode)
     finally:

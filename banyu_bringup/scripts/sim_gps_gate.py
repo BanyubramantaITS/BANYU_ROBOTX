@@ -63,8 +63,8 @@ def self_check():
 def main():
     import rclpy
     from banyu_msgs.msg import WaterDepth
-    from mavros_msgs.msg import ParamValue
     from mavros_msgs.srv import ParamSetV2
+    from rcl_interfaces.msg import ParameterType, ParameterValue
     from rclpy.node import Node
 
     class SimGpsGate(Node):
@@ -75,6 +75,10 @@ def main():
             self.reacquire_delay = float(self.declare_parameter("reacquire_delay_s", 10.0).value)
             depth_topic = self.declare_parameter(
                 "depth_topic", "/banyu/vehicle/water_depth").value
+            # Calibrated depth drifts 0.1-0.4 m at the surface in SITL (AGENTS.md), so the thresholds are
+            # relative to the depth at start-up (vehicle on the surface), unless surface_depth_m is set.
+            self.surface_depth = float(self.declare_parameter("surface_depth_m", float("nan")).value)
+            self.baseline_samples = []
             self.gps_on = True
             self.surfaced_since = None
             self.pending = None
@@ -87,13 +91,20 @@ def main():
         def on_depth(self, msg):
             if not msg.valid:
                 return
+            if self.surface_depth != self.surface_depth:   # NaN: learn it from the first samples
+                self.baseline_samples.append(msg.depth_m)
+                if len(self.baseline_samples) < 20:
+                    return
+                self.surface_depth = sorted(self.baseline_samples)[len(self.baseline_samples) // 2]
+                self.get_logger().info(f"surface depth baseline {self.surface_depth:.3f} m")
+            depth = msg.depth_m - self.surface_depth
             now = self.get_clock().now().nanoseconds * 1e-9
             gps_on, since = next_state(
-                msg.depth_m, self.gps_on, self.surfaced_since, now,
+                depth, self.gps_on, self.surfaced_since, now,
                 self.loss_depth, self.resurface_depth, self.reacquire_delay)
             self.surfaced_since = since
             if gps_on != self.gps_on and gps_on != self.pending:
-                self.send(gps_on, msg.depth_m)
+                self.send(gps_on, depth)
 
         def send(self, enable, depth):
             if not self.cli.service_is_ready():
@@ -101,9 +112,9 @@ def main():
                 return
             req = ParamSetV2.Request()
             req.param_id = PARAM_ID
-            req.value = ParamValue()
-            req.value.integer = 1 if enable else 0
-            req.value.real = 0.0
+            req.force_set = False
+            req.value = ParameterValue(
+                type=ParameterType.PARAMETER_INTEGER, integer_value=1 if enable else 0)
             self.pending = enable
             self.get_logger().info(f"depth {depth:.2f} m -> GPS {'ON' if enable else 'OFF'}")
 

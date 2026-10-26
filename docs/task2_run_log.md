@@ -29,3 +29,16 @@ Running log for the autonomous run of `docs/task2_core_disruptive_plan.md` (bran
   - `underwater_odometry_node` was not built in `install/`; rebuilt the Task 2 packages.
 - Decision: M2 (GUIDED + zero-displacement ExternalNav beacon) is documented as unsafe in
   `task2_underwater_position.md`; it is not run, only recorded as "not run, known unsafe".
+
+## Delegations
+- D1: `tools/scripts/launch_task2.sh` -> Claude subagent (sonnet) in a separate git worktree (scratchpad).
+  Files allowed: that one file. Proof: `bash -n`, `--help`, `--sim`/`--real` `--dry-run`, `--real --gps-gate`
+  must fail. Status: pending my verification (read the file, re-run the dry-runs myself).
+
+## Step 1 results so far
+- sim_gps_gate fixed twice: `ParamSetV2.value` is `rcl_interfaces/ParameterValue` (not `mavros_msgs/ParamValue`),
+  and SITL calibrated depth reads ~0.43 m at the surface (datum drift), so thresholds are relative to a baseline
+  taken at start (`surface_depth_m` can override it). GPS went OFF at 0.12 m relative depth and back ON 10 s
+  after surfacing.
+- M3 ALT_HOLD + RC override (neutral sticks, GPS cut): held depth within 0.04 m and yaw within 0.0 deg over
+  30 s at 1.0 m; GUIDED was accepted again 2.0 s after surfacing (GPS back).
