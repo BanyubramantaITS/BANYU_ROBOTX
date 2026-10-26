@@ -33,7 +33,11 @@ Running log for the autonomous run of `docs/task2_core_disruptive_plan.md` (bran
 ## Delegations
 - D1: `tools/scripts/launch_task2.sh` -> Claude subagent (sonnet) in a separate git worktree (scratchpad).
   Files allowed: that one file. Proof: `bash -n`, `--help`, `--sim`/`--real` `--dry-run`, `--real --gps-gate`
-  must fail. Status: pending my verification (read the file, re-run the dry-runs myself).
+  must fail. Outcome: ACCEPTED after my verification: read the whole file, `git status` in the worktree showed only that
+  file, `bash -n` ok, re-ran the five dry-runs (sim, sim disruptive + gate, real, real + gate refused, bad tier
+  refused), checked `sub_bringup.launch.py` really has `mode` and `use_gps`, and that the cleanup lines match
+  `launch_por.sh`. No changes needed. Note: its pre-flight cleanup kills all ardusub/mavproxy, so autonomous
+  runs use `--no-clean`.
 
 ## Step 1 results so far
 - sim_gps_gate fixed twice: `ParamSetV2.value` is `rcl_interfaces/ParameterValue` (not `mavros_msgs/ParamValue`),
