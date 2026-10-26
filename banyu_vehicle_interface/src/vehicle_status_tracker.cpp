@@ -6,6 +6,23 @@
 
 namespace banyu_vehicle_interface
 {
+namespace
+{
+// autonomy_mode may list several modes ("GUIDED,ALT_HOLD"): surface mode, then the underwater mode.
+bool modeInList(const std::string & mode, const std::string & list)
+{
+  std::size_t start = 0;
+  while (start <= list.size()) {
+    const auto comma = list.find(',', start);
+    const auto end = comma == std::string::npos ? list.size() : comma;
+    if (list.compare(start, end - start, mode) == 0 && end - start == mode.size()) {return true;}
+    if (comma == std::string::npos) {break;}
+    start = comma + 1;
+  }
+  return false;
+}
+}  // namespace
+
 
 VehicleStatusTracker::VehicleStatusTracker()
 : VehicleStatusTracker(Config{}, nullptr)
@@ -156,7 +173,7 @@ banyu_msgs::msg::VehicleStatus VehicleStatusTracker::status(const rclcpp::Time &
     result.authority = "OPERATOR";
   } else if (effective_mode == 1) {
     result.authority = "MANUAL";
-  } else if (effective_mode == 2 && result.mode == config_.autonomy_mode) {
+  } else if (effective_mode == 2 && modeInList(result.mode, config_.autonomy_mode)) {
     result.authority = "AUTONOMY";
   } else {
     result.authority = "MANUAL";

@@ -28,6 +28,7 @@ add_library(banyu_mission_core
   src/action/align_heading_node.cpp
   src/action/arm_and_set_guided.cpp
   src/action/center_on_ring_node.cpp
+  src/action/decode_resource_code_node.cpp
   src/action/dive_to_depth_node.cpp
   src/action/follow_pipeline_node.cpp
   src/action/handle_abort_or_teleop_node.cpp
@@ -37,6 +38,7 @@ add_library(banyu_mission_core
   src/action/publish_pipeline_survey_node.cpp
   src/action/register_actions.cpp
   src/action/search_pipeline_node.cpp
+  src/action/set_fcu_mode_node.cpp
   src/action/surface_node.cpp
   src/condition/autonomy_interrupted_condition.cpp
   src/condition/pipeline_active_condition.cpp

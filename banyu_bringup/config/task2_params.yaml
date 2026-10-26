@@ -3,6 +3,7 @@
 banyu_mission:
   ros__parameters:
     fallback_mode: "SURFACE"
+    autonomy_mode: "GUIDED,ALT_HOLD"   # surface mode, then the mode used under water (SetFcuMode)
     topics:
       pipeline_observation: "/banyu/pipeline/observation"
       ring_observation: "/banyu/pipeline/ring_observation"
@@ -25,6 +26,7 @@ banyu_mission:
       state_timeout_s: 5.0
       gps_timeout_s: 5.0
     mission:
+      underwater_mode: "ALT_HOLD"   # second entry of autonomy_mode
       task2_tier: 2   # launch argument tier:= overrides this (core 2, advanced 3, disruptive 4)
       surface_depth_m: 0.0
       surface_tolerance_m: 0.5
@@ -127,7 +129,7 @@ banyu_vehicle_status:
     gps_timeout_s: 5.0
     rc_takeover_channel: 1   # 0-based /mavros/rc/in index: CH2 = forward stick (RCMAP_FORWARD 2)
     rc_takeover_threshold: 1700
-    autonomy_mode: "GUIDED"
+    autonomy_mode: "GUIDED,ALT_HOLD"   # surface mode, then the mode used under water
     default_operational_mode: 0
     kill_switch_timeout_s: 1.0
 
@@ -248,6 +250,10 @@ vehicle_execution_node:
       enable_mavros_publish: true
       publish_rate_hz: 20.0
       require_guided: true
+      # GUIDED with the GPS on the surface, ALT_HOLD with RC override under water (no position needed):
+      # see docs/task2_mode_experiments.md. banyu_mission, banyu_vehicle_status and this node must list the same modes.
+      autonomy_mode: "GUIDED,ALT_HOLD"
+      output_mode: "auto"
       acquire_surge_speed: 0.3
       acquire_timeout_s: 20.0
       acquire_confirm_frames: 5
@@ -261,6 +267,19 @@ vehicle_execution_node:
       search_pinger_timeout_s: 3.0
       search_pinger_kp: 0.8
       search_pinger_forward_speed: 0.25
+    rc_override:   # = Pixhawk RCMAP_FORWARD/LATERAL/THROTTLE/YAW (robot: 2/1/3/4); same gains as POR
+      channel_forward: 2
+      channel_lateral: 1
+      channel_throttle: 3
+      channel_yaw: 4
+      gain_xy_pwm_per_mps: 300.0
+      gain_z_pwm_per_mps: 400.0
+      gain_yaw_pwm_per_rad_s: 143.4
+      max_delta_pwm: 400
+      neutral_pwm: 1500
+      deadzone_xy_pwm: 0
+      deadzone_z_pwm: 50
+      deadzone_yaw_pwm: 20
     surface:
       depth_sources: ["pressure_depth"]
     topics:

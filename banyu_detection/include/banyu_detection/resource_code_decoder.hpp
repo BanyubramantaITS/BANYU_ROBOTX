@@ -33,6 +33,7 @@ struct ResourceCodeConfig
 struct ResourceCodeResult
 {
   bool complete {false};
+  bool repair_verified {false};   // the node showed steady green for longer than steady_on_s
   int tin {0};                    // 0 when code_length is 1
   int circle {0};
   int cycles {0};                 // cycles that agree with the winning code

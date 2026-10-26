@@ -35,9 +35,21 @@ void VehicleExecutionNode::initParameters()
   enable_mavros_publish_ = declare_parameter<bool>("control.enable_mavros_publish", false);
   require_guided_ = declare_parameter<bool>("control.require_guided", true);
   autonomy_mode_ = declare_parameter<std::string>("control.autonomy_mode", "GUIDED");
+  {
+    // "GUIDED,ALT_HOLD": surface mode first, then the mode used under water.
+    const auto comma = autonomy_mode_.find(',');
+    if (comma != std::string::npos) {
+      underwater_mode_ = autonomy_mode_.substr(comma + 1);
+      autonomy_mode_ = autonomy_mode_.substr(0, comma);
+    }
+  }
   output_mode_ = declare_parameter<std::string>("control.output_mode", "setpoint");
-  if (output_mode_ != "setpoint" && output_mode_ != "rc_override") {
-    throw std::invalid_argument("control.output_mode must be setpoint or rc_override");
+  if (output_mode_ != "setpoint" && output_mode_ != "rc_override" && output_mode_ != "auto") {
+    throw std::invalid_argument("control.output_mode must be setpoint, rc_override or auto");
+  }
+  if (output_mode_ == "auto" && underwater_mode_.empty()) {
+    throw std::invalid_argument(
+            "control.output_mode auto needs control.autonomy_mode \"<surface>,<underwater>\"");
   }
   rc_override_config_.channel_forward = static_cast<int>(declare_parameter<int64_t>(
     "rc_override.channel_forward", rc_override_config_.channel_forward));
@@ -169,13 +181,13 @@ void VehicleExecutionNode::initPublishers()
   preview_target_pub_ = create_publisher<mavros_msgs::msg::PositionTarget>(
     preview_topic, rclcpp::QoS(10));
 
-  if (enable_mavros_publish_ && output_mode_ == "setpoint") {
+  if (enable_mavros_publish_ && (output_mode_ == "setpoint" || output_mode_ == "auto")) {
     const auto mavros_topic = declare_parameter<std::string>(
       "topics.mavros_target", "/mavros/setpoint_raw/local");
     mavros_target_pub_ = create_publisher<mavros_msgs::msg::PositionTarget>(
       mavros_topic, rclcpp::QoS(10));
   }
-  if (enable_mavros_publish_ && output_mode_ == "rc_override") {
+  if (enable_mavros_publish_ && (output_mode_ == "rc_override" || output_mode_ == "auto")) {
     const auto override_topic = declare_parameter<std::string>(
       "topics.rc_override", "/mavros/rc/override");
     rc_override_pub_ = create_publisher<mavros_msgs::msg::OverrideRCIn>(
@@ -453,7 +465,7 @@ void VehicleExecutionNode::timerCallback()
   const bool safety_fault = (telemetry_.status_valid &&
     (telemetry_.operator_takeover || !telemetry_.fcu_connected || !telemetry_.armed ||
     !telemetry_.fcu_status_fresh ||
-    !telemetry_.rc_fresh || (require_guided_ && telemetry_.mode != autonomy_mode_) ||
+    !telemetry_.rc_fresh || (require_guided_ && !modeAllowed(telemetry_.mode)) ||
     telemetry_.operational_mode != 2 || telemetry_.hardware_kill_active)) ||
     (status_ever_received_ && !telemetry_.status_valid) ||
     (require_run_authorization_ && !runMotionAuthorized() && !readinessHoldAuthorized());
@@ -518,11 +530,12 @@ void VehicleExecutionNode::timerCallback()
         terminal_zero_cycles_remaining_ > 0;
       const bool run_output_ready = !require_run_authorization_ ||
         runMotionAuthorized() || terminal_stop;
-      const bool allowed = hardwareStatusReady() && run_output_ready && !safety_fault;
+      const bool allowed = hardwareStatusReady() && run_output_ready && !safety_fault &&
+        rcModeActive();
       publishRcOverride(allowed ? intent : zeroIntent(), allowed);
       readiness_output_published = false;
     }
-    if (enable_mavros_publish_ && mavros_target_pub_) {
+    if (enable_mavros_publish_ && mavros_target_pub_ && setpointModeActive()) {
       if (!hardwareStatusReady()) {
         terminal_zero_cycles_remaining_ = 0;
       }
@@ -708,13 +721,30 @@ void VehicleExecutionNode::handleStatus(const banyu_msgs::msg::VehicleStatus::Sh
   telemetry_.hardware_kill_active = msg->hardware_kill_active;
 }
 
+bool VehicleExecutionNode::modeAllowed(const std::string & mode) const
+{
+  return mode == autonomy_mode_ || (!underwater_mode_.empty() && mode == underwater_mode_);
+}
+
+bool VehicleExecutionNode::rcModeActive() const
+{
+  if (output_mode_ == "rc_override") {return telemetry_.mode == autonomy_mode_;}
+  return output_mode_ == "auto" && telemetry_.mode == underwater_mode_;
+}
+
+bool VehicleExecutionNode::setpointModeActive() const
+{
+  if (output_mode_ == "setpoint") {return true;}
+  return output_mode_ == "auto" && telemetry_.mode == autonomy_mode_;
+}
+
 void VehicleExecutionNode::publishRcOverride(const MotionIntent & intent, bool output_allowed)
 {
   // While autonomous: stream sticks. Otherwise hold neutral while the vehicle is still
   // armed in the autonomy mode with autonomy selected (a clean stop), and release the
   // sticks to the transmitter at once on an RC takeover / MANUAL switch, a disarm or a
   // mode change, so the pilot is never locked out.
-  const bool armed_in_autonomy = telemetry_.armed && telemetry_.mode == autonomy_mode_ &&
+  const bool armed_in_autonomy = telemetry_.armed && rcModeActive() &&
     telemetry_.operational_mode == 2 && !telemetry_.operator_takeover;
   mavros_msgs::msg::OverrideRCIn msg;
   if (output_allowed) {
@@ -753,7 +783,7 @@ bool VehicleExecutionNode::hardwareStatusReady() const
 {
   return telemetry_.status_valid && telemetry_.fcu_connected && telemetry_.fcu_status_fresh &&
          telemetry_.armed && telemetry_.rc_fresh && !telemetry_.operator_takeover &&
-         telemetry_.mode == autonomy_mode_ &&
+         modeAllowed(telemetry_.mode) &&
          telemetry_.operational_mode == 2 && !telemetry_.hardware_kill_active &&
          std::chrono::duration<double>(steady_clock_.now() - status_receipt_).count() <= 1.0;
 }

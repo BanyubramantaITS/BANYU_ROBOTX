@@ -95,6 +95,14 @@ ResourceCodeResult ResourceCodeDecoder::decode() const
     flashes.push_back({merged[i].colour, merged[i].first, merged[i].last, gap, steady_prev});
   }
 
+  // A node only turns green once the magnetic switch is activated, so a long green run is the proof.
+  for (const auto & r : merged) {
+    if (r.colour == 2 && r.last - r.first + frame > config_.steady_on_s) {
+      result.repair_verified = true;
+      break;
+    }
+  }
+
   std::map<std::pair<int, int>, int> votes;
   int seen = 0;
   if (config_.code_length <= 1) {

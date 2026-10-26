@@ -331,7 +331,7 @@ bool BanyuMission::autonomousReady() const
     phase == RunCoordinator::Phase::SurveyComplete || phase == RunCoordinator::Phase::Surfaced;
   return mission_config_valid_ && vehicle.fcu_connected && vehicle.fcu_status_fresh &&
          vehicle.rc_fresh && vehicle.armed && !vehicle.operator_takeover &&
-         (underway || vehicle.gps_available) && vehicle.mode == state_->autonomyMode() && pose_valid_ &&
+         (underway || vehicle.gps_available) && state_->autonomyModeAllowed(vehicle.mode) && pose_valid_ &&
          std::chrono::steady_clock::now() - pose_received_at_ < std::chrono::seconds(1);
 }
 
@@ -347,7 +347,7 @@ std::string BanyuMission::autonomyNotReadyReason() const
   if (!vehicle.armed) {return "disarmed";}
   if (vehicle.operator_takeover) {return "operator takeover";}
   if (!underway && !vehicle.gps_available) {return "GPS unavailable";}
-  if (vehicle.mode != state_->autonomyMode()) {return "mode " + vehicle.mode;}
+  if (!state_->autonomyModeAllowed(vehicle.mode)) {return "mode " + vehicle.mode;}
   if (!pose_valid_) {return "pose invalid or stamp older than 1 s";}
   if (std::chrono::steady_clock::now() - pose_received_at_ >= std::chrono::seconds(1)) {
     return "pose not received for 1 s";
@@ -359,7 +359,7 @@ bool BanyuMission::operatorHasControl() const
 {
   const auto vehicle = state_->snapshot();
   return vehicle.operator_takeover || (vehicle.fcu_connected && vehicle.fcu_status_fresh &&
-         !vehicle.mode.empty() && vehicle.mode != state_->autonomyMode());
+         !vehicle.mode.empty() && !state_->autonomyModeAllowed(vehicle.mode));
 }
 
 bool BanyuMission::executionHolding() const
@@ -660,6 +660,11 @@ void BanyuMission::initialize()
   const auto sweep_rate = declare_parameter<double>("mission.sweep_rate_rad_s", 0.2);
   const auto ring_tolerance = declare_parameter<double>("mission.ring_tolerance", 0.08);
   const auto hold_duration = declare_parameter<double>("mission.hold_duration_s", 3.0);
+  // Advanced and Disruptive: stay on the repaired ring while the flash code is read (5 s steady green,
+  // then the code for 30 s, plus the probe hold before it).
+  const auto decode_window = declare_parameter<double>("mission.decode_window_s", 40.0);
+  // Flight mode for the dive and everything under water; must be the second entry of autonomy_mode.
+  const auto underwater_mode = declare_parameter<std::string>("mission.underwater_mode", "ALT_HOLD");
   const auto surface_depth = declare_parameter<double>("mission.surface_depth_m", 0.0);
   const auto surface_tolerance = declare_parameter<double>("mission.surface_tolerance_m", 0.2);
   const auto retries = declare_parameter<int>("mission.max_retries", 3);
@@ -766,6 +771,10 @@ void BanyuMission::initialize()
   blackboard->set("sweep_rate", sweep_rate);
   blackboard->set("ring_tolerance", ring_tolerance);
   blackboard->set("hold_duration", hold_duration);
+  blackboard->set("underwater_mode", underwater_mode);
+  blackboard->set("decode_enabled", task2_tier_ >= 3);
+  blackboard->set("decode_window", decode_window);
+  blackboard->set("hold_total", hold_duration + decode_window);
   blackboard->set("mission_id", id);
   blackboard->set("crc32", static_cast<uint32_t>(crc));
   blackboard->set("max_retries", static_cast<uint8_t>(retries));

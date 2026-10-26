@@ -136,6 +136,23 @@ TEST(ResourceCodeDecoder, AdvancedReadsOnlyTheCircle)
   }
 }
 
+TEST(ResourceCodeDecoder, SteadyGreenVerifiesTheRepair)
+{
+  ResourceCodeDecoder d;
+  run(d, Trace{}, true, kRed, kBlue);
+  EXPECT_TRUE(d.decode().repair_verified);
+
+  // Only flashes (no steady green) is not proof of a repair.
+  ResourceCodeDecoder e;
+  run(e, Trace{}, true, kRed, kBlue, 5.0, 37.0);
+  EXPECT_FALSE(e.decode().repair_verified);
+
+  // A ring that stays red never verifies.
+  ResourceCodeDecoder f;
+  for (double t = 0.0; t < 10.0; t += 1.0 / 30.0) {f.add(t, kRed);}
+  EXPECT_FALSE(f.decode().repair_verified);
+}
+
 TEST(ResourceCodeDecoder, TooShortIsIncomplete)
 {
   ResourceCodeDecoder d;

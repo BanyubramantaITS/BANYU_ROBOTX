@@ -102,7 +102,13 @@ private:
   // Flight mode the vehicle must be in while autonomous ("GUIDED" for setpoint
   // output; "ALT_HOLD"/"STABILIZE"/"MANUAL" for rc_override, no position needed).
   std::string autonomy_mode_{"GUIDED"};
-  // "setpoint" (/mavros/setpoint_raw/local, GUIDED) or "rc_override" (/mavros/rc/override).
+  // Second mode of a two-mode list ("GUIDED,ALT_HOLD"): the mode used under water, driven by RC override.
+  std::string underwater_mode_;
+  bool modeAllowed(const std::string & mode) const;
+  bool rcModeActive() const;
+  bool setpointModeActive() const;
+  // "setpoint" (/mavros/setpoint_raw/local, GUIDED), "rc_override" (/mavros/rc/override) or "auto":
+  // setpoint in autonomy_mode (surface, GPS) and rc_override in underwater_mode (no position needed).
   std::string output_mode_{"setpoint"};
   RcOverrideConfig rc_override_config_{};
   bool rc_override_neutral_sent_{false};

@@ -33,6 +33,8 @@ SurveyEvidenceNode::SurveyEvidenceNode(const rclcpp::NodeOptions & options)
     "topics.course", "/system/mission/course");
   const auto lifecycle_topic = declare_parameter<std::string>(
     "topics.run_lifecycle", "/banyu/mission/run_lifecycle");
+  const auto resource_code_topic = declare_parameter<std::string>(
+    "topics.resource_code", "/banyu/pipeline/resource_code");
   const auto evidence_topic = declare_parameter<std::string>(
     "topics.survey_evidence", "/banyu/pipeline/survey_evidence");
 
@@ -54,6 +56,10 @@ SurveyEvidenceNode::SurveyEvidenceNode(const rclcpp::NodeOptions & options)
   active_buoy_fix_sub_ = create_subscription<banyu_msgs::msg::ActiveBuoyFix>(
     active_buoy_fix_topic, rclcpp::QoS(1).reliable().transient_local(),
     std::bind(&SurveyEvidenceNode::handleActiveBuoyFix, this, std::placeholders::_1));
+
+  resource_code_sub_ = create_subscription<banyu_msgs::msg::ResourceCode>(
+    resource_code_topic, rclcpp::QoS(1).reliable().transient_local(),
+    std::bind(&SurveyEvidenceNode::handleResourceCode, this, std::placeholders::_1));
 
   course_sub_ = create_subscription<rx_msgs::msg::Course>(
     course_topic, rclcpp::QoS(1).reliable().transient_local(),
@@ -123,6 +129,34 @@ void SurveyEvidenceNode::handleLifecycle(const banyu_msgs::msg::RunLifecycle::Sh
       get_logger(),
       "Run context updated to run %u (epoch %lu); cleared previous evidence",
       run_id_, epoch_);
+  }
+}
+
+void SurveyEvidenceNode::handleResourceCode(const banyu_msgs::msg::ResourceCode::SharedPtr msg)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!msg || tier_ < 3) {
+    return;
+  }
+  if (run_id_ != 0 && (msg->run_id != run_id_ || msg->epoch != epoch_)) {
+    return;
+  }
+  // Colours are PipelineRingObservation / rx_msgs Color values (1 red, 2 green, 3 blue).
+  const bool circle_ok = msg->delivery_circle_color >= 1 && msg->delivery_circle_color <= 3;
+  const bool tin_ok = msg->resource_color >= 1 && msg->resource_color <= 3;
+  const bool code_ok = msg->complete && circle_ok && (tier_ == 3 || tin_ok);
+  const uint8_t tin = tier_ == 3 ? 4 : msg->resource_color;   // Advanced: any tin (COLOR_ANY)
+  const bool changed = repair_verified_ != msg->repair_verified ||
+    resource_code_complete_ != code_ok ||
+    (code_ok && (resource_color_ != tin || delivery_circle_color_ != msg->delivery_circle_color));
+  repair_verified_ = repair_verified_ || msg->repair_verified;
+  if (code_ok) {
+    resource_code_complete_ = true;
+    resource_color_ = tin;
+    delivery_circle_color_ = msg->delivery_circle_color;
+  }
+  if (changed) {
+    publishEvidence();
   }
 }
 

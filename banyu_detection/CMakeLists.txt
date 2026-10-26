@@ -77,6 +77,11 @@ add_executable(survey_evidence_node src/survey_evidence_node.cpp)
 ament_target_dependencies(survey_evidence_node rclcpp sensor_msgs banyu_msgs rx_msgs)
 target_include_directories(survey_evidence_node PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+add_executable(resource_code_decoder_node src/resource_code_decoder_node.cpp)
+target_link_libraries(resource_code_decoder_node banyu_task2_perception)
+ament_target_dependencies(resource_code_decoder_node rclcpp std_srvs banyu_msgs)
+target_include_directories(resource_code_decoder_node PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 install(TARGETS
     por_detection
     task2_pipeline_detector
@@ -84,6 +89,7 @@ install(TARGETS
     ring_tracker_node
     pipeline_end_node
     survey_evidence_node
+    resource_code_decoder_node
     DESTINATION lib/${PROJECT_NAME}
 )
 

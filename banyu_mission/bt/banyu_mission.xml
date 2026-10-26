@@ -36,6 +36,9 @@
 
   <BehaviorTree ID="DiveAndAcquirePipeline">
     <Sequence>
+      <!-- The GPS is lost as soon as the body is under water, and GUIDED entered or kept without it can stop
+           following commands. Dive and work under water in ALT_HOLD with RC override (docs/task2_mode_experiments.md). -->
+      <SetFcuMode mode="{underwater_mode}" />
       <DiveToDepth target_depth="{inspection_depth}" target_heading="{heading}"
         depth_tolerance="{depth_tolerance}" heading_tolerance="{heading_tolerance}" />
       <!-- A pass can cross the pipe at an angle and miss it; fall back to a search sweep. -->
@@ -81,10 +84,24 @@
     </Sequence>
   </BehaviorTree>
 
+  <!-- Core: hold the probe for hold_duration. Advanced and Disruptive: keep station on the ring for the
+       probe hold plus the flash window while the code is read; a code that cannot be read never fails
+       the repair (the survey report is still sent). -->
   <BehaviorTree ID="RepairRedRing">
     <Sequence>
       <CenterOnRing ring_color="red" tolerance="{ring_tolerance}" />
-      <HoldProbeOnRing hold_duration="{hold_duration}" alignment_tolerance="{ring_tolerance}" />
+      <Fallback>
+        <Sequence>
+          <ScriptCondition code="decode_enabled == true" />
+          <ForceSuccess>
+            <Parallel success_count="1" failure_count="2">
+              <HoldProbeOnRing hold_duration="{hold_total}" alignment_tolerance="{ring_tolerance}" />
+              <DecodeResourceCode timeout_s="{hold_total}" />
+            </Parallel>
+          </ForceSuccess>
+        </Sequence>
+        <HoldProbeOnRing hold_duration="{hold_duration}" alignment_tolerance="{ring_tolerance}" />
+      </Fallback>
     </Sequence>
   </BehaviorTree>
 

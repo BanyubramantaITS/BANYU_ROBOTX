@@ -23,6 +23,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/PipelineObservation.msg"
   "msg/PipelineRingObservation.msg"
   "msg/Task2RingRecord.msg"
+  "msg/ResourceCode.msg"
   "msg/Task2Report.msg"
   "msg/RunLifecycle.msg"
   "msg/ExecutionReadiness.msg"

@@ -6,6 +6,23 @@
 
 namespace banyu_mission
 {
+namespace
+{
+// autonomy_mode may list several modes ("GUIDED,ALT_HOLD"): surface mode, then the underwater mode.
+bool modeInList(const std::string & mode, const std::string & list)
+{
+  std::size_t start = 0;
+  while (start <= list.size()) {
+    const auto comma = list.find(',', start);
+    const auto end = comma == std::string::npos ? list.size() : comma;
+    if (end - start == mode.size() && list.compare(start, end - start, mode) == 0) {return true;}
+    if (comma == std::string::npos) {break;}
+    start = comma + 1;
+  }
+  return false;
+}
+}  // namespace
+
 
 namespace
 {
@@ -81,6 +98,7 @@ void MissionState::configure(
   rc_interrupt_channel_ = std::max(0, rc_interrupt_channel);
   rc_interrupt_threshold_ = rc_interrupt_threshold;
   autonomy_mode_ = std::move(autonomy_mode);
+  primary_autonomy_mode_ = autonomy_mode_.substr(0, autonomy_mode_.find(','));
   autonomy_authority_ = std::move(autonomy_authority);
   gps_required_ = require_gps;
 }
@@ -332,7 +350,7 @@ bool MissionState::autonomyInterrupted() const
   }
 
   if (autonomy_engaged_) {
-    const bool mode_ok = (value.mode == autonomy_mode_ &&
+    const bool mode_ok = (modeInList(value.mode, autonomy_mode_) &&
       (autonomy_authority_.empty() || value.authority == autonomy_authority_));
     const bool op_mode_ok = !status_received_ ||
       (value.operational_mode == 2 && !value.hardware_kill_active);
@@ -361,10 +379,16 @@ bool MissionState::vehicleReady() const
     return false;
   }
   const bool mode_ok = !autonomy_engaged_ ||
-    (value.armed && value.mode == autonomy_mode_ &&
+    (value.armed && modeInList(value.mode, autonomy_mode_) &&
     (autonomy_authority_.empty() || value.authority == autonomy_authority_));
   return value.fcu_connected && value.fcu_status_fresh && value.rc_fresh &&
          !value.operator_takeover && mode_ok;
+}
+
+bool MissionState::autonomyModeAllowed(const std::string & mode) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return modeInList(mode, autonomy_mode_);
 }
 
 bool MissionState::gpsAvailable() const {return snapshot().gps_available;}

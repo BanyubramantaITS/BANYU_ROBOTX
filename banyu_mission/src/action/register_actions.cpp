@@ -5,6 +5,7 @@
 #include "banyu_mission/action/align_heading_node.hpp"
 #include "banyu_mission/action/arm_and_set_guided.hpp"
 #include "banyu_mission/action/center_on_ring_node.hpp"
+#include "banyu_mission/action/decode_resource_code_node.hpp"
 #include "banyu_mission/action/dive_to_depth_node.hpp"
 #include "banyu_mission/action/follow_pipeline_node.hpp"
 #include "banyu_mission/action/handle_abort_or_teleop_node.hpp"
@@ -12,6 +13,7 @@
 #include "banyu_mission/action/navigate_surface_gps_node.hpp"
 #include "banyu_mission/action/por_action_nodes.hpp"
 #include "banyu_mission/action/search_pipeline_node.hpp"
+#include "banyu_mission/action/set_fcu_mode_node.hpp"
 #include "banyu_mission/action/publish_pipeline_survey_node.hpp"
 #include "banyu_mission/action/surface_node.hpp"
 
@@ -33,6 +35,7 @@ void registerActionNodes(
   const auto arming_srv = node->has_parameter("services.arming") ?
     node->get_parameter("services.arming").as_string() :
     node->declare_parameter<std::string>("services.arming", "/mavros/cmd/arming");
+  factory.registerNodeType<SetFcuModeNode>("SetFcuMode", node, state, set_mode_srv);
   factory.registerNodeType<ArmAndSetGuided>(
     "ArmAndSetGuided", node, state, set_mode_srv, arming_srv);
 
@@ -40,6 +43,13 @@ void registerActionNodes(
     "services.acknowledge_ring_repair", "/banyu/pipeline/acknowledge_ring_repair");
   factory.registerNodeType<AcknowledgeRedRingNode>(
     "AcknowledgeRedRing", node, state, ack_service);
+
+  const auto decode_service = node->declare_parameter<std::string>(
+    "services.decode_resource_code", "/banyu/pipeline/decode_resource_code");
+  const auto resource_code_topic = node->declare_parameter<std::string>(
+    "topics.resource_code", "/banyu/pipeline/resource_code");
+  factory.registerNodeType<DecodeResourceCodeNode>(
+    "DecodeResourceCode", node, state, decode_service, resource_code_topic);
 
   const auto action_name = [node](const std::string & suffix) {
       return node->declare_parameter<std::string>("actions." + suffix, "/banyu/actions/" + suffix);
