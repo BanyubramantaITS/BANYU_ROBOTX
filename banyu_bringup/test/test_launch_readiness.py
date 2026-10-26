@@ -41,6 +41,7 @@ def test_sub_bringup_defaults_are_hardware_safe():
     assert args["enable_esp32_bridge"] == "False"
     assert args["fcu_url"] == "udp://127.0.0.1:14551@"
     assert args["enable_cameras"] == "True"
+    assert args["record"] == "True"
 
 
 def test_sub_bringup_contains_v4l2_camera_nodes():

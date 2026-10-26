@@ -56,6 +56,58 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL, MAVR
 | `fcu_url` | string | `udp://127.0.0.1:14551@` | Target MAVLink FCU address (`udp://127.0.0.1:14551@` for SITL to reserve 14550 for QGC; the real AUV uses `sub_bringup.launch.py` with the same default, fed by `tools/scripts/run_mavproxy.sh`). |
 | `use_gps` | `True` / `False` | `True` (`main_launch`); `sub_bringup`: `False` for `por`, `True` for `task2` | `False` removes the SITL GPS from boot and starts `nogps_odom_beacon` (GPS-denied, like the real AUV in POR). `launch_por.sh --sim` and `launch_sim.sh por` pass `False`. |
 | `use_dvl` | `True` / `False` | `False` | Simulated DVL bridge. Keep `False` on hardware: the AUV has no DVL. |
+| `record` | `True` / `False` | `True` (`sub_bringup` only) | Records the run to a rosbag, see [Mission Recording](#-mission-recording). |
+| `record_images` | `True` / `False` | `True` (`sub_bringup` only) | Includes compressed camera images in the bag. Raw images are never recorded. |
+
+---
+
+## 🎥 Mission Recording
+
+The link drops as soon as the AUV dives, so `sub_bringup.launch.py` records every run to a
+rosbag on the vehicle by default (`record:=False` to skip). The recorder is
+`scripts/record_mission.sh`, which can also be run on its own:
+
+```bash
+ros2 run banyu_bringup record_mission.sh por               # standalone, label "por"
+ros2 run banyu_bringup record_mission.sh task2 --no-images # much smaller bag
+```
+
+Each run goes to `~/banyu_bags/<YYYYmmdd_HHMMSS>_<mode>/` (override with `BANYU_BAG_DIR`):
+
+- `bag/`: MCAP bag with zstd chunk compression. It records all topics, plus hidden action
+  feedback/status topics, and skips raw images and `/test*`.
+- `run_info.txt`: start/stop time, host, git commit and recorder settings.
+- `params/`: a copy of the parameter YAML (profile) the run used.
+
+`tools/scripts/launch_por.sh --real` records by default and names the folder after the
+profile (e.g. `20261026_133006_por_timed_safe`). It shows the bag location and free disk
+in its banner, and takes `--no-record` and `--no-record-images`.
+
+Built to survive a dive that ends badly:
+
+- The bag splits every 60 s and the write cache is kept small, so a power cut loses at most
+  the last ~60 s.
+- Recording stops by itself if free disk drops below 2 GB (`BANYU_BAG_MIN_FREE`, in MB).
+- Stopping the launch (Ctrl-C) closes the bag cleanly.
+
+### After the run
+
+```bash
+# copy runs off the vehicle (from the laptop)
+rsync -avP <user>@<auv-ip>:banyu_bags/ ~/banyu_bags/
+
+# only if the AUV lost power before the bag was closed (no metadata.yaml):
+ros2 run banyu_bringup recover_bag.sh ~/banyu_bags/<run>/bag
+
+ros2 bag info ~/banyu_bags/<run>/bag
+ros2 bag play ~/banyu_bags/<run>/bag   # replay into RViz / rqt
+```
+
+`recover_bag.sh` moves the truncated last file into `bag/partial/` and rebuilds the metadata
+from the complete files. The `.mcap` files also open directly in Foxglove or PlotJuggler. Useful
+topics for reviewing performance: `/banyu/mission/run_lifecycle`, `/banyu/vehicle_status`,
+`/mavros/local_position/pose`, `/mavros/setpoint_raw/local`, `/banyu/detection`,
+`/banyu/actions/*/_action/feedback` and `/rosout` (every node's log output).
 
 ---
 

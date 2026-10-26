@@ -23,6 +23,8 @@ install(
         scripts/nogps_odom_beacon.py
         scripts/task2_sim_provider.py
         scripts/launch_sim.sh
+        scripts/record_mission.sh
+        scripts/recover_bag.sh
     DESTINATION lib/${PROJECT_NAME}
 )
 

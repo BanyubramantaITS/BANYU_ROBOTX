@@ -35,6 +35,8 @@ PROFILE=""
 MOCK_AUTO=false
 ALLOW_CHANNEL_OVERLAP=false
 ALLOW_UNCAPPED_THRUST=false
+RECORD=true
+RECORD_IMAGES=true
 EXTRA_ARGS=()
 
 print_usage() {
@@ -61,6 +63,9 @@ Physical Hardware Options (when using --real):
                         RC battery is dead or running headless).
   --no-cam              Disable USB camera drivers to save CPU/bandwidth on timed runs.
   --mock-auto           Enable land-test mock auto mode in teleop (spin thrusters on land).
+  --no-record           Do not record the run. By default every real run is recorded to a
+                        rosbag under $BANYU_BAG_DIR (~/banyu_bags) for review after the dive.
+  --no-record-images    Record the run without compressed camera images (much smaller bag).
 
 Strategy Profile Presets (--profile <name>), sim gate-back times (ALT_HOLD, no GPS):
   default               : por_params.yaml                    (safe strafe box, ~37 s)
@@ -146,6 +151,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --mock-auto)
       MOCK_AUTO=true
+      shift
+      ;;
+    --no-record)
+      RECORD=false
+      shift
+      ;;
+    --no-record-images)
+      RECORD_IMAGES=false
       shift
       ;;
     --dry-run)
@@ -288,6 +301,15 @@ else
   echo "Transmitter Mode  : $([ "$USE_RC" = true ] && echo "RC (TX16S enabled)" || echo "No-RC (Headless / Bypass)")"
   echo "Cameras Enabled   : $ENABLE_CAMERAS"
   echo "Land Test Mock    : $MOCK_AUTO"
+  if [ "$RECORD" = true ]; then
+    BAG_ROOT="${BANYU_BAG_DIR:-$HOME/banyu_bags}"
+    mkdir -p "$BAG_ROOT"
+    BAG_FREE_MB="$(df -Pm "$BAG_ROOT" | awk 'NR==2 {print $4}')"
+    echo "Mission Recording : ON -> ${BAG_ROOT} ($((BAG_FREE_MB / 1024)) GB free," \
+      "images $([ "$RECORD_IMAGES" = true ] && echo "compressed" || echo "off"))"
+  else
+    echo "Mission Recording : OFF"
+  fi
 fi
 echo "----------------------------------------------------------"
 
@@ -396,6 +418,26 @@ else
     echo "  Emergency Kill (relay off, mission stops, Pixhawk disarms):"
     echo "    ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String \"{data: '0'}\""
     echo "  Software Abort: ros2 service call /banyu/mission/abort std_srvs/srv/Trigger \"{}\""
+  fi
+
+  # The link drops underwater, so the bag is the only record of the dive.
+  LAUNCH_CMD+=(
+    record:="$([ "$RECORD" = true ] && echo "True" || echo "False")"
+    record_images:="$([ "$RECORD_IMAGES" = true ] && echo "True" || echo "False")"
+  )
+  if [ "$RECORD" = true ]; then
+    # Name the run folder after the profile; record_mission.sh reads this from the environment.
+    PROFILE_NAME="$(basename "$PROFILE_PATH" .yaml)"
+    export BANYU_BAG_LABEL="por_${PROFILE_NAME#por_params_}"
+    if [ "$BAG_FREE_MB" -lt "${BANYU_BAG_MIN_FREE:-2048}" ]; then
+      echo "----------------------------------------------------------" >&2
+      echo "Warning: only ${BAG_FREE_MB} MB free in ${BAG_ROOT}; the recorder needs" \
+        "${BANYU_BAG_MIN_FREE:-2048} MB and will NOT record this run." >&2
+      echo "  Free space (copy off old runs from ${BAG_ROOT}) or pass --no-record." >&2
+      echo "----------------------------------------------------------" >&2
+    fi
+    echo "After the run: copy ${BAG_ROOT}/<run>/ off the vehicle; if it lost power first, run"
+    echo "  ros2 run banyu_bringup recover_bag.sh ${BAG_ROOT}/<run>/bag"
   fi
 
   if [ ${#EXTRA_ARGS[@]} -gt 0 ]; then

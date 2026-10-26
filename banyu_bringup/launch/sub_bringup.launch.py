@@ -1,6 +1,6 @@
 import os
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -152,6 +152,21 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    record_arg = DeclareLaunchArgument(
+        name="record",
+        default_value="True",
+        description="Record the run to a rosbag under $BANYU_BAG_DIR (default ~/banyu_bags) "
+        "for review after the dive, since the link drops underwater.",
+        choices=["True", "False"],
+    )
+
+    record_images_arg = DeclareLaunchArgument(
+        name="record_images",
+        default_value="True",
+        description="Include compressed camera images in the mission bag (raw images are never recorded).",
+        choices=["True", "False"],
+    )
+
     por_params_arg = DeclareLaunchArgument(
         name="por_params_file",
         default_value=default_por_params,
@@ -223,6 +238,25 @@ def generate_launch_description():
         ),
     )
 
+    # Run the script directly rather than through `ros2 run` so launch's SIGINT reaches it
+    # and the bag is closed cleanly; give it time to flush before SIGTERM/SIGKILL.
+    mission_recorder = ExecuteProcess(
+        cmd=[
+            os.path.join(
+                get_package_prefix("banyu_bringup"), "lib", "banyu_bringup", "record_mission.sh"
+            ),
+            mode,
+        ],
+        name="mission_recorder",
+        output="screen",
+        additional_env={
+            "BANYU_BAG_IMAGES": LaunchConfiguration("record_images"),
+            "BANYU_BAG_PARAMS": active_params,
+        },
+        sigterm_timeout="15",
+        condition=IfCondition(EqualsSubstitution(LaunchConfiguration("record"), "True")),
+    )
+
     teleop_node = Node(
         package="banyu_teleop",
         executable="banyu_teleop",
@@ -287,6 +321,8 @@ def generate_launch_description():
             enable_esp32_bridge_arg,
             enable_esp32_trigger_arg,
             enable_cameras_arg,
+            record_arg,
+            record_images_arg,
             por_params_arg,
             task2_params_arg,
             hardware_params_arg,
@@ -295,6 +331,7 @@ def generate_launch_description():
             OpaqueFunction(function=_check_single_esp32_owner),
             mavros_launch,
             nogps_odom_beacon,
+            mission_recorder,
             teleop_node,
             front_camera_node,
             bottom_camera_node,
