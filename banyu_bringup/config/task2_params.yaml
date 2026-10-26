@@ -33,10 +33,10 @@ banyu_mission:
       max_retries: 3
       start_latitude: 33.810313
       start_longitude: -118.393866
-      target_latitude: 33.810438
-      target_longitude: -118.393392
-      end_latitude: 33.810438
-      end_longitude: -118.393272
+      target_latitude: 33.8103130   # green (active) buoy, 3.8 m east of the spawn in main_world.world
+      target_longitude: -118.3938249
+      end_latitude: 33.8103130   # red buoy, 3.8 m west of the spawn
+      end_longitude: -118.3939071
       camera_name: "bottom_camera"
       acquire_timeout_s: 15.0
       traverse_timeout_s: 600.0
@@ -56,18 +56,20 @@ task2_sim_provider:
     receipt_pair_timeout_s: 3.0
     task2_pose_timeout_s: 3.0
     task2_gps_fix_timeout_s: 1.0
-    start_buoy_map_x: 43.95
-    start_buoy_map_y: 13.85
+    # Sim fixture in the EKF map frame (origin = spawn, ENU). These must match banyu_simulation/worlds/main_world.world:
+    # robobuoy_green (3.8, 0), robobuoy_red (-3.8, 0), pipeline (2.3, 0) yawed 180 deg (runs west, 4.57 m).
+    start_buoy_map_x: 3.8
+    start_buoy_map_y: 0.0
     # Simulation ground truth (sim-only fixture): pipe axis, end window and active buoy identity.
-    pipeline_start_map_x: 47.11
-    pipeline_start_map_y: 13.85
-    pipeline_end_map_x: 51.64
-    pipeline_end_map_y: 13.86
+    pipeline_start_map_x: 2.3
+    pipeline_start_map_y: 0.0
+    pipeline_end_map_x: -2.27
+    pipeline_end_map_y: 0.0
     end_candidate_window_m: 0.5
     end_candidate_max_lateral_m: 1.0
     # Stands in for the USV: publishes rx_msgs/PipelineBuoys (start buoy = active/GREEN).
-    end_buoy_map_x: 55.0
-    end_buoy_map_y: 13.85
+    end_buoy_map_x: -3.8
+    end_buoy_map_y: 0.0
     pipeline_buoys_start_label: "a"
     pipeline_buoys_report_active: true
     pipeline_buoys_uncertainty_m: 1.0
@@ -156,13 +158,14 @@ ring_tracker:
     camera_half_vfov_rad: 0.408
     # Ordered from the active (start) buoy end so progress increases along the survey;
     # survey_evidence low_progress_endpoint_id is start_buoy.
+    # Through the four light nodes of main_world.world (2.35,0) (0.93,-0.62) (-0.35,-0.62) (-1.75,0).
     centerline_points: [
-      47.231, 13.848,
-      47.921, 13.848,
-      48.701, 13.273,
-      49.541, 13.108,
-      50.351, 13.558,
-      51.251, 13.848
+      2.30, 0.0,
+      1.60, 0.0,
+      0.93, -0.62,
+      -0.35, -0.62,
+      -1.75, 0.0,
+      -2.27, 0.0
     ]
 
 pipeline_guidance:
