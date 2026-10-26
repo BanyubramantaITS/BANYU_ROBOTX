@@ -62,3 +62,23 @@ Running log for the autonomous run of `docs/task2_core_disruptive_plan.md` (bran
   cancellation, EKF3 "stopped aiding" messages. The sim IMU has no bias, so this is the optimistic case.
 - ALT_HOLD + neutral sticks with the GPS cut: depth drift 0.04 m, yaw drift 0 deg over 30 s.
 - MANUAL (no depth hold): rose 1.4 m in 60 s (positive buoyancy) and did not surface by itself.
+
+## Step 1 decision and Step 2 implementation (W2)
+- Decision (evidence in `task2_mode_experiments.md`): surface transit stays GUIDED with the GPS; the dive and
+  everything under water use ALT_HOLD + RC override. IMU error could not be injected into the JSON-backend sim
+  (`SIM_ACC1_BIAS_*` and `INS_ACCOFFS_*` had no effect), so GUIDED's robot-side drift is unverified; the decision
+  rests on M1b (GUIDED entered after GPS loss silently stops tracking) and on ALT_HOLD not needing a position.
+- Implemented: `control.autonomy_mode: "GUIDED,ALT_HOLD"` + `control.output_mode: "auto"` in
+  `vehicle_execution_node` (setpoint output in the first mode, RC override in the second, RC released once on the
+  way back); the same two-mode list accepted by `vehicle_status_tracker` and `MissionState`; new BT action
+  `SetFcuMode` placed before `DiveToDepth`; `mission.underwater_mode` blackboard entry.
+- Implemented (W5/W6, tiers 3 and 4): `ResourceCodeDecoder` + `resource_code_decoder_node`, `banyu_msgs/ResourceCode`,
+  `survey_evidence_node` consumes it (fills `repair_verified`, `resource_code_complete`, tin and circle; Advanced
+  reports COLOR_ANY as the tin), BT `RepairRedRing` holds station for `hold_total` and runs `DecodeResourceCode` in
+  parallel for tiers 3 and 4. Core keeps the plain `hold_duration` hold.
+- Finding while wiring: nothing ever set `repair_verified`, and the report ledger rejects tier 3 and 4 reports with
+  `REPAIR_UNVERIFIED`. The decoder now supplies it (steady green longer than 3 s after the probe hold).
+- Unit tests: decoder 10 (9 colour pairs, dropouts, 10 fps, green tin, mid-code start, Advanced, verified repair,
+  mutation check: swapping tin and circle fails 5 of them), survey evidence 9 (6 new), vehicle_execution 60 (no
+  regression).
+- Delegation outcome summary so far: D1 (launch_task2.sh, sonnet) accepted.
