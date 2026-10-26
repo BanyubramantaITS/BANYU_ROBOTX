@@ -46,3 +46,19 @@ Running log for the autonomous run of `docs/task2_core_disruptive_plan.md` (bran
   after surfacing.
 - M3 ALT_HOLD + RC override (neutral sticks, GPS cut): held depth within 0.04 m and yaw within 0.0 deg over
   30 s at 1.0 m; GUIDED was accepted again 2.0 s after surfacing (GPS back).
+
+## Step 1 findings (mode experiments, partial) and process notes
+- **Do not rebuild packages while a sim run is in progress.** A `colcon build` of `banyu_msgs` during a trial
+  replaced the installed Python message module mid-run: the experiment script and `sim_gps_gate` died
+  (`No module named banyu_msgs.msg._resource_code`) and `banyu_mission` aborted (zmq). The batch was rerun.
+- Sim cleanup: stopping `ros2 launch` with SIGINT leaves `banyu_mission`, `gz`, `mavros_node` and `ardusub`
+  children alive (a stale `banyu_mission` holds the Groot2 port and kills the next run's mission node).
+  `cleanup_sim.sh` (scratch) kills everything that carries `ROS_DOMAIN_ID=40` in its environment.
+- GUIDED_ENTER (dive in ALT_HOLD, GPS cut, request GUIDED 20 s later): GUIDED was **accepted**, but the vehicle
+  then ignored the setpoints: a 0.3 m/s forward command for 20 s moved it -0.08 m (Gazebo ground truth), and
+  depth was no longer held (it rose 1.2 m in 40 s). So GUIDED entered after the GPS is gone is a trap: the mode
+  switch succeeds and the vehicle silently stops tracking.
+- GUIDED already active when the GPS is cut (earlier run, no forward command): depth drift 0.03 m, no
+  cancellation, EKF3 "stopped aiding" messages. The sim IMU has no bias, so this is the optimistic case.
+- ALT_HOLD + neutral sticks with the GPS cut: depth drift 0.04 m, yaw drift 0 deg over 30 s.
+- MANUAL (no depth hold): rose 1.4 m in 60 s (positive buoyancy) and did not surface by itself.
