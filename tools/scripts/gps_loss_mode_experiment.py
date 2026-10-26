@@ -208,11 +208,14 @@ class Experiment(Node):
         enter_late = mode == 'GUIDED_ENTER'   # dive in ALT_HOLD, request GUIDED only once GPS is gone
         base = 'GUIDED' if mode == 'GUIDED_ENTER' else mode
         self.set_mode('GUIDED' if mode == 'GUIDED' else 'ALT_HOLD')
+        g_start = gz_truth()
         reached = self.dive('ALT_HOLD' if enter_late else mode, self.args.depth, self.args.dive_timeout)
+        g_dived = gz_truth()
+        dive_drift = None if not (g_start and g_dived) else [round(g_dived[0] - g_start[0], 2), round(g_dived[1] - g_start[1], 2)]
         if enter_late:
             self.hold('ALT_HOLD', self.args.settle_s)
         accepted, fcu_mode = self.set_mode(base)
-        self.log(kind='mode_request', mode=mode, reached_depth=reached, accepted=accepted,
+        self.log(kind='mode_request', mode=mode, reached_depth=reached, dive_drift_xy_m=dive_drift, accepted=accepted,
                  fcu_mode=fcu_mode, depth=self.depth)
         mode = base
         d0, y0 = self.depth, self.yaw
