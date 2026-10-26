@@ -127,8 +127,6 @@ struct VehicleTelemetry
   double pinger_forward{0.0};
   double pinger_left{0.0};
   double pinger_bearing_rad{0.0};
-  double pinger_elevation_cos{0.0};
-  double pinger_horizontal_range_m{0.0};
 
   // Best POR detection. The stamp is the receipt/header stamp used by the
   // execution watchdog; controllers must not command from stale imagery.

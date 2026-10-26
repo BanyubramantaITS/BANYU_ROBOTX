@@ -988,7 +988,7 @@ void VehicleExecutionNode::handleGuidanceIntent(
 void VehicleExecutionNode::handlePingerObs(
   const banyu_msgs::msg::PingerObservation::SharedPtr msg)
 {
-  if (!msg || !std::isfinite(msg->bearing) || !std::isfinite(msg->elevation_cos)) {
+  if (!msg || !std::isfinite(msg->bearing)) {
     telemetry_.pinger_obs_valid = false;
     return;
   }
@@ -997,8 +997,6 @@ void VehicleExecutionNode::handlePingerObs(
   telemetry_.pinger_forward = msg->forward;
   telemetry_.pinger_left = msg->left;
   telemetry_.pinger_bearing_rad = msg->bearing;
-  telemetry_.pinger_elevation_cos = msg->elevation_cos;
-  telemetry_.pinger_horizontal_range_m = msg->horizontal_range;
 }
 
 }  // namespace banyu_vehicle_execution

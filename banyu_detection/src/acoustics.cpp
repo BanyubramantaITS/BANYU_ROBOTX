@@ -1,13 +1,11 @@
 #include "banyu_detection/acoustics.hpp"
 
-#include <algorithm>
 #include <cmath>
 
 namespace banyu_detection
 {
 
 double PingerVector::bearing() const {return std::atan2(left, forward);}
-double PingerVector::elevationCos() const {return std::hypot(forward, left);}
 
 std::optional<PingerVector> pingerVector(
   const std::vector<double> & arrivals,
@@ -40,13 +38,9 @@ std::optional<PingerVector> pingerVector(
   if (std::fabs(det) < 1e-12) {return std::nullopt;}
   const double ux = (syy * sxt - sxy * syt) / det;
   const double uy = (sxx * syt - sxy * sxt) / det;
-  return PingerVector{-kSoundSpeed * ux, -kSoundSpeed * uy};
-}
-
-double horizontalRange(const PingerVector & u, double height_below_pinger)
-{
-  const double c = std::min(u.elevationCos(), 0.999);
-  return std::max(std::fabs(height_below_pinger), 0.5) * c / std::sqrt(1 - c * c);
+  const double norm = kSoundSpeed * std::hypot(ux, uy);
+  if (norm < 1e-6) {return std::nullopt;}
+  return PingerVector{-kSoundSpeed * ux / norm, -kSoundSpeed * uy / norm};
 }
 
 }  // namespace banyu_detection

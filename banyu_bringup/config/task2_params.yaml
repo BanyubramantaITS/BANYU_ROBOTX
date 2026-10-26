@@ -113,10 +113,6 @@ task2_pipeline_detector:
     green_ring_v_min: 30
     green_ring_v_max: 255
 
-pinger_localization:
-  ros__parameters:
-    pinger_depth: 1.0
-
 banyu_vehicle_status:
   ros__parameters:
     state_topic: "/mavros/state"

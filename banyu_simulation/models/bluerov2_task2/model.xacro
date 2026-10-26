@@ -111,7 +111,7 @@
     </joint>
   </xacro:if>
 
-  <!-- HydrophoneArray plugin: listens to pinger_green, computes TDOA and publishes arrivals -->
+  <!-- HydrophoneArray plugin: listens to pinger_green, publishes azimuth-only (plane-wave) TDOA arrivals -->
   <gazebo>
     <plugin filename="BanyuHydrophoneArray" name="banyu::HydrophoneArray">
       <pinger_model>pinger_green</pinger_model>

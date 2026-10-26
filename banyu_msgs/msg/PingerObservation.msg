@@ -1,9 +1,7 @@
 # One ping from the active buoy's pinger, from hydrophone arrival-time differences
-# (banyu_detection/pinger_localization). The array is planar, so the horizontal part of the unit
-# vector toward the pinger is what is measured; its length is cos(elevation).
+# (banyu_detection/pinger_localization). The array only resolves the pinger's azimuth: there is no
+# range or elevation.
 std_msgs/Header header
-float32 forward            # unit-vector component along the body x axis
+float32 forward            # horizontal unit-vector component along the body x axis
 float32 left               # ... along the body y axis
 float32 bearing            # rad, atan2(left, forward); > 0 = left of the nose
-float32 elevation_cos      # hypot(forward, left)
-float32 horizontal_range   # m, from elevation and depth below the (assumed) pinger depth
