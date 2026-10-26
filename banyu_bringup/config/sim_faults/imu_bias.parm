@@ -1,0 +1,10 @@
+# SITL fault injection: constant IMU bias, like an uncalibrated MEMS IMU on the real vehicle.
+# With the GPS gone nothing observes the accelerometer bias, so the EKF velocity drifts by roughly
+# bias * time (0.05 m/s^2 -> 3 m/s after 60 s). GUIDED velocity control then fights a wrong measurement.
+# Use: main_launch.launch.py extra_sitl_params:=<this file>
+SIM_ACC1_BIAS_X 0.05
+SIM_ACC1_BIAS_Y 0.05
+SIM_ACC2_BIAS_X 0.05
+SIM_ACC2_BIAS_Y 0.05
+SIM_GYR1_BIAS_Z 0.002
+SIM_GYR2_BIAS_Z 0.002
