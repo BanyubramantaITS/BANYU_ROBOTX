@@ -44,6 +44,7 @@ ament_target_dependencies(perception_state_machines rclcpp banyu_msgs geometry_m
 add_library(banyu_task2_perception STATIC
     src/pipeline_vision.cpp
     src/acoustics.cpp
+    src/resource_code_decoder.cpp
 )
 target_include_directories(banyu_task2_perception PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -120,6 +121,9 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_pipeline_vision test/test_pipeline_vision.cpp)
   target_link_libraries(test_pipeline_vision banyu_task2_perception)
+
+  ament_add_gtest(test_resource_code_decoder test/test_resource_code_decoder.cpp)
+  target_link_libraries(test_resource_code_decoder banyu_task2_perception)
 
   ament_add_gtest(test_acoustics test/test_acoustics.cpp)
   target_link_libraries(test_acoustics banyu_task2_perception)

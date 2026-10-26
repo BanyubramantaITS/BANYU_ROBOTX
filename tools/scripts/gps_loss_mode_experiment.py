@@ -15,6 +15,8 @@ Never run on hardware: it arms, dives and cuts nothing, but it commands thruster
 import argparse
 import json
 import math
+import re
+import subprocess
 import time
 
 import rclpy
@@ -30,6 +32,20 @@ from sensor_msgs.msg import Imu
 CH_LATERAL, CH_FORWARD, CH_THROTTLE, CH_YAW = 0, 1, 2, 3   # RCMAP 1/2/3/4 (0-based here)
 NEUTRAL = 1500
 BEST_EFFORT = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
+
+
+def gz_truth(model='bluerov2_heavy', world='ocean'):
+    """Ground-truth (x, y, z) of the vehicle from Gazebo, or None."""
+    try:
+        out = subprocess.run(['gz', 'topic', '-e', '-n', '1', '-t', f'/world/{world}/dynamic_pose/info'],
+                             capture_output=True, text=True, timeout=8).stdout
+    except Exception:
+        return None
+    m = re.search(r'name: "%s".*?position \{(.*?)\}' % model, out, re.S)
+    if not m:
+        return None
+    vals = dict(re.findall(r'([xyz]): (-?[0-9.eE+-]+)', m.group(1)))
+    return tuple(float(vals.get(k, 0.0)) for k in 'xyz')
 
 
 def yaw_of(q):
@@ -150,13 +166,13 @@ class Experiment(Node):
             self.sample(mode, 'dive')
         return self.depth is not None and self.depth >= self.surface_depth + target_depth
 
-    def hold(self, mode, seconds):
+    def hold(self, mode, seconds, forward_mps=0.0):
         end = self.now_s() + seconds
         while self.now_s() < end:
             if mode == 'GUIDED':
-                self.velocity_setpoint()
+                self.velocity_setpoint(vx=forward_mps)
             elif mode in ('ALT_HOLD', 'STABILIZE', 'MANUAL', 'POSHOLD'):
-                self.rc()
+                self.rc(forward=NEUTRAL + int(forward_mps * 300) if forward_mps else NEUTRAL)
             self.wait(0.1)
             self.sample(mode, 'hold')
 
@@ -189,21 +205,36 @@ class Experiment(Node):
         if not self.ensure_armed():
             self.log(kind='trial_end', mode=mode, result='NOT_ARMED')
             return
+        enter_late = mode == 'GUIDED_ENTER'   # dive in ALT_HOLD, request GUIDED only once GPS is gone
+        base = 'GUIDED' if mode == 'GUIDED_ENTER' else mode
         self.set_mode('GUIDED' if mode == 'GUIDED' else 'ALT_HOLD')
-        reached = self.dive(mode, self.args.depth, self.args.dive_timeout)
-        accepted, fcu_mode = self.set_mode(mode)
+        reached = self.dive('ALT_HOLD' if enter_late else mode, self.args.depth, self.args.dive_timeout)
+        if enter_late:
+            self.hold('ALT_HOLD', self.args.settle_s)
+        accepted, fcu_mode = self.set_mode(base)
         self.log(kind='mode_request', mode=mode, reached_depth=reached, accepted=accepted,
                  fcu_mode=fcu_mode, depth=self.depth)
+        mode = base
         d0, y0 = self.depth, self.yaw
         self.hold(mode, self.args.hold_s)
         d1, y1 = self.depth, self.yaw
+        fwd = None
+        if self.args.forward_s > 0 and self.state.mode == mode:
+            g0 = gz_truth()
+            self.hold(mode, self.args.forward_s, forward_mps=self.args.forward_mps)
+            g1 = gz_truth()
+            self.hold(mode, 3.0)
+            if g0 and g1:
+                fwd = {'commanded_mps': self.args.forward_mps, 'seconds': self.args.forward_s,
+                       'true_dx': round(g1[0] - g0[0], 2), 'true_dy': round(g1[1] - g0[1], 2),
+                       'true_dz': round(g1[2] - g0[2], 2)}
         drift_yaw = None if y0 is None or y1 is None else \
             round(math.degrees(math.atan2(math.sin(y1 - y0), math.cos(y1 - y0))), 1)
         surfaced = self.surface()
         guided_s = self.recover_guided(self.args.recover_timeout)
         self.log(kind='trial_end', mode=mode, reached_depth=reached, accepted=accepted,
                  fcu_mode_after_hold=fcu_mode, depth_drift_m=None if None in (d0, d1) else round(d1 - d0, 2),
-                 yaw_drift_deg=drift_yaw, surfaced=surfaced, guided_back_after_s=guided_s,
+                 yaw_drift_deg=drift_yaw, surfaced=surfaced, guided_back_after_s=guided_s, forward=fwd,
                  statustext=[t for _, t in self.texts[n_text:]][-20:])
 
 
@@ -214,6 +245,10 @@ def main():
     ap.add_argument('--hold-s', type=float, default=60.0)
     ap.add_argument('--dive-timeout', type=float, default=60.0)
     ap.add_argument('--recover-timeout', type=float, default=90.0)
+    ap.add_argument('--settle-s', type=float, default=20.0,
+                    help='GUIDED_ENTER: seconds submerged (GPS gone) before requesting GUIDED')
+    ap.add_argument('--forward-s', type=float, default=0.0, help='forward leg length after the hold')
+    ap.add_argument('--forward-mps', type=float, default=0.3)
     ap.add_argument('--out', default='gps_loss_modes.jsonl')
     args = ap.parse_args()
     rclpy.init()
