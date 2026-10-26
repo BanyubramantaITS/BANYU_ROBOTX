@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Stand-in for the USV's Task 2 buoy feed: rx_msgs/PipelineBuoys at about 1 Hz.
 
-Publishes /system/vehicle/usv/task2/pipeline_buoys (reliable, transient_local, depth 1) the way
-the USV team's README describes it: buoy A first (buoy_b_valid false) when --second-after-s is
+Publishes /system/vehicle/usv/task2/pipeline_buoys (plain default QoS: reliable, volatile,
+depth 10) the way the USV team's README describes it: buoy A first (buoy_b_valid false) when --second-after-s is
 set, then both buoys; seq increases only when the content changes. course_id is copied from the
 latched /system/mission/course unless --course-id is given.
 
@@ -32,7 +32,8 @@ class MockUsv(Node):
         self.sent = None
         self.started = self.get_clock().now()
         self.pub = self.create_publisher(
-            PipelineBuoys, '/system/vehicle/usv/task2/pipeline_buoys', LATEST)
+            PipelineBuoys, '/system/vehicle/usv/task2/pipeline_buoys',
+            QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE))
         self.create_subscription(Course, '/system/mission/course', self.on_course, LATEST)
         self.create_timer(1.0 / args.rate_hz, self.tick)
 

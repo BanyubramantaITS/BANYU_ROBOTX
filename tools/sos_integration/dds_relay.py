@@ -22,8 +22,6 @@ from rx_msgs.msg import (Command, Course, Heartbeat, IncidentAck, MissionStatus,
 VOLATILE = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
 LATCHED = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE,
                      durability=DurabilityPolicy.TRANSIENT_LOCAL)
-LATEST = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
-                    durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 UUV_TO_GCS = [
     ('/system/vehicle/uuv/heartbeat', Heartbeat, VOLATILE),
@@ -36,7 +34,7 @@ UUV_TO_GCS = [
 GCS_TO_UUV = [
     ('/system/mission/course', Course, LATCHED),
     ('/system/mission/command', Command, VOLATILE),
-    ('/system/vehicle/usv/task2/pipeline_buoys', PipelineBuoys, LATEST),
+    ('/system/vehicle/usv/task2/pipeline_buoys', PipelineBuoys, VOLATILE),
 ]
 
 
