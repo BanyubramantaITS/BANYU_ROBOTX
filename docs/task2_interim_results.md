@@ -22,7 +22,7 @@ Raw result files (trimmed JSONL) are in `task2_results/`.
 
 | Item | State |
 |---|---|
-| Core ring order | **FAILED in the sim.** Report `GREEN GREEN RED GREEN`, expected `GREEN RED GREEN GREEN` (damaged node 2). A false green ring is recorded near the buoy while diving (`task2_results/e2e/e2e_core9_ring_events.jsonl`, ring 0 at depth 11 m, x 3.7) and one real node is missed. The ring tracker is not reset when the traverse starts |
+| Core ring order | **FAILED in the sim.** Report `GREEN GREEN RED GREEN`, expected `GREEN RED GREEN GREEN` (damaged node 2). It is not a plain reversal: another run with the same truth reported `RED GREEN GREEN GREEN`. The recorded poses are about 1.2 m east of the world nodes (the camera sees a ring before the vehicle is over it), which fits: ring 0 = node 1, an extra green ring 0.07 m and 0.2 s before the red one (likely a flicker or reflection), the red ring = node 2, ring 3 = node 3, and node 4 never recorded. So the red is pushed from slot 2 to slot 3 and the list still has four entries. This is a reading of vehicle poses, not proven with Gazebo ground truth per ring. (An earlier version of this file blamed a false ring near the buoy; that was probably wrong.) Raw: `task2_results/e2e/e2e_core9_ring_events.jsonl` |
 | Disruptive end to end | **Not proven.** First run hung 10 minutes in `RepairRedRing` (no ring was ever recorded) and the decoder started with `code_length=1` although the tier was disruptive. Cause not found yet |
 | Advanced tier | Not run |
 | Red-node matrix (R1-R16), S-cases, 9 pairs in the sim | Not run: `light_seed` is not forwarded by `main_launch.launch.py`, so the damaged node is always 2 |
