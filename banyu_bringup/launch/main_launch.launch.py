@@ -101,6 +101,13 @@ def generate_launch_description():
         description="gps_gate: seconds at the surface before the GPS comes back.",
     )
 
+    light_seed_arg = DeclareLaunchArgument(
+        name="light_seed",
+        default_value="",
+        description="Simulation: seed that picks the damaged pipeline node and the flash colours (empty: node 2, "
+        "tin RED, circle BLUE). Seeds 2, 1, 5, 9 give damaged node 1, 2, 3, 4.",
+    )
+
     use_dvl_arg = DeclareLaunchArgument(
         name="use_dvl",
         default_value="False",
@@ -188,6 +195,7 @@ def generate_launch_description():
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "headless": LaunchConfiguration("headless"),
             "tier": LaunchConfiguration("tier"),
+            "light_seed": LaunchConfiguration("light_seed"),
             "spawn_x": task2_spawn_x,
             "spawn_y": task2_spawn_y,
             "spawn_z": task2_spawn_z,
@@ -270,6 +278,7 @@ def generate_launch_description():
             debug_arg,
             use_gps_arg,
             gps_gate_arg,
+            light_seed_arg,
             gps_loss_depth_arg,
             gps_reacquire_delay_arg,
             use_dvl_arg,

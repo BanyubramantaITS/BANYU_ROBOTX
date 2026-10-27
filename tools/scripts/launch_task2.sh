@@ -30,6 +30,7 @@ USE_GPS=true
 DRY_RUN=false
 TIER_SET=false
 GPS_GATE_OPTS_SET=false
+LIGHT_SEED=""
 EXTRA_ARGS=()
 
 print_usage() {
@@ -49,6 +50,8 @@ Simulation Options (--sim only):
   --gui                 (Default) Gazebo GUI and MAVProxy.
   --no-clean            Skip pre-flight cleanup of stale SITL/ardusub/mavproxy processes.
   --tier <t>            Task 2 tier: core | advanced | disruptive (sim default: advanced).
+  --light-seed <n>      Pick the damaged pipeline node and flash colours (seeds 2, 1, 5, 9 = node 1, 2, 3, 4;
+                        default: node 2, tin RED, circle BLUE).
   --gps-gate            Simulate GPS loss/reacquire around depth (gps_gate:=True).
   --no-gps-gate         (Default) Do not gate GPS (gps_gate:=False).
   --gps-loss-depth <m>  Depth at which GPS is lost (default: 0.1; gps_loss_depth_m).
@@ -85,6 +88,9 @@ while [[ $# -gt 0 ]]; do
     --tier)
       [ $# -ge 2 ] || { echo "Error: --tier needs a value (core|advanced|disruptive)." >&2; exit 1; }
       TIER="$2"; TIER_SET=true; shift 2 ;;
+    --light-seed)
+      [ $# -ge 2 ] || { echo "Error: --light-seed needs a value." >&2; exit 1; }
+      LIGHT_SEED="$2"; GPS_GATE_OPTS_SET=true; shift 2 ;;
     --gps-gate) GPS_GATE=true; GPS_GATE_OPTS_SET=true; shift ;;
     --no-gps-gate) GPS_GATE=false; shift ;;
     --gps-loss-depth)
@@ -115,7 +121,7 @@ if ! [[ "$GPS_REACQUIRE_DELAY" =~ $NUM_RE ]]; then
 fi
 if [ "$TARGET" = "real" ]; then
   if [ "$GPS_GATE" = true ] || [ "$GPS_GATE_OPTS_SET" = true ]; then
-    echo "Error: --gps-gate / --gps-loss-depth / --gps-reacquire-delay are simulation only" >&2
+    echo "Error: --gps-gate / --gps-loss-depth / --gps-reacquire-delay / --light-seed are simulation only" >&2
     echo "  (the GPS gate is a sim shim); they are refused with --real. Use --sim." >&2
     exit 1
   fi
@@ -182,6 +188,7 @@ if [ "$TARGET" = "sim" ]; then
     gps_loss_depth_m:="$GPS_LOSS_DEPTH"
     gps_reacquire_delay_s:="$GPS_REACQUIRE_DELAY"
   )
+  [ -n "$LIGHT_SEED" ] && LAUNCH_CMD+=(light_seed:="$LIGHT_SEED")
   [ ${#EXTRA_ARGS[@]} -gt 0 ] && LAUNCH_CMD+=("${EXTRA_ARGS[@]}")
 
   echo "Simulation Operator Instructions (Task 2):"
