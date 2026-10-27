@@ -128,3 +128,11 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
 - Results and verdict: `task2_feasibility_verdict.md`. Core partial, Advanced and Disruptive not shown in the sim.
 - Delegations: 1 total (`launch_task2.sh`, Sonnet, accepted), 0 rejected. `agy` was tested and never used for a job.
 - All sim processes stopped; nothing pushed.
+
+## Stopped by the operator (second time)
+- Ring tracker fix (green then red at one node is one red record; association 0.8 m in the sim) took the Core red node
+  matrix from 1 of 4 correct to 5 of 6 (`task2_results/e2e/core_matrix2_summary.md`). The batch was stopped before
+  `n3b` and `n4b`. Node 3 still wrong.
+- Cleanup note: four leftover `ros2 launch mission.launch.py` stacks from my tier-propagation tests (ROS domain 44, not
+  the sim domain 40) were still running for 1 h 50 min and were killed now; the domain 40 runs were not affected.
+- All sim processes stopped. Nothing pushed.

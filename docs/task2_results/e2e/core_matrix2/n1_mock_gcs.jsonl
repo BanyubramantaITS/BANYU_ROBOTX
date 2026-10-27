@@ -1,0 +1,3 @@
+{"t": 1793091673.84, "kind": "command_sent", "name": "run-start", "command_seq": 1, "command_type": 1, "target_vehicle": 2, "run_id": 1}
+{"t": 1793091766.54, "kind": "uuv_pipeline_survey", "active_buoy": [33.810313, -118.39382595826935], "segments": ["RED", "GREEN", "GREEN", "GREEN"]}
+{"t": 1793091766.54, "kind": "checks", "survey_segments": {"pass": true, "got": ["RED", "GREEN", "GREEN", "GREEN"]}}
