@@ -24,7 +24,7 @@ struct ResourceCodeConfig
   int code_length {2};            // 1 = Advanced (circle only), 2 = Disruptive (tin, circle)
   double min_on_s {0.5};          // a flash lasts about 1 s
   double max_on_s {1.7};
-  double steady_on_s {3.0};       // a longer run is the steady post-repair green, not a flash
+  double steady_on_s {2.5};       // a longer run is the steady post-repair green, not a flash
   double long_gap_s {1.6};        // dark time between two cycles (nominally 2 s)
   double merge_gap_s {0.25};      // a dropout this short inside one colour does not split the run
   int min_cycles {2};             // matching cycles needed before the code is called complete

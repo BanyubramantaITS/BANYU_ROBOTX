@@ -84,31 +84,37 @@
     </Sequence>
   </BehaviorTree>
 
-  <!-- Core: hold the probe for hold_duration. Advanced and Disruptive: keep station on the ring for the
-       probe hold plus the flash window while the code is read; a code that cannot be read never fails
-       the repair (the survey report is still sent). -->
+  <!-- Core: hold the probe for hold_duration. Advanced and Disruptive: (1) go down to repair_depth where the probe
+       tip reaches the magnetic switch and hold it, (2) climb back to the inspection depth, where the detector
+       can see the ring, and keep station there while the flash code is read. Every step has a time limit and a
+       failed step never fails the repair: the survey report is still sent. -->
   <BehaviorTree ID="RepairRedRing">
     <Sequence>
       <CenterOnRing ring_color="red" tolerance="{ring_tolerance}" />
       <Fallback>
         <Sequence>
           <ScriptCondition code="decode_enabled == true" />
-          <!-- The probe tip hangs below and ahead of the camera: go down to repair_depth, re-centre, hold and read
-               the flash code, then climb back to the inspection depth. A failed step never fails the repair. -->
           <ForceSuccess>
-            <Sequence>
-              <DiveToDepth target_depth="{repair_depth}" target_heading="{heading}"
-                depth_tolerance="{depth_tolerance}" heading_tolerance="{heading_tolerance}" />
-              <CenterOnRing ring_color="red" tolerance="{ring_tolerance}" />
-              <Parallel success_count="1" failure_count="2">
-                <HoldProbeOnRing hold_duration="{hold_total}" alignment_tolerance="{ring_tolerance}" />
-                <DecodeResourceCode timeout_s="{hold_total}" />
-              </Parallel>
-            </Sequence>
+            <Timeout msec="{repair_step_timeout_ms}">
+              <Sequence>
+                <DiveToDepth target_depth="{repair_depth}" target_heading="{heading}"
+                  depth_tolerance="{depth_tolerance}" heading_tolerance="{heading_tolerance}" />
+                <CenterOnRing ring_color="red" tolerance="{repair_ring_tolerance}" />
+                <HoldProbeOnRing hold_duration="{hold_duration}" alignment_tolerance="{repair_ring_tolerance}" />
+              </Sequence>
+            </Timeout>
           </ForceSuccess>
           <ForceSuccess>
-            <DiveToDepth target_depth="{inspection_depth}" target_heading="{heading}"
-              depth_tolerance="{depth_tolerance}" heading_tolerance="{heading_tolerance}" />
+            <Timeout msec="{repair_step_timeout_ms}">
+              <DiveToDepth target_depth="{inspection_depth}" target_heading="{heading}"
+                depth_tolerance="{depth_tolerance}" heading_tolerance="{heading_tolerance}" />
+            </Timeout>
+          </ForceSuccess>
+          <ForceSuccess>
+            <Parallel success_count="1" failure_count="2">
+              <HoldProbeOnRing hold_duration="{decode_window}" alignment_tolerance="{repair_ring_tolerance}" />
+              <DecodeResourceCode timeout_s="{decode_window}" />
+            </Parallel>
           </ForceSuccess>
         </Sequence>
         <HoldProbeOnRing hold_duration="{hold_duration}" alignment_tolerance="{ring_tolerance}" />

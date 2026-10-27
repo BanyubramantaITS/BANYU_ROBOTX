@@ -666,6 +666,9 @@ void BanyuMission::initialize()
   // Depth for the probe hold (Advanced and Disruptive): the probe tip hangs below the camera and the magnetic
   // switch only reacts at a few centimetres. Defaults to the inspection depth (no extra descent).
   const auto repair_depth_param = declare_parameter<double>("mission.repair_depth_m", 0.0);
+  // Looser alignment for the probe step (the tip sits ahead of the camera) and a time limit per repair step.
+  const auto repair_ring_tolerance = declare_parameter<double>("mission.repair_ring_tolerance", 0.25);
+  const auto repair_step_timeout_s = declare_parameter<double>("mission.repair_step_timeout_s", 60.0);
   // Flight mode for the dive and everything under water; must be the second entry of autonomy_mode.
   const auto underwater_mode = declare_parameter<std::string>("mission.underwater_mode", "ALT_HOLD");
   const auto surface_depth = declare_parameter<double>("mission.surface_depth_m", 0.0);
@@ -776,6 +779,8 @@ void BanyuMission::initialize()
   blackboard->set("hold_duration", hold_duration);
   blackboard->set("underwater_mode", underwater_mode);
   blackboard->set("repair_depth", repair_depth_param > 0.0 ? repair_depth_param : inspection_depth);
+  blackboard->set("repair_ring_tolerance", repair_ring_tolerance);
+  blackboard->set("repair_step_timeout_ms", static_cast<unsigned>(repair_step_timeout_s * 1000.0));
   blackboard->set("decode_enabled", task2_tier_ >= 3);
   blackboard->set("decode_window", decode_window);
   blackboard->set("hold_total", hold_duration + decode_window);
