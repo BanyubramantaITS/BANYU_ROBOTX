@@ -110,3 +110,12 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   `gz`, `mavros_node`, `banyu_mission` or helper scripts left). Summary: `task2_interim_results.md`. Trimmed raw results:
   `task2_results/`.
 - Delegations: 1 total (`launch_task2.sh`, Sonnet), 0 rejected. `agy` was tested but not used for a job.
+
+## Tier propagation bug (found while debugging the Disruptive hang)
+- With `tier:=disruptive` or `advanced`, `resource_code_decoder`, `survey_evidence_node`, `uuv_comm_node` and
+  `banyu_mission` all still ran with tier 2: `ros2 param get` returned 2 in every case. Neither a dict in the Node
+  `parameters` nor a `-p tier:=N` argument won over `task2_params.yaml` (launch_ros puts its parameter files after
+  the arguments). So no Advanced or Disruptive run before this point ran the tier logic: the earlier "disruptive"
+  e2e run (decoder `code_length=1`) was a tier 2 run on a world with the probe model.
+- Fix: one overlay file per tier (`config/task2_tier_{core,advanced,disruptive}.yaml`) loaded after the params file
+  by `mission.launch.py`. Verified with `ros2 param get`: disruptive 4/4/4/4, advanced 3/3/3/3, core 2/2/2/2.

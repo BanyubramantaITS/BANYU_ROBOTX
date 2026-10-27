@@ -111,9 +111,10 @@ def generate_launch_description():
     use_sim = LaunchConfiguration("use_sim")
     debug = LaunchConfiguration("debug")
     task2_params = LaunchConfiguration("task2_params_file")
-    task2_tier = ParameterValue(
-        PythonExpression(["{'core': 2, 'advanced': 3, 'disruptive': 4}['", LaunchConfiguration("tier"), "']"]),
-        value_type=int,
+    # One small overlay file per tier, loaded after the params file: a later file wins, while a dict or a -p
+    # override in this launch did not (launch_ros puts its parameter files after the arguments).
+    task2_tier_file = PythonExpression(
+        ["'", banyu_bringup_share, "/config/task2_tier_' + '", LaunchConfiguration("tier"), "' + '.yaml'"]
     )
     por_params = LaunchConfiguration("por_params_file")
     hardware_params = LaunchConfiguration("hardware_params_file")
@@ -158,8 +159,8 @@ def generate_launch_description():
             task2_hardware_override,
             {
                 "mission_mode": mode,
-                "mission.task2_tier": task2_tier,
             },
+            task2_tier_file,
         ],
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -285,7 +286,7 @@ def generate_launch_description():
         package="banyu_communication",
         executable="uuv_comm_node",
         name="uuv_comm_node",
-        parameters=[task2_params, {"survey.task2_tier": task2_tier}],
+        parameters=[task2_params, task2_tier_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -339,7 +340,7 @@ def generate_launch_description():
         package="banyu_detection",
         executable="survey_evidence_node",
         name="survey_evidence_node",
-        parameters=[task2_params, {"tier": task2_tier}],
+        parameters=[task2_params, task2_tier_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -348,7 +349,7 @@ def generate_launch_description():
         package="banyu_detection",
         executable="resource_code_decoder_node",
         name="resource_code_decoder",
-        parameters=[task2_params, {"tier": task2_tier}],
+        parameters=[task2_params, task2_tier_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
