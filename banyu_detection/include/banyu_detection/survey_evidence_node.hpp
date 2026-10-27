@@ -60,6 +60,7 @@ private:
   bool traversal_complete_{false};
   bool repair_verified_{false};
   bool resource_code_complete_{false};
+  bool code_gave_up_{false};   // the decode window closed without a complete code: report the Core survey only
   uint8_t resource_color_{0};
   uint8_t delivery_circle_color_{0};
   bool start_buoy_trust_raw_fix_{false};

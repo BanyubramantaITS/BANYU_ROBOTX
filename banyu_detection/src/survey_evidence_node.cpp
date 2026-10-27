@@ -123,6 +123,7 @@ void SurveyEvidenceNode::handleLifecycle(const banyu_msgs::msg::RunLifecycle::Sh
     traversal_complete_ = false;
     repair_verified_ = false;
     resource_code_complete_ = false;
+    code_gave_up_ = false;
     evidence_revision_ = 0;
     buoy_revision_ = 0;
     RCLCPP_INFO(
@@ -146,9 +147,11 @@ void SurveyEvidenceNode::handleResourceCode(const banyu_msgs::msg::ResourceCode:
   const bool tin_ok = msg->resource_color >= 1 && msg->resource_color <= 3;
   const bool code_ok = msg->complete && circle_ok && (tier_ == 3 || tin_ok);
   const uint8_t tin = tier_ == 3 ? 4 : msg->resource_color;   // Advanced: any tin (COLOR_ANY)
-  const bool changed = repair_verified_ != msg->repair_verified ||
+  const bool final_without_code = msg->header.frame_id == "final" && !code_ok && !resource_code_complete_;
+  const bool changed = final_without_code != code_gave_up_ || repair_verified_ != msg->repair_verified ||
     resource_code_complete_ != code_ok ||
     (code_ok && (resource_color_ != tin || delivery_circle_color_ != msg->delivery_circle_color));
+  code_gave_up_ = final_without_code;
   repair_verified_ = repair_verified_ || msg->repair_verified;
   if (code_ok) {
     resource_code_complete_ = true;
@@ -305,7 +308,7 @@ void SurveyEvidenceNode::publishEvidence()
   }
 
   evidence.traversal_complete = traversal_complete_;
-  evidence.tier = tier_;
+  evidence.tier = code_gave_up_ ? static_cast<uint8_t>(2) : tier_;
   evidence.repair_verified = repair_verified_;
   evidence.resource_code_complete = resource_code_complete_;
   evidence.resource_color = resource_color_;

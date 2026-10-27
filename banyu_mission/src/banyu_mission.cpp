@@ -669,6 +669,8 @@ void BanyuMission::initialize()
   // Looser alignment for the probe step (the tip sits ahead of the camera) and a time limit per repair step.
   const auto repair_ring_tolerance = declare_parameter<double>("mission.repair_ring_tolerance", 0.25);
   const auto repair_step_timeout_s = declare_parameter<double>("mission.repair_step_timeout_s", 60.0);
+  // The decoder window covers the whole repair: two repair steps, then the code reading hold.
+  const double decode_total = 2.0 * repair_step_timeout_s + decode_window + 15.0;
   // Flight mode for the dive and everything under water; must be the second entry of autonomy_mode.
   const auto underwater_mode = declare_parameter<std::string>("mission.underwater_mode", "ALT_HOLD");
   const auto surface_depth = declare_parameter<double>("mission.surface_depth_m", 0.0);
@@ -783,6 +785,7 @@ void BanyuMission::initialize()
   blackboard->set("repair_step_timeout_ms", static_cast<unsigned>(repair_step_timeout_s * 1000.0));
   blackboard->set("decode_enabled", task2_tier_ >= 3);
   blackboard->set("decode_window", decode_window);
+  blackboard->set("decode_total", decode_total);
   blackboard->set("hold_total", hold_duration + decode_window);
   blackboard->set("mission_id", id);
   blackboard->set("crc32", static_cast<uint32_t>(crc));

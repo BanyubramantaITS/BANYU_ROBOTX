@@ -25,6 +25,7 @@ struct Trace
   double dropout {0.0};     // probability that a frame is lost (reads as dark)
   double start {7.3};       // arbitrary clock offset
   unsigned seed {1};
+  double red_lead_s {2.0};  // the ring is red before the repair (fed before `from` when from is 0)
 };
 
 int colourAt(double since, bool two_colour, int tin, int circle)
@@ -46,6 +47,9 @@ void run(ResourceCodeDecoder & d, const Trace & tr, bool two_colour, int tin, in
 {
   std::srand(tr.seed);
   const double dt = 1.0 / tr.fps;
+  if (from <= 0.0) {
+    for (double since = -tr.red_lead_s; since < 0.0; since += dt) {d.add(tr.start + since, kRed);}
+  }
   for (double since = from; since < to; since += dt) {
     int colour = colourAt(since, two_colour, tin, circle);
     if (tr.dropout > 0.0 && std::rand() / static_cast<double>(RAND_MAX) < tr.dropout) {colour = 0;}
@@ -146,6 +150,13 @@ TEST(ResourceCodeDecoder, SteadyGreenVerifiesTheRepair)
   ResourceCodeDecoder e;
   run(e, Trace{}, true, kRed, kBlue, 5.0, 37.0);
   EXPECT_FALSE(e.decode().repair_verified);
+
+  // Steady green without an earlier red (a neighbouring node) is not a repair.
+  ResourceCodeDecoder g;
+  Trace no_red;
+  no_red.red_lead_s = 0.0;
+  run(g, no_red, true, kRed, kBlue);
+  EXPECT_FALSE(g.decode().repair_verified);
 
   // A ring that stays red never verifies.
   ResourceCodeDecoder f;

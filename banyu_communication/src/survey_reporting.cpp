@@ -238,7 +238,10 @@ std::string SurveyLedger::ingest(
   if (value.rings.size() != 4 || originals_.size() != 4) {
     return fail("SURVEY_INCOMPLETE observed=" + std::to_string(value.rings.size()) + " expected=4");
   }
-  if (value.tier != config_.tier) {return fail("TIER_CONTEXT_MISMATCH");}
+  // A higher tier whose repair or flash code could not be confirmed reports as the Core survey only (the evidence
+  // node then sends tier 2): the Core points do not depend on the code.
+  const bool core_fallback = value.tier == 2 && config_.tier > 2;
+  if (value.tier != config_.tier && !core_fallback) {return fail("TIER_CONTEXT_MISMATCH");}
   if (!value.traversal_complete) {return fail("TRAVERSAL_INCOMPLETE");}
   if (value.tier != 2) {
     if (!value.repair_verified) {return fail("REPAIR_UNVERIFIED");}

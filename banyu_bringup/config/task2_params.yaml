@@ -443,5 +443,5 @@ resource_code_decoder:
     long_gap_s: 1.6         # dark gap between cycles (nominally 2 s)
     merge_gap_s: 0.25       # dropout shorter than this does not split a flash
     min_cycles: 2           # cycles that must agree before the code counts as read
-    max_window_s: 45.0
+    max_window_s: 240.0     # must cover the whole repair: two steps of mission.repair_step_timeout_s plus the code hold
     publish_period_s: 1.0

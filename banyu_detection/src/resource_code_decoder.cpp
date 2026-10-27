@@ -95,9 +95,12 @@ ResourceCodeResult ResourceCodeDecoder::decode() const
     flashes.push_back({merged[i].colour, merged[i].first, merged[i].last, gap, steady_prev});
   }
 
-  // A node only turns green once the magnetic switch is activated, so a long green run is the proof.
+  // A node only turns green once the magnetic switch is activated: the ring must have been RED earlier in the
+  // window and then show steady green. Steady green alone could be a neighbouring node that was never damaged.
+  bool seen_red = false;
   for (const auto & r : merged) {
-    if (r.colour == 2 && r.last - r.first + frame > config_.steady_on_s) {
+    if (r.colour == 1) {seen_red = true;}
+    if (seen_red && r.colour == 2 && r.last - r.first + frame > config_.steady_on_s) {
       result.repair_verified = true;
       break;
     }
