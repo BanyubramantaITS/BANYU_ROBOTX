@@ -104,3 +104,9 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   mission SUCCEEDED, `PipelineSurvey` received by the mock GCS about 80 s after the start. The survey lists the red
   ring FIRST (`RED GREEN GREEN GREEN`), but the world's damaged node is 2, which is second from the active (green)
   buoy end: the ring order is wrong and is the next thing to investigate.
+
+## Stop
+- Run stopped by the operator before the Disruptive stage was proven. All sim processes were stopped (no `ardusub`,
+  `gz`, `mavros_node`, `banyu_mission` or helper scripts left). Summary: `task2_interim_results.md`. Trimmed raw results:
+  `task2_results/`.
+- Delegations: 1 total (`launch_task2.sh`, Sonnet), 0 rejected. `agy` was tested but not used for a job.
