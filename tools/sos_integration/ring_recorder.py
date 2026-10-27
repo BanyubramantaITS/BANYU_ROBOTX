@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """SIMULATION ONLY: record every accepted ring of a Task 2 run together with the vehicle's Gazebo ground truth.
 
-Writes JSONL: one `accepted_ring` row per message (node id, colour, progress, EKF pose, Gazebo pose of the
+Writes JSONL: one `ring_obs` row whenever the detector's (visible, colour) changes, one `accepted_ring` row per message (node id, colour, progress, EKF pose, Gazebo pose of the
 vehicle) and one `evidence` row whenever the survey evidence changes. The Gazebo pose comes from
 `gz topic /world/ocean/dynamic_pose/info`, sampled in a background thread at about 2 Hz.
   ROS_DOMAIN_ID=40 python3 ring_recorder.py out.jsonl 600
@@ -14,7 +14,7 @@ import threading
 import time
 
 import rclpy
-from banyu_msgs.msg import Task2RingRecord, Task2SurveyEvidence
+from banyu_msgs.msg import PipelineRingObservation, Task2RingRecord, Task2SurveyEvidence
 from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
@@ -72,6 +72,17 @@ def main():
     node.create_subscription(
         Task2SurveyEvidence, '/banyu/pipeline/survey_evidence', evidence,
         QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+    last_obs = [None]
+
+    def ring_obs(m):
+        # Raw detector output, only when (visible, colour) changes: this is what the flash-code decoder reads.
+        key = (bool(m.visible), int(m.color))
+        if key != last_obs[0]:
+            last_obs[0] = key
+            write('ring_obs', visible=key[0], color=key[1], stamp=round(m.header.stamp.sec + m.header.stamp.nanosec * 1e-9, 2),
+                  offset=[round(float(m.offset_x), 2), round(float(m.offset_y), 2)])
+    node.create_subscription(PipelineRingObservation, '/banyu/pipeline/ring_observation', ring_obs,
+                             qos_profile_sensor_data)
     stop = threading.Event()
     threading.Thread(target=sample_truth, args=(stop,), daemon=True).start()
     end = time.time() + duration
