@@ -35,7 +35,7 @@ def test_sub_bringup_defaults_are_hardware_safe():
     ld = _load_launch("sub_bringup.launch.py")
     args = _declared_args(ld)
     assert "use_sim" not in args
-    assert args["use_dvl"] == "False"
+    assert "use_dvl" not in args
     assert args["use_gps"] == "False"
     assert args["enable_teleop"] == "True"
     assert args["enable_esp32_bridge"] == "False"

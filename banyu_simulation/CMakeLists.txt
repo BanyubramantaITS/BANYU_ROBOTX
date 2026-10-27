@@ -23,7 +23,6 @@ find_package(gz-plugin2 REQUIRED COMPONENTS register)
 find_package(gz-rendering8 REQUIRED COMPONENTS ogre2)
 find_package(gz-transport13 REQUIRED)
 find_package(gz-msgs10 REQUIRED)
-find_package(mavlink REQUIRED)
 # gz-rendering's ogre2 target does not export the OGRE-Next headers its own headers include.
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(OGRE2 IMPORTED_TARGET OGRE-Next)
@@ -36,14 +35,6 @@ add_library(BanyuHydrophoneArray SHARED src/HydrophoneArray.cc)
 target_link_libraries(BanyuHydrophoneArray gz-sim8::gz-sim8 gz-plugin2::register gz-transport13::gz-transport13 gz-msgs10::gz-msgs10)
 add_library(BanyuPipelineLights SHARED src/PipelineLights.cc)
 target_link_libraries(BanyuPipelineLights gz-sim8::gz-sim8 gz-plugin2::register)
-
-# DVL -> ArduSub SITL. Header-only MAVLink C library from the ROS mavlink package.
-add_library(BanyuDvlMavlink SHARED src/DvlMavlink.cc)
-target_link_libraries(BanyuDvlMavlink
-  gz-sim8::gz-sim8 gz-plugin2::register gz-transport13::gz-transport13 gz-msgs10::gz-msgs10)
-target_include_directories(BanyuDvlMavlink PRIVATE ${mavlink_INCLUDE_DIRS}/mavlink/v2.0)
-# Generated MAVLink headers trip these; they are not our code.
-target_compile_options(BanyuDvlMavlink PRIVATE -Wno-address-of-packed-member -Wno-pedantic)
 
 add_library(BanyuUnderwaterTurbidity SHARED src/UnderwaterTurbidity.cc)
 target_link_libraries(BanyuUnderwaterTurbidity
@@ -64,7 +55,7 @@ target_include_directories(BanyuUnderwaterTurbidity PRIVATE
   ${OGRE2_INCLUDE_DIRS}/OGRE-Next/Hlms/Common ${OGRE2_INCLUDE_DIRS}/OGRE-Next/Hlms/Pbs
   ${OGRE2_INCLUDE_DIRS}/OGRE-Next/Hlms/Unlit)
 
-install(TARGETS BanyuHydrophoneArray BanyuPipelineLights BanyuDvlMavlink BanyuUnderwaterTurbidity DESTINATION lib)
+install(TARGETS BanyuHydrophoneArray BanyuPipelineLights BanyuUnderwaterTurbidity DESTINATION lib)
 
 ament_environment_hooks("${CMAKE_CURRENT_SOURCE_DIR}/hooks/gazebo_env.dsv")
 

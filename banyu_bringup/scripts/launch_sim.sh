@@ -4,7 +4,7 @@
 #
 # Usage:
 #   ./launch_sim.sh por      # proof-of-readiness sim
-#   ./launch_sim.sh task2    # Task 2 sim (pass use_dvl:=True to enable DVL)
+#   ./launch_sim.sh task2    # Task 2 sim
 #   ./launch_sim.sh          # defaults to 'por'
 #
 # Any extra arguments after the mode are passed straight through to

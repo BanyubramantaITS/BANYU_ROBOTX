@@ -81,16 +81,6 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
-    use_dvl_arg = DeclareLaunchArgument(
-        name="use_dvl",
-        default_value="False",
-        description=(
-            "Enable DVL transport, source switching, and Task 2 DVL readiness "
-            "checks. False leaves the estimator on its configured source set."
-        ),
-        choices=["True", "False"],
-    )
-
     headless_arg = DeclareLaunchArgument(
         name="headless",
         default_value="False",
@@ -183,7 +173,6 @@ def generate_launch_description():
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "use_ardusub_sitl": LaunchConfiguration("use_ardusub_sitl"),
             "fcu_url": LaunchConfiguration("fcu_url"),
-            "use_dvl": LaunchConfiguration("use_dvl"),
             "use_gps": LaunchConfiguration("use_gps"),
             "headless": LaunchConfiguration("headless"),
         }.items(),
@@ -222,10 +211,7 @@ def generate_launch_description():
         condition=IfCondition(
             AndSubstitution(
                 EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
-                AndSubstitution(
-                    EqualsSubstitution(LaunchConfiguration("use_gps"), "False"),
-                    EqualsSubstitution(LaunchConfiguration("use_dvl"), "False"),
-                ),
+                EqualsSubstitution(LaunchConfiguration("use_gps"), "False"),
             )
         ),
     )
@@ -240,7 +226,6 @@ def generate_launch_description():
             tier_arg,
             debug_arg,
             use_gps_arg,
-            use_dvl_arg,
             headless_arg,
             task2_params_arg,
             por_params_arg,

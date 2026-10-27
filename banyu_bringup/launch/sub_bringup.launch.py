@@ -93,13 +93,6 @@ def generate_launch_description():
         ),
     )
 
-    use_dvl_arg = DeclareLaunchArgument(
-        name="use_dvl",
-        default_value="False",
-        description="Keep False: the AUV has no physical DVL (DVL is simulation only).",
-        choices=["True", "False"],
-    )
-
     use_gps_arg = DeclareLaunchArgument(
         name="use_gps",
         # POR runs GPS-denied; Task 2 needs the surface GPS leg (NavigateSurfaceGps).
@@ -107,8 +100,8 @@ def generate_launch_description():
             ["'True' if '", LaunchConfiguration("mode"), "' == 'task2' else 'False'"]
         ),
         description=(
-            "Whether GPS is available on the AUV. Default: False for mode:=por (forces EKF3 "
-            "SRC2, baro + compass, and runs nogps_odom_beacon when use_dvl is False), True for "
+            "Whether GPS is available on the AUV. Default: False for mode:=por (runs "
+            "nogps_odom_beacon, which selects EKF3 source set 2: baro + compass), True for "
             "mode:=task2."
         ),
         choices=["True", "False"],
@@ -228,7 +221,6 @@ def generate_launch_description():
             "use_sim_time": "False",
             "use_ardusub_sitl": "False",
             "fcu_url": LaunchConfiguration("fcu_url"),
-            "use_dvl": LaunchConfiguration("use_dvl"),
             "use_gps": LaunchConfiguration("use_gps"),
         }.items(),
     )
@@ -245,10 +237,7 @@ def generate_launch_description():
         name="nogps_odom_beacon",
         output="screen",
         condition=IfCondition(
-            AndSubstitution(
-                EqualsSubstitution(LaunchConfiguration("use_gps"), "False"),
-                EqualsSubstitution(LaunchConfiguration("use_dvl"), "False"),
-            )
+            EqualsSubstitution(LaunchConfiguration("use_gps"), "False")
         ),
     )
 
@@ -328,7 +317,6 @@ def generate_launch_description():
         [
             mode_arg,
             fcu_url_arg,
-            use_dvl_arg,
             use_gps_arg,
             debug_arg,
             enable_teleop_arg,

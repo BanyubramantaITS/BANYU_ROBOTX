@@ -140,7 +140,7 @@ Catatan sim:
    - `VISO_TYPE 1`, `EK3_SRC2_POSXY 0`, `EK3_SRC2_VELXY 6`, `EK3_SRC2_POSZ 1`,
      `EK3_SRC2_VELZ 0`, `EK3_SRC2_YAW 1`: dipakai `nogps_odom_beacon` supaya EKF
      mempublikasikan kedalaman dan heading tanpa GPS. Tanpa `EK3_SRC2_YAW 1`, EKF kehilangan
-     sumber heading begitu `ekf_source_switch` pindah ke source set 2.
+     sumber heading begitu `nogps_odom_beacon` memilih source set 2.
    - `FS_EKF_ACTION 0`, `FS_GCS_ENABLE 0`.
    - `MAV_GCS_SYSID 255` (sysid MAVROS), lihat §4.2.
    - **Batas daya thruster** `MOT_PWM_MIN 1300`, `MOT_PWM_MAX 1700` (50% dari 1100..1900):
@@ -192,7 +192,7 @@ Pengaman:
 | Parameter di Pixhawk | Akibat | Perbaikan |
 |---|---|---|
 | `MAV_GCS_SYSID 1` (`_HI 0`) | ArduSub hanya menerima RC override dari sysid 1. MAVROS memakai sysid 255, jadi **semua perintah gerak misi POR diabaikan**: robot arm tapi tidak bergerak | **Diputuskan: set `MAV_GCS_SYSID 255`** (juga ada di `banyu_defaults.parm`). GCS lain yang mengirim joystick/override harus memakai sysid 255 juga |
-| `VISO_TYPE 0`, `EK3_SRC2_VELXY 0`, `EK3_SRC2_YAW 0` | `banyu_defaults.parm` belum dimuat. Tanpa GPS, `ekf_source_switch` memakai source set 2, yang di Pixhawk ini tidak punya sumber yaw | **Belum**: muat `banyu_defaults.parm` (§4.1) sebelum run otonom |
+| `VISO_TYPE 0`, `EK3_SRC2_VELXY 0`, `EK3_SRC2_YAW 0` | `banyu_defaults.parm` belum dimuat. Tanpa GPS, `nogps_odom_beacon` memilih source set 2, yang di Pixhawk ini tidak punya sumber yaw | **Belum**: muat `banyu_defaults.parm` (§4.1) sebelum run otonom |
 | `RC8_OPTION 213` (mount pitch), `RC7_OPTION 214` (mount yaw), `MNT1_RC_RATE 30` | SC (CH8) juga menggerakkan tilt mount kamera dengan laju 30°/s selama tidak di tengah: SC atas memiringkan kamera sampai -90°, SC bawah sampai +20°. Arah kamera depan saat misi jadi tergantung riwayat posisi SC | **Aman**: kamera depan fixed, tidak ada servo tilt. Kalau suatu saat dipasang mount, set `RC8_OPTION 0` |
 | `BARO2_DEVID 0` | Saat dump diambil, Bar30 belum dipasang (hanya baro internal). ALT_HOLD butuh Bar30 | Pasang Bar30 untuk run di air; cek `BARO2_DEVID` bukan 0 sebelum menyelam |
 | `FS_EKF_ACTION 1` | Berbeda dengan repo (`0`) | Ikuti `banyu_defaults.parm` |
@@ -275,7 +275,7 @@ ros2 topic echo /banyu/vehicle_status --once
 Selama belum ada sumber kill switch yang melapor (teleop, ESP32 bridge, atau ESP32 trigger),
 `operational_mode` di robot bernilai `0`, dan misi tidak bisa start.
 
-Di log launch harus ada `EKF source set 2 accepted` (dari `ekf_source_switch`), dan
+Di log launch harus ada `[nogps_odom_beacon] selecting EKF3 source set 2`, dan
 `ros2 topic hz /mavros/local_position/pose` sekitar 10 Hz.
 
 Untuk profil kamera, cek juga deteksi: `ros2 topic echo /banyu/detection --once`

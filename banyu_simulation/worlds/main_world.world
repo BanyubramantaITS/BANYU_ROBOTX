@@ -15,12 +15,6 @@
             name="gz::sim::systems::SceneBroadcaster">
         </plugin>
 
-        <!-- DVL plugin manages all DVL sensors. MUST be world-level: declaring
-             it inside a model is silently ignored (no error, no topic). -->
-        <plugin filename="gz-sim-dvl-system"
-            name="gz::sim::systems::DopplerVelocityLogSystem">
-        </plugin>
-
         <!-- IMU plugin manages all IMU sensors -->
         <plugin filename="libgz-sim-imu-system.so"
             name="gz::sim::systems::Imu">
@@ -81,12 +75,9 @@
         <!-- Seabed. NOT sand_heightmap: that model is a 5 m x 5 m patch (its
              mesh spans +/-5 m and is scaled 0.5), which left the Task 2
              pipeline at x~51 hanging over empty space with no bottom beneath
-             it. No bottom means the DVL never gets bottom lock, so EKF3's SRC2
-             source set has nothing aiding it anywhere on this course.
-             A plane covers the whole course instead.
+             it. A plane covers the whole course instead.
              ponytail: flat and untextured. The seabed is not a detection
-             target; it exists to give the DVL something to range against and
-             the camera a horizon. Swap in a textured mesh if the camera ever
+             target; it gives the camera a horizon. Swap in a textured mesh if the camera ever
              needs realistic ground. -->
         <model name="seabed">
             <static>true</static>
@@ -183,10 +174,6 @@
             <uri>model://robotx_pinger</uri>
             <pose relative_to="robobuoy_red::anchor_point"/>
         </include>
-
-        <!-- DVL -> ArduSub SITL (VISION_POSITION_DELTA). Pairs with
-             sim_vehicle.py -\-out=udp:127.0.0.1:14552 in sitl_mavros.launch.py. -->
-        <plugin filename="BanyuDvlMavlink" name="banyu::DvlMavlink"/>
 
         <plugin filename="BanyuUnderwaterTurbidity" name="banyu::UnderwaterTurbidity">
             <camera>front_camera</camera>

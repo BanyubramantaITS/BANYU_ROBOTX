@@ -165,7 +165,7 @@ def main():
         index = args.window if args.window else len(windows)
         if not 1 <= index <= len(windows):
             sys.exit(f"--window must be 1..{len(windows)}")
-        w0, w1, modes = windows[index - 1]
+        w0, w1, _ = windows[index - 1]
         moving = [t for t, m in rc if w0 <= t <= w1 and active(m)]
         if not moving:
             sys.exit(f"Window {index} has no stick input above {args.deadband} PWM.")
@@ -173,7 +173,9 @@ def main():
         end = args.end if args.end is not None else min(w1, moving[-1] + args.tail)
     else:
         index, start, end = 0, args.start, args.end
-        modes = sorted({m.mode for t, m in data[TOPIC_STATE] if start <= t <= end})
+    # Modes in force during the cut: the last state before it plus any change inside it
+    before = [m.mode for t, m in data[TOPIC_STATE] if t <= start]
+    modes = sorted(set(before[-1:]) | {m.mode for t, m in data[TOPIC_STATE] if start < t <= end})
     if end - start < 1.0:
         sys.exit(f"Cut {start:.1f}-{end:.1f} s is shorter than 1 s.")
 

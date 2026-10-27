@@ -8,14 +8,13 @@ Task 2 terbang di mode **GUIDED** (`task2_params.yaml`: `autonomy_mode: "GUIDED"
 `control.output_mode` default `setpoint`, `control.require_guided: true`). ArduSub hanya
 menerima dan menjalankan setpoint GUIDED kalau EKF punya estimasi posisi (`position_ok()`).
 
-Robot tidak punya DVL. Sumber posisi satu-satunya adalah GPS, dan GPS tidak bekerja di bawah air.
-Rantai yang terjadi di robot dengan setting sekarang (`sub_bringup.launch.py mode:=task2`,
-`use_gps` default `True`):
+Robot tidak punya DVL (dan repo tidak lagi punya jalur DVL atau `ekf_source_switch`). Sumber
+posisi satu-satunya adalah GPS, dan GPS tidak bekerja di bawah air. Rantai yang terjadi di robot
+dengan setting sekarang (`sub_bringup.launch.py mode:=task2`, `use_gps` default `True`):
 
-1. Di permukaan EKF memakai source set 1 (GPS). `NavigateSurfaceGps` dan `AlignHeading` jalan.
-2. Begitu kedalaman > `dive_depth` (0,5 m), `ekf_source_switch` pindah ke source set 2:
-   `POSXY 0` (tidak ada), `VELXY 6` (ExternalNav). Di robot tidak ada yang mengirim ExternalNav:
-   `nogps_odom_beacon` hanya jalan kalau `use_gps:=False`, dan DVL tidak ada.
+1. EKF memakai source set 1 (GPS) sepanjang misi. `NavigateSurfaceGps` dan `AlignHeading` jalan
+   di permukaan. `nogps_odom_beacon` hanya jalan kalau `use_gps:=False`.
+2. Begitu menyelam, GPS hilang.
 3. EKF kehilangan aiding horizontal dan `position_ok()` jadi false. GUIDED tidak bisa dimasuki
    lagi (`ModeGuided::init`), dan selama masih di GUIDED, kontrol kecepatannya memakai estimasi
    kecepatan EKF yang tidak lagi dikoreksi sensor apa pun (drift inersia). Dengan
@@ -29,8 +28,7 @@ Aksi BT yang jalan di bawah air dan terkena: `DiveToDepth`, `AcquirePipeline`,
 
 - GPS SITL disintesis dari ground truth Gazebo dan **tetap mengirim data di bawah air**
   (catatan di `banyu_defaults.parm`). Sim Task 2 jalan dengan `use_gps` default `True`.
-- Sim tidak menjalankan DVL secara default (`use_dvl:=False`), tapi GPS sim yang bocor ke bawah air
-  menutupi kekurangan itu.
+- GPS sim yang bocor ke bawah air menutupi kekurangan itu.
 
 Jadi hasil sim Task 2 saat ini **tidak** membuktikan Task 2 bisa jalan di robot.
 
@@ -46,8 +44,7 @@ Jadi hasil sim Task 2 saat ini **tidak** membuktikan Task 2 bisa jalan di robot.
 | Opsi | Isi | Kelebihan | Kekurangan / kerja |
 |---|---|---|---|
 | A. GUIDED di permukaan, ALT_HOLD di bawah air | Transit GPS di permukaan tetap GUIDED. Setelah dive, pindah ke ALT_HOLD + RC override seperti POR (`control.output_mode: rc_override`). Kedalaman dari Bar30, heading dari kompas, follow pipeline dari kamera bawah | Memakai jalur yang sudah teruji di POR; tidak butuh DVL | Perlu ganti mode di tengah misi (BT + `vehicle_execution`), kalibrasi gain stick untuk aksi pipeline, tes sim dengan GPS dimatikan di bawah air |
-| B. Pasang DVL | Source set 2 dapat kecepatan asli, GUIDED tetap jalan | Arsitektur sekarang tidak berubah (jalur DVL sudah ada di sim) | Butuh hardware DVL (tim tidak punya) |
-| C. Task 2 hanya permukaan / ditunda | Fokus POR; Task 2 di robot tidak dijalankan di bawah air | Tidak ada kerja kode | Task 2 tidak bisa dikerjakan penuh |
+| B. Task 2 hanya permukaan / ditunda | Fokus POR; Task 2 di robot tidak dijalankan di bawah air | Tidak ada kerja kode | Task 2 tidak bisa dikerjakan penuh |
 
 ## Yang perlu dites sebelum memilih A
 

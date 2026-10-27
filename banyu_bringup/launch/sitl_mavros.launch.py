@@ -10,7 +10,7 @@ from launch.substitutions import (
     LaunchConfiguration,
     PythonExpression,
 )
-from launch_ros.actions import Node, SetParameter
+from launch_ros.actions import SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
 
 
@@ -35,23 +35,13 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
-    use_dvl_arg = DeclareLaunchArgument(
-        name="use_dvl",
-        default_value="False",
-        description=(
-            "Enable DVL transport and source switching. False leaves the "
-            "estimator on its configured source set without DVL aiding."
-        ),
-        choices=["True", "False"],
-    )
-
     use_gps_arg = DeclareLaunchArgument(
         name="use_gps",
         default_value="True",
         description=(
-            "Whether GPS is available for surface EKF aiding. When False, "
-            "ekf_source_switch forces EKF3 SRC2 (baro + compass, no GPS) at all depths, "
-            "and in simulation the SITL GPS is removed from boot (sim_no_gps.parm)."
+            "Whether GPS is available for EKF aiding. When False, the SITL GPS is "
+            "removed from boot (sim_no_gps.parm); nogps_odom_beacon (started by the "
+            "parent launch) then selects EKF3 source set 2 (baro + compass)."
         ),
         choices=["True", "False"],
     )
@@ -232,68 +222,6 @@ def generate_launch_description():
         name="mavros",
     )
 
-    # DVL -> ArduSub. Deliberately NOT a MAVROS plugin and not a ros_gz_bridge:
-    # MAVROS cannot emit VISION_POSITION_DELTA and ros_gz_bridge on Humble cannot
-    # carry the gz DVL message. See banyu_bringup/README.md.
-    # Must be ExecuteProcess, not Node: this is a plain process, not a ROS node,
-    # and a launch Node action injects `--ros-args -r __node:=...` which it
-    # rejects. Same reason mavros_node is an ExecuteProcess above.
-    dvl_bridge = ExecuteProcess(
-        cmd=[
-            "ros2",
-            "run",
-            "banyu_bringup",
-            "dvl_mavlink_bridge.py",
-            "--mavlink",
-            "udpin:127.0.0.1:14552",
-            "--verbose",
-        ],
-        name="dvl_mavlink_bridge",
-        output="screen",
-        condition=IfCondition(
-            AndSubstitution(
-                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
-                EqualsSubstitution(LaunchConfiguration("use_dvl"), "True"),
-            )
-        ),
-    )
-
-    dvl_health = Node(
-        package="banyu_bringup",
-        executable="dvl_health.py",
-        name="dvl_health",
-        output="screen",
-        condition=IfCondition(
-            AndSubstitution(
-                EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
-                EqualsSubstitution(LaunchConfiguration("use_dvl"), "True"),
-            )
-        ),
-    )
-
-    # GPS on the surface, DVL underwater (or always SRC2 when use_gps == False).
-    ekf_source_switch = Node(
-        package="banyu_bringup",
-        executable="ekf_source_switch.py",
-        name="ekf_source_switch",
-        output="screen",
-        parameters=[
-            os.path.join(_banyu_bringup_share, "config", "por_params.yaml"),
-            {
-                "require_gps": ParameterValue(
-                    EqualsSubstitution(LaunchConfiguration("use_gps"), "True"),
-                    value_type=bool,
-                )
-            },
-        ],
-        condition=IfCondition(
-            PythonExpression([
-                "'", LaunchConfiguration("use_dvl"), "'.lower() == 'true' or '",
-                LaunchConfiguration("use_gps"), "'.lower() == 'false'"
-            ])
-        ),
-    )
-
     return LaunchDescription(
         [
             use_sim_arg,
@@ -302,15 +230,11 @@ def generate_launch_description():
             headless_arg,
             extra_sitl_params_arg,
             fcu_url_arg,
-            use_dvl_arg,
             use_gps_arg,
             set_use_sim_time,
             ardusub_launch,
             ardusub_sitl_launch,
             ardusub_sitl_headless_launch,
             mavros_launch,
-            dvl_bridge,
-            dvl_health,
-            ekf_source_switch,
         ]
     )

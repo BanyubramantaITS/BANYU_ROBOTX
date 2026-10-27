@@ -11,7 +11,6 @@
 
   <depend>bluerov2_gz</depend>
   <depend>banyu_robotx_models</depend>
-  <depend>mavlink</depend>
   <depend>gz_sim_vendor</depend>
   <depend>gz_rendering_vendor</depend>
   <depend>gz_ogre_next_vendor</depend>

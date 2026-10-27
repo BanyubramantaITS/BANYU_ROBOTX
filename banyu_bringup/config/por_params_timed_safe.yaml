@@ -355,9 +355,3 @@ sim_rc_deadman_node:
     publish_rate_hz: 10.0
     num_channels: 8
     channel_value: 1500
-
-ekf_source_switch:
-  ros__parameters:
-    dive_depth: 0.5
-    surface_depth: 0.2
-    require_gps: true

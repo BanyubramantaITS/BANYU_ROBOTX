@@ -61,7 +61,7 @@ lurus (mengoreksi drift karena thruster tidak seimbang).
 
 Yang **tidak** perlu diubah untuk tuning: `autonomy_mode` (harus `ALT_HOLD` di tiga node),
 `output_mode: rc_override`, `fallback_mode: DISARM`, topic, action, `esp32_*`,
-`sim_rc_deadman_node`, `ekf_source_switch`.
+`sim_rc_deadman_node`.
 
 Kalau satu angka diubah di satu profil, profil lain tidak ikut berubah (setiap profil berdiri
 sendiri). Profil `blind/` juga harus diubah terpisah.

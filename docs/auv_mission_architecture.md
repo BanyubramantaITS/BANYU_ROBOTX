@@ -92,7 +92,7 @@ src/BANYU_ROBOTX/
 ├── banyu_bringup/
 │   ├── launch/{main_launch,mission,sub_bringup,sitl_mavros,gazebo_main,gazebo_por,teleop}.launch.py
 │   ├── config/{por_params,task2_params,hardware_params,mavros_config}.yaml
-│   └── scripts/{task2_sim_provider,ekf_source_switch,dvl_mavlink_bridge,dvl_health,nogps_odom_beacon}.py
+│   └── scripts/{task2_sim_provider,nogps_odom_beacon}.py
 ├── banyu_msgs/
 │   ├── msg/              # VehicleStatus, ActiveBuoyFix, PipelineObservation, Detection, etc.
 │   ├── action/           # 18 POR and Task 2 action contracts
