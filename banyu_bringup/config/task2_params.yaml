@@ -154,8 +154,9 @@ ring_tracker:
     state_topic: "/banyu/pipeline/ring_state"
     accepted_ring_topic: "/banyu/pipeline/accepted_ring"
     repair_service: "/banyu/pipeline/acknowledge_ring_repair"
-    # Same physical node if within this distance; keep below half the minimum ring spacing.
-    node_association_distance_m: 0.4
+    # Same physical node if within this distance. The camera model moves the progress estimate of one ring by up to
+    # 0.7 m between views in the sim, and the sim ring spacing is 1.4 m, so 0.8 keeps one node in one record.
+    node_association_distance_m: 0.8
     # Nearest pose can be half a pose period away (MAVROS pose ~5-10 Hz vs 30 Hz camera).
     pose_timestamp_tolerance_s: 0.12
     # Tolerate a few dropped camera frames (best-effort transport) before treating it as a gap.

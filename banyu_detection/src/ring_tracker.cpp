@@ -314,6 +314,15 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
     input.vehicle_pose_map);
 
   if (match_idx >= 0) {
+    // The same node can first look GREEN (bloom, a ring half in view) and then RED. A damaged node must not be
+    // reported GREEN, and it must not take a second slot: RED upgrades the record, GREEN never downgrades it.
+    if (observation.color == banyu_msgs::msg::PipelineRingObservation::COLOR_RED &&
+      snapshot_.records[match_idx].color != banyu_msgs::msg::PipelineRingObservation::COLOR_RED)
+    {
+      snapshot_.records[match_idx].color = banyu_msgs::msg::PipelineRingObservation::COLOR_RED;
+      snapshot_.red_pending = true;
+      snapshot_.repaired = false;
+    }
     const auto & existing = snapshot_.records[match_idx];
     banyu_msgs::msg::Task2RingRecord record = existing;
 
@@ -476,6 +485,33 @@ RingTrackerUpdate RingTracker::update(const RingTrackerInput & input)
     return ignoredUpdate();
   }
   const bool visible = kind == ObservationKind::VISIBLE;
+
+  // The node just recorded as GREEN now shows RED and the vehicle has not moved on: it is the same damaged node
+  // (it can look green first). Upgrade its record instead of ignoring the colour change or taking a second slot.
+  if (visible && observation.color == banyu_msgs::msg::PipelineRingObservation::COLOR_RED &&
+    snapshot_.has_last_state && !beyond_last_node_ &&
+    snapshot_.last_state.index < snapshot_.records.size() &&
+    snapshot_.records[snapshot_.last_state.index].color !=
+    banyu_msgs::msg::PipelineRingObservation::COLOR_RED &&
+    snapshot_.phase != RingTrackerPhase::IDLE)
+  {
+    const std::size_t index = snapshot_.last_state.index;
+    snapshot_.records[index].color = banyu_msgs::msg::PipelineRingObservation::COLOR_RED;
+    snapshot_.red_pending = true;
+    snapshot_.repaired = false;
+    snapshot_.phase = RingTrackerPhase::TRACKING;
+    snapshot_.active_color = observation.color;
+    snapshot_.consecutive_frames = 1;
+    snapshot_.invisible_frames = 0;
+    snapshot_.last_state.color = observation.color;
+    RingTrackerUpdate upgraded;
+    upgraded.phase = snapshot_.phase;
+    upgraded.accepted = true;
+    upgraded.consecutive_frames = snapshot_.consecutive_frames;
+    upgraded.record_index = index;
+    upgraded.record = snapshot_.records[index];
+    return upgraded;
+  }
 
   if (snapshot_.phase == RingTrackerPhase::TRACKING && visible && cameraModelEnabled() &&
     beyond_last_node_)

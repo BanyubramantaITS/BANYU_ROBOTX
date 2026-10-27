@@ -513,3 +513,32 @@ TEST(RingTracker, CameraModelSeparatesSameColorRingsSeenBackToBack) {
   EXPECT_NEAR(tracker.records()[0].pipeline_progress_m, 1.0, 0.1);
   EXPECT_NEAR(tracker.records()[1].pipeline_progress_m, 1.85, 0.1);
 }
+
+TEST(RingTracker, GreenThenRedAtTheSameNodeIsOneRedRecord) {
+  // The damaged node can first look green and then red: one node, one slot, and the record must end up red.
+  banyu_detection::RingTracker tracker(trackerConfig(1, 1, 1));
+  banyu_detection::RingTrackerConfig config = trackerConfig(1, 1, 1);
+  config.node_association_distance_m = 0.8;
+  banyu_detection::RingTracker wide(config);
+
+  EXPECT_TRUE(update(wide, 1, banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN, true, 1.00).accepted);
+  EXPECT_EQ(wide.records().size(), 1U);
+  EXPECT_EQ(wide.records()[0].color, banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN);
+
+  const auto red = update(wide, 2, banyu_msgs::msg::PipelineRingObservation::COLOR_RED, true, 1.60);
+  EXPECT_TRUE(red.accepted);
+  EXPECT_EQ(wide.records().size(), 1U) << "the same node must not take a second slot";
+  EXPECT_EQ(wide.records()[0].color, banyu_msgs::msg::PipelineRingObservation::COLOR_RED);
+  EXPECT_TRUE(wide.snapshot().red_pending);
+}
+
+TEST(RingTracker, RedRecordIsNeverDowngradedToGreen) {
+  banyu_detection::RingTrackerConfig config = trackerConfig(1, 1, 1);
+  config.node_association_distance_m = 0.8;
+  banyu_detection::RingTracker tracker(config);
+
+  EXPECT_TRUE(update(tracker, 1, banyu_msgs::msg::PipelineRingObservation::COLOR_RED, true, 1.00).accepted);
+  update(tracker, 2, banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN, true, 1.50);
+  EXPECT_EQ(tracker.records().size(), 1U);
+  EXPECT_EQ(tracker.records()[0].color, banyu_msgs::msg::PipelineRingObservation::COLOR_RED);
+}
