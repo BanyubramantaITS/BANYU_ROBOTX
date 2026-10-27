@@ -46,6 +46,10 @@ banyu_mission:
       traverse_timeout_s: 600.0
       inspection_depth_m: 12.5
       depth_tolerance_m: 0.3
+      # Advanced and Disruptive: depth of the probe hold. In main_world.world the light nodes are at z -13.4 and the
+      # probe tip is 0.26 m below the vehicle origin, while the depth sensor reads about 5% more than the true depth
+      # in the sim (12.5 read = z -11.8), so the tip reaches the switch (0.15 m) at about 13.9 read.
+      repair_depth_m: 13.9
       # Advanced and Disruptive: time to stay on the repaired ring while the flash code is read.
       decode_window_s: 40.0
 
