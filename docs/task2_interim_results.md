@@ -1,6 +1,6 @@
 # Task 2 Core-Disruptive simulation: interim results (run stopped by the operator)
 
-Status: the autonomous run was **stopped before the Disruptive stage finished**. Nothing was pushed. Branch:
+Status (superseded by `task2_feasibility_verdict.md`): the first part of the autonomous run, **stopped before the Disruptive stage finished**. Nothing was pushed. Branch:
 `feat/task2-core-disruptive-sim`. Plan: `task2_core_disruptive_plan.md`. Step log: `task2_run_log.md`.
 Raw result files (trimmed JSONL) are in `task2_results/`.
 

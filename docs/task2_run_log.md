@@ -119,3 +119,12 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   e2e run (decoder `code_length=1`) was a tier 2 run on a world with the probe model.
 - Fix: one overlay file per tier (`config/task2_tier_{core,advanced,disruptive}.yaml`) loaded after the params file
   by `mission.launch.py`. Verified with `ros2 param get`: disruptive 4/4/4/4, advanced 3/3/3/3, core 2/2/2/2.
+
+## End of the autonomous attempt
+- Found and fixed: the tier launch argument never reached the nodes (overlay files per tier); the probe needs a repair
+  depth; the decoder window now covers the whole repair; repair needs red then steady green; a higher tier whose code
+  cannot be read falls back to a Core survey (ledger accepts tier 2 evidence for a higher configured tier); `light_seed`
+  is forwarded.
+- Results and verdict: `task2_feasibility_verdict.md`. Core partial, Advanced and Disruptive not shown in the sim.
+- Delegations: 1 total (`launch_task2.sh`, Sonnet, accepted), 0 rejected. `agy` was tested and never used for a job.
+- All sim processes stopped; nothing pushed.
