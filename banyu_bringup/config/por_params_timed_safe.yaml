@@ -23,8 +23,8 @@ banyu_mission:
       surface_tolerance_m: 0.25
       # Continuous missing-prerequisite watchdog; not a fixed surface phase duration.
       surface_watchdog_timeout_s: 5.0
-      gate_depth_m: 2.0
-      gate_depth_tolerance_m: 0.3
+      gate_depth_m: 1.95   # +/- gate_depth_tolerance_m -> 1.90-2.00 m
+      gate_depth_tolerance_m: 0.05
       acquire_gate_timeout_s: 20.0
       gate_align_deadband_x: 0.03
       gate_align_deadband_y: 0.03
@@ -76,7 +76,8 @@ banyu_mission:
       return_gate_pass_timeout_s: 35.0
 
       # =======================================================================
-      # SAFE strafe-box profile (ALT_HOLD sim-verified: gate back at ~36 s sim time)
+      # SAFE strafe-box profile, sped up halfway to FAST (0.75 fwd / 0.6 strafe), durations
+      # interpolated between the sim-verified SAFE and FAST; depth band 1.90-2.00 m
       # Yaw is never changed: the circle_turn_* slots are used as STRAFES.
       #   dive in place from the surface -> forward to ~2 m before pole
       #   turn_1: strafe right 2 m   forward_1: forward 3.5 m (pass pole)
@@ -110,57 +111,57 @@ banyu_mission:
       max_depth_speed_mps: 0.4
 
       # 1. Dive to center of gate depth
-      dive_duration_s: 8.0
+      dive_duration_s: 15.0   # cap only: the dive ends once 0.5 s inside the depth band
       dive_speed_x_mps: 0.0
       dive_speed_y_mps: 0.0
       dive_speed_z_mps: -0.4
       dive_yaw_rate_rad_s: 0.0
 
       # 2. Go forward to pass through the gate
-      timed_pass_gate_duration_s: 2.8
-      timed_pass_gate_speed_x_mps: 0.6
+      timed_pass_gate_duration_s: 3.58
+      timed_pass_gate_speed_x_mps: 0.75
       timed_pass_gate_speed_y_mps: 0.0
       timed_pass_gate_speed_z_mps: 0.0
       timed_pass_gate_yaw_rate_rad_s: 0.0
 
       # 3. Go forward approaching the pole
-      approach_pole_duration_s: 7.14
-      approach_pole_speed_x_mps: 0.6
+      approach_pole_duration_s: 5.31
+      approach_pole_speed_x_mps: 0.75
       approach_pole_speed_y_mps: 0.0
       approach_pole_speed_z_mps: 0.0
       approach_pole_yaw_rate_rad_s: 0.0
 
       # 4. Circle the pole (4-sided polygon: Turn 90 deg -> Forward x 4, default clockwise)
       # Step 1: Turn right (-90 deg) and move forward
-      circle_turn_1_duration_s: 1.61
+      circle_turn_1_duration_s: 1.5
       circle_turn_1_speed_x_mps: 0.0
-      circle_turn_1_speed_y_mps: -0.5
+      circle_turn_1_speed_y_mps: -0.6
       circle_turn_1_speed_z_mps: 0.0
       circle_turn_1_yaw_rate_rad_s: 0.0
       circle_turn_1_target_angle_rad: 0.0
-      circle_forward_1_duration_s: 3.16
-      circle_forward_1_speed_x_mps: 0.5
+      circle_forward_1_duration_s: 3.07
+      circle_forward_1_speed_x_mps: 0.6
       circle_forward_1_speed_y_mps: 0.0
       circle_forward_1_speed_z_mps: 0.0
       circle_forward_1_yaw_rate_rad_s: 0.0
 
       # Step 2: Turn left (+90 deg) and move forward past pole
-      circle_turn_2_duration_s: 4.0
+      circle_turn_2_duration_s: 3.69
       circle_turn_2_speed_x_mps: 0.0
-      circle_turn_2_speed_y_mps: 0.5
+      circle_turn_2_speed_y_mps: 0.6
       circle_turn_2_speed_z_mps: 0.0
       circle_turn_2_yaw_rate_rad_s: 0.0
       circle_turn_2_target_angle_rad: 0.0
-      circle_forward_2_duration_s: 3.58
-      circle_forward_2_speed_x_mps: -0.5
+      circle_forward_2_duration_s: 3.28
+      circle_forward_2_speed_x_mps: -0.6
       circle_forward_2_speed_y_mps: 0.0
       circle_forward_2_speed_z_mps: 0.0
       circle_forward_2_yaw_rate_rad_s: 0.0
 
       # Step 3: Turn left (+90 deg) and move forward behind pole
-      circle_turn_3_duration_s: 1.61
+      circle_turn_3_duration_s: 1.54
       circle_turn_3_speed_x_mps: 0.0
-      circle_turn_3_speed_y_mps: -0.5
+      circle_turn_3_speed_y_mps: -0.6
       circle_turn_3_speed_z_mps: 0.0
       circle_turn_3_yaw_rate_rad_s: 0.0
       circle_turn_3_target_angle_rad: 0.0
@@ -190,8 +191,8 @@ banyu_mission:
       return_turn_speed_z_mps: 0.0
       return_turn_yaw_rate_rad_s: 0.6
       return_turn_target_angle_rad: 1.570796327
-      return_to_gate_duration_s: 9.85
-      return_to_gate_speed_x_mps: -0.6
+      return_to_gate_duration_s: 9.23
+      return_to_gate_speed_x_mps: -0.75
       return_to_gate_speed_y_mps: 0.0
       return_to_gate_speed_z_mps: 0.0
       return_to_gate_yaw_rate_rad_s: 0.0

@@ -206,6 +206,29 @@ banyu_msgs::action::TimedMove::Goal TimedMoveNode::makeGoal()
   return goal;
 }
 
+BANYU_POR_CONSTRUCTOR(ReplayTrackNode, banyu_msgs::action::ReplayTrack)
+BANYU_POR_PORTS(
+  ReplayTrackNode,
+  BT::InputPort<std::shared_ptr<const ReplayTrack>>("track"),
+  BT::InputPort<double>("depth_kp"),
+  BT::InputPort<double>("max_depth_speed_mps"))
+banyu_msgs::action::ReplayTrack::Goal ReplayTrackNode::makeGoal()
+{
+  const auto track = input<std::shared_ptr<const ReplayTrack>>("track");
+  if (!track) {throw BT::RuntimeError("ReplayTrack: no replay track on the blackboard");}
+  Goal goal;
+  goal.track_name = track->name;
+  goal.time_s = track->time_s;
+  goal.forward_pwm = track->forward_pwm;
+  goal.lateral_pwm = track->lateral_pwm;
+  goal.yaw_pwm = track->yaw_pwm;
+  goal.heading_rad = track->heading_rad;
+  goal.depth_m = track->depth_m;
+  goal.depth_kp = input<double>("depth_kp");
+  goal.max_depth_speed_mps = input<double>("max_depth_speed_mps");
+  return goal;
+}
+
 #undef BANYU_POR_PORTS
 #undef BANYU_POR_CONSTRUCTOR
 

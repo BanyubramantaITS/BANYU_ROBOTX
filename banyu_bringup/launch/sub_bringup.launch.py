@@ -196,6 +196,15 @@ def generate_launch_description():
         description="Path to ROS 2 parameter YAML file for banyu_teleop node.",
     )
 
+    replay_track_arg = DeclareLaunchArgument(
+        name="replay_track",
+        default_value="latest",
+        description=(
+            "Teach track for profiles with use_replay: 'latest' (newest .csv in "
+            "$BANYU_REPLAY_DIR, default ~/banyu_replays), a file name there, or an absolute path."
+        ),
+    )
+
     set_wall_time = SetParameter(name="use_sim_time", value=False)
 
     mode = LaunchConfiguration("mode")
@@ -310,6 +319,7 @@ def generate_launch_description():
             "enable_esp32_bridge": LaunchConfiguration("enable_esp32_bridge"),
             "por_params_file": por_params,
             "task2_params_file": task2_params,
+            "replay_track": LaunchConfiguration("replay_track"),
             "hardware_params_file": hardware_params,
         }.items(),
     )
@@ -332,6 +342,7 @@ def generate_launch_description():
             task2_params_arg,
             hardware_params_arg,
             teleop_params_arg,
+            replay_track_arg,
             set_wall_time,
             OpaqueFunction(function=_check_single_esp32_owner),
             mavros_launch,

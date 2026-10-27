@@ -205,13 +205,21 @@ melingkar lewat 0 (untuk merah).
 
 Tool slider (robot menjalankan stack seperti biasa; laptop dengan `ROS_DOMAIN_ID` sama):
 
+Di robot: jalankan profil apa saja **dengan kamera** (jangan `--no-cam`); `por_detection` selalu
+jalan di mode POR. Di laptop (satu jaringan dengan NUC, `ROS_DOMAIN_ID` robot = 30):
+
 ```bash
+export ROS_DOMAIN_ID=30                                          # wajib, default laptop 0
 python3 src/BANYU_ROBOTX/tools/scripts/por_hsv_tuner.py          # lewat WiFi (compressed)
 python3 src/BANYU_ROBOTX/tools/scripts/por_hsv_tuner.py --raw    # sim / kabel LAN
 python3 src/BANYU_ROBOTX/tools/scripts/por_hsv_tuner.py --source rekaman.mp4   # offline
 ```
 
-- Tiga jendela slider (Gate, Marker, Filter); slider langsung mengubah parameter detector.
+- Tiga jendela slider: **Gate HSV (yellow)**, **Marker HSV (orange)**, dan Filter; slider
+  langsung mengubah parameter detector.
+- Selama tuner jalan, `debug_rate_hz` detector dinaikkan ke 15 Hz (`--debug-rate`, 0 = tidak
+  diubah) dan dikembalikan saat keluar (juga dengan Ctrl+C). Gambar yang sampai sekitar 3–8 Hz:
+  batasnya kecepatan detector di NUC, bukan jaringan, jadi `--raw` tidak lebih cepat.
 - Jendela utama menampilkan gambar annotated + mask gate + mask marker.
 - `s` simpan (`~/por_detection_tuned.yaml` di robot, dan snippet YAML di terminal), `r` baca
   ulang dari robot, `q` keluar.
@@ -223,8 +231,10 @@ pucat) → atur `v_min` (bayangan) → naikkan `min_area` (buang bintik).
 Alternatif: `ros2 run rqt_reconfigure rqt_reconfigure` (pilih `/por_detection`) +
 `rqt_image_view` di `/banyu/detection/debug/annotated/compressed`.
 
-Simpan permanen: salin nilai dari `~/por_detection_tuned.yaml` ke
-`banyu_detection/config/por_detection_params.yaml`. Cek dengan
+Simpan permanen: `s` menulis `~/por_detection_tuned.yaml` **di NUC** dan mencetak snippet YAML
+di terminal laptop. Salin nilainya ke `banyu_detection/config/por_detection_params.yaml` (satu-
+satunya sumber HSV; profil tidak meng-override), commit, lalu pull di NUC (symlink-install: tanpa build).
+Tanpa itu nilai slider hilang saat stack di-restart. Cek dengan
 `ros2 topic echo /banyu/detection --once`.
 
 ### 5.3 Kalibrasi jarak

@@ -44,14 +44,15 @@ berbeda sampai kecepatan dikalibrasi ([`tuning.md`](tuning.md)).
 
 | `--profile` | File | Rute | Kamera | Waktu sim |
 |---|---|---|---|---|
-| `default` | `por_params.yaml` | strafe box aman (sama dengan `safe`) | – | ~37 s |
-| `safe` | `por_params_timed_safe.yaml` | strafe box aman | – | ~37 s |
+| `default` | `por_params.yaml` | strafe box aman (rute `safe` versi lama: 0,6/0,5, kedalaman 2,0 ± 0,3 m) | – | ~37 s |
+| `safe` | `por_params_timed_safe.yaml` | strafe box aman, sedikit lebih cepat (0,75 maju / 0,6 geser), kedalaman 1,90–2,00 m | – | ~35 s (estimasi, belum diuji sim) |
 | `fast` | `por_params_timed_fast.yaml` | strafe box cepat | – | ~32 s |
 | `fastest` | `por_params_timed_fastest.yaml` | diamond, mundur lewat gate | – | ~25 s |
 | `turn` | `por_params_timed_fastest_turn.yaml` | diamond, putar 180°, maju lewat gate | – | ~28 s |
 | `vision` | `por_params_vision_assisted.yaml` | diamond + koreksi kamera | gate & marker, fallback timer | ~36 s |
 | `hybrid` | `por_params_hybrid.yaml` | strafe box, pulang pakai kamera | gate, fallback timer | ~44 s |
 | `slow` | `por_params_timed_slow.yaml` | strafe box pelan | – | ~71 s |
+| `replay` | `por_params_replay.yaml` | putar ulang rute yang dikemudikan manual (§4.8) | – | sepanjang rekaman |
 
 - **Strafe box**: yaw tetap. Robot geser kanan, maju melewati marker, geser kiri, mundur, geser
   kanan, lalu mundur lewat gate. Tidak ada belokan, jadi tidak tergantung kompas. Paling toleran.
@@ -229,14 +230,22 @@ Switch TX16S (sumber: [`banyu_teleop/config/teleop_rcin.yaml`](../../banyu_teleo
 
 ### 4.4 Run tanpa TX16S (`--no-rc`)
 
-Hanya untuk profil dengan `bypass_rc: true` (launcher menolak profil lain). Saat ini tidak ada
-profil seperti itu di repo; buat dengan `dead_thruster_por.py --no-rc` atau tambahkan
-`bypass_rc: true` di bagian `banyu_vehicle_status` sebuah salinan profil. Teleop tidak
-dijalankan; relay ESP32 dikendalikan `esp32_trigger_node`.
+Hanya untuk profil dengan `bypass_rc: true` (launcher menolak profil lain). Setiap profil robot
+punya versi `_no_rc` dengan rute yang sama: `por_params_timed_safe_no_rc.yaml`,
+`por_params_timed_fast_no_rc.yaml`, …, `blind/por_params_timed_safe_no_rc.yaml`, dst. (alias
+seperti `safe` selalu memilih versi RC). Kalau mengubah tuning sebuah profil, ubah juga versi
+`_no_rc`-nya. Teleop tidak dijalankan; relay ESP32 dikendalikan `esp32_trigger_node`.
+
+Mode kendaraan mengikuti perintah trigger terakhir (`'2'` autonomous, `'1'` manual: misi
+berhenti/tidak bisa start, `'0'` kill); sebelum ada perintah dianggap autonomous. Selain topic
+di bawah, bisa lewat service (juga mengganti warna LED ESP32):
+`ros2 service call /banyu/trigger/command banyu_msgs/srv/TriggerCommand "{command: '2'}"` atau
+`ros2 service call /banyu/trigger/set std_srvs/srv/SetBool "{data: true}"` (`true` = `'2'`,
+`false` = `'0'`).
 
 ```bash
 ./src/BANYU_ROBOTX/tools/scripts/run_mavproxy.sh
-./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --no-rc --profile por_params_dead_thruster_2_3_no_rc_no_pos.yaml
+./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --no-rc --profile por_params_timed_safe_no_rc.yaml
 ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '2'}"   # relay nyala (autonomous)
 ros2 service call /banyu/mission/start std_srvs/srv/Trigger "{}"
 ```
@@ -299,6 +308,54 @@ Untuk memastikan semua thruster berputar tanpa air. **Jangan pernah dipakai untu
 - Tanpa ESP32: `python3 src/BANYU_ROBOTX/tools/scripts/mock_esp32.py` membuat `/tmp/ttyESP32`;
   jalankan teleop dengan `-p serial_port:=/tmp/ttyESP32`.
 
+### 4.8 Teach & replay (rekam manual, putar ulang otomatis)
+
+Kemudikan rute sekali dengan tangan, lalu robot mengulangnya sendiri. Robot tidak tahu posisinya
+(tanpa DVL/GPS), jadi yang diulang adalah **stick** (maju, geser, yaw) menurut waktu, sementara
+**kedalaman** (Bar30) dan **heading** (IMU) mengikuti rekaman secara closed loop. Arus, baterai
+dan posisi start yang berbeda tetap membuat hasilnya bergeser.
+
+1. **Rekam (teach).** Jalankan stack seperti biasa (profil apa saja, rekaman bag aktif), arm,
+   pilih **ALT_HOLD**, kemudikan rute dengan joystick QGC (atau TX16S) dari permukaan sampai
+   selesai, lalu disarm. Joystick QGC muncul di `/mavros/rc/in` sebagai override, jadi ikut
+   terekam. Mulai dari posisi dan arah yang sama dengan run nanti.
+2. **Potong jadi track** (di NUC, setelah stack dihentikan):
+
+   ```bash
+   python3 src/BANYU_ROBOTX/tools/scripts/por_teach_extract.py ~/banyu_bags/<run> --list
+   python3 src/BANYU_ROBOTX/tools/scripts/por_teach_extract.py ~/banyu_bags/<run> --name rute1
+   ```
+
+   Default: jendela arm terakhir, dari input stick pertama sampai terakhir + 1 s. `--window N`,
+   `--start`/`--end` (detik dari awal bag) untuk memilih lain. Hasil: `~/banyu_replays/rute1.csv`
+   (`$BANYU_REPLAY_DIR`). Ringkasan yang dicetak (durasi, kedalaman maks, perubahan heading)
+   harus cocok dengan yang dikemudikan.
+3. **Putar ulang:**
+
+   ```bash
+   ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --no-rc \
+     --profile por_params_replay_no_rc.yaml --replay-track rute1
+   ```
+
+   Tanpa `--replay-track` dipakai track terbaru. Banner menampilkan file, durasi dan
+   kedalaman maks track; launcher menolak jalan kalau track tidak ada.
+
+- **Matikan joystick di QGC sebelum start.** QGC mengirim stick ~24 Hz selama joystick aktif,
+  dan ArduSub memakai override terakhir, jadi stick netral dari QGC melawan override misi (ini
+  juga berlaku untuk semua profil timed selama tether masih tersambung).
+- Kalau robot tertinggal > 0,4 m dari kedalaman rekaman (misalnya turun lebih lambat), jam
+  track berhenti (stick netral) sampai selisihnya < 0,2 m, maksimal 30 s per run
+  (`replay.depth_pause_m/depth_resume_m/max_pause_s`). Jadi kaki horizontal tidak dimulai
+  terlalu dangkal di atas palang gate.
+- Koreksi heading: `replay.heading_kp` (1,0), maksimal `replay.max_heading_correction_rad_s`
+  (0,3 rad/s) di atas stick yaw rekaman. Profil replay menaikkan `control.max_yaw_rate` ke 1,5
+  supaya putaran stick penuh (~1,3 rad/s) tidak terpotong.
+- Kecepatan turun/naik dibatasi `max_depth_speed_mps` (0,4). Setelah track selesai, robot naik
+  dengan kaki `timed_surface_*` lalu disarm.
+- Rekam ulang track setelah mengubah `JS_GAIN`, `RCMAP_*` atau gain `rc_override` di profil:
+  track menyimpan defleksi PWM, dan replay mengubahnya kembali lewat gain `rc_override` yang
+  sedang dipakai.
+
 ## 5. Referensi `launch_por.sh`
 
 | Flag | Default | Fungsi |
@@ -310,6 +367,7 @@ Untuk memastikan semua thruster berputar tanpa air. **Jangan pernah dipakai untu
 | `--rc` / `--no-rc` | `--rc` | Robot: teleop TX16S, atau `esp32_trigger_node` + profil `bypass_rc` |
 | `--no-cam` | – | Robot: tanpa driver kamera |
 | `--mock-auto` | – | Robot: uji darat (§4.7) |
+| `--replay-track <nama atau path>` | track terbaru | Profil replay: track di `~/banyu_replays` (§4.8) |
 | `--allow-channel-overlap` | – | Paksa jalan walau kanal override = kanal switch (berbahaya) |
 | `--dry-run` | – | Cetak perintah dan cek device tanpa menjalankan |
 

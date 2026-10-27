@@ -90,6 +90,10 @@ banyu_mission:
       # true: timed outbound + loop, then camera TurnAround/SearchGate/AlignGate/PassGate
       # return (bt/por_hybrid_mission.xml); timed return_to_gate is the fallback.
       use_vision_return: false
+      # Teach & replay (bt/por_replay_mission.xml, takes precedence over the flags above): fly
+      # a manual drive cut from a bag by tools/scripts/por_teach_extract.py, then the timed
+      # surface leg. The track comes from the replay_track launch argument (default: newest).
+      use_replay: false
       # Vision-assisted strategy (bt/por_vision_assisted_mission.xml), used when
       # use_vision is false and use_vision_assist is true. Timed diamond + camera:
       # gate align at the start, marker align before the loop, camera turn-and-pass
@@ -214,6 +218,7 @@ banyu_mission:
       orbit_marker: "/banyu/actions/orbit_marker"
       turn_around: "/banyu/actions/turn_around"
       timed_move: "/banyu/actions/timed_move"
+      replay_track: "/banyu/actions/replay_track"
       surface: "/banyu/actions/surface"
 
 por_detection:
@@ -258,6 +263,16 @@ vehicle_execution_node:
         kp: 1.0
         max_yaw_rate_rad_s: 0.3
         deadband_rad: 0.02
+    replay:
+      # Correction toward the recorded heading, added to the recorded yaw stick
+      heading_kp: 1.0
+      max_heading_correction_rad_s: 0.3
+      heading_deadband_rad: 0.02
+      # Hold the track clock (sticks neutral) while more than depth_pause_m off the
+      # recorded depth, until within depth_resume_m; at most max_pause_s per run (0 = off)
+      depth_pause_m: 0.4
+      depth_resume_m: 0.2
+      max_pause_s: 30.0
     control:
       require_calibrated_surface_depth: false
       surface_hold_time_s: 1.0
@@ -296,6 +311,7 @@ vehicle_execution_node:
       orbit_marker: "/banyu/actions/orbit_marker"
       turn_around: "/banyu/actions/turn_around"
       timed_move: "/banyu/actions/timed_move"
+      replay_track: "/banyu/actions/replay_track"
 
 banyu_vehicle_status:
   ros__parameters:

@@ -189,6 +189,15 @@ def generate_launch_description():
         }.items(),
     )
 
+    replay_track_arg = DeclareLaunchArgument(
+        name="replay_track",
+        default_value="latest",
+        description=(
+            "Teach track for profiles with use_replay: 'latest' (newest .csv in "
+            "$BANYU_REPLAY_DIR, default ~/banyu_replays), a file name there, or an absolute path."
+        ),
+    )
+
     mission_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(_banyu_bringup_share, "launch", "mission.launch.py")
@@ -200,6 +209,7 @@ def generate_launch_description():
             "debug": LaunchConfiguration("debug"),
             "task2_params_file": LaunchConfiguration("task2_params_file"),
             "por_params_file": LaunchConfiguration("por_params_file"),
+            "replay_track": LaunchConfiguration("replay_track"),
         }.items(),
     )
 
@@ -234,6 +244,7 @@ def generate_launch_description():
             headless_arg,
             task2_params_arg,
             por_params_arg,
+            replay_track_arg,
             set_use_sim_time,
             gazebo_por_launch,
             gazebo_main_launch,

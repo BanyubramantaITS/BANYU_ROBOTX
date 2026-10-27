@@ -9,10 +9,12 @@
 #include "banyu_msgs/action/align_marker.hpp"
 #include "banyu_msgs/action/orbit_marker.hpp"
 #include "banyu_msgs/action/pass_gate.hpp"
+#include "banyu_msgs/action/replay_track.hpp"
 #include "banyu_msgs/action/search_gate.hpp"
 #include "banyu_msgs/action/search_marker.hpp"
 #include "banyu_msgs/action/timed_move.hpp"
 #include "banyu_msgs/action/turn_around.hpp"
+#include "banyu_vehicle_execution/command_encoder.hpp"
 #include "banyu_vehicle_execution/requirement_watchdog.hpp"
 #include "banyu_vehicle_execution/action_servers/typed_action_server.hpp"
 #include "banyu_vehicle_execution/por_visual_helpers.hpp"
@@ -158,6 +160,37 @@ private:
   double max_horizontal_speed_mps_{0.0};
   double heading_ref_{0.0};
   rclcpp::Time depth_reached_since_{0, 0, RCL_ROS_TIME};
+};
+
+// Replays a teach track: recorded sticks open loop (converted back through the RC override
+// gains so the same PWM reaches the Pixhawk), recorded depth and heading closed loop.
+class ReplayTrackServer final : public TypedActionServer<banyu_msgs::action::ReplayTrack>
+{
+public:
+  ReplayTrackServer(
+    rclcpp::Node *, const std::string &, ActionServerCoordinator *, const RcOverrideConfig &);
+  bool validateGoal(const Goal &, std::string &) override;
+  void onGoalStarted() override;
+  MotionIntent tick(const VehicleTelemetry &, const rclcpp::Time &, double) override;
+
+private:
+  RcOverrideConfig rc_config_;
+  double heading_kp_{1.0};
+  double max_heading_correction_rad_s_{0.3};
+  double heading_deadband_rad_{0.02};
+  // Pause the track clock while |depth error| > depth_pause_m, until it is < depth_resume_m,
+  // for at most max_pause_s in total (depth_pause_m 0 disables).
+  double depth_pause_m_{0.4};
+  double depth_resume_m_{0.2};
+  double max_pause_s_{30.0};
+  rclcpp::Time start_time_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time last_tick_{0, 0, RCL_ROS_TIME};
+  double track_time_s_{0.0};
+  double paused_s_{0.0};
+  bool paused_{false};
+  // Current heading minus the recorded relative heading, captured on the first fresh heading
+  double heading_offset_{std::numeric_limits<double>::quiet_NaN()};
+  std::size_t cursor_{0};
 };
 
 }  // namespace banyu_vehicle_execution

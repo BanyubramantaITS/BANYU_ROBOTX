@@ -8,6 +8,9 @@ windows show the detector's own debug images (annotated + both masks).
     python3 tools/scripts/por_hsv_tuner.py            # compressed debug images
     python3 tools/scripts/por_hsv_tuner.py --raw      # raw images (sim / wired)
 
+The detector's debug_rate_hz is raised to --debug-rate (default 15) while the
+tuner runs and restored on exit.
+
 Offline mode: tune on recorded footage (video file, image or image folder)
 without ROS. The mask is computed here with the same rules as the detector.
 
@@ -228,7 +231,9 @@ def run_live(args):
 
     def fetch():
         if not get_client.wait_for_service(timeout_sec=5.0):
-            node.get_logger().warn(f"{target} not reachable, using defaults")
+            node.get_logger().warn(
+                f"{target} not reachable, using defaults (ROS_DOMAIN_ID="
+                f"{os.environ.get('ROS_DOMAIN_ID', 'unset')}: must match the robot)")
             return dict(DEFAULTS)
         future = get_client.call_async(GetParameters.Request(names=all_keys))
         rclpy.spin_until_future_complete(node, future, timeout_sec=5.0)
@@ -256,9 +261,39 @@ def run_live(args):
         else:
             node.create_subscription(CompressedImage, topic + "/compressed", on_image(name), 2)
 
+    def set_debug_rate(rate):
+        future = set_client.call_async(SetParameters.Request(
+            parameters=[Parameter("debug_rate_hz", value=float(rate)).to_parameter_msg()]))
+        rclpy.spin_until_future_complete(node, future, timeout_sec=5.0)
+
+    # The mission keeps the debug stream slow (it is recorded); speed it up only while tuning.
+    original_rate = None
+    if args.debug_rate > 0 and get_client.wait_for_service(timeout_sec=5.0):
+        future = get_client.call_async(GetParameters.Request(names=["debug_rate_hz"]))
+        rclpy.spin_until_future_complete(node, future, timeout_sec=5.0)
+        if future.result() is not None and future.result().values:
+            original_rate = future.result().values[0].double_value
+            set_debug_rate(args.debug_rate)
+            print(f"debug_rate_hz {original_rate:g} -> {args.debug_rate:g} while tuning")
+    try:
+        tune_loop(args, node, fetch, set_client, save_client, images, SetParameters, Parameter,
+                  Trigger)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if original_rate is not None:
+            set_debug_rate(original_rate)
+            print(f"debug_rate_hz restored to {original_rate:g}")
+        node.destroy_node()
+        rclpy.try_shutdown()  # Ctrl+C has usually shut the context down already
+
+
+def tune_loop(args, node, fetch, set_client, save_client, images, SetParameters, Parameter,
+              Trigger):
+    import rclpy
     sent = fetch()
     make_windows(sent)
-    print("Sliders write live to", target, "- s: save, r: reload, q: quit")
+    print("Sliders write live to", args.node, "- s: save, r: reload, q: quit")
     while rclpy.ok():
         rclpy.spin_once(node, timeout_sec=0.02)
         values = read_sliders()
@@ -288,8 +323,6 @@ def run_live(args):
             result = future.result()
             print(result.message if result else "save_params did not answer")
             print(yaml_snippet(values))
-    node.destroy_node()
-    rclpy.shutdown()
 
 
 def main():
@@ -298,6 +331,9 @@ def main():
     parser.add_argument("--source", help="offline: video file, image, or image folder")
     parser.add_argument("--node", default="/por_detection", help="live: detector node name")
     parser.add_argument("--raw", action="store_true", help="live: raw instead of compressed")
+    parser.add_argument("--debug-rate", type=float, default=15.0,
+                        help="live: detector debug_rate_hz while tuning, restored on exit "
+                        "(0 = leave unchanged)")
     args = parser.parse_args()
     if args.source:
         run_offline(args.source)

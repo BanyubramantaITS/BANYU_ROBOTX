@@ -37,6 +37,7 @@ ALLOW_CHANNEL_OVERLAP=false
 ALLOW_UNCAPPED_THRUST=false
 RECORD=true
 RECORD_IMAGES=true
+REPLAY_TRACK=""
 EXTRA_ARGS=()
 
 print_usage() {
@@ -76,6 +77,7 @@ Strategy Profile Presets (--profile <name>), sim gate-back times (ALT_HOLD, no G
   vision                : por_params_vision_assisted.yaml    (diamond + camera corrections, ~36 s)
   hybrid                : por_params_hybrid.yaml             (strafe box + camera return, ~44 s)
   slow                  : por_params_timed_slow.yaml         (gentle first pool test, ~71 s)
+  replay, teach         : por_params_replay.yaml             (fly a recorded manual drive, see below)
   Thrusters 2+3 dead: generate a profile from pool measurements with
     tools/scripts/dead_thruster_por.py (docs/por/tuning.md section 6) and pass its path.
   Any other file under banyu_bringup/config/ by relative path, e.g.
@@ -93,7 +95,15 @@ General Options:
                         Launch on the robot even if the Pixhawk MOT_PWM_MIN/MAX thruster cap
                         (banyu_defaults.parm) cannot be confirmed. Unsafe: the ESC power
                         board cannot supply full thruster current.
+  --replay-track NAME   Track for replay profiles: a file name in $BANYU_REPLAY_DIR
+                        (~/banyu_replays, .csv optional) or a path. Default: the newest track.
   -h, --help            Show this help message.
+
+Teach & replay:
+  Drive the course by hand (QGC joystick or TX16S, ALT_HOLD) during any recorded launch,
+  cut the drive into a track, then fly it with a replay profile:
+    python3 tools/scripts/por_teach_extract.py ~/banyu_bags/<run> --name <track>
+    ./tools/scripts/launch_por.sh --real --profile replay --replay-track <track>
 
 Examples:
   # Launch Gazebo simulation with GUI and fastest diamond strategy:
@@ -106,7 +116,11 @@ Examples:
   ./tools/scripts/launch_por.sh --real --profile safe
 
   # Launch real AUV headless without transmitter:
-  ./tools/scripts/launch_por.sh --real --no-rc --profile por_params_dead_thruster_2_3_no_rc_no_pos.yaml
+  ./tools/scripts/launch_por.sh --real --no-rc --profile por_params_timed_safe_no_rc.yaml
+  (every robot profile has a *_no_rc.yaml twin, also under blind/)
+
+  # Replay the newest recorded manual drive without a transmitter:
+  ./tools/scripts/launch_por.sh --real --no-rc --profile por_params_replay_no_rc.yaml
 EOF
 }
 
@@ -143,6 +157,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --profile)
       PROFILE="$2"
+      shift 2
+      ;;
+    --replay-track)
+      REPLAY_TRACK="$2"
       shift 2
       ;;
     --no-cam)
@@ -215,6 +233,7 @@ else
     safe) PROFILE="por_params_timed_safe.yaml" ;;
     vision|vision-assisted) PROFILE="por_params_vision_assisted.yaml" ;;
     hybrid) PROFILE="por_params_hybrid.yaml" ;;
+    replay|teach) PROFILE="por_params_replay.yaml" ;;
     default) PROFILE="por_params.yaml" ;;
   esac
 fi
@@ -234,6 +253,27 @@ fi
 profile_bypass_rc() {
   grep -Eq '^[[:space:]]*bypass_rc:[[:space:]]*true' "$PROFILE_PATH"
 }
+
+# Replay profiles fly a teach track; pin it to an absolute path so the banner and the
+# mission (which would otherwise resolve "latest" itself) use the same file.
+REPLAY_TRACK_PATH=""
+if grep -Eq '^[[:space:]]*use_replay:[[:space:]]*true' "$PROFILE_PATH"; then
+  REPLAY_DIR="${BANYU_REPLAY_DIR:-$HOME/banyu_replays}"
+  case "${REPLAY_TRACK:-latest}" in
+    latest) REPLAY_TRACK_PATH="$(ls -t "$REPLAY_DIR"/*.csv 2>/dev/null | head -n 1 || true)" ;;
+    */*) REPLAY_TRACK_PATH="$(readlink -f "$REPLAY_TRACK" || true)" ;;
+    *.csv) REPLAY_TRACK_PATH="$REPLAY_DIR/$REPLAY_TRACK" ;;
+    *) REPLAY_TRACK_PATH="$REPLAY_DIR/$REPLAY_TRACK.csv" ;;
+  esac
+  if [ -z "$REPLAY_TRACK_PATH" ] || [ ! -f "$REPLAY_TRACK_PATH" ]; then
+    echo "Error: replay track '${REPLAY_TRACK:-latest}' not found in $REPLAY_DIR." >&2
+    echo "  Make one with tools/scripts/por_teach_extract.py <bag run folder>." >&2
+    [ "$DRY_RUN" = true ] || exit 1
+    REPLAY_TRACK_PATH="${REPLAY_TRACK:-latest}"
+  fi
+elif [ -n "$REPLAY_TRACK" ]; then
+  echo "Warning: --replay-track is ignored: the profile does not set use_replay: true." >&2
+fi
 
 if [ "$TARGET" = "real" ]; then
   case "$PROFILE_PATH" in
@@ -295,6 +335,14 @@ echo "=========================================================="
 echo "Active Git Branch : $CURRENT_BRANCH"
 echo "Target Platform   : $([ "$TARGET" = "sim" ] && echo "Gazebo Simulation (SITL)" || echo "Real AUV Physical Hardware")"
 echo "Selected Profile  : ${PROFILE_PATH#"${CONFIG_DIR}/"}"
+if [ -n "$REPLAY_TRACK_PATH" ]; then
+  if [ -f "$REPLAY_TRACK_PATH" ]; then
+    echo "Replay Track      : ${REPLAY_TRACK_PATH} ($(awk -F, '!/^#/ && $1 ~ /^[0-9.]+$/ {
+      t = $1; if ($6 > d) d = $6 } END {printf "%.1f s, max depth %.2f m", t, d}' "$REPLAY_TRACK_PATH"))"
+  else
+    echo "Replay Track      : MISSING (${REPLAY_TRACK_PATH})"
+  fi
+fi
 if [ "$TARGET" = "sim" ]; then
   echo "Gazebo GUI        : $([ "$HEADLESS" = true ] && echo "HEADLESS (server only)" || echo "ENABLED")"
 else
@@ -328,6 +376,10 @@ if [ "$TARGET" = "sim" ]; then
     por_params_file:="$PROFILE_PATH"
     headless:="$([ "$HEADLESS" = true ] && echo "True" || echo "False")"
   )
+
+  if [ -n "$REPLAY_TRACK_PATH" ]; then
+    LAUNCH_CMD+=(replay_track:="$REPLAY_TRACK_PATH")
+  fi
 
   # The real AUV has no GPS; simulate the same unless the caller asks for use_gps:=True.
   if [[ " ${EXTRA_ARGS[*]} " != *" use_gps:="* ]]; then
@@ -395,6 +447,11 @@ else
     enable_cameras:="$([ "$ENABLE_CAMERAS" = true ] && echo "True" || echo "False")"
     enable_mock_auto:="$([ "$MOCK_AUTO" = true ] && echo "True" || echo "False")"
   )
+
+  if [ -n "$REPLAY_TRACK_PATH" ]; then
+    LAUNCH_CMD+=(replay_track:="$REPLAY_TRACK_PATH")
+    echo "Replay: disable the QGC joystick before the start; its sticks would override the replay."
+  fi
 
   if [ "$USE_RC" = true ]; then
     LAUNCH_CMD+=(

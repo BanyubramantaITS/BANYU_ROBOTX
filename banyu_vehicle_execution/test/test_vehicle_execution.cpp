@@ -1893,3 +1893,154 @@ TEST_F(VehicleExecutionNodeTest, TimedMoveCompletesWhenBaroDepthReached)
   EXPECT_NE(wrapped.result->reason.find("Target depth reached"), std::string::npos);
   EXPECT_LT(wrapped.result->elapsed_s, 4.0);
 }
+
+TEST_F(VehicleExecutionNodeTest, ReplayTrackReplaysSticksAndTracksHeadingAndDepth)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("rc_override.gain_xy_pwm_per_mps", 300.0);
+  options.append_parameter_override("rc_override.deadzone_xy_pwm", 0);
+  options.append_parameter_override("replay.heading_kp", 1.0);
+  options.append_parameter_override("replay.max_heading_correction_rad_s", 0.3);
+  options.append_parameter_override("replay.depth_pause_m", 0.0);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::ReplayTrack;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/replay_track");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto depth_pub = node->create_publisher<std_msgs::msg::Float64>(
+    "/mavros/global_position/rel_alt", rclcpp::SensorDataQoS());
+
+  mavros_msgs::msg::PositionTarget last;
+  double min_vz = 0.0;
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&](const mavros_msgs::msg::PositionTarget::SharedPtr m) {
+      last = *m;
+      min_vz = std::min(min_vz, static_cast<double>(m->velocity.z));
+    });
+
+  Action::Goal bad;
+  bad.time_s = {0.0, 1.0};
+  bad.forward_pwm = {0.0};
+  auto bad_future = client->async_send_goal(bad);
+  ASSERT_TRUE(waitForFuture(node, bad_future));
+  EXPECT_EQ(bad_future.get(), nullptr);
+
+  // 150 PWM forward and 90 PWM right at 300 PWM per m/s, diving to 2 m over 1.5 s.
+  Action::Goal goal;
+  goal.track_name = "test";
+  goal.time_s = {0.0, 0.75, 1.5};
+  goal.forward_pwm = {150.0, 150.0, 150.0};
+  goal.lateral_pwm = {90.0, 90.0, 90.0};
+  goal.yaw_pwm = {0.0, 0.0, 0.0};
+  goal.heading_rad = {0.0, 0.0, 0.0};
+  goal.depth_m = {0.0, 1.0, 2.0};
+  goal.depth_kp = 0.7;
+  goal.max_depth_speed_mps = 0.4;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+
+  for (int i = 0; i < 20; ++i) {
+    publishPose(node, pose_pub, 0.0, 0.0);
+    publishDepth(node, depth_pub, 0.0);
+    spinFor(node, 1);
+  }
+  // Heading 0 is east: forward is +x, right is -y.
+  EXPECT_NEAR(last.velocity.x, 0.5, 1e-3);
+  EXPECT_NEAR(last.velocity.y, -0.3, 1e-3);
+  EXPECT_NEAR(min_vz, -0.4, 1e-3);
+
+  // Vehicle yawed right by 0.2 rad off the recorded heading: correct to the left.
+  for (int i = 0; i < 10; ++i) {
+    publishPose(node, pose_pub, 0.0, -0.2);
+    publishDepth(node, depth_pub, 0.0);
+    spinFor(node, 1);
+  }
+  EXPECT_GT(last.yaw_rate, 0.15);
+  EXPECT_LE(last.yaw_rate, 0.3 + 1e-6);
+
+  for (int i = 0; i < 200 && result_future.wait_for(0ms) != std::future_status::ready; ++i) {
+    publishPose(node, pose_pub, 0.0, 0.0);
+    publishDepth(node, depth_pub, 1.0);
+    spinFor(node, 1);
+  }
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  auto wrapped = result_future.get();
+  EXPECT_EQ(wrapped.code, rclcpp_action::ResultCode::SUCCEEDED);
+  EXPECT_TRUE(wrapped.result->success);
+  EXPECT_GE(wrapped.result->elapsed_s, 1.5);
+}
+
+TEST_F(VehicleExecutionNodeTest, ReplayTrackPausesWhileOffTheRecordedDepth)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("rc_override.gain_xy_pwm_per_mps", 300.0);
+  options.append_parameter_override("rc_override.deadzone_xy_pwm", 0);
+  options.append_parameter_override("replay.depth_pause_m", 0.4);
+  options.append_parameter_override("replay.depth_resume_m", 0.2);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  using Action = banyu_msgs::action::ReplayTrack;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/replay_track");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto depth_pub = node->create_publisher<std_msgs::msg::Float64>(
+    "/mavros/global_position/rel_alt", rclcpp::SensorDataQoS());
+  mavros_msgs::msg::PositionTarget last;
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&](const mavros_msgs::msg::PositionTarget::SharedPtr m) {last = *m;});
+
+  // The teach run was at 2 m almost at once and then drove forward.
+  Action::Goal goal;
+  goal.track_name = "pause";
+  goal.time_s = {0.0, 0.1, 3.0};
+  goal.forward_pwm = {150.0, 150.0, 150.0};
+  goal.lateral_pwm = {0.0, 0.0, 0.0};
+  goal.yaw_pwm = {0.0, 0.0, 0.0};
+  goal.heading_rad = {0.0, 0.0, 0.0};
+  goal.depth_m = {2.0, 2.0, 2.0};
+  goal.depth_kp = 0.7;
+  goal.max_depth_speed_mps = 0.4;
+  bool paused = false;
+  double track_time = -1.0;
+  rclcpp_action::Client<Action>::SendGoalOptions send_options;
+  send_options.feedback_callback = [&](auto, const std::shared_ptr<const Action::Feedback> fb) {
+      paused = fb->paused;
+      track_time = fb->track_time_s;
+    };
+  auto send_future = client->async_send_goal(goal, send_options);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+
+  // Still at the surface: the clock holds, no forward stick, full dive.
+  for (int i = 0; i < 30; ++i) {
+    publishPose(node, pose_pub, 0.0, 0.0);
+    publishDepth(node, depth_pub, 0.0);
+    spinFor(node, 1);
+  }
+  EXPECT_TRUE(paused);
+  EXPECT_LT(track_time, 0.1);
+  EXPECT_NEAR(last.velocity.x, 0.0, 1e-6);
+  EXPECT_NEAR(last.velocity.z, -0.4, 1e-6);
+
+  // At depth: resume with the recorded forward stick.
+  for (int i = 0; i < 30; ++i) {
+    publishPose(node, pose_pub, 0.0, 0.0);
+    publishDepth(node, depth_pub, 1.95);
+    spinFor(node, 1);
+  }
+  EXPECT_FALSE(paused);
+  EXPECT_GT(track_time, 0.0);
+  EXPECT_NEAR(last.velocity.x, 0.5, 1e-3);
+
+  auto cancel_future = client->async_cancel_goal(handle);
+  ASSERT_TRUE(waitForFuture(node, cancel_future));
+}

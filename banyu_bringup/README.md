@@ -58,6 +58,7 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL, MAVR
 | `use_dvl` | `True` / `False` | `False` | Simulated DVL bridge. Keep `False` on hardware: the AUV has no DVL. |
 | `record` | `True` / `False` | `True` (`sub_bringup` only) | Records the run to a rosbag, see [Mission Recording](#-mission-recording). |
 | `record_images` | `True` / `False` | `True` (`sub_bringup` only) | Includes compressed camera images in the bag. Raw images are never recorded. |
+| `replay_track` | `latest`, a name or a path | `latest` | Teach track flown by profiles with `use_replay: true` (newest `.csv` in `$BANYU_REPLAY_DIR`, default `~/banyu_replays`). See `docs/por/README.md` §4.8. |
 
 ---
 

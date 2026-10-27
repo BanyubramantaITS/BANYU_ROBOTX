@@ -87,6 +87,15 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    replay_track_arg = DeclareLaunchArgument(
+        name="replay_track",
+        default_value="latest",
+        description=(
+            "Teach track for profiles with use_replay: 'latest' (newest .csv in "
+            "$BANYU_REPLAY_DIR, default ~/banyu_replays), a file name there, or an absolute path."
+        ),
+    )
+
     # SetUseSimTime only configures launch's own node; SetParameter reaches every launched node.
     set_use_sim_time = SetParameter(
         name="use_sim_time",
@@ -131,6 +140,7 @@ def generate_launch_description():
             por_params,
             {
                 "mission_mode": mode,
+                "mission.replay_track": LaunchConfiguration("replay_track"),
             },
         ],
         condition=IfCondition(EqualsSubstitution(mode, "por")),
@@ -379,6 +389,7 @@ def generate_launch_description():
             hardware_params_arg,
             enable_esp32_trigger_arg,
             enable_esp32_bridge_arg,
+            replay_track_arg,
             set_use_sim_time,
             por_mission_manager,
             task2_mission_manager,
