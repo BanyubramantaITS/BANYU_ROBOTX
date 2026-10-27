@@ -35,8 +35,8 @@ PROFILE=""
 MOCK_AUTO=false
 ALLOW_CHANNEL_OVERLAP=false
 ALLOW_UNCAPPED_THRUST=false
-RECORD=true
-RECORD_IMAGES=true
+RECORD=""         # default: on for --real, off for --sim
+RECORD_IMAGES=""  # default: on for --real, off for --sim
 REPLAY_TRACK=""
 EXTRA_ARGS=()
 
@@ -57,6 +57,9 @@ Simulation Options (when using --sim):
   --headless            Run Gazebo server without GUI and MAVProxy without console.
   --gui                 (Default for sim) Run Gazebo Harmonic GUI and MAVProxy.
   --no-clean            Skip pre-flight cleanup of stale SITL/ardusub/mavproxy processes.
+  --record              Record the sim run (sim time, ground truth /sim/ground_truth/odom) to
+                        $BANYU_BAG_DIR (~/banyu_bags); off by default in sim. Add
+                        --record-images to include camera images (slows the sim).
 
 Physical Hardware Options (when using --real):
   --rc                  (Default) Enable TX16S RC transmitter teleop and safety switches.
@@ -171,8 +174,16 @@ while [[ $# -gt 0 ]]; do
       MOCK_AUTO=true
       shift
       ;;
+    --record)
+      RECORD=true
+      shift
+      ;;
     --no-record)
       RECORD=false
+      shift
+      ;;
+    --record-images)
+      RECORD_IMAGES=true
       shift
       ;;
     --no-record-images)
@@ -201,6 +212,14 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Every robot run is recorded (no link underwater); sim runs only when asked.
+if [ -z "$RECORD" ]; then
+  RECORD=$([ "$TARGET" = "real" ] && echo true || echo false)
+fi
+if [ -z "$RECORD_IMAGES" ]; then
+  RECORD_IMAGES=$([ "$TARGET" = "real" ] && echo true || echo false)
+fi
 
 # --- Ensure ROS 2 workspace is sourced ---
 if [ -z "$ROS_DISTRO" ] || ! command -v ros2 &> /dev/null; then
@@ -349,15 +368,21 @@ else
   echo "Transmitter Mode  : $([ "$USE_RC" = true ] && echo "RC (TX16S enabled)" || echo "No-RC (Headless / Bypass)")"
   echo "Cameras Enabled   : $ENABLE_CAMERAS"
   echo "Land Test Mock    : $MOCK_AUTO"
-  if [ "$RECORD" = true ]; then
-    BAG_ROOT="${BANYU_BAG_DIR:-$HOME/banyu_bags}"
-    mkdir -p "$BAG_ROOT"
-    BAG_FREE_MB="$(df -Pm "$BAG_ROOT" | awk 'NR==2 {print $4}')"
-    echo "Mission Recording : ON -> ${BAG_ROOT} ($((BAG_FREE_MB / 1024)) GB free," \
-      "images $([ "$RECORD_IMAGES" = true ] && echo "compressed" || echo "off"))"
-  else
-    echo "Mission Recording : OFF"
+fi
+if [ "$RECORD" = true ]; then
+  BAG_ROOT="${BANYU_BAG_DIR:-$HOME/banyu_bags}"
+  mkdir -p "$BAG_ROOT"
+  BAG_FREE_MB="$(df -Pm "$BAG_ROOT" | awk 'NR==2 {print $4}')"
+  echo "Mission Recording : ON -> ${BAG_ROOT} ($((BAG_FREE_MB / 1024)) GB free," \
+    "images $([ "$RECORD_IMAGES" = true ] && echo "compressed" || echo "off"))"
+  # Name the run folder after the profile; record_mission.sh reads these from the environment.
+  PROFILE_NAME="$(basename "$PROFILE_PATH" .yaml)"
+  export BANYU_BAG_LABEL="por_${PROFILE_NAME#por_params_}$([ "$TARGET" = "sim" ] && echo "_sim")"
+  if [ -f "$REPLAY_TRACK_PATH" ]; then
+    export BANYU_BAG_REPLAY_TRACK="$REPLAY_TRACK_PATH"
   fi
+else
+  echo "Mission Recording : OFF"
 fi
 echo "----------------------------------------------------------"
 
@@ -381,6 +406,11 @@ if [ "$TARGET" = "sim" ]; then
     LAUNCH_CMD+=(replay_track:="$REPLAY_TRACK_PATH")
   fi
 
+  LAUNCH_CMD+=(
+    record:="$([ "$RECORD" = true ] && echo "True" || echo "False")"
+    record_images:="$([ "$RECORD_IMAGES" = true ] && echo "True" || echo "False")"
+  )
+
   # The real AUV has no GPS; simulate the same unless the caller asks for use_gps:=True.
   if [[ " ${EXTRA_ARGS[*]} " != *" use_gps:="* ]]; then
     LAUNCH_CMD+=(use_gps:=False)
@@ -396,6 +426,10 @@ if [ "$TARGET" = "sim" ]; then
   echo "  3. Start mission: ros2 service call /banyu/mission/start std_srvs/srv/Trigger \"{}\""
   echo "  4. Abort mission: ros2 service call /banyu/mission/abort std_srvs/srv/Trigger \"{}\""
   echo "  5. Teardown: killall -9 ardusub mavproxy mavros_node"
+  if [ "$RECORD" = true ]; then
+    echo "  Recording to ${BAG_ROOT}/<date>_${BANYU_BAG_LABEL}/ (stop with Ctrl+C to close the bag)."
+    echo "  Compare a replay with its teach run: tools/scripts/por_path_compare.py <teach run> <replay run>"
+  fi
 
 else
   # Real Hardware Checks
@@ -483,9 +517,6 @@ else
     record_images:="$([ "$RECORD_IMAGES" = true ] && echo "True" || echo "False")"
   )
   if [ "$RECORD" = true ]; then
-    # Name the run folder after the profile; record_mission.sh reads this from the environment.
-    PROFILE_NAME="$(basename "$PROFILE_PATH" .yaml)"
-    export BANYU_BAG_LABEL="por_${PROFILE_NAME#por_params_}"
     if [ "$BAG_FREE_MB" -lt "${BANYU_BAG_MIN_FREE:-2048}" ]; then
       echo "----------------------------------------------------------" >&2
       echo "Warning: only ${BAG_FREE_MB} MB free in ${BAG_ROOT}; the recorder needs" \

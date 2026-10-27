@@ -225,12 +225,13 @@ def generate_launch_description():
         }.items(),
     )
 
+    # Run directly, not via `ros2 run`: launch only signals the wrapper, which would leave the
+    # beacon running after shutdown (MAVProxy stays up, so it would keep feeding the Pixhawk).
     nogps_odom_beacon = ExecuteProcess(
         cmd=[
-            "ros2",
-            "run",
-            "banyu_bringup",
-            "nogps_odom_beacon.py",
+            os.path.join(
+                get_package_prefix("banyu_bringup"), "lib", "banyu_bringup", "nogps_odom_beacon.py"
+            ),
             "--mavlink",
             "udpin:127.0.0.1:14552",
         ],

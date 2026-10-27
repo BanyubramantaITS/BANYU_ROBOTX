@@ -254,6 +254,7 @@ vehicle_execution_node:
       deadzone_xy_pwm: 0
       deadzone_z_pwm: 50
       deadzone_yaw_pwm: 20
+      idle_release_s: 2.0   # release the sticks this long after the last goal (pilot never fought)
     timed_move:
       # Hard cap on horizontal (forward and lateral) speed in m/s; 0 disables
       max_horizontal_speed_mps: 0.0

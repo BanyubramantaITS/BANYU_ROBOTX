@@ -15,6 +15,7 @@ Self-check: `./nogps_odom_beacon.py --self-check`
 """
 
 import argparse
+import signal
 import socket
 import struct
 import sys
@@ -136,6 +137,10 @@ def main():
         self_check()
         return 0
 
+    # launch stops processes with SIGINT then SIGTERM; leave on either, never orphaned (also
+    # when started from a shell that ignores SIGINT for background jobs).
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
     host, port = parse_udpin(args.mavlink)
     rate_hz = max(5.0, float(args.rate_hz))
     period_s = 1.0 / rate_hz
@@ -147,13 +152,17 @@ def main():
     print(f"[nogps_odom_beacon] listening for MAVLink on {host}:{port} ...", flush=True)
 
     peer = None
-    while peer is None:
-        try:
-            data, addr = sock.recvfrom(2048)
-            if data and data[0] in (0xFD, 0xFE):
-                peer = addr
-        except socket.timeout:
-            continue
+    try:
+        while peer is None:
+            try:
+                data, addr = sock.recvfrom(2048)
+                if data and data[0] in (0xFD, 0xFE):
+                    peer = addr
+            except socket.timeout:
+                continue
+    except KeyboardInterrupt:
+        sock.close()
+        return 0
 
     print(
         f"[nogps_odom_beacon] peer {peer[0]}:{peer[1]} detected; "

@@ -2044,3 +2044,78 @@ TEST_F(VehicleExecutionNodeTest, ReplayTrackPausesWhileOffTheRecordedDepth)
   auto cancel_future = client->async_cancel_goal(handle);
   ASSERT_TRUE(waitForFuture(node, cancel_future));
 }
+
+TEST_F(VehicleExecutionNodeTest, RcOverrideReleasesSticksWhenNoGoalRuns)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.enable_mavros_publish", true);
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("control.output_mode", "rc_override");
+  options.append_parameter_override("control.autonomy_mode", "ALT_HOLD");
+  options.append_parameter_override("rc_override.idle_release_s", 0.3);
+  options.append_parameter_override("topics.status", "/test_rc_idle/status");
+  options.append_parameter_override("topics.rc_override", "/test_rc_idle/rc_override");
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+
+  std::vector<mavros_msgs::msg::OverrideRCIn> sent;
+  auto rc_sub = node->create_subscription<mavros_msgs::msg::OverrideRCIn>(
+    "/test_rc_idle/rc_override", 50,
+    [&sent](const mavros_msgs::msg::OverrideRCIn::SharedPtr msg) {sent.push_back(*msg);});
+  auto status_pub = node->create_publisher<banyu_msgs::msg::VehicleStatus>(
+    "/test_rc_idle/status", 10);
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  banyu_msgs::msg::VehicleStatus status;
+  status.fcu_connected = true;
+  status.fcu_status_fresh = true;
+  status.armed = true;
+  status.rc_fresh = true;
+  status.mode = "ALT_HOLD";
+  status.operational_mode = 2;
+  const auto run_for = [&](int cycles) {
+      for (int i = 0; i < cycles; ++i) {
+        status.header.stamp = node->now();
+        status_pub->publish(status);
+        publishPose(node, pose_pub, 0.0, 0.0);
+        spinFor(node, 1);
+      }
+    };
+  const auto is_neutral = [](const mavros_msgs::msg::OverrideRCIn & m) {
+      return std::any_of(m.channels.begin(), m.channels.end(), [](uint16_t v) {return v == 1500;});
+    };
+  const auto is_release = [](const mavros_msgs::msg::OverrideRCIn & m) {
+      return std::all_of(m.channels.begin(), m.channels.end(), [](uint16_t v) {
+               return v == mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE;});
+    };
+
+  // Armed in ALT_HOLD with autonomy selected but no mission: a pilot teaching a track
+  // must not be fought with neutral sticks.
+  run_for(40);
+  EXPECT_TRUE(std::none_of(sent.begin(), sent.end(), is_neutral));
+
+  // A goal owns the sticks while it runs.
+  using Action = banyu_msgs::action::TimedMove;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/timed_move");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  Action::Goal goal;
+  goal.segment_name = "leg";
+  goal.duration_s = 0.4;
+  goal.speed_x_mps = 0.5;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  ASSERT_NE(send_future.get(), nullptr);
+  sent.clear();
+  run_for(20);
+  EXPECT_TRUE(std::any_of(sent.begin(), sent.end(), [](const auto & m) {
+      return std::any_of(m.channels.begin(), m.channels.end(), [](uint16_t v) {
+               return v > 1600 && v != mavros_msgs::msg::OverrideRCIn::CHAN_NOCHANGE;});
+    }));
+
+  // After the goal: neutral briefly, then released and quiet.
+  run_for(80);
+  ASSERT_FALSE(sent.empty());
+  EXPECT_TRUE(is_release(sent.back()));
+  const auto count = sent.size();
+  run_for(20);
+  EXPECT_EQ(sent.size(), count);
+}

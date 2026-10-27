@@ -317,8 +317,11 @@ dan posisi start yang berbeda tetap membuat hasilnya bergeser.
 
 1. **Rekam (teach).** Jalankan stack seperti biasa (profil apa saja, rekaman bag aktif), arm,
    pilih **ALT_HOLD**, kemudikan rute dengan joystick QGC (atau TX16S) dari permukaan sampai
-   selesai, lalu disarm. Joystick QGC muncul di `/mavros/rc/in` sebagai override, jadi ikut
-   terekam. Mulai dari posisi dan arah yang sama dengan run nanti.
+   selesai, lalu disarm. **Jangan** start misi. Joystick QGC muncul di `/mavros/rc/in` sebagai
+   override, jadi ikut terekam. Selama tidak ada aksi misi yang jalan, `vehicle_execution` melepas
+   stick (`rc_override.idle_release_s`), jadi tidak melawan pilot. Mulai dari posisi dan arah
+   yang sama dengan run nanti. Pegang stick dengan stabil (jangan diketuk-ketuk) dan pisahkan
+   belokan dari gerak maju/geser.
 2. **Potong jadi track** (di NUC, setelah stack dihentikan):
 
    ```bash
@@ -356,6 +359,23 @@ dan posisi start yang berbeda tetap membuat hasilnya bergeser.
   track menyimpan defleksi PWM, dan replay mengubahnya kembali lewat gain `rc_override` yang
   sedang dipakai.
 
+**Di simulasi** (untuk mengukur seberapa mirip replay dengan teach): rekam kedua run dengan
+`--record`. Bag sim memakai waktu sim dan berisi posisi sebenarnya dari Gazebo
+(`/sim/ground_truth/odom`).
+
+```bash
+./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --profile safe --record     # teach (QGC joystick)
+python3 src/BANYU_ROBOTX/tools/scripts/por_teach_extract.py ~/banyu_bags/<teach run> --name sim1
+./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --profile replay --replay-track sim1 --record
+python3 src/BANYU_ROBOTX/tools/scripts/por_path_compare.py ~/banyu_bags/<replay run>
+```
+
+`por_path_compare.py` menemukan track dan bag teach sendiri, menyejajarkan kedua run pada waktu
+track (jeda kedalaman tidak dihitung sebagai drift), mencetak error posisi, kedalaman dan
+heading, dan menyimpan `<replay run>/path_compare.png`. Kolam sim dalamnya ~2,5 m: robot yang
+menyentuh dasar hampir tidak bisa bergerak maju. Hasil sim adalah kasus terbaik; di kolam
+sungguhan arus, baterai dan posisi start menambah drift.
+
 ## 5. Referensi `launch_por.sh`
 
 | Flag | Default | Fungsi |
@@ -368,6 +388,8 @@ dan posisi start yang berbeda tetap membuat hasilnya bergeser.
 | `--no-cam` | – | Robot: tanpa driver kamera |
 | `--mock-auto` | – | Robot: uji darat (§4.7) |
 | `--replay-track <nama atau path>` | track terbaru | Profil replay: track di `~/banyu_replays` (§4.8) |
+| `--record` / `--no-record` | robot: rekam; sim: tidak | Rekam run ke `~/banyu_bags` (sim: waktu sim + ground truth, §4.8) |
+| `--record-images` / `--no-record-images` | robot: ya; sim: tidak | Gambar kamera terkompresi di bag |
 | `--allow-channel-overlap` | – | Paksa jalan walau kanal override = kanal switch (berbahaya) |
 | `--dry-run` | – | Cetak perintah dan cek device tanpa menjalankan |
 

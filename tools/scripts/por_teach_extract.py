@@ -88,7 +88,7 @@ def read_bag(path):
     for topic, samples in data.items():
         samples.sort(key=lambda s: s[0])
         out[topic] = [((ns - first) * 1e-9, msg) for ns, msg in samples]
-    return out
+    return out, first
 
 
 def yaw_of(q):
@@ -136,7 +136,7 @@ def main():
     args = parse_args()
     path = bag_dir(args.run)
     print(f"Reading {path} ...")
-    data = read_bag(path)
+    data, bag_first_ns = read_bag(path)
     rc = data[TOPIC_RC]
     if not rc:
         sys.exit(f"{TOPIC_RC} is not in the bag: the sticks cannot be recovered.")
@@ -239,6 +239,8 @@ def main():
         f.write(f"# source: {path}\n")
         f.write(f"# cut: {start:.2f} - {end:.2f} s from bag start, window {index or 'manual'}, "
                 f"modes {', '.join(modes) or 'unknown'}\n")
+        # Bag timestamp of track time 0, for tools/scripts/por_path_compare.py
+        f.write(f"# start_ns: {bag_first_ns + round((start + shift) * 1e9)}\n")
         f.write(f"# channels: forward CH{args.forward_ch}, lateral CH{args.lateral_ch}, "
                 f"yaw CH{args.yaw_ch}; heading from {heading_name}; depth from {TOPIC_DEPTH}\n")
         f.write(",".join(COLUMNS) + "\n")

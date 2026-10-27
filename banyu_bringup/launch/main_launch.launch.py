@@ -1,6 +1,6 @@
 import os
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -202,9 +202,49 @@ def generate_launch_description():
         }.items(),
     )
 
-    # Same GPS-denied EKF aiding as sub_bringup.launch.py on the robot.
+    record_arg = DeclareLaunchArgument(
+        name="record",
+        default_value="False",
+        description="Record the sim run to $BANYU_BAG_DIR (default ~/banyu_bags) with sim time, "
+        "including /sim/ground_truth/odom (POR), for teach & replay and por_path_compare.py.",
+        choices=["True", "False"],
+    )
+
+    record_images_arg = DeclareLaunchArgument(
+        name="record_images",
+        default_value="False",
+        description="Include compressed camera images in the sim bag (costs CPU: the sim already "
+        "runs slower than real time).",
+        choices=["True", "False"],
+    )
+
+    # Same recorder as sub_bringup.launch.py, run directly so SIGINT closes the bag cleanly.
+    mission_recorder = ExecuteProcess(
+        cmd=[
+            os.path.join(
+                get_package_prefix("banyu_bringup"), "lib", "banyu_bringup", "record_mission.sh"
+            ),
+            [LaunchConfiguration("mode"), "_sim"],
+            "--sim-time",
+        ],
+        name="mission_recorder",
+        output="screen",
+        additional_env={
+            "BANYU_BAG_IMAGES": LaunchConfiguration("record_images"),
+            "BANYU_BAG_PARAMS": PythonExpression([
+                "'", LaunchConfiguration("por_params_file"), "' if '", LaunchConfiguration("mode"),
+                "' == 'por' else '", LaunchConfiguration("task2_params_file"), "'"
+            ]),
+        },
+        sigterm_timeout="15",
+        condition=IfCondition(EqualsSubstitution(LaunchConfiguration("record"), "True")),
+    )
+
+    # Same GPS-denied EKF aiding as sub_bringup.launch.py on the robot. Run directly, not via
+    # `ros2 run`: launch only signals the wrapper, which would orphan the beacon on shutdown.
     nogps_odom_beacon = ExecuteProcess(
-        cmd=["ros2", "run", "banyu_bringup", "nogps_odom_beacon.py",
+        cmd=[os.path.join(get_package_prefix("banyu_bringup"), "lib", "banyu_bringup",
+                          "nogps_odom_beacon.py"),
              "--mavlink", "udpin:127.0.0.1:14552"],
         name="nogps_odom_beacon",
         output="screen",
@@ -230,11 +270,14 @@ def generate_launch_description():
             task2_params_arg,
             por_params_arg,
             replay_track_arg,
+            record_arg,
+            record_images_arg,
             set_use_sim_time,
             gazebo_por_launch,
             gazebo_main_launch,
             sitl_mavros_launch,
             nogps_odom_beacon,
+            mission_recorder,
             mission_launch,
         ]
     )
