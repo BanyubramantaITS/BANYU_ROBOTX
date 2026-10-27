@@ -33,7 +33,7 @@
   <exec_depend>rx_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
-  <exec_depend>v4l2_camera</exec_depend>
+  <exec_depend>usb_cam</exec_depend>
   <exec_depend>xacro</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>

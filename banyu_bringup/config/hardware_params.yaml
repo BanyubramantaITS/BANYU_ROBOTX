@@ -1,19 +1,35 @@
-# Hardware configuration for the physical BANYU AUV (V4L2 USB cameras & sensor overrides)
+# Hardware configuration for the physical BANYU AUV (usb_cam USB cameras & sensor overrides)
 
+# Logitech C270 (POR). usb_cam needs the real /dev/videoX, not a /dev/v4l/by-id symlink.
 front_camera:
   ros__parameters:
     video_device: "/dev/video0"
-    image_size: [640, 480]
-    output_encoding: "bgr8"
-    camera_frame_id: "front_camera_optical_frame"
+    pixel_format: "mjpeg2rgb"
+    image_width: 640
+    image_height: 480
+    framerate: 30.0
+    io_method: "mmap"
+    # usb_cam otherwise sets brightness to 50.
+    brightness: 100
+    frame_id: "front_camera_optical_frame"
+    camera_name: "front_camera"
     camera_info_url: "package://banyu_bringup/config/front_camera_info.yaml"
 
+# Horus B / 2M WebCam (Task 2): 1920x1080 only, and MJPEG is required over USB 2.0
+# (raw YUYV at 1080p arrives as solid green). 15 fps keeps decode + recording CPU down.
+# See docs/horus_camera.md.
 bottom_camera:
   ros__parameters:
     video_device: "/dev/video2"
-    image_size: [640, 480]
-    output_encoding: "bgr8"
-    camera_frame_id: "bottom_camera_optical_frame"
+    pixel_format: "mjpeg2rgb"
+    image_width: 1920
+    image_height: 1080
+    framerate: 15.0
+    io_method: "mmap"
+    # usb_cam otherwise sets brightness to 50.
+    brightness: 100
+    frame_id: "bottom_camera_optical_frame"
+    camera_name: "bottom_camera"
     camera_info_url: "package://banyu_bringup/config/bottom_camera_info.yaml"
 
 # Physical AUV course coordinates & camera mounting overrides (applied when use_sim == False).

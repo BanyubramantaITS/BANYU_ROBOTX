@@ -22,14 +22,19 @@ from launch_ros.actions import Node, SetParameter
 
 def _make_camera_node(name, image_topic, info_topic, hardware_params, enable_cameras, target_mode, mode):
     return Node(
-        package="v4l2_camera",
-        executable="v4l2_camera_node",
+        package="usb_cam",
+        executable="usb_cam_node_exe",
         name=name,
         output="screen",
         parameters=[hardware_params],
+        # usb_cam does not carry the image_raw remap over to its transport subtopics,
+        # so the compressed stream the detectors and recorder use is remapped explicitly.
         remappings=[
             ("image_raw", image_topic),
             ("camera_info", info_topic),
+        ] + [
+            (f"image_raw/{transport}", f"{image_topic}/{transport}")
+            for transport in ("compressed", "compressedDepth", "theora", "zstd")
         ],
         condition=IfCondition(
             AndSubstitution(
@@ -148,7 +153,7 @@ def generate_launch_description():
     enable_cameras_arg = DeclareLaunchArgument(
         name="enable_cameras",
         default_value="True",
-        description="Whether to launch local V4L2 USB camera driver nodes.",
+        description="Whether to launch the local usb_cam USB camera driver nodes.",
         choices=["True", "False"],
     )
 

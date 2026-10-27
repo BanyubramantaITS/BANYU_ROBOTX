@@ -44,7 +44,7 @@ def test_sub_bringup_defaults_are_hardware_safe():
     assert args["record"] == "True"
 
 
-def test_sub_bringup_contains_v4l2_camera_nodes():
+def test_sub_bringup_contains_usb_cam_nodes():
     ld = _load_launch("sub_bringup.launch.py")
     nodes = [e for e in ld.entities if isinstance(e, Node)]
     assert len(nodes) == 3
@@ -106,7 +106,7 @@ def test_package_xml_has_no_sim_build_depends():
     assert "banyu_simulation" not in hard_depends
     assert "ros_gz_bridge" not in hard_depends
     exec_depends = [el.text for el in root.findall("exec_depend")]
-    assert "v4l2_camera" in exec_depends
+    assert "usb_cam" in exec_depends
 
 
 def test_main_launch_declares_headless_argument():

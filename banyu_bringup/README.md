@@ -38,7 +38,7 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL, MAVR
   ```bash
   ros2 launch banyu_bringup sub_bringup.launch.py mode:=por fcu_url:=udp://127.0.0.1:14551@
   ```
-  *(Launches MAVROS, `banyu_teleop` safety switches, V4L2 cameras, and the mission stack)*
+  *(Launches MAVROS, `banyu_teleop` safety switches, `usb_cam` cameras, and the mission stack)*
 
 - **No-DVL Negative Control** (see [Navigation Sources](#-navigation-sources-gps-on-the-surface-dvl-underwater)):
   comment out the `banyu::DvlMavlink` plugin in `banyu_simulation/worlds/main_world.world`.

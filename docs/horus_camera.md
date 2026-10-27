@@ -1,6 +1,8 @@
 # Horus B Camera Guide (2M WebCam)
 
-This document provides setup instructions, driver requirements, hardware constraints, and troubleshooting tips for operating the **Horus B Camera** (`2M WebCam`) on the BANYU ROV platform with ROS 2 Jazzy.
+This document provides setup instructions, driver requirements, hardware constraints, and troubleshooting tips for operating the **Horus B Camera** (`2M WebCam`) on the BANYU ROV platform with ROS 2 Jazzy. The Horus B is the **bottom camera** (Task 2); the front camera (POR) is a Logitech C270.
+
+`sub_bringup.launch.py` already runs both cameras with `usb_cam`; their settings are in `banyu_bringup/config/hardware_params.yaml` (Horus: `mjpeg2rgb`, 1920x1080, 15 fps). The standalone commands below are for bench testing.
 
 ---
 
@@ -38,7 +40,7 @@ sudo apt-get update && sudo apt-get install -y ros-jazzy-usb-cam
 ## 3. Running the Camera
 
 ### A. Standalone Run
-To run the Horus camera standalone and publish directly to `/front_camera/image_raw`:
+To run the Horus camera standalone and publish directly to `/bottom_camera/image_raw`:
 
 ```bash
 ros2 run usb_cam usb_cam_node_exe --ros-args \
@@ -47,7 +49,7 @@ ros2 run usb_cam usb_cam_node_exe --ros-args \
   -p image_width:=1920 \
   -p image_height:=1080 \
   -p framerate:=30.0 \
-  -r image_raw:=/front_camera/image_raw
+  -r image_raw:=/bottom_camera/image_raw
 ```
 
 *(Note: `$(realpath ...)` resolves the symlink to `/dev/videoX`, which `usb_cam` requires).*
@@ -62,7 +64,7 @@ ros2 run usb_cam usb_cam_node_exe --ros-args \
   -p image_width:=1920 \
   -p image_height:=1080 \
   -p framerate:=15.0 \
-  -r image_raw:=/front_camera/image_raw
+  -r image_raw:=/bottom_camera/image_raw
 ```
 
 ---
@@ -91,12 +93,12 @@ You can now use `video_device:="/dev/horus_camera"` directly.
 
 1. **Check publishing frequency (FPS):**
    ```bash
-   ros2 topic hz /front_camera/image_raw
+   ros2 topic hz /bottom_camera/image_raw
    ```
 
 2. **Inspect live stream visually:**
    ```bash
-   ros2 run rqt_image_view rqt_image_view /front_camera/image_raw
+   ros2 run rqt_image_view rqt_image_view /bottom_camera/image_raw
    ```
 
 ---
@@ -110,4 +112,4 @@ You can now use `video_device:="/dev/horus_camera"` directly.
 | **Blank / Solid green image in rqt** | `YUYV` raw format chosen at 1080p over USB 2.0 (packets dropped, buffer all `0x00`) | Switch to `pixel_format:="mjpeg2rgb"` using `usb_cam`. |
 | **`Device specified is not available ... /dev/../../video2`** | `usb_cam` cannot parse relative symlink paths from `/dev/v4l/by-id/` | Wrap the path in `$(realpath ...)` or use `/dev/videoX` / `/dev/horus_camera`. |
 | **Image visible in `rqt` but `ros2 topic list` doesn't show it** | Network IP changed (DHCP renewal or Wi-Fi reconnect) while nodes were running | Add `export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` to `~/.bashrc` and restart the nodes. |
-| **`ros2 topic hz` reports not published yet** | Topic remapping mismatch (e.g. checking `/image_raw` when remapped to `/front_camera/image_raw`) | Ensure you query the remapped topic name `/front_camera/image_raw`. |
+| **`ros2 topic hz` reports not published yet** | Topic remapping mismatch (e.g. checking `/image_raw` when remapped to `/bottom_camera/image_raw`) | Ensure you query the remapped topic name `/bottom_camera/image_raw`. |
