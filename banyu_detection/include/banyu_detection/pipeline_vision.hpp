@@ -20,6 +20,7 @@ struct Light
 {
   enum Colour { kGreen, kRed, kBlue } colour;  // blue only shows in the post-repair flash
   float x, y;     // px
+  float size {0.0f};  // px, longest side of the lit blob
 };
 
 // Image rows the fit uses: the stretch ahead in the direction of travel.

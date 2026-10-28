@@ -111,6 +111,7 @@ struct VehicleTelemetry
   double ring_offset_x{0.0};
   double ring_offset_y{0.0};
   double ring_confidence{0.0};
+  double ring_size{0.0};
 
   // Guidance velocity intent (for FollowPipeline)
   bool guidance_intent_valid{false};

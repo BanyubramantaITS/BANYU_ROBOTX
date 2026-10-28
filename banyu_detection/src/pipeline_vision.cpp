@@ -190,6 +190,37 @@ std::optional<PipeFit> fitPipe(const cv::Mat & mask, Band band)
   return PipeFit{std::atan2(vx, -vy), lateral};
 }
 
+// The lit lid around a light: the longest side of the region that stays at least half as bright in the light's
+// own channel as its peak and is dominated by that channel. The top-hat dot is the same size at any range
+// (it is only the lit centre); the lid grows as the camera closes in, so this tells how near the light is.
+static float lightExtent(const cv::Mat & bgr, int colour, float cx, float cy)
+{
+  const int channel = colour == Light::kRed ? 2 : (colour == Light::kGreen ? 1 : 0);
+  constexpr int kWindow = 90;
+  const cv::Rect roi = cv::Rect(
+    static_cast<int>(cx) - kWindow, static_cast<int>(cy) - kWindow, 2 * kWindow, 2 * kWindow) &
+    cv::Rect(0, 0, bgr.cols, bgr.rows);
+  if (roi.area() <= 0) {return 0.0f;}
+  cv::Mat ch[3];
+  cv::split(bgr(roi), ch);
+  const cv::Point centre(static_cast<int>(cx) - roi.x, static_cast<int>(cy) - roi.y);
+  const cv::Rect peak_box = cv::Rect(centre.x - 2, centre.y - 2, 5, 5) & cv::Rect(0, 0, roi.width, roi.height);
+  double peak = 0.0;
+  cv::minMaxLoc(ch[channel](peak_box), nullptr, &peak);
+  if (peak < 40.0) {return 0.0f;}
+  cv::Mat lit = ch[channel] >= 0.5 * peak;
+  for (int other = 0; other < 3; ++other) {
+    if (other != channel) {lit &= (ch[channel] > 1.5 * ch[other]);}
+  }
+  cv::dilate(lit, lit, cv::Mat::ones(3, 3, CV_8U));
+  cv::Mat labels, stats, centroids;
+  const int n = cv::connectedComponentsWithStats(lit, labels, stats, centroids);
+  const int label = labels.at<int>(centre);
+  if (label <= 0 || label >= n) {return 0.0f;}
+  return static_cast<float>(std::max(stats.at<int>(label, cv::CC_STAT_WIDTH),
+      stats.at<int>(label, cv::CC_STAT_HEIGHT)));
+}
+
 std::vector<Light> detectLights(const cv::Mat & bgr, const cv::Mat & mask)
 {
   static const cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(11, 11));
@@ -242,7 +273,7 @@ std::vector<Light> detectLights(const cv::Mat & bgr, const cv::Mat & mask)
       const bool sliver = (area<kCloseLightArea || std::max(w, h)>2.5 * std::min(w, h)) &&
         cv::countNonZero((labels == i) & rod) > 0;
       if (area >= kMinLightArea && on_pipe && !sliver) {
-        lights.push_back({colour, x, y});
+        lights.push_back({colour, x, y, lightExtent(bgr, colour, x, y)});
       }
     }
   }

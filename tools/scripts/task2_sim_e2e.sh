@@ -1,7 +1,7 @@
 #!/bin/bash
 # SIMULATION ONLY: one end-to-end Task 2 run in the sim, driven by tools/sos_integration/mock_gcs.py.
 #   tools/scripts/task2_sim_e2e.sh --out <dir> [--tier core|advanced|disruptive] [--timeout <s>] [--no-gate]
-#                                  [--gcs-arg <arg>]... [--launch-arg <arg>]...
+#                                  [--gcs-arg <arg>]... [--launch-arg <arg>]... [--gui]
 # Starts the sim headless (up to 3 tries: Gazebo sometimes never finishes loading), calls prepare_autonomy,
 # sends the course and run-start from the mock GCS, records rings with their Gazebo ground truth, writes
 # <dir>/{progress.txt,sim.log,mock_gcs.jsonl,rings.jsonl} and stops everything it started.
@@ -9,13 +9,14 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 WS_DIR="$(cd "${REPO_DIR}/../.." && pwd)"
-OUT=""; TIER="core"; TIMEOUT=900; GATE=(--gps-gate); GCS_ARGS=(); LAUNCH_ARGS=()
+OUT=""; MODE="--headless"; TIER="core"; TIMEOUT=900; GATE=(--gps-gate); GCS_ARGS=(); LAUNCH_ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
     --tier) TIER="$2"; shift 2 ;;
     --timeout) TIMEOUT="$2"; shift 2 ;;
     --no-gate) GATE=(); shift ;;
+    --gui) MODE="--gui"; shift ;;
     --gcs-arg) GCS_ARGS+=("$2"); shift 2 ;;
     --launch-arg) LAUNCH_ARGS+=("$2"); shift 2 ;;
     -h|--help) sed -n 2,8p "$0"; exit 0 ;;
@@ -29,7 +30,7 @@ export ROS_DOMAIN_ID=40
 echo "start $(date +%T) tier=$TIER" > "$OUT/progress.txt"
 UP=0
 for ATTEMPT in 1 2 3; do
-  "${SCRIPT_DIR}/launch_task2.sh" --sim --headless --no-clean --tier "$TIER" "${GATE[@]}" "${LAUNCH_ARGS[@]}" \
+  "${SCRIPT_DIR}/launch_task2.sh" --sim "$MODE" --no-clean --tier "$TIER" "${GATE[@]}" "${LAUNCH_ARGS[@]}" \
     > "$OUT/sim.log" 2>&1 &
   for _ in $(seq 1 30); do
     sleep 6

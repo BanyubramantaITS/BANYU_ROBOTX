@@ -51,6 +51,10 @@ banyu_mission:
       # in the sim (12.5 read = z -11.8), so the tip reaches the switch (0.15 m) at about 13.9 read.
       repair_depth_m: 13.9
       repair_ring_tolerance: 0.25   # normalized image offset for the probe step and the code reading hold
+      approach_descent_rate_mps: 0.12   # Core repair: sink onto the red ring by camera, no fixed depth
+      approach_contact_ring_size: 0.14  # ring size (image width fraction) at contact: tip about 0.1 m from the switch
+      approach_max_descent_m: 2.5       # cap on the sink below the depth where the ring was centred
+      approach_hold_s: 14.0             # hold on contact for the ring to stay GREEN (switch needs 2 s, then 1.5 s steady)
       repair_step_timeout_s: 60.0   # limit for each repair step; a step that times out is skipped
       # Advanced and Disruptive: time to stay on the repaired ring while the flash code is read.
       decode_window_s: 40.0

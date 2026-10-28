@@ -975,6 +975,7 @@ void VehicleExecutionNode::handleRingObs(
   telemetry_.ring_color = msg->color;
   telemetry_.ring_offset_x = msg->offset_x;
   telemetry_.ring_offset_y = msg->offset_y;
+  telemetry_.ring_size = msg->size;
   telemetry_.ring_confidence = msg->confidence;
 }
 

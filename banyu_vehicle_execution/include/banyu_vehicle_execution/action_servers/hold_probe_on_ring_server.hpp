@@ -29,6 +29,23 @@ protected:
   bool validateGoal(const Goal & goal, std::string & reason) override;
 
 private:
+  enum class Phase {Descend, Hold, Climb};
+
+  // Approach mode (goal.descent_rate_mps > 0): sink onto the ring with the camera, hold on contact until the
+  // ring turns GREEN, climb back to the starting depth.
+  MotionIntent approachTick(
+    const VehicleTelemetry & telemetry, const rclcpp::Time & now, double dt);
+  void finish(bool success, const std::string & reason);
+
+  Phase phase_{Phase::Descend};
+  double start_depth_m_{0.0};
+  bool depth_captured_{false};
+  bool saw_red_{false};
+  bool repaired_{false};
+  std::string failure_;
+  double hold_s_{0.0};
+  double lost_s_{0.0};
+  double green_s_{0.0};
   double ring_kp_sway_{0.8};
   double ring_kp_surge_{0.5};
   double elapsed_aligned_s_{0.0};

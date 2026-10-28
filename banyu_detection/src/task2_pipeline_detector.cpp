@@ -479,6 +479,7 @@ private:
             1.0f);
         ring.offset_y = std::clamp(static_cast<float>(normalizedY(chosen->y, image.rows)), -1.0f,
             1.0f);
+        ring.size = std::clamp(chosen->size / static_cast<float>(image.cols), 0.0f, 1.0f);
         light_found = true;
       }
 

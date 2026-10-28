@@ -7,7 +7,10 @@ namespace banyu_mission
 
 BT::PortsList HoldProbeOnRingNode::providedPorts()
 {
-  return {BT::InputPort<double>("hold_duration"), BT::InputPort<double>("alignment_tolerance")};
+  return {BT::InputPort<double>("hold_duration"), BT::InputPort<double>("alignment_tolerance"),
+    BT::InputPort<double>("descent_rate", 0.0, "m/s; 0 holds the depth, above 0 sinks onto the ring"),
+    BT::InputPort<double>("contact_ring_size", 0.0, "ring size (image width fraction) at contact"),
+    BT::InputPort<double>("max_descent", 0.0, "m, cap on the sink")};
 }
 
 HoldProbeOnRingNode::HoldProbeOnRingNode(
@@ -22,6 +25,9 @@ HoldProbeOnRingNode::Goal HoldProbeOnRingNode::makeGoal()
   Goal goal;
   goal.hold_duration_s = input<double>("hold_duration");
   goal.alignment_tolerance = input<double>("alignment_tolerance");
+  goal.descent_rate_mps = input<double>("descent_rate");
+  goal.contact_ring_size = input<double>("contact_ring_size");
+  goal.max_descent_m = input<double>("max_descent");
   return goal;
 }
 

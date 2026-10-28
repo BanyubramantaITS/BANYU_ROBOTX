@@ -121,7 +121,13 @@
             </Parallel>
           </ForceSuccess>
         </Sequence>
-        <HoldProbeOnRing hold_duration="{hold_duration}" alignment_tolerance="{ring_tolerance}" />
+        <ForceSuccess>
+          <Timeout msec="{approach_timeout_ms}">
+            <HoldProbeOnRing hold_duration="{approach_hold_s}" alignment_tolerance="{repair_ring_tolerance}"
+              descent_rate="{approach_descent_rate}" contact_ring_size="{approach_contact_ring_size}"
+              max_descent="{approach_max_descent}" />
+          </Timeout>
+        </ForceSuccess>
       </Fallback>
     </Sequence>
   </BehaviorTree>

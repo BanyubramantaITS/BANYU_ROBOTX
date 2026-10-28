@@ -3,11 +3,20 @@ uint32 run_id
 uint64 epoch
 float64 hold_duration_s
 float64 alignment_tolerance
+# Approach mode, off when descent_rate_mps is 0 (hold depth, as before). The vehicle sinks at this rate
+# while the ring stays within alignment_tolerance, and stops when the ring's apparent size reaches
+# contact_ring_size (the probe is on the switch). It then holds until the ring turns GREEN, climbs back to the
+# depth it started from and succeeds. max_descent_m caps the sink; hold_duration_s is how long to hold on
+# contact for the ring to turn GREEN.
+float64 descent_rate_mps
+float64 contact_ring_size
+float64 max_descent_m
 ---
 bool success
 string reason
 float64 held_duration_s
 float64 maximum_alignment_error
+bool ring_repaired
 ---
 builtin_interfaces/Time stamp
 float64 elapsed_s

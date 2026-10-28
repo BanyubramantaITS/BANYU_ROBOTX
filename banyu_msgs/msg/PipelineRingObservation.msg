@@ -26,3 +26,8 @@ float32 confidence
 # Normalized image offset in [-1, 1]; positive x is right and positive y is down.
 float32 offset_x
 float32 offset_y
+
+# Apparent size of the ring: its longest image side over the image width, in [0, 1]. It grows as the
+# camera closes in on the ring, so the vehicle can judge range with no depth sensor. 0 when unknown
+# or not visible.
+float32 size

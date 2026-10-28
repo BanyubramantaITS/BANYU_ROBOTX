@@ -669,6 +669,12 @@ void BanyuMission::initialize()
   // Looser alignment for the probe step (the tip sits ahead of the camera) and a time limit per repair step.
   const auto repair_ring_tolerance = declare_parameter<double>("mission.repair_ring_tolerance", 0.25);
   const auto repair_step_timeout_s = declare_parameter<double>("mission.repair_step_timeout_s", 60.0);
+  // Core repair by camera: sink onto the red ring with the ring centred, stop when it is big enough in the image
+  // (the probe is on the switch), hold until it turns GREEN, climb back. The pipe depth is not known.
+  const auto approach_rate = declare_parameter<double>("mission.approach_descent_rate_mps", 0.12);
+  const auto approach_contact_size = declare_parameter<double>("mission.approach_contact_ring_size", 0.14);
+  const auto approach_max_descent = declare_parameter<double>("mission.approach_max_descent_m", 2.5);
+  const auto approach_hold_s = declare_parameter<double>("mission.approach_hold_s", 14.0);
   // The decoder window covers the whole repair: two repair steps, then the code reading hold.
   const double decode_total = 2.0 * repair_step_timeout_s + decode_window + 15.0;
   // Flight mode for the dive and everything under water; must be the second entry of autonomy_mode.
@@ -695,6 +701,8 @@ void BanyuMission::initialize()
     (std::isnan(end_longitude) || finite(end_longitude)) &&
     positive(search_span) && search_span <= 2.0 * kPi && positive(sweep_rate) &&
     positive(ring_tolerance) && ring_tolerance <= 1.0 && positive(hold_duration) &&
+    positive(approach_rate) && positive(approach_contact_size) && approach_contact_size <= 1.0 &&
+    positive(approach_max_descent) && positive(approach_hold_s) &&
     nonnegative(surface_depth) && positive(surface_tolerance) && retries >= 0 && retries <= 255 &&
     crc >= 0 && crc <= std::numeric_limits<uint32_t>::max() && !camera.empty() && !id.empty();
 
@@ -779,6 +787,14 @@ void BanyuMission::initialize()
   blackboard->set("sweep_rate", sweep_rate);
   blackboard->set("ring_tolerance", ring_tolerance);
   blackboard->set("hold_duration", hold_duration);
+  blackboard->set("approach_descent_rate", approach_rate);
+  blackboard->set("approach_contact_ring_size", approach_contact_size);
+  blackboard->set("approach_max_descent", approach_max_descent);
+  blackboard->set("approach_hold_s", approach_hold_s);
+  // Sink, hold, climb back, with margin; the action ends itself earlier when the ring is lost.
+  blackboard->set(
+    "approach_timeout_ms",
+    static_cast<unsigned>((2.0 * approach_max_descent / approach_rate + approach_hold_s + 20.0) * 1000.0));
   blackboard->set("underwater_mode", underwater_mode);
   blackboard->set("repair_depth", repair_depth_param > 0.0 ? repair_depth_param : inspection_depth);
   blackboard->set("repair_ring_tolerance", repair_ring_tolerance);
