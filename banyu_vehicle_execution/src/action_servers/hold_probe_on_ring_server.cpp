@@ -158,7 +158,8 @@ MotionIntent HoldProbeOnRingServer::approachTick(
   }
   // Up close the lid flickers between red and green in the detector, so one green frame proves nothing. The
   // switch turns the light GREEN and keeps it so for 5 s: count the time it stays GREEN with no red between.
-  if (visible && saw_red_ && !repaired_) {
+  // Only on contact: before that a GREEN ring in view is a neighbour, not the repaired one.
+  if (visible && saw_red_ && !repaired_ && phase_ == Phase::Hold) {
     if (telemetry.ring_color == banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN) {
       green_s_ += dt;
     } else {
@@ -186,7 +187,8 @@ MotionIntent HoldProbeOnRingServer::approachTick(
   double heave = 0.0;
   switch (phase_) {
     case Phase::Descend:
-      if (visible) {
+      // Sink only onto the RED ring: with a GREEN one in view (a neighbour) the sink waits like a lost ring.
+      if (visible && telemetry.ring_color == banyu_msgs::msg::PipelineRingObservation::COLOR_RED) {
         lost_s_ = 0.0;
         if (telemetry.ring_size >= goal->contact_ring_size) {
           phase_ = Phase::Hold;
@@ -229,7 +231,8 @@ MotionIntent HoldProbeOnRingServer::approachTick(
       break;
   }
 
-  if (visible) {
+  const bool is_red = telemetry.ring_color == banyu_msgs::msg::PipelineRingObservation::COLOR_RED;
+  if (visible && (phase_ != Phase::Descend || is_red)) {
     const double sway = -std::clamp(ring_kp_sway_ * offset_x, -0.5, 0.5);
     const double surge = -std::clamp(ring_kp_surge_ * offset_y, -0.3, 0.3);
     auto local = bodyFluToLocalEnu(MotionIntent::bodyFlu(surge, sway, 0.0, 0.0), telemetry.yaw);

@@ -177,3 +177,9 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
 - **a4 (Advanced, GUI, node 2): pass.** Gazebo `ADVANCED_FLASH`, decoder `repair_verified` true with circle BLUE, report: survey
   GREEN, RED, GREEN, GREEN and `ResourceDelivery` tin ANY, circle BLUE (as configured). Next: Advanced batch over the other
   three nodes, then Disruptive.
+- Advanced batch, seed 2 (node 1): **FAILED** `HoldProbeOnRing` "Ring did not turn green on contact", node 1 stayed RED. Ground truth at
+  the end: the vehicle sat at (1.47, -0.63, -11.96), over node 2 (0.93, -0.62), 1.7 m from node 1's switch. `CenterOnRing` and the
+  approach take whatever ring the detector reports; with node 1 out of view it reports the neighbouring GREEN node 2 and the
+  vehicle centred and sank onto the wrong node. (Core seed 2 had passed, by timing.) H5: `CenterOnRing` honours `ring_color`
+  (red only) and the approach sinks and centres only on a RED ring until contact; the GREEN confirmation counts only in the hold
+  phase. vehicle_execution tests 60/60.
