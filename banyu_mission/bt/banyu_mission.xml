@@ -71,7 +71,15 @@
                 </Sequence>
                 <Sequence name="reacquire_lost_pipeline">
                   <PipelineLost />
-                  <SubTree ID="ReacquirePipeline" _autoremap="true" />
+                  <!-- A failed reacquire waits before the next try: ticking FollowPipeline and SearchPipeline every 50 ms makes
+                       them displace each other before the goal arbiter's zero barrier lets either start (livelock). -->
+                  <Fallback>
+                    <SubTree ID="ReacquirePipeline" _autoremap="true" />
+                    <Sequence>
+                      <Sleep msec="2000" />
+                      <AlwaysFailure />
+                    </Sequence>
+                  </Fallback>
                 </Sequence>
                 <FollowPipeline enable="true" />
               </ReactiveFallback>

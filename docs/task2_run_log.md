@@ -197,3 +197,10 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   = the seed's target) but the pipe was not found again afterwards; `SearchPipeline` / `FollowPipeline` were then rejected by the arbiter
   ("Vehicle safety or run authorization fault") in a tight loop until the e2e timeout. Not yet diagnosed (suspects: pipe lost after the
   climb for the last two nodes; the mission surfaced on the traverse timeout but kept ticking the traverse loop).
+- Advanced seed 9 (node 4), diagnostic batch: **pass** (survey GREEN, GREEN, GREEN, RED; circle BLUE; Gazebo TASK_COMPLETED_GREEN). The earlier
+  seed 5 / seed 9 failures in the `adv` batch coincided with a wall-clock jump (the machine slept), the "safety fault" there was most
+  likely that, and the diagnostic log (flags of the safety check) is now in `vehicle_execution_node`.
+- Advanced seed 5 (node 3) failed twice the same way, with no safety fault: after the repair the pipe is not found, the 15 s `AcquirePipeline` times
+  out, and then `FollowPipeline` and `SearchPipeline` are ticked every 50 ms, displace each other and are rejected by the goal arbiter's
+  zero barrier, forever (a livelock; the traverse timeout never ends it). H8: wait 2 s after a failed reacquire in the traverse loop
+  (`<Sleep>`); mission tree tests 31/31.

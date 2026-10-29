@@ -470,6 +470,18 @@ void VehicleExecutionNode::timerCallback()
     (status_ever_received_ && !telemetry_.status_valid) ||
     (require_run_authorization_ && !runMotionAuthorized() && !readinessHoldAuthorized());
 
+  static bool fault_logged = false;
+  if (safety_fault && !fault_logged) {
+    RCLCPP_WARN(
+      get_logger(),
+      "safety fault: status_valid=%d takeover=%d fcu=%d armed=%d fcu_fresh=%d rc_fresh=%d mode_ok=%d op_mode=%d kill=%d "
+      "ever=%d run_auth=%d hold_auth=%d",
+      telemetry_.status_valid, telemetry_.operator_takeover, telemetry_.fcu_connected, telemetry_.armed,
+      telemetry_.fcu_status_fresh, telemetry_.rc_fresh, !require_guided_ || modeAllowed(telemetry_.mode),
+      telemetry_.operational_mode, telemetry_.hardware_kill_active, status_ever_received_,
+      !require_run_authorization_ || runMotionAuthorized(), readinessHoldAuthorized());
+  }
+  fault_logged = safety_fault;
   if (safety_fault) {
     revokeGoals("Vehicle safety or run authorization fault");
     if (require_run_authorization_ && lifecycle_received_) {
