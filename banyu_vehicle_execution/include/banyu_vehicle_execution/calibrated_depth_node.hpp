@@ -46,6 +46,7 @@ private:
   double last_rel_alt_{0.0};
   rclcpp::Time last_rel_alt_time_{0, 0, RCL_ROS_TIME};
   bool rel_alt_received_{false};
+  bool been_deep_{false};   // since the datum was dropped, the vehicle has been below the surface band
 
   bool isNearSurface(double alt) const;
 

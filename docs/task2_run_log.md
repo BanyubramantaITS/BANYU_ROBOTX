@@ -278,3 +278,8 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   H18 (`ring_tracker.cpp`): the second ring fixes the direction the progress runs in the order the rings are met (+1 or -1) and later rings must keep going the same way; the
   ledger already sorts by progress from the active buoy end. New tracker test; ring tracker 21/21 and adapter 3/3 pass.
   **Seed 2 (node 1): survey correct but the repair failed** (contact reached, then the vehicle oscillated by +-0.15 m over the node: lid detected at offsets (0.38,-0.43), (-0.7, 0.7), (0.47,-0.49), (-0.95,-0.69), no steady green); not yet addressed.
+- Random-spawn Core after H18: seed 1 (node 2): **pass** (repair TASK_COMPLETED_GREEN, survey GREEN, RED, GREEN, GREEN). Seed 2 (node 1; spawn x -18.5, y 6.3): the dive, repair and
+  traversal worked but the mission **sat in `Surface` at 12 m depth for 3+ minutes** and never reported: the `Surface` action only runs on a *calibrated* water depth and the
+  `water_depth` message showed `calibrated: false`: the datum had been dropped at the run start (the vehicle was not inside the surface band at that moment) and was never taken again
+  (pre-start calibration only). Dived without a datum, the Surface step can never start: a deadlock. H19 (`calibrated_depth_node.cpp`): while the datum is missing,
+  the vehicle is inside the surface band and has not been deeper than 1 m since, take it again at the surface (`been_deep_`). Calibrated-depth tests pass.
