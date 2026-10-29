@@ -28,7 +28,7 @@ The autonomy stack is cleanly decoupled into transport-neutral mission coordinat
 - **`banyu_vehicle_interface`**:
   - `vehicle_status_node`: Aggregates MAVROS state, RC, battery, and GPS data into `/banyu/vehicle_status`.
 - **`banyu_vehicle_execution`**:
-  - `vehicle_execution_node`: Hosts all physical vehicle action servers (`por_action_servers`, `NavigateSurfaceGps`, `AlignHeading`, `DiveToDepth`, `AcquirePipeline`, `SearchPipeline`, `FollowPipeline`, `CenterOnRing`, `HoldProbeOnRing`, `Surface`).
+  - `vehicle_execution_node`: Hosts all physical vehicle action servers (`por_action_servers`, `NavigateSurfaceGps`, `AlignHeading`, `DiveToDepth`, `AcquirePipeline`, `SearchPipeline`, `FollowPipeline`, `CenterOnRing`, `HoldProbeOnRing`, `Surface`). Every action, its goal fields and the planned ones: [`actions.md`](actions.md).
   - Arbitrates motion commands (`GoalArbiter`), monitors watchdog timing (`RequirementWatchdog`), and continuously streams velocity-only setpoints (`0x5C7` ENU) to `/mavros/setpoint_raw/local` and `/banyu/execution/preview_target`.
   - `calibrated_depth_node`: Computes relative depth from surface datum (`datum - rel_alt`).
 - **`banyu_communication`**:
