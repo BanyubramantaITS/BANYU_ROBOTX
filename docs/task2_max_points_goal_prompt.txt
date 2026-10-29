@@ -7,7 +7,7 @@ State: Core, Advanced, Disruptive pass once per damaged node at the middle spawn
 Do in this order, one hypothesis per change, a sim run per hypothesis:
 1. Re-run on the final code with a random spawn (--random-spawn): Advanced and Disruptive, nodes 1-4, then Core again; fix what breaks.
 2. Disruptive colour pairs not yet run: light seeds 12 18 35 3 43 6 24 34 (BLUE/BLUE, BLUE/GREEN, BLUE/RED, GREEN/RED, RED/RED); Advanced circle GREEN: seeds 12 6.
-3. Depth-free plan D4 then D5, D1, D2, D3 (GPS-fix surfacing, Bar30 health monitor, descent by camera, pipe-width standoff and heave, 3D search). Sim pipe depth 3, 8, 13 m with the Bar30 hidden. Add launch options for the pipe depth.
+3. Depth-free plan D4 then D5, D1, D2, D3, D7 (GPS-fix surfacing, Bar30 health, descent by camera, pipe-width standoff, 3D search, midpoint dive, always report, light order without the hard-coded centerline). Sim pipe depth 3, 8, 13 m with the Bar30 hidden. Add launch options for the pipe depth.
 4. Scenarios 1-18 of the plan (pipe offset and heading error, two RED nodes, turbidity 0.5-2 m, current 0.1-0.3 m/s, Bar30 and GPS faults, node faults, late start point, WiFi loss). Fisheye-distorted camera and IR LED on and off in the detector. Marina Bay home and course coordinates.
 5. Repeat each tier and damaged node until 5 of 5 on the final code (random spawn each run).
 6. Update task2_feasibility_verdict.md and task2_sim_results.md (per tier and scenario: success per node, points, failing step, sensor limit). Commit locally, stop.

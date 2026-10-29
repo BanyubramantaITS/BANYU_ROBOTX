@@ -63,18 +63,37 @@ on its anchor line and the unknown pipe offset can make the first dive miss it. 
 3. **Always report.** After the search budget (parameter, **Assume** 4 minutes) surface by the GPS-fix rule and send the survey with what was seen (possibly empty). The heartbeat and start-buoy points are kept; the order and repair points are lost only for that run.
 4. Scenarios (section 4): pipe offset from the buoy line by 0-4 m, heading off by +-25 degrees, GPS offset 1-3 m, a buoy drifted 2 m: acceptance is "found within the budget in 10 of 10 runs, or a report is sent".
 
+### 2.8 Light order without a known pipe map (needed for any dive that is not at the start buoy)
+Now the order of the four lights is the progress of each ring along a **centerline that is hard-coded in `task2_params.yaml`** (`centerline_points`, the sim pipe), measured from the start-buoy end
+(`low_progress_endpoint_id: start_buoy`). In Marina Bay the pipe's place is unknown, so there is no such line. With no centerline the tracker only has the distance travelled since the following began, which is right only when the UUV began at the start-buoy end.
+H18 handles the direction of the traverse on a known geometry only; it does not solve this.
+
+Plan:
+1. **Build the order from the run itself.** Follow the pipe to one end (A), come back and follow it to the other end (B); keep, for every ring, its distance along the path travelled and the camera position. From A to B is the order of the nodes.
+   The path is a dead-reckoned track (compass, commanded speed, the pipe's apparent motion), so it drifts: only the order and rough spacing are used, never an absolute position.
+2. **Decide which end is the start-buoy end** (a wrong choice reverses the order and loses the 150 points) by combining, in this priority:
+   - **a GPS fix at each pipe end**: rise near the surface at the end and take an RTK fix (the surface rule of 2.4); the start and end buoy lat/long are known, so the end a few metres from the start buoy is the start end. This is the most certain and needs no pipe map. Budget: a rise and a descent per end; hold the position by the camera on the pipe end while rising, and take a fix that is within 2 m of the buoy;
+   - **the hydrophone**: only the green (start) buoy pings, so the bearing and the level of the ping point to the start end;
+   - **dead reckoning from the dive point**, which has the lowest weight (it drifts).
+   When these disagree, trust the GPS fix; when no fix is possible, trust the hydrophone; report the survey in the order of the best-supported end and log the confidence.
+3. **Keep the safe path first:** diving at the start buoy gives the right order by construction. The midpoint dive (2.7) is the second try, and it needs this section.
+4. **Code that has to change before any hardware test:** the ring tracker builds the order from the traversal (end A to end B) and exposes the evidence for each end; the survey ledger takes the order and the "start end" decision instead of `centerline_points` and `low_progress_endpoint_id`;
+   `centerline_points` stays only as an optional sim shortcut (off by default). Add a sim option that hides the centerline.
+5. **Tests:** dive at the middle and meet the pipe from the left and from the right, with and without the hydrophone, with the GPS offset 1-3 m, with the buoy drifted 2 m: the wrong-end rate must be 0 of 20; the survey must be right with the centerline hidden at the start-buoy dive as well.
+
 ## 3. Work items and acceptance
 
 | # | Item | Done when (sim first, then pool, then the site) |
 |---|---|---|
 | D1 | Light/pipe lock during a slow RC descent, with the depth sensor hidden from the mission | The pipe is found with the Bar30 topic removed, at pipe depths 3, 8, 13 m, 10 of 10 |
 | D2 | Pipe-width standoff and heave | The standoff stays within +-0.3 m while the pipe in the world rises and falls by 3 m |
+| D7 | Order from the run itself: both-end traverse, start-end decision by GPS fix, hydrophone and dead reckoning, no hard-coded centerline (2.8) | Wrong-end rate 0 of 20 on the midpoint dive with the centerline hidden; the start-buoy dive still right |
 | D3 | 3D search (steps, sweeps, hydrophone prior, LED toggle), the midpoint dive and the always-report fallback (2.7) | Finds a pipe offset by up to 4 m and rotated by up to 25 degrees from the buoy line |
 | D4 | GPS-fix surfacing | Surfaces and reports with the Bar30 stuck, offset by 1 m, or silent |
 | D5 | Bar30 health monitor | Each fault type in section 2.5 is flagged within 3 s in a replay |
 | D6 | Camera calibration and detector retune on the HORUS | Ring and pipe detection recall and false rate on real recordings from a pool and the site |
 
-Order: D4 and D5 first (they make a depth sensor failure safe), then D1, D2, D3, then D6 in parallel as soon as there is real video.
+Order: D4 and D5 first (they make a depth sensor failure safe), then D1, D2, D3, then D7 (before any hardware test, because the centerline is a sim shortcut), then D6 in parallel as soon as there is real video.
 
 ## 4. More test scenarios (sim now, real later)
 
