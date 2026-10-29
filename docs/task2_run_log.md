@@ -236,3 +236,7 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   switch, drifting toward node 4 during the decode hold (`dxy` 1.41 to 1.55 m, `dz` 0.07). The hold now centred on the *lit* ring, but the nearest
   lit one can be the next node (steady green, confidence 0.9) at the image edge (offset (-0.7, -0.98)). H13: on the node the hold
   centres only on a lit ring within 0.5 of the image centre (the repaired lid is under the camera); else it holds still.
+- Disruptive seed 5 after H13: Gazebo ground truth, the vehicle was exactly on node 3 after the contact (tip 0.04-0.12 m, dz 0.07) and then
+  **drifted off at about 0.1 m/s** (0.2 m at +3 s, 0.56 m at +10 s, 0.84 m at +30 s) while the lid was dark (3 of every 5 s in the two-colour
+  code) and the hold gave no command. Advanced held because its lid is lit half of the time. H14: the hold keeps correcting with the last
+  seen offset for 3 s after the lid goes dark (`kLastOffsetHoldS`). vehicle_execution tests 60/60.

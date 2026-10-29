@@ -48,6 +48,10 @@ private:
   double hold_s_{0.0};
   double lost_s_{0.0};
   double green_s_{0.0};
+  // The lid is dark for most of a flash code; the last offset keeps the correction going for a few seconds.
+  double last_offset_x_{0.0};
+  double last_offset_y_{0.0};
+  double since_lit_s_{1.0e9};
   double ring_kp_sway_{0.8};
   double ring_kp_surge_{0.5};
   double elapsed_aligned_s_{0.0};

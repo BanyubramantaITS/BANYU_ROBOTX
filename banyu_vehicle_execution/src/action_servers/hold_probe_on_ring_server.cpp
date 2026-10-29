@@ -14,6 +14,7 @@ namespace
 constexpr double kCreepSizeFactor = 1.2;  // keep creeping to this multiple of the contact size
 constexpr double kCreepRateFactor = 0.3;  // of the descent rate
 constexpr double kLitConfidence = 0.85;
+constexpr double kLastOffsetHoldS = 3.0;   // keep correcting with the last offset this long after the lid goes dark
 constexpr double kOnNodeMaxOffset = 0.5;    // on the node the lid is near the centre; a lit ring further off is another node   // the detector's confidence for a lit light; colour-threshold rings are weaker
 constexpr double kGreenConfirmS = 1.5;  // s of steady GREEN that count as the repair
 }  // namespace
@@ -41,6 +42,9 @@ void HoldProbeOnRingServer::onGoalStarted()
   hold_s_ = 0.0;
   lost_s_ = 0.0;
   green_s_ = 0.0;
+  last_offset_x_ = 0.0;
+  last_offset_y_ = 0.0;
+  since_lit_s_ = 1.0e9;
   depth_captured_ = false;
 }
 
@@ -129,9 +133,16 @@ MotionIntent HoldProbeOnRingServer::tick(
 
   // Keep centering while holding, as the alignment actions do: the vehicle coasts after
   // CenterOnRing and a zero command would let the ring drift out of tolerance.
-  if (visible && telemetry.pose_valid) {
-    const double sway = -std::clamp(ring_kp_sway_ * offset_x, -0.5, 0.5);
-    const double surge = -std::clamp(ring_kp_surge_ * offset_y, -0.3, 0.3);
+  if (visible) {
+    last_offset_x_ = offset_x;
+    last_offset_y_ = offset_y;
+    since_lit_s_ = 0.0;
+  } else {
+    since_lit_s_ += dt;
+  }
+  if ((visible || since_lit_s_ <= kLastOffsetHoldS) && telemetry.pose_valid) {
+    const double sway = -std::clamp(ring_kp_sway_ * last_offset_x_, -0.5, 0.5);
+    const double surge = -std::clamp(ring_kp_surge_ * last_offset_y_, -0.3, 0.3);
     const auto local_intent = bodyFluToLocalEnu(
       MotionIntent::bodyFlu(surge, sway, 0.0, 0.0), telemetry.yaw);
     return local_intent.value_or(zeroIntent());
@@ -257,9 +268,17 @@ MotionIntent HoldProbeOnRingServer::approachTick(
   }
 
   const bool is_red = telemetry.ring_color == banyu_msgs::msg::PipelineRingObservation::COLOR_RED;
-  if (visible && (phase_ != Phase::Descend || is_red)) {
-    const double sway = -std::clamp(ring_kp_sway_ * offset_x, -0.5, 0.5);
-    const double surge = -std::clamp(ring_kp_surge_ * offset_y, -0.3, 0.3);
+  const bool tracking = visible && (phase_ != Phase::Descend || is_red);
+  if (tracking) {
+    last_offset_x_ = offset_x;
+    last_offset_y_ = offset_y;
+    since_lit_s_ = 0.0;
+  } else {
+    since_lit_s_ += dt;
+  }
+  if (tracking || (phase_ != Phase::Descend && since_lit_s_ <= kLastOffsetHoldS)) {
+    const double sway = -std::clamp(ring_kp_sway_ * last_offset_x_, -0.5, 0.5);
+    const double surge = -std::clamp(ring_kp_surge_ * last_offset_y_, -0.3, 0.3);
     auto local = bodyFluToLocalEnu(MotionIntent::bodyFlu(surge, sway, 0.0, 0.0), telemetry.yaw);
     if (local) {
       local->linear_z = heave;
