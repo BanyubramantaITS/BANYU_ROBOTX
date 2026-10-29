@@ -244,3 +244,10 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   (offset (0.3, -0.59), then (0.94, -0.96)). The centring gains were tuned for the survey altitude (1.5 m); on the node the lid is 0.4 m away, so the same
   offset is a much smaller distance and the loop overshoots. H15: gains and limits on the node (hold phases) scaled by 0.3
   (`kOnNodeGainScale`). vehicle_execution tests 60/60.
+- Disruptive seed 5 after H15: **FAILED (stop after five fixes, H11-H15, on one item)**. Evidence (Gazebo ground truth): the vehicle holds on the node for about 8 s after the
+  contact (tip 0.04-0.13 m), then moves along the pipe at about 0.15 m/s (1.07 m from the switch at +15.8 s) while the lid is dark, so
+  the lit flashes leave the image and no two cycles are read (`cycles_seen` 0). The earlier fixes removed phantom GREEN rings, the
+  neighbouring-node pull and the over-aggressive loop. Open: a drift of 0.1-0.15 m/s appears whenever the hold commands nothing; the
+  cause (zero RC not neutral? residual thrust trim?) is not found. A station-keeping reference that works with the lid dark (pipe
+  edges for the lateral axis; nothing along the pipe) is the missing piece. Disruptive passes on node 2 (tin RED, circle BLUE) and node 1
+  (tin RED, circle GREEN); node 3 (tin GREEN, circle BLUE) fails; node 4 untested.
