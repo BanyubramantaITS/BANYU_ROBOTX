@@ -174,3 +174,6 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   steady red that never turned steady green gives no code, and only flashes after the verified repair count; a window that
   opens after the repair (no steady red) is read as before. Test added (11 decoder tests pass). Found while at it: a red tin
   flash must not count as the damaged ring, hence "steady" red.
+- **a4 (Advanced, GUI, node 2): pass.** Gazebo `ADVANCED_FLASH`, decoder `repair_verified` true with circle BLUE, report: survey
+  GREEN, RED, GREEN, GREEN and `ResourceDelivery` tin ANY, circle BLUE (as configured). Next: Advanced batch over the other
+  three nodes, then Disruptive.
