@@ -14,4 +14,4 @@ Rules: branch feat/task2-core-disruptive-sim only. Small local commits, NEVER pu
 
 Delegation: cheap bounded jobs (scaffolds, summaries, run loops, docs) go to haiku or sonnet subagents or agy --dangerously-skip-permissions --model gemini-3.8-flash-high --print='<task + check>' in an isolated git worktree only. You decide modes, BT, detector, safety params, verdicts. Verify every subagent result: read the diff, re-run build and proof.
 
-Finish: update docs/task2_feasibility_verdict.md and task2_sim_results.md (per tier: success per damaged node, points of 450/700/1050, failing step, sensor limit). Commit locally, stop..
+Finish: update docs/task2_feasibility_verdict.md and task2_sim_results.md (per tier: success per damaged node, points of 450/700/1050, failing step, sensor limit). Commit locally, stop.
