@@ -214,3 +214,7 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   observation during the flash alternates BLUE (lit) and GREEN (the dark half), so GREEN gets as many votes as BLUE and wins a tie.
   H10 (`resource_code_decoder.cpp`, Advanced): a non-green colour that agrees on its own (>= min_cycles) beats GREEN; GREEN is the code only
   when nothing else is. 14 decoder tests pass. Seed 5's survey also needs a re-check after the repair.
+- **Advanced seed 5 (node 3): pass** after H10 (survey GREEN, GREEN, RED, GREEN; ResourceDelivery circle BLUE = the seed's target; Gazebo
+  TASK_COMPLETED_GREEN). **Advanced now passes once on all four damaged nodes**: node 2 (a4), node 1 (seed 2), node 4 (seed 9), node 3
+  (seed 5), each with a correct survey order and delivery circle. Each node has only one passing run since the last fix (the
+  earlier passes ran on earlier code); repeat runs are still to do. Next: Disruptive (two-colour code).
