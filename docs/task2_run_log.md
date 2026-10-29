@@ -240,3 +240,7 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   **drifted off at about 0.1 m/s** (0.2 m at +3 s, 0.56 m at +10 s, 0.84 m at +30 s) while the lid was dark (3 of every 5 s in the two-colour
   code) and the hold gave no command. Advanced held because its lid is lit half of the time. H14: the hold keeps correcting with the last
   seen offset for 3 s after the lid goes dark (`kLastOffsetHoldS`). vehicle_execution tests 60/60.
+- Disruptive seed 5 after H14: the vehicle stayed on the node until the first lit flash, then moved 0.28 m in 0.7 s (about 0.4 m/s) and lost the lid
+  (offset (0.3, -0.59), then (0.94, -0.96)). The centring gains were tuned for the survey altitude (1.5 m); on the node the lid is 0.4 m away, so the same
+  offset is a much smaller distance and the loop overshoots. H15: gains and limits on the node (hold phases) scaled by 0.3
+  (`kOnNodeGainScale`). vehicle_execution tests 60/60.
