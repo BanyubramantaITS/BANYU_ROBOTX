@@ -31,6 +31,9 @@ CalibratedDepthNode::CalibratedDepthNode(const rclcpp::NodeOptions & options)
     "topics.water_depth", "/banyu/vehicle/water_depth");
   const auto lifecycle_topic = declare_parameter<std::string>(
     "topics.run_lifecycle", "/banyu/mission/run_lifecycle");
+  const auto fix_topic = declare_parameter<std::string>(
+    "topics.gps_fix", "/mavros/global_position/global");
+  gps_surface_timeout_s_ = declare_parameter<double>("gps_surface_timeout_s", 2.0);
 
   depth_pub_ = create_publisher<banyu_msgs::msg::WaterDepth>(
     water_depth_topic, rclcpp::QoS(10).reliable());
@@ -38,6 +41,10 @@ CalibratedDepthNode::CalibratedDepthNode(const rclcpp::NodeOptions & options)
   rel_alt_sub_ = create_subscription<std_msgs::msg::Float64>(
     rel_alt_topic, rclcpp::SensorDataQoS(),
     std::bind(&CalibratedDepthNode::handleRelAlt, this, std::placeholders::_1));
+
+  fix_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
+    fix_topic, rclcpp::SensorDataQoS(),
+    std::bind(&CalibratedDepthNode::handleFix, this, std::placeholders::_1));
 
   lifecycle_sub_ = create_subscription<banyu_msgs::msg::RunLifecycle>(
     lifecycle_topic, rclcpp::QoS(1).reliable().transient_local(),
@@ -87,6 +94,20 @@ void CalibratedDepthNode::calibrateDatum(double surface_rel_alt)
     surface_datum_offset_);
 }
 
+void CalibratedDepthNode::handleFix(const sensor_msgs::msg::NavSatFix::SharedPtr msg)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  fix_received_ = true;
+  fix_valid_ = msg && msg->status.status >= sensor_msgs::msg::NavSatStatus::STATUS_FIX &&
+    std::isfinite(msg->latitude) && std::isfinite(msg->longitude);
+  fix_time_ = now();
+}
+
+bool CalibratedDepthNode::gpsAtSurface() const
+{
+  return fix_received_ && fix_valid_ && (now() - fix_time_).seconds() <= gps_surface_timeout_s_;
+}
+
 bool CalibratedDepthNode::isNearSurface(double alt) const
 {
   return std::isfinite(alt) && alt >= -0.3 && alt <= 0.5;
@@ -107,7 +128,7 @@ void CalibratedDepthNode::handleLifecycle(const banyu_msgs::msg::RunLifecycle::S
     // raw rel_alt alone drifts out of the surface band with barometer drift.
     const bool at_datum_surface = pre_start_calibration_ && calibrated_ &&
       std::abs(surface_datum_offset_ - last_rel_alt_) <= kMaxDatumSurfaceDepthM;
-    if (!rel_alt_received_ || !(isNearSurface(last_rel_alt_) || at_datum_surface)) {
+    if (!rel_alt_received_ || !(isNearSurface(last_rel_alt_) || at_datum_surface || gpsAtSurface())) {
       calibrated_ = false;
       RCLCPP_WARN(
         get_logger(),
@@ -145,17 +166,24 @@ void CalibratedDepthNode::handleRelAlt(const std_msgs::msg::Float64::SharedPtr m
   rel_alt_received_ = true;
 
   // Refresh the datum at the surface before every run, not only the first one.
-  if (auto_calibrate_at_start_ && (!calibrated_ || !pre_start_calibration_) &&
-    isNearSurface(last_rel_alt_))
+  // Before the run starts a valid GPS fix is surface proof stronger than the barometer band: the datum follows the barometer
+  // (it jumps after arming) for as long as the fix is there. Never during the run.
+  const bool gps_proof = gpsAtSurface() && current_phase_ < banyu_msgs::msg::RunLifecycle::ACTIVE;
+  if (auto_calibrate_at_start_ &&
+    (gps_proof || ((!calibrated_ || !pre_start_calibration_) && isNearSurface(last_rel_alt_))))
   {
     if (current_phase_ < banyu_msgs::msg::RunLifecycle::ACTIVE) {
+      // Log a first calibration and a real change; small steps while the fix is there are tracked quietly.
+      const bool quiet = gps_proof && calibrated_ && pre_start_calibration_ &&
+        std::abs(surface_datum_offset_ - last_rel_alt_) <= 0.05;
       surface_datum_offset_ = last_rel_alt_;
       calibrated_ = true;
       pre_start_calibration_ = true;
-      RCLCPP_INFO(
-        get_logger(),
-        "Initial surface datum auto-calibrated to %.3f m",
-        surface_datum_offset_);
+      if (!quiet) {
+        RCLCPP_INFO(
+          get_logger(), "Surface datum auto-calibrated to %.3f m%s", surface_datum_offset_,
+          gps_proof ? " (GPS fix at the surface)" : "");
+      }
     }
   }
 

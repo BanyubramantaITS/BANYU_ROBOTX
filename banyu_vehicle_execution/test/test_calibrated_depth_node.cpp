@@ -8,6 +8,7 @@
 #include "banyu_msgs/msg/water_depth.hpp"
 #include "banyu_vehicle_execution/calibrated_depth_node.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/msg/nav_sat_fix.hpp"
 #include "std_msgs/msg/float64.hpp"
 
 using namespace std::chrono_literals;
@@ -24,6 +25,7 @@ protected:
     options.append_parameter_override("topics.rel_alt", "/test_depth/rel_alt");
     options.append_parameter_override("topics.water_depth", "/test_depth/water_depth");
     options.append_parameter_override("topics.run_lifecycle", "/test_depth/lifecycle");
+    options.append_parameter_override("topics.gps_fix", "/test_depth/fix");
     options.append_parameter_override("auto_calibrate_surface_at_start", true);
 
     depth_node_ = std::make_shared<banyu_vehicle_execution::CalibratedDepthNode>(options);
@@ -31,6 +33,8 @@ protected:
 
     rel_alt_pub_ = test_node_->create_publisher<std_msgs::msg::Float64>(
       "/test_depth/rel_alt", rclcpp::SensorDataQoS());
+    fix_pub_ = test_node_->create_publisher<sensor_msgs::msg::NavSatFix>(
+      "/test_depth/fix", rclcpp::SensorDataQoS());
     lifecycle_pub_ = test_node_->create_publisher<banyu_msgs::msg::RunLifecycle>(
       "/test_depth/lifecycle", rclcpp::QoS(1).reliable().transient_local());
 
@@ -62,6 +66,7 @@ protected:
   std::shared_ptr<banyu_vehicle_execution::CalibratedDepthNode> depth_node_;
   rclcpp::Node::SharedPtr test_node_;
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr rel_alt_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr fix_pub_;
   rclcpp::Publisher<banyu_msgs::msg::RunLifecycle>::SharedPtr lifecycle_pub_;
   rclcpp::Subscription<banyu_msgs::msg::WaterDepth>::SharedPtr depth_sub_;
   rclcpp::executors::SingleThreadedExecutor executor_;
@@ -284,4 +289,51 @@ TEST_F(CalibratedDepthNodeTest, EpochChangeWithinSameRunPreservesCalibration)
 
   EXPECT_TRUE(depth_node_->isCalibrated());
   EXPECT_DOUBLE_EQ(depth_node_->surfaceDatumOffset(), 0.0);
+}
+
+TEST_F(CalibratedDepthNodeTest, GpsFixAtTheSurfaceKeepsTheDatumThroughABaroJumpBeforeTheRun)
+{
+  // The barometer jumps after arming, out of the surface band; a GPS fix (the vehicle is at the surface) keeps the datum following it
+  // until the run starts.
+  auto publish_fix = [this]() {
+      sensor_msgs::msg::NavSatFix fix;
+      fix.header.stamp = test_node_->now();
+      fix.status.status = sensor_msgs::msg::NavSatStatus::STATUS_FIX;
+      fix.latitude = 1.28;
+      fix.longitude = 103.86;
+      fix_pub_->publish(fix);
+    };
+  std_msgs::msg::Float64 alt;
+  alt.data = 0.14;
+  rel_alt_pub_->publish(alt);
+  spinFor(50ms);
+  ASSERT_TRUE(depth_node_->isCalibrated());
+
+  publish_fix();
+  alt.data = -0.40;   // outside the band, 0.54 m below the datum
+  rel_alt_pub_->publish(alt);
+  spinFor(50ms);
+  publish_fix();
+  rel_alt_pub_->publish(alt);
+  spinFor(50ms);
+  EXPECT_NEAR(depth_node_->surfaceDatumOffset(), -0.40, 1e-6);
+
+  banyu_msgs::msg::RunLifecycle life;
+  life.header.stamp = test_node_->now();
+  life.run_id = 7;
+  life.epoch = 1;
+  life.phase = banyu_msgs::msg::RunLifecycle::INITIALIZING;
+  lifecycle_pub_->publish(life);
+  spinFor(50ms);
+  EXPECT_TRUE(depth_node_->isCalibrated());
+
+  // Once the run is active the datum is not touched any more.
+  life.phase = banyu_msgs::msg::RunLifecycle::ACTIVE;
+  lifecycle_pub_->publish(life);
+  spinFor(50ms);
+  publish_fix();
+  alt.data = -3.0;
+  rel_alt_pub_->publish(alt);
+  spinFor(50ms);
+  EXPECT_NEAR(depth_node_->surfaceDatumOffset(), -0.40, 1e-6);
 }

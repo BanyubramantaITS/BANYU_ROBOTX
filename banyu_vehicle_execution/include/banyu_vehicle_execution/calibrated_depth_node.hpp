@@ -8,6 +8,7 @@
 #include "banyu_msgs/msg/run_lifecycle.hpp"
 #include "banyu_msgs/msg/water_depth.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/msg/nav_sat_fix.hpp"
 #include "std_msgs/msg/float64.hpp"
 
 namespace banyu_vehicle_execution
@@ -28,6 +29,10 @@ public:
 private:
   void handleRelAlt(const std_msgs::msg::Float64::SharedPtr msg);
   void handleLifecycle(const banyu_msgs::msg::RunLifecycle::SharedPtr msg);
+  void handleFix(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
+  // A fresh GPS fix proves the vehicle is at the surface (the antenna does not work under water); the barometer alone
+  // can jump after arming.
+  bool gpsAtSurface() const;
 
   mutable std::mutex mutex_;
   std::string source_id_;
@@ -46,11 +51,16 @@ private:
   double last_rel_alt_{0.0};
   rclcpp::Time last_rel_alt_time_{0, 0, RCL_ROS_TIME};
   bool rel_alt_received_{false};
+  double gps_surface_timeout_s_{2.0};
+  bool fix_received_{false};
+  bool fix_valid_{false};
+  rclcpp::Time fix_time_{0, 0, RCL_ROS_TIME};
 
   bool isNearSurface(double alt) const;
 
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr rel_alt_sub_;
   rclcpp::Subscription<banyu_msgs::msg::RunLifecycle>::SharedPtr lifecycle_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr fix_sub_;
   rclcpp::Publisher<banyu_msgs::msg::WaterDepth>::SharedPtr depth_pub_;
 };
 
