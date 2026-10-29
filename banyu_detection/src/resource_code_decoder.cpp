@@ -114,7 +114,10 @@ ResourceCodeResult ResourceCodeDecoder::decode() const
   // The code only comes after the repair. A ring seen steady RED that never turned steady green has no code yet (its
   // flicker is not one), and flashes before the repair are not the code. A window that opened after the repair
   // (no RED seen) is read as it is.
-  if (seen_steady_red && !result.repair_verified) {return result;}
+  // The window opens before the repair, so it normally starts on the damaged ring's RED. Until that RED has turned
+  // steady green, short red runs (a ring flickering in and out of view) are not flashes of a code.
+  const bool starts_red = !merged.empty() && merged.front().colour == 1;
+  if ((seen_steady_red || starts_red) && !result.repair_verified) {return result;}
   if (result.repair_verified) {
     flashes.erase(
       std::remove_if(

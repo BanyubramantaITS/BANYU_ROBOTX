@@ -229,3 +229,18 @@ TEST(ResourceCodeDecoder, SteadyRedWithFlickerAndNoRepairIsNotACode)
   EXPECT_FALSE(r.complete);
   EXPECT_FALSE(r.repair_verified);
 }
+
+TEST(ResourceCodeDecoder, ShortRedRunsAtTheStartOfTheWindowAreNotACode)
+{
+  // The window has just opened on a damaged ring that flickers in and out of view: 1 s of red, a gap, 1 s of red ...
+  ResourceCodeConfig cfg;
+  cfg.code_length = 1;
+  ResourceCodeDecoder d(cfg);
+  double t = 1.0;
+  for (int cycle = 0; cycle < 4; ++cycle) {
+    for (int i = 0; i < 30; ++i, t += 1.0 / 30.0) {d.add(t, kRed);}
+    for (int i = 0; i < 20; ++i, t += 1.0 / 30.0) {d.add(t, 0);}
+  }
+  const auto r = d.decode();
+  EXPECT_FALSE(r.complete);
+}

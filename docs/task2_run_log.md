@@ -183,3 +183,7 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   vehicle centred and sank onto the wrong node. (Core seed 2 had passed, by timing.) H5: `CenterOnRing` honours `ring_color`
   (red only) and the approach sinks and centres only on a RED ring until contact; the GREEN confirmation counts only in the hold
   phase. vehicle_execution tests 60/60.
+- Advanced batch seed 2 after H5: centring and sink onto node 1 now work, but `DecodeResourceCode` returned "flash code read" 2 s after the
+  window opened while node 1 was still RED, which cancelled the probe hold (no repair, no resource report). Cause: the lid flickers in
+  and out of view at the start, giving short red runs that the decoder took as flashes (min 2 cycles). H6
+  (`resource_code_decoder.cpp`): a window that starts on RED gives no code until that RED has turned steady green. 12 decoder tests pass.
