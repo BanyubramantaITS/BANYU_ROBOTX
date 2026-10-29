@@ -30,7 +30,7 @@ protected:
   bool validateGoal(const Goal & goal, std::string & reason) override;
 
 private:
-  enum class Phase {Descend, Hold, Climb};
+  enum class Phase {Descend, Hold, Climb, BackOff};
 
   // Approach mode (goal.descent_rate_mps > 0): sink onto the ring with the camera, hold on contact until the
   // ring turns GREEN, climb back to the starting depth.
@@ -48,6 +48,7 @@ private:
   double hold_s_{0.0};
   double lost_s_{0.0};
   double green_s_{0.0};
+  double back_off_depth_m_{0.0};   // depth to reach after the repair when staying near the node
   // The lid is dark for most of a flash code; the last offset keeps the correction going for a few seconds.
   double last_offset_x_{0.0};
   double last_offset_y_{0.0};

@@ -259,3 +259,7 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   the decoder read tin GREEN, circle GREEN in 2 cycles (as configured). That run ended without a report because the machine suspended
   for about 24 minutes (BT log time stops at 14:38, e2e timeout at 15:02); earlier "stuck" runs (Advanced seed 5/9, 58 min) fit the same cause.
   Runs are now wrapped in `systemd-inhibit --what=sleep` so a suspend cannot freeze them.
+- Disruptive seed 9 again (same code as the pass above, with sleep inhibited): **FAILED this time**: the vehicle slid off the node after the contact (tip 0.08 m, then 0.27 m at +3.8 s and 0.49 m at +7.5 s,
+  about 0.06 m/s) and no cycle was read. So H16 is not reliable: the vehicle drifts off the node by a random amount within seconds
+  once the hold commands nothing (cause not found). H17 (`hold_probe_on_ring_server.cpp`): after the repair, rise 0.6 m (`kBackOffM`) before the code
+  reading hold, so a drift of 0.1 m/s keeps the lid in the image for over 10 s (footprint about 1.2 m instead of 0.46 m).

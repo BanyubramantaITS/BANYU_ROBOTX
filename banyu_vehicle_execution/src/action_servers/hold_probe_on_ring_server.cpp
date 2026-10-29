@@ -18,6 +18,7 @@ constexpr double kDecodeHoldGainScale = 0.0;   // 0: no centring while the flash
 constexpr double kOnNodeGainScale = 0.3;   // the lid is 0.4 m away, not 1.5 m: the same image offset is a smaller distance, so a gentler loop
 constexpr double kLastOffsetHoldS = 3.0;   // keep correcting with the last offset this long after the lid goes dark
 constexpr double kOnNodeMaxOffset = 0.5;    // on the node the lid is near the centre; a lit ring further off is another node   // the detector's confidence for a lit light; colour-threshold rings are weaker
+constexpr double kBackOffM = 0.6;   // after the repair, rise this far so the lid and its neighbourhood stay in view while the code is read
 constexpr double kGreenConfirmS = 1.5;  // s of steady GREEN that count as the repair
 }  // namespace
 
@@ -44,6 +45,7 @@ void HoldProbeOnRingServer::onGoalStarted()
   hold_s_ = 0.0;
   lost_s_ = 0.0;
   green_s_ = 0.0;
+  back_off_depth_m_ = 0.0;
   last_offset_x_ = 0.0;
   last_offset_y_ = 0.0;
   since_lit_s_ = 1.0e9;
@@ -211,9 +213,10 @@ MotionIntent HoldProbeOnRingServer::approachTick(
       repaired_ = true;
       phase_ = Phase::Climb;
       if (!goal->climb_back) {
-        // Stay on the node: the next action keeps the camera on the lid while the flash code is read.
-        finish(true, "Ring repaired");
-        return zeroIntent();
+        // Stay near the node, but rise a little first: on the node the lid fills the image, the vehicle slides off it within
+        // seconds and the flashes leave the view. From 0.6 m higher the same drift keeps the lid in view.
+        back_off_depth_m_ = telemetry.depth_m - kBackOffM;
+        phase_ = Phase::BackOff;
       }
     }
   }
@@ -263,6 +266,13 @@ MotionIntent HoldProbeOnRingServer::approachTick(
         failure_ = "Ring did not turn green on contact";
         phase_ = Phase::Climb;
       }
+      break;
+    case Phase::BackOff:
+      if (telemetry.depth_m <= back_off_depth_m_ + 0.05) {
+        finish(true, "Ring repaired");
+        return zeroIntent();
+      }
+      heave = goal->descent_rate_mps;
       break;
     case Phase::Climb:
       if (depth_below_start <= 0.05) {
