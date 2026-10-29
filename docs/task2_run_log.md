@@ -295,3 +295,8 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   `PipelineBuoys` target arriving 0.8 s *after* the BT had started, so the navigation had no target. A timing race between the run start and the USV's start-point message (the real
   messages are independent too). H22 (`banyu_mission.xml`): `NavigateSurfaceGps` is retried once per second for up to 3 minutes (`Timeout` + `RetryUntilSuccessful` + `Sleep`) instead of failing the
   mission. Mission tree tests 31/31.
+- **Decision (dive depth):** the initial dive stays at the fixed `inspection_depth_m` 12.5 m (Bar30); the pipe is found and followed by camera at that depth (no vertical tracking), the repair approach is camera only.
+  A pipe that rises or falls more than the camera range cannot be followed in this design: a documented limit (see the verdict), not worked on now (the sim pipe is at about 13.4 m, the handbook asks for a variable depth, and the vehicle has no altimeter, so vertical tracking
+  needs a camera-based depth estimate that I have not built).
+- Light seeds for the remaining colour pairs (seed gives damaged node, Advanced circle, tin, circle): BLUE/BLUE 12 (node 4) 14 (node 1); BLUE/GREEN 18 (n2) 35 (n3); BLUE/RED 3 (n2) 43 (n1) 38 (n4); GREEN/RED 6 (n1) 8 (n2); RED/RED 24 (n4) 34 (n3) 69 (n1).
+  Queued: Disruptive on seeds 12 18 35 3 43 6 24 34 and Advanced (circle GREEN) on 12 and 6, all with a random spawn.
