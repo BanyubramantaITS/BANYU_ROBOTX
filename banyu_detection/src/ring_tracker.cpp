@@ -240,7 +240,9 @@ bool RingTracker::ringProgress(const RingTrackerInput & input, double & progress
       config_.camera_half_vfov_rad * std::clamp(
       static_cast<double>(input.observation.offset_y), -1.0, 1.0);
     double height = config_.camera_height_m;
-    if (config_.lid_diameter_m > 0.0 && config_.focal_ratio > 0.0 && input.observation.size >= 0.02F) {
+    // Only when the lid is big (close, about 0.8 m or less): at the survey altitude its size is a few pixels and the range from
+    // it is too noisy, the fixed height does better.
+    if (config_.lid_diameter_m > 0.0 && config_.focal_ratio > 0.0 && input.observation.size >= 0.08F) {
       const double range = config_.focal_ratio * config_.lid_diameter_m / input.observation.size;
       height = std::clamp(
         range * std::cos(config_.camera_tilt_from_vertical_rad), 0.1, 1.5 * config_.camera_height_m);

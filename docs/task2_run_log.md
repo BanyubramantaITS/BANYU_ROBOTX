@@ -287,3 +287,7 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   later could not surface (the `Surface` action needs a calibrated depth). Not a spawn effect, a timing one (the jump size varies). H20 (`calibrated_depth_node`): before the run starts
   (phase < ACTIVE) a valid fresh GPS fix is surface proof (it does not work under water): the datum follows the barometer while the fix is there, and the datum is not dropped at the run
   start. During the run nothing changes (the existing rule). New test `GpsFixAtTheSurfaceKeepsTheDatumThroughABaroJumpBeforeTheRun`; calibrated-depth tests 9/9.
+- Random-spawn Core after H20: seed 5 and seed 9 pass; **seed 1 again no report** (`ORDER_UNVERIFIED`): rings 2 and 3 were created at the same instant with progress 3.47 and 2.65 (not in
+  order) although the nodes are at 2.8 and 4.2. The ring position uses the camera height from the lid size (H2), which is too noisy at the survey altitude (lid size 0.04 to 0.06, range
+  1.1 to 2.1 m from one frame to the next). H21 (`ring_tracker.cpp`): the size-based height is only used when the lid is big (size >= 0.08, about 0.8 m or closer); otherwise the fixed
+  `camera_height_m`. Ring tracker 21/21 tests pass.
