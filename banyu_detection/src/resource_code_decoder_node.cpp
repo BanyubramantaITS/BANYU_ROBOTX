@@ -28,6 +28,7 @@ ResourceCodeDecoderNode::ResourceCodeDecoderNode(const rclcpp::NodeOptions & opt
   config_.long_gap_s = declare_parameter<double>("long_gap_s", config_.long_gap_s);
   config_.merge_gap_s = declare_parameter<double>("merge_gap_s", config_.merge_gap_s);
   config_.min_cycles = static_cast<int>(declare_parameter<int64_t>("min_cycles", config_.min_cycles));
+  min_confidence_ = declare_parameter<double>("min_confidence", 0.85);
   config_.require_repair_verified =
     declare_parameter<bool>("require_repair_verified", config_.require_repair_verified);
   max_window_s_ = declare_parameter<double>("max_window_s", max_window_s_);
@@ -88,7 +89,8 @@ void ResourceCodeDecoderNode::handleRing(
   std::lock_guard<std::mutex> lock(mutex_);
   if (!open_) {return;}
   const double t = rclcpp::Time(msg->header.stamp).seconds();
-  decoder_.add(t, msg->visible ? static_cast<int>(msg->color) : 0);
+  // Only a lit ring counts: a weak colour match in the dark half of a flash is not a flash.
+  decoder_.add(t, (msg->visible && msg->confidence >= min_confidence_) ? static_cast<int>(msg->color) : 0);
 }
 
 void ResourceCodeDecoderNode::handleWindow(

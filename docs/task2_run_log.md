@@ -218,3 +218,9 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   TASK_COMPLETED_GREEN). **Advanced now passes once on all four damaged nodes**: node 2 (a4), node 1 (seed 2), node 4 (seed 9), node 3
   (seed 5), each with a correct survey order and delivery circle. Each node has only one passing run since the last fix (the
   earlier passes ran on earlier code); repeat runs are still to do. Next: Disruptive (two-colour code).
+- **Disruptive d1 (GUI, node 2, tin RED, circle BLUE): repair real** (Gazebo TASK_COMPLETED_GREEN, `repair_verified` true) but the decoder read **no
+  cycle** (`cycles_seen` 0). The ring observations during the flash are RED, GREEN, BLUE, GREEN, ...: the dark phases read GREEN, because
+  with no lit light the detector falls back to colour thresholds and takes the green-olive water for a GREEN ring (the same artifact
+  as the BLUE/GREEN tie in Advanced). With GREEN adjacent to every flash the cycle gaps never show. H11: observations from that
+  fallback are capped at confidence 0.8 (`kFallbackRingConfidenceMax`) and the decoder only counts samples with confidence >= 0.85
+  (`min_confidence`), so the dark half reads dark. Decoder 14/14, ring tracker 20/20 tests pass.

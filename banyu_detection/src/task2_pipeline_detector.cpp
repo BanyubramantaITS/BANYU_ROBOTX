@@ -20,6 +20,10 @@
 
 #include "banyu_detection/pipeline_vision.hpp"
 
+// A ring found only by colour thresholds (no bright light) is weaker evidence than a lit one (0.9): in the dark half of a
+// flash it can be the green-olive water. Consumers that read the flash code ask for more than this.
+constexpr float kFallbackRingConfidenceMax = 0.8F;
+
 namespace task2_pipeline_detector
 {
 
@@ -499,13 +503,13 @@ private:
         if (found_red) {
           ring.visible = true;
           ring.color = static_cast<uint8_t>(best_red.color);
-          ring.confidence = static_cast<float>(best_red.confidence);
+          ring.confidence = std::min(static_cast<float>(best_red.confidence), kFallbackRingConfidenceMax);
           ring.offset_x = static_cast<float>(normalizedX(best_red.center.x, image.cols));
           ring.offset_y = static_cast<float>(normalizedY(best_red.center.y, image.rows));
         } else if (found_green) {
           ring.visible = true;
           ring.color = static_cast<uint8_t>(best_green.color);
-          ring.confidence = static_cast<float>(best_green.confidence);
+          ring.confidence = std::min(static_cast<float>(best_green.confidence), kFallbackRingConfidenceMax);
           ring.offset_x = static_cast<float>(normalizedX(best_green.center.x, image.cols));
           ring.offset_y = static_cast<float>(normalizedY(best_green.center.y, image.rows));
         }

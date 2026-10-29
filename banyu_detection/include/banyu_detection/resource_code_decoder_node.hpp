@@ -38,6 +38,7 @@ private:
   bool open_{false};
   double max_window_s_{40.0};
   double window_start_s_{0.0};
+  double min_confidence_{0.85};
 
   rclcpp::Subscription<banyu_msgs::msg::PipelineRingObservation>::SharedPtr ring_sub_;
   rclcpp::Subscription<banyu_msgs::msg::RunLifecycle>::SharedPtr lifecycle_sub_;
