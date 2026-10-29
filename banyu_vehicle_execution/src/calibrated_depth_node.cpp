@@ -109,6 +109,10 @@ void CalibratedDepthNode::handleLifecycle(const banyu_msgs::msg::RunLifecycle::S
       std::abs(surface_datum_offset_ - last_rel_alt_) <= kMaxDatumSurfaceDepthM;
     if (!rel_alt_received_ || !(isNearSurface(last_rel_alt_) || at_datum_surface)) {
       calibrated_ = false;
+      RCLCPP_WARN(
+        get_logger(),
+        "Run %u start: surface datum dropped (rel_alt received %d, rel_alt %.3f m, datum %.3f m, pre-start datum %d)",
+        msg->run_id, rel_alt_received_, last_rel_alt_, surface_datum_offset_, pre_start_calibration_);
     }
   }
   if (current_phase_ >= banyu_msgs::msg::RunLifecycle::ACTIVE) {
@@ -153,17 +157,6 @@ void CalibratedDepthNode::handleRelAlt(const std_msgs::msg::Float64::SharedPtr m
         "Initial surface datum auto-calibrated to %.3f m",
         surface_datum_offset_);
     }
-  }
-
-  // The datum can be dropped at the run start (the vehicle was not inside the surface band at that moment). Without it the
-  // Surface action never starts and the report is never sent, so take it again while the vehicle is still at the surface and
-  // has not dived since: a real surface reading cannot be a dive.
-  if (last_rel_alt_ < surface_datum_offset_ - 1.0) {been_deep_ = true;}
-  if (!calibrated_ && auto_calibrate_at_start_ && !been_deep_ && isNearSurface(last_rel_alt_)) {
-    surface_datum_offset_ = last_rel_alt_;
-    calibrated_ = true;
-    RCLCPP_WARN(
-      get_logger(), "Surface datum was missing: re-calibrated at the surface to %.3f m", surface_datum_offset_);
   }
 
   const double depth_m = surface_datum_offset_ - last_rel_alt_;
