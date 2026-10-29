@@ -263,3 +263,7 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   about 0.06 m/s) and no cycle was read. So H16 is not reliable: the vehicle drifts off the node by a random amount within seconds
   once the hold commands nothing (cause not found). H17 (`hold_probe_on_ring_server.cpp`): after the repair, rise 0.6 m (`kBackOffM`) before the code
   reading hold, so a drift of 0.1 m/s keeps the lid in the image for over 10 s (footprint about 1.2 m instead of 0.46 m).
+- **Disruptive with H17 (rise 0.6 m after the repair), GUI, Gazebo ground truth:** seed 9 (node 4; tin GREEN, circle GREEN) pass; seed 5 (node 3; tin GREEN, circle BLUE)
+  pass; seed 1 (node 2; tin RED, circle GREEN) pass; each with the right survey order and the right tin and circle in the ResourceDelivery
+  (checked against `sequence_config` in Gazebo). With seed 2 earlier (node 1; tin RED, circle GREEN) and d2 (node 2; tin RED, circle BLUE), all four
+  damaged nodes pass Disruptive once. Next: regress Core and Advanced on the shared code, then random spawn and GPS.
