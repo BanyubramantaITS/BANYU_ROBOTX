@@ -304,3 +304,5 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   made four records for three nodes seen: progress 0.23, 1.09, 1.97, 2.89 (node 2 true arc 1.55 estimated at 1.09 and again at 1.97), the cap of four stopped node 4 from being recorded. The ring position uses the forward
   offset only (`ahead`) and ignores the sideways offset, so the node projects onto a different part of the bent pipe each view. H23 (`ring_tracker.cpp`): add the sideways offset (offset_x x 0.5 / focal_ratio x slant range, right of the
   vehicle) to the ring position before the centerline projection. Ring tracker 21/21 tests pass. Queue restarted.
+- **Stopped by the operator (2026-10-29).** All sim processes were stopped and cleaned. Final state and what was not done are in `task2_feasibility_verdict.md` and `task2_sim_results.md`. The queue
+  (Advanced, Core, Disruptive with a random spawn on the H23 code, then the 9 colour pairs) had just started and gave no results. Nothing is pushed beyond the earlier push; all later commits are local.

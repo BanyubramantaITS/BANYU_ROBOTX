@@ -1,8 +1,8 @@
 # Task 2 Core: repair by camera (no fixed depth)
 
-Status: implemented and built; **repair not yet confirmed in the sim**. The last run that finished (run 1) reported the
-survey correctly but Gazebo still showed the damaged node as `DAMAGED_RED`. The re-run after the fix below did not finish
-(the session ended), so it is untested.
+Status: **confirmed in the sim** (Gazebo ground truth) on all four damaged nodes for Core, Advanced and Disruptive; see `task2_feasibility_verdict.md`
+and the hypotheses H1-H23 in `task2_run_log.md`. The notes below are the first design; later changes: creep during the hold, rise 0.6 m
+after the repair for the flash code, no centring while the code is read, lit-ring only on the node.
 
 ## Why
 The handbook (3.3.3 and hidden task elements) says the pipeline need not be coplanar and may span variable depths, and a
