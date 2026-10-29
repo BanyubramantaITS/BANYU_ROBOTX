@@ -224,3 +224,6 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   as the BLUE/GREEN tie in Advanced). With GREEN adjacent to every flash the cycle gaps never show. H11: observations from that
   fallback are capped at confidence 0.8 (`kFallbackRingConfidenceMax`) and the decoder only counts samples with confidence >= 0.85
   (`min_confidence`), so the dark half reads dark. Decoder 14/14, ring tracker 20/20 tests pass.
+- **Disruptive d2 (node 2): pass** after H11: Gazebo DISRUPTIVE_CYCLE, decoder tin RED, circle BLUE in 2 cycles, report survey GREEN, RED, GREEN, GREEN
+  and ResourceDelivery tin RED, circle BLUE (matches the configured code). Next: Disruptive batch over the four damaged nodes (each seed also
+  changes the two flash colours).
