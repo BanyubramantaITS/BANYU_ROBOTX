@@ -1,0 +1,48 @@
+{"t": 1793257183.93, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257184.38, "kind": "uuv_heartbeat", "state": 3, "current_task": 1, "depth_m": 0.07999999821186066}
+{"t": 1793257187.03, "kind": "command_sent", "name": "run-start", "command_seq": 1, "command_type": 1, "target_vehicle": 2, "run_id": 1}
+{"t": 1793257187.38, "kind": "uuv_heartbeat", "state": 3, "current_task": 3, "depth_m": 0.07999999821186066}
+{"t": 1793257193.33, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257197.38, "kind": "uuv_heartbeat", "state": 2, "current_task": 3, "depth_m": 0.07999999821186066}
+{"t": 1793257198.38, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257203.43, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257208.63, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257213.83, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257218.88, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257223.93, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257229.13, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257234.33, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257239.38, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257244.43, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257249.43, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257254.63, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257259.83, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257264.88, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257269.88, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257274.93, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257280.13, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257285.33, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257290.38, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257295.43, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257300.63, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257305.83, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257310.88, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257315.93, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257321.13, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257326.33, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257331.38, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257336.43, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257341.63, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257346.83, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257351.88, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257356.93, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257362.13, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257367.33, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257372.38, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257377.43, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257382.63, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257387.83, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257392.88, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257397.93, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257403.13, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}
+{"t": 1793257408.33, "kind": "course_published", "course_id": "ITSN-SIM-A", "pinger_freq_hz": 25000}

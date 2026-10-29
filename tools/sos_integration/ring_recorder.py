@@ -76,10 +76,10 @@ def main():
 
     def ring_obs(m):
         # Raw detector output, only when (visible, colour) changes: this is what the flash-code decoder reads.
-        key = (bool(m.visible), int(m.color))
+        key = (bool(m.visible), int(m.color), float(m.confidence) >= 0.85)
         if key != last_obs[0]:
             last_obs[0] = key
-            write('ring_obs', visible=key[0], color=key[1], stamp=round(m.header.stamp.sec + m.header.stamp.nanosec * 1e-9, 2),
+            write('ring_obs', visible=key[0], color=key[1], lit=key[2], conf=round(float(m.confidence), 2), stamp=round(m.header.stamp.sec + m.header.stamp.nanosec * 1e-9, 2),
                   offset=[round(float(m.offset_x), 2), round(float(m.offset_y), 2)])
     node.create_subscription(PipelineRingObservation, '/banyu/pipeline/ring_observation', ring_obs,
                              qos_profile_sensor_data)

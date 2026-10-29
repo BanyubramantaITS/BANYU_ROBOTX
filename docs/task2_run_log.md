@@ -227,3 +227,8 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
 - **Disruptive d2 (node 2): pass** after H11: Gazebo DISRUPTIVE_CYCLE, decoder tin RED, circle BLUE in 2 cycles, report survey GREEN, RED, GREEN, GREEN
   and ResourceDelivery tin RED, circle BLUE (matches the configured code). Next: Disruptive batch over the four damaged nodes (each seed also
   changes the two flash colours).
+- Disruptive seed 5 (node 3; tin GREEN, circle BLUE): repair real; with the recorder now logging confidence the dark half reads GREEN with
+  confidence 0.8 (unlit) and the real flashes 0.9 (lit), so H11 holds. But the decoder only saw one cycle: after the repair the decode hold
+  centred on the weak GREEN colour-threshold ring (the water) and the vehicle drifted off the node (`offset_x` 0.37, no lit flash seen
+  after that), then `HoldProbeOnRing` never completed. H12 (`hold_probe_on_ring_server.cpp`): on the node only a lit ring (confidence >= 0.85) is
+  centred on and counts; before contact any ring of the right colour guides the sink. vehicle_execution tests 60/60.
