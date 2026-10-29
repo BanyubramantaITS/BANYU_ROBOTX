@@ -291,3 +291,7 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   order) although the nodes are at 2.8 and 4.2. The ring position uses the camera height from the lid size (H2), which is too noisy at the survey altitude (lid size 0.04 to 0.06, range
   1.1 to 2.1 m from one frame to the next). H21 (`ring_tracker.cpp`): the size-based height is only used when the lid is big (size >= 0.08, about 0.8 m or closer); otherwise the fixed
   `camera_height_m`. Ring tracker 21/21 tests pass.
+- Random-spawn Core after H21: seed 1 **pass**. Seed 2 (spawn x -18.5, y 6.3): the mission failed at once (`NavigateSurfaceGps` -> FAILURE 50 ms after the run start, fallback SURFACE): the log shows the
+  `PipelineBuoys` target arriving 0.8 s *after* the BT had started, so the navigation had no target. A timing race between the run start and the USV's start-point message (the real
+  messages are independent too). H22 (`banyu_mission.xml`): `NavigateSurfaceGps` is retried once per second for up to 3 minutes (`Timeout` + `RetryUntilSuccessful` + `Sleep`) instead of failing the
+  mission. Mission tree tests 31/31.

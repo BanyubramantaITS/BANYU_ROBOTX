@@ -25,9 +25,21 @@
 
   <BehaviorTree ID="SurfaceTransitToStart">
     <Sequence>
-      <NavigateSurfaceGps target_latitude="{target_latitude}" target_longitude="{target_longitude}"
-        start_latitude="{start_latitude}" start_longitude="{start_longitude}"
-        tolerance="{gps_tolerance}" />
+      <!-- The run can start before the USV's PipelineBuoys message (the start point) has arrived; with no target the navigation
+           fails at once. Retry, one try per second, for up to 3 minutes instead of failing the whole mission. -->
+      <Timeout msec="180000">
+        <RetryUntilSuccessful num_attempts="-1">
+          <Fallback>
+            <NavigateSurfaceGps target_latitude="{target_latitude}" target_longitude="{target_longitude}"
+              start_latitude="{start_latitude}" start_longitude="{start_longitude}"
+              tolerance="{gps_tolerance}" />
+            <Sequence>
+              <Sleep msec="1000" />
+              <AlwaysFailure />
+            </Sequence>
+          </Fallback>
+        </RetryUntilSuccessful>
+      </Timeout>
       <!-- From here the UUV dives at this buoy; later USV updates no longer move the target. -->
       <LockBuoyTarget />
       <AlignHeading target_heading="{heading}" tolerance="{heading_tolerance}" />
