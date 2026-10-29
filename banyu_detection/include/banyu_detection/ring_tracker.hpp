@@ -144,6 +144,9 @@ private:
   uint64_t last_sequence_{0};
   double last_record_path_distance_{0.0};
   bool has_last_record_path_distance_{false};
+  // Which way the progress runs in the order the rings are met: +1 from the active buoy end, -1 when the pipe is first met
+  // from the other end. The second ring fixes it; later rings must keep going the same way.
+  int traverse_direction_{0};
   geometry_msgs::msg::PoseStamped last_record_pose_;
   bool has_last_record_pose_{false};
   bool rearmed_{false};

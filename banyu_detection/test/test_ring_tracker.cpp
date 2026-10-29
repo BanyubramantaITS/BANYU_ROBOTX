@@ -542,3 +542,21 @@ TEST(RingTracker, RedRecordIsNeverDowngradedToGreen) {
   EXPECT_EQ(tracker.records().size(), 1U);
   EXPECT_EQ(tracker.records()[0].color, banyu_msgs::msg::PipelineRingObservation::COLOR_RED);
 }
+
+TEST(RingTracker, PipeMetFromTheFarEndKeepsOrderingVerifiedInThatDirection) {
+  // The UUV may meet the pipe from the end away from the active buoy: the progress then falls from ring to ring. The order is
+  // verified in that direction, and a ring that breaks it is still unverified.
+  banyu_detection::RingTracker tracker(trackerConfig(1, 1, 1));
+  const auto green = banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN;
+  uint64_t seq = 1;
+  auto meet = [&](double progress) {
+      auto u = update(tracker, seq++, green, true, progress);
+      update(tracker, seq++, green, false, progress);
+      update(tracker, seq++, green, false, progress);
+      return u;
+    };
+  EXPECT_TRUE(meet(4.0).record.ordering_verified);
+  EXPECT_TRUE(meet(2.9).record.ordering_verified);   // falls: fixes the direction
+  EXPECT_TRUE(meet(1.5).record.ordering_verified);   // keeps falling
+  EXPECT_FALSE(meet(6.5).record.ordering_verified);  // jumps back up past the first ring: not in order
+}

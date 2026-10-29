@@ -272,3 +272,9 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   `task2_sim_batch.sh --random-spawn` uses the run's seed. First run (Core, seed 3, spawn x 11.9 y 3.4, heading -0.82 rad, GUI): the UUV navigated by RTK
   GPS to the green buoy (Gazebo position (3.72, -0.25) against the buoy at (3.8, 0), about 20 s), dived, repaired node 2 and reported GREEN, RED, GREEN, GREEN.
   The ArduSub home is the world origin, so the GPS fix follows the spawn offset without further changes.
+- Random-spawn Core batch (seeds 2, 5, 9, 1; spawn 12-20 m from the buoys): the UUV always reached the green buoy by GPS. Seed 5 and 9 passed. **Seed 1 (node 2): no report**: the
+  UUV met the pipe from the red end (it drifted about 5 m west during the dive) and walked it east, so the progress fell from ring to ring (2.7, 1.87, 0.93, 0.12) and the tracker marked every
+  ring after the first `ordering_verified` false, which made the ledger reject the evidence (`ORDER_UNVERIFIED`) and `WaitSurveyComplete` fail, ending in SURFACE with no report.
+  H18 (`ring_tracker.cpp`): the second ring fixes the direction the progress runs in the order the rings are met (+1 or -1) and later rings must keep going the same way; the
+  ledger already sorts by progress from the active buoy end. New tracker test; ring tracker 21/21 and adapter 3/3 pass.
+  **Seed 2 (node 1): survey correct but the repair failed** (contact reached, then the vehicle oscillated by +-0.15 m over the node: lid detected at offsets (0.38,-0.43), (-0.7, 0.7), (0.47,-0.49), (-0.95,-0.69), no steady green); not yet addressed.

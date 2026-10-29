@@ -379,8 +379,13 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
   if (valid_progress) {
     record.pipeline_progress_m = calculated_progress;
     record.physical_identity_verified = true;
-    record.ordering_verified = snapshot_.records.empty() ||
-      (calculated_progress > last_record_path_distance_);
+    if (snapshot_.records.empty()) {
+      record.ordering_verified = true;
+    } else {
+      const double delta = calculated_progress - last_record_path_distance_;
+      if (traverse_direction_ == 0 && delta != 0.0) {traverse_direction_ = delta > 0.0 ? 1 : -1;}
+      record.ordering_verified = traverse_direction_ != 0 && delta * traverse_direction_ > 0.0;
+    }
     last_record_path_distance_ = calculated_progress;
     has_last_record_path_distance_ = true;
   } else {
@@ -650,6 +655,7 @@ void RingTracker::reset()
   last_sequence_ = 0;
   last_record_path_distance_ = 0.0;
   has_last_record_path_distance_ = false;
+  traverse_direction_ = 0;
   last_record_pose_ = geometry_msgs::msg::PoseStamped();
   has_last_record_pose_ = false;
   rearmed_ = false;
