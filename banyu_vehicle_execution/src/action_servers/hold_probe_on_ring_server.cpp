@@ -13,7 +13,8 @@ namespace
 {
 constexpr double kCreepSizeFactor = 1.2;  // keep creeping to this multiple of the contact size
 constexpr double kCreepRateFactor = 0.3;  // of the descent rate
-constexpr double kLitConfidence = 0.85;   // the detector's confidence for a lit light; colour-threshold rings are weaker
+constexpr double kLitConfidence = 0.85;
+constexpr double kOnNodeMaxOffset = 0.5;    // on the node the lid is near the centre; a lit ring further off is another node   // the detector's confidence for a lit light; colour-threshold rings are weaker
 constexpr double kGreenConfirmS = 1.5;  // s of steady GREEN that count as the repair
 }  // namespace
 
@@ -92,7 +93,8 @@ MotionIntent HoldProbeOnRingServer::tick(
   // On the node the ring is the lit lid; a weak colour-threshold match in the dark half of a flash is the water, and centring
   // on it walks the vehicle off the node.
   const bool visible = telemetry.ring_obs_valid && telemetry.ring_visible &&
-    telemetry.ring_confidence >= kLitConfidence;
+    telemetry.ring_confidence >= kLitConfidence &&
+    std::hypot(telemetry.ring_offset_x, telemetry.ring_offset_y) <= kOnNodeMaxOffset;
   const double offset_x = visible ? telemetry.ring_offset_x : 0.0;
   const double offset_y = visible ? telemetry.ring_offset_y : 0.0;
   const double error = visible ? std::hypot(offset_x, offset_y) : 1.0;
@@ -170,7 +172,8 @@ MotionIntent HoldProbeOnRingServer::approachTick(
   // Before contact any ring of the right colour guides the sink; once on the node only the lit lid counts.
   const bool lit = telemetry.ring_confidence >= kLitConfidence;
   const bool visible = telemetry.ring_obs_valid && telemetry.ring_visible &&
-    (phase_ == Phase::Descend || lit);
+    (phase_ == Phase::Descend ||
+    (lit && std::hypot(telemetry.ring_offset_x, telemetry.ring_offset_y) <= kOnNodeMaxOffset));
   const double offset_x = visible ? telemetry.ring_offset_x : 0.0;
   const double offset_y = visible ? telemetry.ring_offset_y : 0.0;
   const double error = visible ? std::hypot(offset_x, offset_y) : 1.0;

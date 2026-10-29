@@ -232,3 +232,7 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   centred on the weak GREEN colour-threshold ring (the water) and the vehicle drifted off the node (`offset_x` 0.37, no lit flash seen
   after that), then `HoldProbeOnRing` never completed. H12 (`hold_probe_on_ring_server.cpp`): on the node only a lit ring (confidence >= 0.85) is
   centred on and counts; before contact any ring of the right colour guides the sink. vehicle_execution tests 60/60.
+- Disruptive seed 5 after H12: still no code (`cycles_seen` 0, Gazebo flash already over). Ground truth: the vehicle was 1.4-1.5 m from node 3's
+  switch, drifting toward node 4 during the decode hold (`dxy` 1.41 to 1.55 m, `dz` 0.07). The hold now centred on the *lit* ring, but the nearest
+  lit one can be the next node (steady green, confidence 0.9) at the image edge (offset (-0.7, -0.98)). H13: on the node the hold
+  centres only on a lit ring within 0.5 of the image centre (the repaired lid is under the camera); else it holds still.
