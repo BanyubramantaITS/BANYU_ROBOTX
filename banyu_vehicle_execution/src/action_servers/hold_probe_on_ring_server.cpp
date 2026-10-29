@@ -14,6 +14,7 @@ namespace
 constexpr double kCreepSizeFactor = 1.2;  // keep creeping to this multiple of the contact size
 constexpr double kCreepRateFactor = 0.3;  // of the descent rate
 constexpr double kLitConfidence = 0.85;
+constexpr double kDecodeHoldGainScale = 0.0;   // 0: no centring while the flash code is read
 constexpr double kOnNodeGainScale = 0.3;   // the lid is 0.4 m away, not 1.5 m: the same image offset is a smaller distance, so a gentler loop
 constexpr double kLastOffsetHoldS = 3.0;   // keep correcting with the last offset this long after the lid goes dark
 constexpr double kOnNodeMaxOffset = 0.5;    // on the node the lid is near the centre; a lit ring further off is another node   // the detector's confidence for a lit light; colour-threshold rings are weaker
@@ -141,11 +142,13 @@ MotionIntent HoldProbeOnRingServer::tick(
   } else {
     since_lit_s_ += dt;
   }
-  if ((visible || since_lit_s_ <= kLastOffsetHoldS) && telemetry.pose_valid) {
+  // Reading the flash code: once on the node, hold still. The offset of a lit lid changes from flash to flash (the probe
+  // rod hides part of the ring), and centring on it walked the vehicle off the node at the first flash.
+  if (kDecodeHoldGainScale > 0.0 && (visible || since_lit_s_ <= kLastOffsetHoldS) && telemetry.pose_valid) {
     const double sway = -std::clamp(
-      kOnNodeGainScale * ring_kp_sway_ * last_offset_x_, -kOnNodeGainScale * 0.5, kOnNodeGainScale * 0.5);
+      kDecodeHoldGainScale * ring_kp_sway_ * last_offset_x_, -kDecodeHoldGainScale * 0.5, kDecodeHoldGainScale * 0.5);
     const double surge = -std::clamp(
-      kOnNodeGainScale * ring_kp_surge_ * last_offset_y_, -kOnNodeGainScale * 0.3, kOnNodeGainScale * 0.3);
+      kDecodeHoldGainScale * ring_kp_surge_ * last_offset_y_, -kDecodeHoldGainScale * 0.3, kDecodeHoldGainScale * 0.3);
     const auto local_intent = bodyFluToLocalEnu(
       MotionIntent::bodyFlu(surge, sway, 0.0, 0.0), telemetry.yaw);
     return local_intent.value_or(zeroIntent());

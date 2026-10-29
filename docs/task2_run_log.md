@@ -251,3 +251,7 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   cause (zero RC not neutral? residual thrust trim?) is not found. A station-keeping reference that works with the lid dark (pipe
   edges for the lateral axis; nothing along the pipe) is the missing piece. Disruptive passes on node 2 (tin RED, circle BLUE) and node 1
   (tin RED, circle GREEN); node 3 (tin GREEN, circle BLUE) fails; node 4 untested.
+- Disruptive seed 9 (node 4; tin GREEN, circle GREEN) after H15: same failure as seed 5: the vehicle holds on the node for about 6.5 s after the
+  contact (tip 0.08-0.14 m) and then leaves it (0.38 m at +8.5 s) as soon as the flashes start; `cycles_seen` 0. The centring on a lit
+  lid moves the vehicle at the first flash although the gains are scaled (the offsets of a lit lid change from flash to flash because the probe
+  rod hides part of the ring). H16 (experiment): no centring while the flash code is read (`kDecodeHoldGainScale` 0), the vehicle just holds still.
