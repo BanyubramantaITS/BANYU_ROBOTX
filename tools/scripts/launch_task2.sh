@@ -31,6 +31,8 @@ DRY_RUN=false
 TIER_SET=false
 GPS_GATE_OPTS_SET=false
 LIGHT_SEED=""
+SPAWN_SEED=""
+SPAWN_XYZ=""
 EXTRA_ARGS=()
 
 print_usage() {
@@ -52,6 +54,9 @@ Simulation Options (--sim only):
   --tier <t>            Task 2 tier: core | advanced | disruptive (sim default: advanced).
   --light-seed <n>      Pick the damaged pipeline node and flash colours (seeds 2, 1, 5, 9 = node 1, 2, 3, 4;
                         default: node 2, tin RED, circle BLUE).
+  --spawn-seed <n>      Spawn the UUV at a random place 10-20 m from the world origin (the GPS home, midway between the two
+                        buoys) with a random heading, picked from this seed, so it has to navigate to the start buoy by GPS.
+  --spawn <x> <y> <yaw> Spawn the UUV at x east, y north (m from the origin) with heading yaw (rad).
   --gps-gate            Simulate GPS loss/reacquire around depth (gps_gate:=True).
   --no-gps-gate         (Default) Do not gate GPS (gps_gate:=False).
   --gps-loss-depth <m>  Depth at which GPS is lost (default: 0.1; gps_loss_depth_m).
@@ -91,6 +96,12 @@ while [[ $# -gt 0 ]]; do
     --light-seed)
       [ $# -ge 2 ] || { echo "Error: --light-seed needs a value." >&2; exit 1; }
       LIGHT_SEED="$2"; GPS_GATE_OPTS_SET=true; shift 2 ;;
+    --spawn-seed)
+      [ $# -ge 2 ] || { echo "Error: --spawn-seed needs a value." >&2; exit 1; }
+      SPAWN_SEED="$2"; GPS_GATE_OPTS_SET=true; shift 2 ;;
+    --spawn)
+      [ $# -ge 4 ] || { echo "Error: --spawn needs x y yaw." >&2; exit 1; }
+      SPAWN_XYZ="$2 $3 $4"; GPS_GATE_OPTS_SET=true; shift 4 ;;
     --gps-gate) GPS_GATE=true; GPS_GATE_OPTS_SET=true; shift ;;
     --no-gps-gate) GPS_GATE=false; shift ;;
     --gps-loss-depth)
@@ -189,6 +200,19 @@ if [ "$TARGET" = "sim" ]; then
     gps_reacquire_delay_s:="$GPS_REACQUIRE_DELAY"
   )
   [ -n "$LIGHT_SEED" ] && LAUNCH_CMD+=(light_seed:="$LIGHT_SEED")
+  if [ -n "$SPAWN_SEED" ]; then
+    # Random spawn: 10-20 m from the origin, random bearing and heading, from this seed (the buoys are 3.8 m either side).
+    SPAWN_XYZ="$(python3 -c "
+import math, random, sys
+r = random.Random(int(sys.argv[1]))
+d, b = r.uniform(10.0, 20.0), r.uniform(-math.pi, math.pi)
+print('%.2f %.2f %.3f' % (d * math.cos(b), d * math.sin(b), r.uniform(-math.pi, math.pi)))" "$SPAWN_SEED")"
+  fi
+  if [ -n "$SPAWN_XYZ" ]; then
+    read -r SX SY SYAW <<< "$SPAWN_XYZ"
+    LAUNCH_CMD+=(spawn_x:="$SX" spawn_y:="$SY" spawn_yaw:="$SYAW")
+    echo "Spawn             : x ${SX} m east, y ${SY} m north, heading ${SYAW} rad"
+  fi
   [ ${#EXTRA_ARGS[@]} -gt 0 ] && LAUNCH_CMD+=("${EXTRA_ARGS[@]}")
 
   echo "Simulation Operator Instructions (Task 2):"

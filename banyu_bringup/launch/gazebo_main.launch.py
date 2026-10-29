@@ -125,6 +125,7 @@ def generate_launch_description():
     spawn_x_arg = DeclareLaunchArgument(name="spawn_x", default_value="0")
     spawn_y_arg = DeclareLaunchArgument(name="spawn_y", default_value="0")
     spawn_z_arg = DeclareLaunchArgument(name="spawn_z", default_value="-0.06")
+    spawn_yaw_arg = DeclareLaunchArgument(name="spawn_yaw", default_value="0", description="Spawn heading in rad.")
 
     set_use_sim_time = SetParameter(
         name="use_sim_time",
@@ -177,8 +178,8 @@ def generate_launch_description():
             sx = float(LaunchConfiguration("spawn_x").perform(context))
             sy = float(LaunchConfiguration("spawn_y").perform(context))
             sz = float(LaunchConfiguration("spawn_z").perform(context))
-            syaw = 0.0
-            info_msg = f"[layout] using world {world_path} with spawn ({sx}, {sy}, {sz})"
+            syaw = float(LaunchConfiguration("spawn_yaw").perform(context))
+            info_msg = f"[layout] using world {world_path} with spawn ({sx}, {sy}, {sz}, yaw {syaw})"
 
         return [
             Node(
@@ -307,6 +308,7 @@ def generate_launch_description():
             spawn_x_arg,
             spawn_y_arg,
             spawn_z_arg,
+            spawn_yaw_arg,
             set_use_sim_time,
             clock_bridge,
             OpaqueFunction(function=launch_course),

@@ -267,3 +267,8 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   pass; seed 1 (node 2; tin RED, circle GREEN) pass; each with the right survey order and the right tin and circle in the ResourceDelivery
   (checked against `sequence_config` in Gazebo). With seed 2 earlier (node 1; tin RED, circle GREEN) and d2 (node 2; tin RED, circle BLUE), all four
   damaged nodes pass Disruptive once. Next: regress Core and Advanced on the shared code, then random spawn and GPS.
+- **Random spawn (user request: the UUV should not start between the buoys):** `launch_task2.sh --spawn-seed N` (or `--spawn x y yaw`) puts the UUV 10-20 m from the world origin
+  (the GPS home, midway between the buoys at +-3.8 m) with a random heading; `main_launch.launch.py` and `gazebo_main.launch.py` take `spawn_x`, `spawn_y`, `spawn_yaw`;
+  `task2_sim_batch.sh --random-spawn` uses the run's seed. First run (Core, seed 3, spawn x 11.9 y 3.4, heading -0.82 rad, GUI): the UUV navigated by RTK
+  GPS to the green buoy (Gazebo position (3.72, -0.25) against the buoy at (3.8, 0), about 20 s), dived, repaired node 2 and reported GREEN, RED, GREEN, GREEN.
+  The ArduSub home is the world origin, so the GPS fix follows the spawn offset without further changes.

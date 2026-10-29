@@ -101,6 +101,15 @@ def generate_launch_description():
         description="gps_gate: seconds at the surface before the GPS comes back.",
     )
 
+    spawn_x_arg = DeclareLaunchArgument(
+        name="spawn_x", default_value="", description="Task 2 sim spawn east (m, world origin = GPS home); empty = origin."
+    )
+    spawn_y_arg = DeclareLaunchArgument(
+        name="spawn_y", default_value="", description="Task 2 sim spawn north (m); empty = 0."
+    )
+    spawn_yaw_arg = DeclareLaunchArgument(
+        name="spawn_yaw", default_value="", description="Task 2 sim spawn heading (rad); empty = 0."
+    )
     light_seed_arg = DeclareLaunchArgument(
         name="light_seed",
         default_value="",
@@ -153,12 +162,15 @@ def generate_launch_description():
         ),
     )
 
+    # spawn_x / spawn_y / spawn_yaw override the Task 2 sim spawn (default: at the world origin, between the buoys).
     task2_spawn_x = PythonExpression(
-        ["'0' if '", LaunchConfiguration("mode"), "' == 'task2' else '-7'"]
+        ["'", LaunchConfiguration("spawn_x"), "' or ('0' if '", LaunchConfiguration("mode"),
+         "' == 'task2' else '-7')"]
     )
     task2_spawn_y = PythonExpression(
-        ["'0' if '", LaunchConfiguration("mode"), "' == 'task2' else '0'"]
+        ["'", LaunchConfiguration("spawn_y"), "' or '0'"]
     )
+    task2_spawn_yaw = PythonExpression(["'", LaunchConfiguration("spawn_yaw"), "' or '0'"])
     task2_spawn_z = PythonExpression(
         ["'-0.06' if '", LaunchConfiguration("mode"), "' == 'task2' else '-2'"]
     )
@@ -199,6 +211,7 @@ def generate_launch_description():
             "spawn_x": task2_spawn_x,
             "spawn_y": task2_spawn_y,
             "spawn_z": task2_spawn_z,
+            "spawn_yaw": task2_spawn_yaw,
         }.items(),
     )
 
@@ -279,6 +292,9 @@ def generate_launch_description():
             use_gps_arg,
             gps_gate_arg,
             light_seed_arg,
+            spawn_x_arg,
+            spawn_y_arg,
+            spawn_yaw_arg,
             gps_loss_depth_arg,
             gps_reacquire_delay_arg,
             use_dvl_arg,
