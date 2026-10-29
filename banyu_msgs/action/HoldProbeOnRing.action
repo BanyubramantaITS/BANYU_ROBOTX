@@ -11,6 +11,9 @@ float64 alignment_tolerance
 float64 descent_rate_mps
 float64 contact_ring_size
 float64 max_descent_m
+# Approach mode: climb back to the starting depth after the repair (Core), or stay on the node and succeed at once
+# so a following hold can keep the camera on the lid while the flash code is read (Advanced, Disruptive).
+bool climb_back
 ---
 bool success
 string reason

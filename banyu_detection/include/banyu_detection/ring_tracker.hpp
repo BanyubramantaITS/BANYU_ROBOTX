@@ -36,6 +36,11 @@ struct RingTrackerConfig
   // Bottom camera geometry for estimating where a ring is along the pipe; disabled when
   // camera_height_m is 0 (ring position then equals vehicle position).
   double camera_height_m{0.0};
+  // With both set, the height of the camera above the ring comes from the ring's apparent size (observation.size,
+  // fraction of the image width) instead of camera_height_m, which only holds at the survey altitude. lid_diameter_m is
+  // the lit lid, focal_ratio is fx over the image width.
+  double lid_diameter_m{0.0};
+  double focal_ratio{0.0};
   double camera_forward_m{0.0};
   double camera_tilt_from_vertical_rad{0.0};
   double camera_half_vfov_rad{0.0};

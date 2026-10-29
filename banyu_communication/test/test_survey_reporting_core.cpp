@@ -414,10 +414,27 @@ TEST(SurveyLedger, OriginalGreenMustRemainIntactAfterLaterRedFlash)
   ASSERT_TRUE(ledger.ingest(value, 11 * kSecond).empty());
   ASSERT_EQ(ledger.build("audit-green").original_conditions[0], 1u);
 
+  // The red flash only comes after a verified repair.
   value.revision++;
+  value.repair_verified = true;
   value.rings[0].color = 1;
   ASSERT_TRUE(ledger.ingest(value, 11 * kSecond).empty());
   EXPECT_EQ(ledger.build("audit-green").original_conditions[0], 1u);
+}
+
+TEST(SurveyLedger, FirstSeenGreenThenRedBeforeRepairIsOriginallyRed)
+{
+  SurveyLedger ledger(ledgerConfig());
+  initialize(ledger);
+  auto value = evidence();
+  value.repair_verified = false;
+  ASSERT_TRUE(ledger.ingest(value, 11 * kSecond).empty());
+  ASSERT_EQ(ledger.build("far-green").original_conditions[0], 1u);
+
+  value.revision++;
+  value.rings[0].color = 1;
+  ASSERT_TRUE(ledger.ingest(value, 11 * kSecond).empty());
+  EXPECT_EQ(ledger.build("far-green").original_conditions[0], 2u);
 }
 
 TEST(SurveyLedger, OriginalRedMustSurviveUnknownNodeEarlierInSnapshot)

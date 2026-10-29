@@ -239,7 +239,13 @@ bool RingTracker::ringProgress(const RingTrackerInput & input, double & progress
     const double angle = config_.camera_tilt_from_vertical_rad -
       config_.camera_half_vfov_rad * std::clamp(
       static_cast<double>(input.observation.offset_y), -1.0, 1.0);
-    ahead = config_.camera_forward_m + config_.camera_height_m * std::tan(angle);
+    double height = config_.camera_height_m;
+    if (config_.lid_diameter_m > 0.0 && config_.focal_ratio > 0.0 && input.observation.size >= 0.02F) {
+      const double range = config_.focal_ratio * config_.lid_diameter_m / input.observation.size;
+      height = std::clamp(
+        range * std::cos(config_.camera_tilt_from_vertical_rad), 0.1, 1.5 * config_.camera_height_m);
+    }
+    ahead = config_.camera_forward_m + height * std::tan(angle);
     const auto & q = input.vehicle_pose_map.pose.orientation;
     const double yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y),
         1.0 - 2.0 * (q.y * q.y + q.z * q.z));

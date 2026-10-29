@@ -86,9 +86,8 @@
 
   <!-- Core: hold the probe for hold_duration. Advanced and Disruptive: the decoder window opens first and stays open
        through the whole repair, so it sees the ring red, then the steady green after the repair, then the flash
-       code. Meanwhile: (1) go down to repair_depth where the probe tip reaches the magnetic switch and hold it,
-       (2) climb back to the inspection depth, where the detector can see the ring, (3) keep station there while
-       the code is read. Every step has a time limit and a failed step never fails the repair: if the code is not
+       code. Meanwhile: (1) sink onto the ring by camera until the probe holds the magnetic switch and the ring stays
+       GREEN, (2) stay on the node with the ring centred while the code is read. Every step has a time limit and a failed step never fails the repair: if the code is not
        read, the report falls back to the Core survey. -->
   <BehaviorTree ID="RepairRedRing">
     <Sequence>
@@ -100,19 +99,10 @@
             <Parallel success_count="1" failure_count="2">
               <Sequence>
                 <ForceSuccess>
-                  <Timeout msec="{repair_step_timeout_ms}">
-                    <Sequence>
-                      <DiveToDepth target_depth="{repair_depth}" target_heading="{heading}"
-                        depth_tolerance="{depth_tolerance}" heading_tolerance="{heading_tolerance}" />
-                      <CenterOnRing ring_color="red" tolerance="{repair_ring_tolerance}" />
-                      <HoldProbeOnRing hold_duration="{hold_duration}" alignment_tolerance="{repair_ring_tolerance}" />
-                    </Sequence>
-                  </Timeout>
-                </ForceSuccess>
-                <ForceSuccess>
-                  <Timeout msec="{repair_step_timeout_ms}">
-                    <DiveToDepth target_depth="{inspection_depth}" target_heading="{heading}"
-                      depth_tolerance="{depth_tolerance}" heading_tolerance="{heading_tolerance}" />
+                  <Timeout msec="{approach_timeout_ms}">
+                    <HoldProbeOnRing hold_duration="{approach_hold_s}" alignment_tolerance="{repair_ring_tolerance}"
+                      descent_rate="{approach_descent_rate}" contact_ring_size="{approach_contact_ring_size}"
+                      max_descent="{approach_max_descent}" climb_back="false" />
                   </Timeout>
                 </ForceSuccess>
                 <HoldProbeOnRing hold_duration="{decode_window}" alignment_tolerance="{repair_ring_tolerance}" />

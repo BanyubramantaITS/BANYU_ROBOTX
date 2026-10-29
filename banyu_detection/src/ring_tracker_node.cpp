@@ -69,6 +69,8 @@ void RingTrackerNode::declareParameters()
   config.reject_duplicate_red = declare_parameter<bool>("reject_duplicate_red", true);
   config.camera_height_m = declare_parameter<double>("camera_height_m", 0.0);
   config.camera_forward_m = declare_parameter<double>("camera_forward_m", 0.0);
+  config.lid_diameter_m = declare_parameter<double>("lid_diameter_m", 0.0);
+  config.focal_ratio = declare_parameter<double>("focal_ratio", 0.0);
   config.camera_tilt_from_vertical_rad =
     declare_parameter<double>("camera_tilt_from_vertical_rad", 0.0);
   config.camera_half_vfov_rad = declare_parameter<double>("camera_half_vfov_rad", 0.0);

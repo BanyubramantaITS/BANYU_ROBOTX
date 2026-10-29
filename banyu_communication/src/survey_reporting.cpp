@@ -196,6 +196,12 @@ std::string SurveyLedger::ingest(
       }
       originals_.emplace(ring.node_id, ring);
     } else {
+      // A light only ever goes RED to GREEN (repair). One first seen GREEN from afar that later reads RED, before
+      // any repair is verified, was RED all along: upgrade it. After the repair a RED flash on a GREEN node is the
+      // resource code, not the original condition.
+      if (!value.repair_verified && ring.color == 1 && originals_.at(ring.node_id).color != 1) {
+        originals_.at(ring.node_id).color = ring.color;
+      }
       if (originals_.at(ring.node_id).pipeline_progress_m != ring.pipeline_progress_m) {
         if (snapshot_failure.empty()) {
           snapshot_failure = "ORDER_UNVERIFIED: original progression changed";

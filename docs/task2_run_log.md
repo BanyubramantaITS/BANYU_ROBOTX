@@ -156,3 +156,15 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   GPS transit from a dock, fisheye camera, turbid water, several runs per node.
 - Next: Advanced. The Advanced and Disruptive branch of `RepairRedRing` still uses the fixed-depth steps; move it to the
   camera approach and keep the probe on the node while the flash code is read.
+- a1 (Advanced, GUI, node 2): the new approach + stay-on-node flow repaired the ring (Gazebo `ADVANCED_FLASH`) and the decoder
+  published a complete, correct code (`repair_verified` true, delivery circle BLUE). But `RepairRedRing` looped: after the
+  first acknowledge the tracker made a second record (index 2) at the same spot, red again, so the repair restarted
+  over and over and no report went out. Cause: the tracker's ring position uses a fixed `camera_height_m` 1.7 m; with the
+  vehicle 0.4 m above the lid that puts the ring about 1 m too far ahead, so it no longer matches the first record.
+  Hypothesis H2: take the camera height from the ring's apparent size (`lid_diameter_m`, `focal_ratio`).
+- a2 (Advanced, GUI, node 2) with H2 (tracker height from ring size): no repair loop any more (one repair, code read, report sent
+  with `ResourceDelivery` circle BLUE, which matches the sim). But the survey order was **all GREEN**: the ledger had stored the
+  first sighting of node 1 (GREEN, from afar) as its original condition, and the later RED read (before the repair) never
+  replaced it. In Core this is hidden by timing (the evidence snapshot with the early green was lucky not to exist).
+  Fix H3 (`survey_reporting.cpp`): before a repair is verified, a ring first seen GREEN that later reads RED is originally RED;
+  after the repair a RED flash does not change it (existing test updated, new test added; banyu_communication 118 tests pass).

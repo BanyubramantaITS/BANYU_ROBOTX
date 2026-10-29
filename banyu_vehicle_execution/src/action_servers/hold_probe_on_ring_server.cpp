@@ -167,6 +167,11 @@ MotionIntent HoldProbeOnRingServer::approachTick(
     if (green_s_ >= kGreenConfirmS) {
       repaired_ = true;
       phase_ = Phase::Climb;
+      if (!goal->climb_back) {
+        // Stay on the node: the next action keeps the camera on the lid while the flash code is read.
+        finish(true, "Ring repaired");
+        return zeroIntent();
+      }
     }
   }
   const double depth_below_start = telemetry.depth_m - start_depth_m_;
