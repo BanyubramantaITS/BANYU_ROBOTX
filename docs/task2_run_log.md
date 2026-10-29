@@ -204,3 +204,9 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   out, and then `FollowPipeline` and `SearchPipeline` are ticked every 50 ms, displace each other and are rejected by the goal arbiter's
   zero barrier, forever (a livelock; the traverse timeout never ends it). H8: wait 2 s after a failed reacquire in the traverse loop
   (`<Sleep>`); mission tree tests 31/31.
+- Advanced seed 5 (node 3) after H8 (no livelock any more, arbiter rejects 0): **repair FAILED**, Gazebo node 3 still DAMAGED_RED, yet
+  "flash code read" 2.7 s after the window opened. The window started on a neighbouring GREEN node (so H6's "starts on RED" did not apply)
+  and its 1 s green flicker counted as flashes. H9: the decoder never calls a code complete before RED then steady GREEN was seen
+  (`require_repair_verified`, default true; the two tests that model a window opened after the repair set it false; new test for a
+  flickering neighbouring green node; 13 decoder tests pass). The traverse also ended early (`PipelineActive` false) so the survey was
+  incomplete and the mission fell back to SURFACE; to check once the repair works.

@@ -27,6 +27,7 @@ struct ResourceCodeConfig
   double steady_on_s {2.5};       // a longer run is the steady post-repair green, not a flash
   double long_gap_s {1.6};        // dark time between two cycles (nominally 2 s)
   double merge_gap_s {0.25};      // a dropout this short inside one colour does not split the run
+  bool require_repair_verified {true};   // no code before RED then steady GREEN was seen (the repair)
   int min_cycles {2};             // matching cycles needed before the code is called complete
 };
 

@@ -117,7 +117,9 @@ TEST(ResourceCodeDecoder, ObservationStartingMidCodeDoesNotInventTin)
 {
   // Starting in the middle of a cycle (no steady green, no known cycle start) must not swap tin and
   // circle: the first half cycle has no long gap before it and is skipped.
-  ResourceCodeDecoder d;
+  ResourceCodeConfig cfg;
+  cfg.require_repair_verified = false;   // the window opened after the repair
+  ResourceCodeDecoder d(cfg);
   run(d, Trace{}, true, kRed, kBlue, 7.5, 37.0);   // starts on the circle flash of cycle 1
   const auto r = d.decode();
   EXPECT_TRUE(r.complete);
@@ -203,7 +205,9 @@ TEST(ResourceCodeDecoder, OutOfOrderAndEmptyInputAreSafe)
       all.push_back({tr.start + since, colourAt(since, true, kRed, kBlue)});
     }
   }
-  ResourceCodeDecoder reversed;
+  ResourceCodeConfig lenient;
+  lenient.require_repair_verified = false;   // the reversed samples have no red lead
+  ResourceCodeDecoder reversed(lenient);
   for (auto it = all.rbegin(); it != all.rend(); ++it) {reversed.add(it->t, it->colour);}
   const auto a = forward.decode();
   const auto b = reversed.decode();
@@ -243,4 +247,19 @@ TEST(ResourceCodeDecoder, ShortRedRunsAtTheStartOfTheWindowAreNotACode)
   }
   const auto r = d.decode();
   EXPECT_FALSE(r.complete);
+}
+
+TEST(ResourceCodeDecoder, NeighbouringGreenNodeFlickerIsNotACode)
+{
+  // The window looks at a node that was never repaired (the detector reports a neighbouring GREEN node):
+  // only green, flickering in and out of view in 1 s runs.
+  ResourceCodeConfig cfg;
+  cfg.code_length = 1;
+  ResourceCodeDecoder d(cfg);
+  double t = 1.0;
+  for (int cycle = 0; cycle < 6; ++cycle) {
+    for (int i = 0; i < 30; ++i, t += 1.0 / 30.0) {d.add(t, kGreen);}
+    for (int i = 0; i < 30; ++i, t += 1.0 / 30.0) {d.add(t, 0);}
+  }
+  EXPECT_FALSE(d.decode().complete);
 }

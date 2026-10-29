@@ -118,6 +118,8 @@ ResourceCodeResult ResourceCodeDecoder::decode() const
   // steady green, short red runs (a ring flickering in and out of view) are not flashes of a code.
   const bool starts_red = !merged.empty() && merged.front().colour == 1;
   if ((seen_steady_red || starts_red) && !result.repair_verified) {return result;}
+  // Without a seen repair the window may be looking at a neighbouring node that flickers green: no code either.
+  if (config_.require_repair_verified && !result.repair_verified) {return result;}
   if (result.repair_verified) {
     flashes.erase(
       std::remove_if(

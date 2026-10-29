@@ -28,6 +28,8 @@ ResourceCodeDecoderNode::ResourceCodeDecoderNode(const rclcpp::NodeOptions & opt
   config_.long_gap_s = declare_parameter<double>("long_gap_s", config_.long_gap_s);
   config_.merge_gap_s = declare_parameter<double>("merge_gap_s", config_.merge_gap_s);
   config_.min_cycles = static_cast<int>(declare_parameter<int64_t>("min_cycles", config_.min_cycles));
+  config_.require_repair_verified =
+    declare_parameter<bool>("require_repair_verified", config_.require_repair_verified);
   max_window_s_ = declare_parameter<double>("max_window_s", max_window_s_);
   const double publish_period_s = declare_parameter<double>("publish_period_s", 1.0);
   decoder_ = ResourceCodeDecoder(config_);
