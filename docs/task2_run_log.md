@@ -255,3 +255,7 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   contact (tip 0.08-0.14 m) and then leaves it (0.38 m at +8.5 s) as soon as the flashes start; `cycles_seen` 0. The centring on a lit
   lid moves the vehicle at the first flash although the gains are scaled (the offsets of a lit lid change from flash to flash because the probe
   rod hides part of the ring). H16 (experiment): no centring while the flash code is read (`kDecodeHoldGainScale` 0), the vehicle just holds still.
+- **H16 worked for Disruptive seed 9 (node 4; tin GREEN, circle GREEN):** with no centring while the code is read the vehicle stays on the node and
+  the decoder read tin GREEN, circle GREEN in 2 cycles (as configured). That run ended without a report because the machine suspended
+  for about 24 minutes (BT log time stops at 14:38, e2e timeout at 15:02); earlier "stuck" runs (Advanced seed 5/9, 58 min) fit the same cause.
+  Runs are now wrapped in `systemd-inhibit --what=sleep` so a suspend cannot freeze them.
