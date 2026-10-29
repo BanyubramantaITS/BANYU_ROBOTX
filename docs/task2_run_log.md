@@ -210,3 +210,7 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   (`require_repair_verified`, default true; the two tests that model a window opened after the repair set it false; new test for a
   flickering neighbouring green node; 13 decoder tests pass). The traverse also ended early (`PipelineActive` false) so the survey was
   incomplete and the mission fell back to SURFACE; to check once the repair works.
+- Advanced seed 5 after H9: repair real (Gazebo ADVANCED_FLASH, `repair_verified` true) but the circle read **GREEN, expected BLUE**. The ring
+  observation during the flash alternates BLUE (lit) and GREEN (the dark half), so GREEN gets as many votes as BLUE and wins a tie.
+  H10 (`resource_code_decoder.cpp`, Advanced): a non-green colour that agrees on its own (>= min_cycles) beats GREEN; GREEN is the code only
+  when nothing else is. 14 decoder tests pass. Seed 5's survey also needs a re-check after the repair.

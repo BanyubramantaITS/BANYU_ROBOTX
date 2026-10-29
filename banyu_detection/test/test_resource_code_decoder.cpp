@@ -263,3 +263,21 @@ TEST(ResourceCodeDecoder, NeighbouringGreenNodeFlickerIsNotACode)
   }
   EXPECT_FALSE(d.decode().complete);
 }
+
+TEST(ResourceCodeDecoder, AdvancedBlueFlashWithGreenInTheDarkHalfIsBlue)
+{
+  // The dark half of each flash reads GREEN (the lid's centre): blue, green, blue, green ...
+  ResourceCodeConfig cfg;
+  cfg.code_length = 1;
+  ResourceCodeDecoder d(cfg);
+  double t = 1.0;
+  for (int i = 0; i < 60; ++i, t += 1.0 / 30.0) {d.add(t, kRed);}
+  for (int i = 0; i < 150; ++i, t += 1.0 / 30.0) {d.add(t, kGreen);}      // steady green 5 s
+  for (int cycle = 0; cycle < 8; ++cycle) {
+    for (int i = 0; i < 30; ++i, t += 1.0 / 30.0) {d.add(t, kBlue);}
+    for (int i = 0; i < 30; ++i, t += 1.0 / 30.0) {d.add(t, kGreen);}
+  }
+  const auto r = d.decode();
+  EXPECT_TRUE(r.complete);
+  EXPECT_EQ(r.circle, kBlue);
+}

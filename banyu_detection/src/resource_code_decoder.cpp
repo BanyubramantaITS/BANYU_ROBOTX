@@ -154,6 +154,19 @@ ResourceCodeResult ResourceCodeDecoder::decode() const
 
   result.cycles_seen = seen;
   if (votes.empty()) {return result;}
+  // In the dark half of a flash the camera can still report the GREEN of the lid's centre or a neighbouring node, which
+  // adds a GREEN "flash" between every real one. A colour that agrees on its own beats it; GREEN is the code only
+  // when nothing else is.
+  if (config_.code_length <= 1) {
+    for (auto it = votes.begin(); it != votes.end();) {
+      const bool green = it->first.second == 2;
+      bool other_wins = false;
+      for (const auto & v : votes) {
+        if (v.first.second != 2 && v.second >= config_.min_cycles) {other_wins = true;}
+      }
+      if (green && other_wins) {it = votes.erase(it);} else {++it;}
+    }
+  }
   const auto best = std::max_element(
     votes.begin(), votes.end(), [](const auto & x, const auto & y) {return x.second < y.second;});
   result.tin = best->first.first;
