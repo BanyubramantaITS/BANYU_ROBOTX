@@ -68,7 +68,7 @@ Each node has only one or two passing runs on the final code, so none of this is
 1. Re-run Advanced and Disruptive with a random spawn on the final code (H23 untested); repeat every node to reach 5 of 5.
 2. The 4 remaining Disruptive colour pairs and Advanced circle GREEN in the sim.
 3. Fisheye distortion, the turbidity plugin and the IR LED in the detector tests; Marina Bay home coordinates (the sim is still at the Long Beach datum, 33.81 N, -118.39 E).
-4. Vertical tracking of a pipe at a variable depth; a node on a vertical support (needs a side camera); the drift under zero command.
+4. Vertical tracking of a pipe at a variable depth and a dive that does not depend on the Bar30 (design, scenarios and acceptance: `task2_future_plan_depth_free.md`); a node on a vertical support (needs a side camera); the drift under zero command.
 5. The underwater search prior, surface-to-fix (plan W3), the hydrophone cases (W7, S2, S3, S11), the other-end-active cases (R5-R16).
 6. Nothing was pushed since the earlier push of this branch; the work after it is committed locally.
 
