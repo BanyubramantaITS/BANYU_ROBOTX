@@ -211,3 +211,21 @@ TEST(ResourceCodeDecoder, OutOfOrderAndEmptyInputAreSafe)
   EXPECT_EQ(a.tin, b.tin);
   EXPECT_EQ(a.circle, b.circle);
 }
+
+TEST(ResourceCodeDecoder, SteadyRedWithFlickerAndNoRepairIsNotACode)
+{
+  // A damaged ring that is never repaired: long red, with short red/dark flicker that looks like flashes.
+  ResourceCodeConfig cfg;
+  cfg.code_length = 1;
+  ResourceCodeDecoder d(cfg);
+  double t = 1.0;
+  for (int i = 0; i < 180; ++i, t += 1.0 / 30.0) {d.add(t, kRed);}           // steady red, 6 s
+  for (int i = 0; i < 30; ++i, t += 1.0 / 30.0) {d.add(t, 0);}
+  for (int cycle = 0; cycle < 12; ++cycle) {                                   // flicker
+    for (int i = 0; i < 30; ++i, t += 1.0 / 30.0) {d.add(t, kRed);}
+    for (int i = 0; i < 30; ++i, t += 1.0 / 30.0) {d.add(t, 0);}
+  }
+  const auto r = d.decode();
+  EXPECT_FALSE(r.complete);
+  EXPECT_FALSE(r.repair_verified);
+}

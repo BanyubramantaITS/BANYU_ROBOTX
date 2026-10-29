@@ -98,12 +98,29 @@ ResourceCodeResult ResourceCodeDecoder::decode() const
   // A node only turns green once the magnetic switch is activated: the ring must have been RED earlier in the
   // window and then show steady green. Steady green alone could be a neighbouring node that was never damaged.
   bool seen_red = false;
+  bool seen_steady_red = false;   // the damaged ring: a long red run, unlike a short red flash of the code
+  double repair_end = 0.0;
   for (const auto & r : merged) {
-    if (r.colour == 1) {seen_red = true;}
+    if (r.colour == 1) {
+      seen_red = true;
+      if (r.last - r.first + frame > config_.steady_on_s) {seen_steady_red = true;}
+    }
     if (seen_red && r.colour == 2 && r.last - r.first + frame > config_.steady_on_s) {
       result.repair_verified = true;
+      repair_end = r.last;
       break;
     }
+  }
+  // The code only comes after the repair. A ring seen steady RED that never turned steady green has no code yet (its
+  // flicker is not one), and flashes before the repair are not the code. A window that opened after the repair
+  // (no RED seen) is read as it is.
+  if (seen_steady_red && !result.repair_verified) {return result;}
+  if (result.repair_verified) {
+    flashes.erase(
+      std::remove_if(
+        flashes.begin(), flashes.end(),
+        [repair_end, frame](const Flash & f) {return f.first < repair_end - frame;}),
+      flashes.end());
   }
 
   std::map<std::pair<int, int>, int> votes;

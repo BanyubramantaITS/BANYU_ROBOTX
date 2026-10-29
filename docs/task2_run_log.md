@@ -168,3 +168,9 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   replaced it. In Core this is hidden by timing (the evidence snapshot with the early green was lucky not to exist).
   Fix H3 (`survey_reporting.cpp`): before a repair is verified, a ring first seen GREEN that later reads RED is originally RED;
   after the repair a RED flash does not change it (existing test updated, new test added; banyu_communication 118 tests pass).
+- a3 (Advanced, GUI, node 2): the decoder declared a complete code about 3 s into the repair while Gazebo still had node 2
+  DAMAGED_RED (`repair_verified` false, circle RED): the steady red and its flicker passed as 1 s flashes, `DecodeResourceCode`
+  succeeded, which cancelled the probe hold, and a report was sent without a repair. H4 (`resource_code_decoder.cpp`): a ring seen
+  steady red that never turned steady green gives no code, and only flashes after the verified repair count; a window that
+  opens after the repair (no steady red) is read as before. Test added (11 decoder tests pass). Found while at it: a red tin
+  flash must not count as the damaged ring, hence "steady" red.
