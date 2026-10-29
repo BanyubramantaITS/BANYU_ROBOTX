@@ -192,3 +192,8 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   / `AcquirePipeline` looped for 4+ min (a4 on node 2 took 3 min the same way). H7: new `climb_only` mode of `HoldProbeOnRing`
   (back to the depth where the last approach started) after the code is read; vehicle_execution tests 60/60.
 - Note: the light seed also changes the flash colours (seed 2: advanced RED), so the expected circle depends on the seed.
+- Advanced batch after H7: **seed 2 (node 1) pass** (survey RED, GREEN, GREEN, GREEN; ResourceDelivery circle RED = that seed's flash colour;
+  done in 3.5 min). **Seed 5 (node 3): FAILED, no report.** The repair and code were correct (Gazebo `TASK_COMPLETED_GREEN`, circle BLUE
+  = the seed's target) but the pipe was not found again afterwards; `SearchPipeline` / `FollowPipeline` were then rejected by the arbiter
+  ("Vehicle safety or run authorization fault") in a tight loop until the e2e timeout. Not yet diagnosed (suspects: pipe lost after the
+  climb for the last two nodes; the mission surfaced on the traverse timeout but kept ticking the traverse loop).
