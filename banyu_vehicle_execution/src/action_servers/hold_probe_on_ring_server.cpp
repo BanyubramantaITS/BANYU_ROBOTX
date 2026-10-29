@@ -11,6 +11,8 @@ namespace banyu_vehicle_execution
 
 namespace
 {
+constexpr double kCreepSizeFactor = 1.2;  // keep creeping to this multiple of the contact size
+constexpr double kCreepRateFactor = 0.3;  // of the descent rate
 constexpr double kGreenConfirmS = 1.5;  // s of steady GREEN that count as the repair
 }  // namespace
 
@@ -200,6 +202,14 @@ MotionIntent HoldProbeOnRingServer::approachTick(
       break;
     case Phase::Hold:
       hold_s_ += dt;
+      // Contact is declared a little early (the size reading is noisy); keep creeping while the ring stays centred
+      // until the lid is clearly the size it has when the tip touches the switch, or the ring turns GREEN.
+      if (visible && error <= goal->alignment_tolerance &&
+        telemetry.ring_size < kCreepSizeFactor * goal->contact_ring_size &&
+        depth_below_start < goal->max_descent_m)
+      {
+        heave = -kCreepRateFactor * goal->descent_rate_mps;
+      }
       if (hold_s_ >= goal->hold_duration_s) {
         failure_ = "Ring did not turn green on contact";
         phase_ = Phase::Climb;

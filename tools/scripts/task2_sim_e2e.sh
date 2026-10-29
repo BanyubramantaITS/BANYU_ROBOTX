@@ -48,7 +48,20 @@ if [ "$UP" = 1 ]; then
   echo "prepared $(date +%T)" >> "$OUT/progress.txt"
   sleep 8
   timeout "$TIMEOUT" python3 "${REPO_DIR}/tools/sos_integration/mock_gcs.py" --send run-start --serve \
-    --timeout "$TIMEOUT" --log "$OUT/mock_gcs.jsonl" "${GCS_ARGS[@]}" > "$OUT/mock_gcs.out" 2>&1
+    --timeout "$TIMEOUT" --log "$OUT/mock_gcs.jsonl" "${GCS_ARGS[@]}" > "$OUT/mock_gcs.out" 2>&1 &
+  GCS_PID=$!
+  # Advanced and Disruptive end when the GCS stops (the resource request goes out after the survey); Core ends
+  # shortly after the survey report, once the ring recorder has the final state.
+  if [ "$TIER" = "core" ]; then
+    for _ in $(seq 1 "$TIMEOUT"); do
+      kill -0 "$GCS_PID" 2>/dev/null || break
+      if grep -q uuv_pipeline_survey "$OUT/mock_gcs.jsonl" 2>/dev/null; then sleep 20; kill "$GCS_PID" 2>/dev/null; break; fi
+      sleep 1
+    done
+  fi
+  wait "$GCS_PID"
+  # Gazebo ground truth of the pipeline lights at the end of the run.
+  timeout 5 gz topic -e -n1 -t /robotx/pipeline/status > "$OUT/pipeline_status.txt" 2>/dev/null
   echo "mock_gcs exit=$? $(date +%T)" >> "$OUT/progress.txt"
 fi
 "${SCRIPT_DIR}/task2_sim_cleanup.sh"

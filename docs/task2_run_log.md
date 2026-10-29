@@ -136,3 +136,17 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
 - Cleanup note: four leftover `ros2 launch mission.launch.py` stacks from my tier-propagation tests (ROS domain 44, not
   the sim domain 40) were still running for 1 h 50 min and were killed now; the domain 40 runs were not affected.
 - All sim processes stopped. Nothing pushed.
+
+## Core repair by camera (goal: maximise the Task 2 score)
+- g1 (Core, GUI, light seed default, damaged node 2): survey correct (GREEN, RED, GREEN, GREEN). Approach reached contact
+  (ring size >= 0.14) but `HoldProbeOnRing` ended "Ring did not turn green on contact"; Gazebo node 2 stayed DAMAGED_RED.
+  Ground truth: the probe tip was 0.14 to 0.17 m from the switch, right at the 0.15 m limit, so it never held 2 s.
+  Hypothesis H1: keep creeping (0.3 x rate) during the hold until size >= 1.2 x contact size or the ring turns GREEN.
+- Setup note: `install/` had been overwritten by a build of another branch (no `underwater_odometry_node`), so the robot
+  was never spawned; fixed with `colcon build --packages-up-to banyu_bringup`.
+- g2 (Core, GUI, damaged node 2) with H1 (creep during the hold): **repair confirmed by Gazebo** (node 2 `TASK_COMPLETED_GREEN`,
+  `HoldProbeOnRing` SUCCESS after 15 s) and the survey was correct (GREEN, RED, GREEN, GREEN). Core points in the sim:
+  25 + 25 + 150 + 250 = 450 for node 2. The ring recorder's `repair_verified` stayed False (the tracker does not see the
+  repair; needed for the Advanced evidence, to check).
+- Tooling: `task2_sim_e2e.sh` now saves `/robotx/pipeline/status` and ends a Core run 20 s after the survey report;
+  `task2_sim_batch.sh` runs it once per light seed (2, 1, 5, 9 = node 1..4) and prints the ground-truth state.
