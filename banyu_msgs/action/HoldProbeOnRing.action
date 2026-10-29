@@ -14,6 +14,8 @@ float64 max_descent_m
 # Approach mode: climb back to the starting depth after the repair (Core), or stay on the node and succeed at once
 # so a following hold can keep the camera on the lid while the flash code is read (Advanced, Disruptive).
 bool climb_back
+# Climb only: no centring, climb at descent_rate_mps back to the depth where the last approach started, then succeed.
+bool climb_only
 ---
 bool success
 string reason

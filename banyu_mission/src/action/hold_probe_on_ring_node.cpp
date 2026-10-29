@@ -11,7 +11,8 @@ BT::PortsList HoldProbeOnRingNode::providedPorts()
     BT::InputPort<double>("descent_rate", 0.0, "m/s; 0 holds the depth, above 0 sinks onto the ring"),
     BT::InputPort<double>("contact_ring_size", 0.0, "ring size (image width fraction) at contact"),
     BT::InputPort<double>("max_descent", 0.0, "m, cap on the sink"),
-    BT::InputPort<bool>("climb_back", true, "climb back to the starting depth after the repair")};
+    BT::InputPort<bool>("climb_back", true, "climb back to the starting depth after the repair"),
+    BT::InputPort<bool>("climb_only", false, "only climb back to where the last approach started")};
 }
 
 HoldProbeOnRingNode::HoldProbeOnRingNode(
@@ -30,6 +31,7 @@ HoldProbeOnRingNode::Goal HoldProbeOnRingNode::makeGoal()
   goal.contact_ring_size = input<double>("contact_ring_size");
   goal.max_descent_m = input<double>("max_descent");
   goal.climb_back = input<bool>("climb_back");
+  goal.climb_only = input<bool>("climb_only");
   return goal;
 }
 

@@ -1,6 +1,7 @@
 #ifndef BANYU_VEHICLE_EXECUTION__ACTION_SERVERS__HOLD_PROBE_ON_RING_SERVER_HPP_
 #define BANYU_VEHICLE_EXECUTION__ACTION_SERVERS__HOLD_PROBE_ON_RING_SERVER_HPP_
 
+#include <limits>
 #include <string>
 
 #include "banyu_msgs/action/hold_probe_on_ring.hpp"
@@ -39,6 +40,7 @@ private:
 
   Phase phase_{Phase::Descend};
   double start_depth_m_{0.0};
+  double origin_depth_m_{std::numeric_limits<double>::quiet_NaN()};   // where the last approach started
   bool depth_captured_{false};
   bool saw_red_{false};
   bool repaired_{false};

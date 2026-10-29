@@ -187,3 +187,8 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   window opened while node 1 was still RED, which cancelled the probe hold (no repair, no resource report). Cause: the lid flickers in
   and out of view at the start, giving short red runs that the decoder took as flashes (min 2 cycles). H6
   (`resource_code_decoder.cpp`): a window that starts on RED gives no code until that RED has turned steady green. 12 decoder tests pass.
+- Advanced batch seed 2 after H6: repair and code correct (Gazebo ADVANCED_FLASH, circle RED = the seed's `advanced_target_color`), but
+  afterwards the vehicle stayed 0.4 m above the node, the pipe could not be followed from there and `FollowPipeline` / `SearchPipeline`
+  / `AcquirePipeline` looped for 4+ min (a4 on node 2 took 3 min the same way). H7: new `climb_only` mode of `HoldProbeOnRing`
+  (back to the depth where the last approach started) after the code is read; vehicle_execution tests 60/60.
+- Note: the light seed also changes the flash colours (seed 2: advanced RED), so the expected circle depends on the seed.

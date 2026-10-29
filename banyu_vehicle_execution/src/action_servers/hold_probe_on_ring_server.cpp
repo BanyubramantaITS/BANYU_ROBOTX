@@ -48,11 +48,17 @@ bool HoldProbeOnRingServer::validateGoal(const Goal & goal, std::string & reason
     reason = "hold_duration_s and alignment_tolerance must be positive";
     return false;
   }
+  if (goal.climb_only && goal.descent_rate_mps <= 0.0) {
+    reason = "climb_only needs descent_rate_mps";
+    return false;
+  }
   if (goal.descent_rate_mps < 0.0 || goal.contact_ring_size < 0.0 || goal.max_descent_m < 0.0) {
     reason = "descent_rate_mps, contact_ring_size and max_descent_m must not be negative";
     return false;
   }
-  if (goal.descent_rate_mps > 0.0 && (goal.contact_ring_size <= 0.0 || goal.max_descent_m <= 0.0)) {
+  if (!goal.climb_only && goal.descent_rate_mps > 0.0 &&
+    (goal.contact_ring_size <= 0.0 || goal.max_descent_m <= 0.0))
+  {
     reason = "approach mode needs contact_ring_size and max_descent_m";
     return false;
   }
@@ -71,6 +77,14 @@ MotionIntent HoldProbeOnRingServer::tick(
   }
 
   const auto goal = active_handle_->get_goal();
+  if (goal->climb_only) {
+    if (!telemetry.pose_valid || !telemetry.depth_valid) {return zeroIntent();}
+    if (!std::isfinite(origin_depth_m_) || telemetry.depth_m <= origin_depth_m_ + 0.05) {
+      finish(true, "Back at the depth where the approach started");
+      return zeroIntent();
+    }
+    return MotionIntent::localEnu(0.0, 0.0, goal->descent_rate_mps);
+  }
   if (goal->descent_rate_mps > 0.0) {
     return approachTick(telemetry, now, dt);
   }
@@ -146,6 +160,7 @@ MotionIntent HoldProbeOnRingServer::approachTick(
   const auto goal = active_handle_->get_goal();
   if (!depth_captured_) {
     start_depth_m_ = telemetry.depth_m;
+    origin_depth_m_ = telemetry.depth_m;
     depth_captured_ = true;
   }
   const bool visible = telemetry.ring_obs_valid && telemetry.ring_visible;
