@@ -64,7 +64,9 @@ colcon build --symlink-install
 
 ## Running Simulation
 
-Launch the unified simulation stack (Gazebo Harmonic + SITL + MAVROS + Autonomy):
+Launch the unified simulation stack (Gazebo Harmonic + SITL + Autonomy). MAVROS is started
+separately, in another terminal: `./src/BANYU_ROBOTX/tools/scripts/launch_mavros.sh --sim`
+(robot: without `--sim`, after `run_mavproxy.sh`).
 
 - **Proof of Readiness (POR)**: use `tools/scripts/launch_por.sh` (profile selection, sim and
   real AUV, safety checks). Guide: [`docs/por/README.md`](docs/por/README.md), tuning:
@@ -90,7 +92,7 @@ ros2 launch banyu_bringup mission.launch.py mode:=por
 ros2 launch banyu_bringup mission.launch.py mode:=task2 use_sim:=True
 ```
 
-Physical AUV hardware bringup (MAVROS, cameras, teleop safety, mission):
+Physical AUV hardware bringup (cameras, teleop safety, mission; MAVROS from `launch_mavros.sh`):
 ```sh
 ros2 launch banyu_bringup sub_bringup.launch.py mode:=por
 ```

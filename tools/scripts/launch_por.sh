@@ -13,7 +13,7 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 WS_DIR="$(cd "${REPO_DIR}/../.." && pwd)"   # <ws>/src/BANYU_ROBOTX -> <ws>
 CONFIG_DIR="${REPO_DIR}/banyu_bringup/config"
@@ -48,7 +48,7 @@ Unified launcher for BANYU AUV Proof-of-Readiness (POR) missions.
 Supports Gazebo Harmonic simulation and physical vehicle deployment.
 
 Target Selection:
-  --sim, --gazebo       Launch in Gazebo Harmonic simulation with SITL & MAVROS
+  --sim, --gazebo       Launch in Gazebo Harmonic simulation with SITL
                         (uses banyu_bringup/main_launch.launch.py).
   --real, --hardware    (Default) Launch on real AUV hardware
                         (uses banyu_bringup/sub_bringup.launch.py).
@@ -70,6 +70,9 @@ Physical Hardware Options (when using --real):
   --no-record           Do not record the run. By default every real run is recorded to a
                         rosbag under $BANYU_BAG_DIR (~/banyu_bags) for review after the dive.
   --no-record-images    Record the run without compressed camera images (much smaller bag).
+
+MAVROS is not started by this script: run ./launch_mavros.sh [--sim] in its own terminal
+and keep it running across profile changes. --real refuses to launch without it.
 
 Strategy Profile Presets (--profile <name>), sim gate-back times (ALT_HOLD, no GPS):
   default               : por_params.yaml                    (safe strafe box, ~37 s)
@@ -109,8 +112,14 @@ Teach & replay:
     ./tools/scripts/launch_por.sh --real --profile replay --replay-track <track>
 
 Examples:
-  # Launch Gazebo simulation with GUI and fastest diamond strategy:
+  # Launch Gazebo simulation with GUI and fastest diamond strategy, MAVROS in a second terminal:
   ./tools/scripts/launch_por.sh --sim --profile fastest
+  ./tools/scripts/launch_mavros.sh --sim
+
+  # Real AUV (three terminals; only the last one is restarted to change profile):
+  ./run_mavproxy.sh
+  ./launch_mavros.sh
+  ./launch_por.sh --real --no-rc --profile por_params_timed_safe_no_rc.yaml
 
   # Launch Gazebo simulation headless for CI / rapid verification:
   ./tools/scripts/launch_por.sh --sim --headless --profile safe
@@ -232,6 +241,8 @@ fi
 if [ -f "${WS_DIR}/install/setup.bash" ]; then
   source "${WS_DIR}/install/setup.bash"
 fi
+
+mavros_count() { pgrep -x mavros_node | wc -l; }
 
 # --- Resolve profile ---
 if [ -z "$PROFILE" ]; then
@@ -389,8 +400,9 @@ echo "----------------------------------------------------------"
 if [ "$TARGET" = "sim" ]; then
   # Simulation pre-flight checks and cleanup
   if [ "$CLEAN_SIM" = true ] && [ "$DRY_RUN" = false ]; then
-    echo "Pre-flight: Cleaning orphaned ArduSub / MAVProxy / MAVROS processes..."
-    killall -9 ardusub mavproxy mavros_node 2>/dev/null || true
+    # mavros_node is left alone: it runs from launch_mavros.sh in its own terminal.
+    echo "Pre-flight: Cleaning orphaned ArduSub / MAVProxy processes..."
+    killall -9 ardusub mavproxy 2>/dev/null || true
     pkill -9 -f "sim_vehicle.py" 2>/dev/null || true
     sleep 0.5
   fi
@@ -421,11 +433,16 @@ if [ "$TARGET" = "sim" ]; then
   fi
 
   echo "Simulation Operator Instructions:"
+  if [ "$(mavros_count)" -eq 0 ]; then
+    echo "  0. Start MAVROS in another terminal: ./launch_mavros.sh --sim"
+  else
+    echo "  0. MAVROS already running ($(mavros_count) mavros_node); restart it if this sim restarts."
+  fi
   echo "  1. Wait for Gazebo Harmonic and MAVROS to connect (pose at 20-50 Hz)."
   echo "  2. Verify link: ros2 topic echo /mavros/state --once"
   echo "  3. Start mission: ros2 service call /banyu/mission/start std_srvs/srv/Trigger \"{}\""
   echo "  4. Abort mission: ros2 service call /banyu/mission/abort std_srvs/srv/Trigger \"{}\""
-  echo "  5. Teardown: killall -9 ardusub mavproxy mavros_node"
+  echo "  5. Teardown: killall -9 ardusub mavproxy; Ctrl+C in the launch_mavros.sh terminal"
   if [ "$RECORD" = true ]; then
     echo "  Recording to ${BAG_ROOT}/<date>_${BANYU_BAG_LABEL}/ (stop with Ctrl+C to close the bag)."
     echo "  Compare a replay with its teach run: tools/scripts/por_path_compare.py <teach run> <replay run>"
@@ -450,6 +467,18 @@ else
   else
     echo "Warning: MAVProxy does not appear to be running."
     echo "  Run first: ./src/BANYU_ROBOTX/tools/scripts/run_mavproxy.sh"
+  fi
+
+  # MAVROS runs on its own (launch_mavros.sh); the stack never starts it.
+  MAVROS_RUNNING="$(mavros_count)"
+  if [ "$MAVROS_RUNNING" -eq 1 ]; then
+    echo "MAVROS            : RUNNING"
+  elif [ "$MAVROS_RUNNING" -eq 0 ]; then
+    echo "Error: MAVROS is not running. Start it in another terminal first: ./launch_mavros.sh" >&2
+    [ "$DRY_RUN" = true ] || exit 1
+  else
+    echo "Warning: ${MAVROS_RUNNING} mavros_node processes are running (left over from old" \
+      "launches?). Stop them all (pkill -x mavros_node) and start one with ./launch_mavros.sh." >&2
   fi
 
   # The ESC power board cannot supply full thruster current: the Pixhawk must carry the

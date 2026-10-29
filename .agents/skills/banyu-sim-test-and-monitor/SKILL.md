@@ -29,6 +29,10 @@ bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && <comma
 
 ### Option A: Full Gazebo Harmonic + SITL + Mission Composition
 To launch the full visual environment, vehicle model, SITL, and perception pipeline:
+- **MAVROS is never started by a launch file.** Start it separately (second terminal / background job) and restart it whenever the sim restarts (the sim clock resets):
+  ```bash
+  ./src/BANYU_ROBOTX/tools/scripts/launch_mavros.sh --sim
+  ```
 - **Proof of Readiness (POR):** GPS-denied like the robot (`use_gps:=False` also starts `nogps_odom_beacon`). Preferred: `env -u TMUX ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --profile <name>` (docs/por/README.md).
   ```bash
   bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && ros2 launch banyu_bringup main_launch.launch.py mode:=por use_gps:=False'

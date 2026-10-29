@@ -9,7 +9,7 @@ This document describes the current ROS 2 Jazzy implementation in `src/BANYU_ROB
 The autonomy stack is cleanly decoupled into transport-neutral mission coordination, perception, ring tracking, guidance, vehicle execution, vehicle telemetry, and external GCS / RobotX SoS communication:
 
 - **`banyu_bringup`**: Launch entrypoint and configuration provider.
-  - `launch/main_launch.launch.py`: Unified simulation bringup composing Gazebo Harmonic, ArduSub SITL, MAVROS, and mission nodes.
+  - `launch/main_launch.launch.py`: Unified simulation bringup composing Gazebo Harmonic, ArduSub SITL, and mission nodes (MAVROS runs separately via `tools/scripts/launch_mavros.sh`).
   - `launch/mission.launch.py`: Mode-selected autonomy stack (`mode:=por` or `mode:=task2`).
   - `task2_sim_provider.py`: Deterministic Task 2 fixture source launched only when `mode:=task2 use_sim:=True`.
   - Config files: `por_params.yaml`, `task2_params.yaml`, `mavros_config.yaml`, and `banyu_defaults.parm`.
@@ -90,7 +90,7 @@ The autonomy stack is cleanly decoupled into transport-neutral mission coordinat
 ```text
 src/BANYU_ROBOTX/
 ├── banyu_bringup/
-│   ├── launch/{main_launch,mission,sub_bringup,sitl_mavros,gazebo_main,gazebo_por,teleop}.launch.py
+│   ├── launch/{main_launch,mission,sub_bringup,sitl,gazebo_main,gazebo_por,teleop}.launch.py
 │   ├── config/{por_params,task2_params,hardware_params,mavros_config}.yaml
 │   └── scripts/{task2_sim_provider,nogps_odom_beacon}.py
 ├── banyu_msgs/

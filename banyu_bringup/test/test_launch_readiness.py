@@ -39,7 +39,9 @@ def test_sub_bringup_defaults_are_hardware_safe():
     assert args["use_gps"] == "False"
     assert args["enable_teleop"] == "True"
     assert args["enable_esp32_bridge"] == "False"
-    assert args["fcu_url"] == "udp://127.0.0.1:14551@"
+    # MAVROS runs on its own (tools/scripts/launch_mavros.sh), never from a launch file.
+    assert "fcu_url" not in args
+    assert "launch_mavros" not in args
     assert args["enable_cameras"] == "True"
     assert args["record"] == "True"
 
@@ -116,4 +118,5 @@ def test_main_launch_declares_headless_argument():
     assert args["headless"] == "False"
     assert args["mode"] == "por"
     assert args["use_sim"] == "True"
+    assert "fcu_url" not in args
 

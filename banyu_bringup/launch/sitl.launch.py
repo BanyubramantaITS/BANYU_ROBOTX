@@ -14,6 +14,7 @@ from launch_ros.actions import SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
 
 
+# ArduSub SITL only. MAVROS is not started by any launch file: run tools/scripts/launch_mavros.sh.
 def generate_launch_description():
     use_sim_arg = DeclareLaunchArgument(
         name="use_sim",
@@ -60,12 +61,6 @@ def generate_launch_description():
         default_value="False",
         description="Run headless without MAVProxy GUI console",
         choices=["True", "False"],
-    )
-
-    fcu_url_arg = DeclareLaunchArgument(
-        name="fcu_url",
-        default_value="udp://127.0.0.1:14551@",
-        description="FCU connection URL (udp://127.0.0.1:14551@ for SITL or the run_mavproxy.sh endpoint on the real AUV). SITL keeps 14550 free for QGC.",
     )
 
     # SetUseSimTime only configures launch's own node; SetParameter reaches every launched node.
@@ -175,53 +170,6 @@ def generate_launch_description():
         ),
     )
 
-    _mavros_config_file = os.path.join(
-        _banyu_bringup_share, "config", "mavros_config.yaml"
-    )
-
-    # It MUST be via ExecuteProcess, NOT the launch Node action: launch injects
-    # "-r __node:=mavros", which triggers a MAVROS bug (mavlink/mavros#1977) —
-    # the remap also renames MAVROS' internal UAS node, causing an immediate
-    # "create_subscription() ... incompatible type ... CompanionProcessStatus"
-    # crash. `ros2 run` (no __node remap) avoids it.
-    mavros_launch = ExecuteProcess(
-        cmd=[
-            "ros2",
-            "run",
-            "mavros",
-            "mavros_node",
-            "--ros-args",
-            "--params-file",
-            _mavros_config_file,
-            "-p",
-            PythonExpression(
-                [
-                    "'fcu_url:=' + '",
-                    LaunchConfiguration("fcu_url"),
-                    "'",
-                ]
-            ),
-            "-p",
-            PythonExpression(
-                [
-                    "'use_sim_time:=' + ('true' if '",
-                    LaunchConfiguration("use_sim"),
-                    "' == 'True' and '",
-                    LaunchConfiguration("use_sim_time"),
-                    "' == 'True' else 'false')",
-                ]
-            ),
-            "--log-level",
-            "mavros.param:=error",
-            "--log-level",
-            "mavros.rallypoint:=error",
-            "--log-level",
-            "mavros.geofence:=error",
-        ],
-        output="screen",
-        name="mavros",
-    )
-
     return LaunchDescription(
         [
             use_sim_arg,
@@ -229,12 +177,10 @@ def generate_launch_description():
             use_sim_time_arg,
             headless_arg,
             extra_sitl_params_arg,
-            fcu_url_arg,
             use_gps_arg,
             set_use_sim_time,
             ardusub_launch,
             ardusub_sitl_launch,
             ardusub_sitl_headless_launch,
-            mavros_launch,
         ]
     )

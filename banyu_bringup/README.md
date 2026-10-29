@@ -8,7 +8,10 @@ This package contains launch files and bringup configurations for running the **
 
 ### `launch/main_launch.launch.py`
 
-Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL, MAVROS, and the mission stack.
+Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL (`sitl.launch.py`), and the mission stack.
+
+> **No launch file starts MAVROS.** Run it on its own with `tools/scripts/launch_mavros.sh`
+> (`--sim` for sim time) and keep it running while the stack is relaunched.
 
 #### Usage Commands
 
@@ -36,9 +39,10 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL, MAVR
 
 - **Real Hardware Bringup Mode (onboard BlueROV2 / Mini-PC)**:
   ```bash
-  ros2 launch banyu_bringup sub_bringup.launch.py mode:=por fcu_url:=udp://127.0.0.1:14551@
+  ./tools/scripts/launch_mavros.sh          # separate terminal, after run_mavproxy.sh
+  ros2 launch banyu_bringup sub_bringup.launch.py mode:=por
   ```
-  *(Launches MAVROS, `banyu_teleop` safety switches, `usb_cam` cameras, and the mission stack)*
+  *(Launches `banyu_teleop` safety switches, `usb_cam` cameras, and the mission stack)*
 
 
 ---
@@ -51,7 +55,6 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL, MAVR
 | `use_sim` | `True` / `False` | `True` | Runs Gazebo simulation and SITL when `True`; skips sim for real ROV hardware when `False`. |
 | `use_sim_time` | `True` / `False` | `True` | Sets `use_sim_time` parameter for ROS 2 nodes. |
 | `use_ardusub_sitl` | `True` / `False` | `True` | Uses `sim_vehicle.py` SITL wrapper (UDP 14550 for QGC) when `True`; uses bare `ardusub` when `False`. |
-| `fcu_url` | string | `udp://127.0.0.1:14551@` | Target MAVLink FCU address (`udp://127.0.0.1:14551@` for SITL to reserve 14550 for QGC; the real AUV uses `sub_bringup.launch.py` with the same default, fed by `tools/scripts/run_mavproxy.sh`). |
 | `use_gps` | `True` / `False` | `True` (`main_launch`); `sub_bringup`: `False` for `por`, `True` for `task2` | `False` removes the SITL GPS from boot and starts `nogps_odom_beacon` (GPS-denied, like the real AUV in POR). `launch_por.sh --sim` and `launch_sim.sh por` pass `False`. |
 | `record` | `True` / `False` | `True` (`sub_bringup`), `False` (`main_launch`) | Records the run to a rosbag, see [Mission Recording](#-mission-recording). In sim the bag uses sim time and includes the ground truth `/sim/ground_truth/odom` (POR). |
 | `record_images` | `True` / `False` | `True` (`sub_bringup`), `False` (`main_launch`) | Includes compressed camera images in the bag. Raw images are never recorded. |

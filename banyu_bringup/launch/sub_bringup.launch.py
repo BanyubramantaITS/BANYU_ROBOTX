@@ -83,16 +83,6 @@ def generate_launch_description():
         choices=["por", "task2"],
     )
 
-    fcu_url_arg = DeclareLaunchArgument(
-        name="fcu_url",
-        default_value="udp://127.0.0.1:14551@",
-        description=(
-            "FCU connection URL for the physical Pixhawk "
-            "(udp://127.0.0.1:14551@ when using tools/scripts/run_mavproxy.sh, "
-            "or /dev/ttyACM0:921600 for direct USB serial)."
-        ),
-    )
-
     use_gps_arg = DeclareLaunchArgument(
         name="use_gps",
         # POR runs GPS-denied; Task 2 needs the surface GPS leg (NavigateSurfaceGps).
@@ -212,19 +202,6 @@ def generate_launch_description():
         "'", por_params, "' if '", mode, "' == 'por' else '", task2_params, "'"
     ])
 
-    mavros_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(banyu_bringup_share, "launch", "sitl_mavros.launch.py")
-        ),
-        launch_arguments={
-            "use_sim": "False",
-            "use_sim_time": "False",
-            "use_ardusub_sitl": "False",
-            "fcu_url": LaunchConfiguration("fcu_url"),
-            "use_gps": LaunchConfiguration("use_gps"),
-        }.items(),
-    )
-
     # Run directly, not via `ros2 run`: launch only signals the wrapper, which would leave the
     # beacon running after shutdown (MAVProxy stays up, so it would keep feeding the Pixhawk).
     nogps_odom_beacon = ExecuteProcess(
@@ -317,7 +294,6 @@ def generate_launch_description():
     return LaunchDescription(
         [
             mode_arg,
-            fcu_url_arg,
             use_gps_arg,
             debug_arg,
             enable_teleop_arg,
@@ -334,7 +310,6 @@ def generate_launch_description():
             replay_track_arg,
             set_wall_time,
             OpaqueFunction(function=_check_single_esp32_owner),
-            mavros_launch,
             nogps_odom_beacon,
             mission_recorder,
             teleop_node,

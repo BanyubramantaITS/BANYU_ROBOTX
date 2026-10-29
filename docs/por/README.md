@@ -94,6 +94,14 @@ env -u TMUX ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --profile safe
 env -u TMUX ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --headless --profile fastest
 ```
 
+MAVROS tidak dijalankan oleh launch file mana pun. Di terminal lain:
+
+```bash
+./src/BANYU_ROBOTX/tools/scripts/launch_mavros.sh --sim
+```
+
+Restart MAVROS setiap kali sim di-restart (waktu sim mulai dari 0 lagi).
+
 Tunggu sampai MAVROS terhubung (`ros2 topic echo /mavros/state --once` → `connected: true`),
 lalu:
 
@@ -203,7 +211,13 @@ Pengaman:
    ```bash
    ./src/BANYU_ROBOTX/tools/scripts/run_mavproxy.sh            # opsional: <device> <IP laptop QGC>
    ```
-2. Terminal 2, stack POR (**`--profile` wajib** di robot):
+2. Terminal 2, MAVROS (biarkan jalan; tidak perlu restart saat ganti profil):
+   ```bash
+   ./src/BANYU_ROBOTX/tools/scripts/launch_mavros.sh            # opsional: --fcu-url /dev/ttyACM0:921600
+   ```
+3. Terminal 3, stack POR (**`--profile` wajib** di robot). Launch file tidak pernah menjalankan
+   MAVROS; launcher menolak jalan kalau `mavros_node` belum ada. Ganti profil cukup Ctrl+C di
+   terminal ini lalu jalankan lagi.
    ```bash
    ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --profile safe --dry-run   # cek dulu
    ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --profile safe
@@ -244,8 +258,9 @@ di bawah, bisa lewat service (juga mengganti warna LED ESP32):
 `false` = `'0'`).
 
 ```bash
-./src/BANYU_ROBOTX/tools/scripts/run_mavproxy.sh
-./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --no-rc --profile por_params_timed_safe_no_rc.yaml
+./src/BANYU_ROBOTX/tools/scripts/run_mavproxy.sh                     # terminal 1
+./src/BANYU_ROBOTX/tools/scripts/launch_mavros.sh                    # terminal 2, biarkan jalan
+./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --no-rc --profile por_params_timed_safe_no_rc.yaml   # terminal 3
 ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '2'}"   # relay nyala (autonomous)
 ros2 service call /banyu/mission/start std_srvs/srv/Trigger "{}"
 ```
@@ -390,6 +405,10 @@ sungguhan arus, baterai dan posisi start menambah drift.
 | `--replay-track <nama atau path>` | track terbaru | Profil replay: track di `~/banyu_replays` (§4.8) |
 | `--record` / `--no-record` | robot: rekam; sim: tidak | Rekam run ke `~/banyu_bags` (sim: waktu sim + ground truth, §4.8) |
 | `--record-images` / `--no-record-images` | robot: ya; sim: tidak | Gambar kamera terkompresi di bag |
+
+MAVROS tidak dijalankan `launch_por.sh`. Pakai `launch_mavros.sh` (`--real` default, `--sim`
+untuk waktu sim, `--fcu-url <url>`, `--dry-run`) di terminal sendiri. `launch_por.sh --real`
+menolak jalan tanpa MAVROS, dan memperingatkan kalau ada lebih dari satu `mavros_node`.
 | `--allow-channel-overlap` | – | Paksa jalan walau kanal override = kanal switch (berbahaya) |
 | `--dry-run` | – | Cetak perintah dan cek device tanpa menjalankan |
 
@@ -412,6 +431,7 @@ Pengecekan yang dilakukan launcher di robot: `--profile` wajib, profil `sim_*` d
 | `/mavros/local_position/pose` tidak ada | `nogps_odom_beacon` tidak jalan atau `VISO_TYPE` belum 1. ALT_HOLD tetap bisa terbang (heading dari IMU) |
 | Sim: "Vehicle safety or run authorization fault" | Traffic robot masuk ke sim; ganti `ROS_DOMAIN_ID` |
 | Sim: `ArduPilot controller has reset`, port 5501 | Proses `ardusub` lama masih hidup; jalankan tanpa `--no-clean` |
+| `/mavros/state` tidak ada / `launch_por.sh`: "MAVROS is not running" | Jalankan `launch_mavros.sh` (sim: `--sim`) di terminal lain |
 
 ## 7. Arsitektur singkat
 

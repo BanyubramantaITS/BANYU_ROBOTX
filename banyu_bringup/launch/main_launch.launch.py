@@ -49,15 +49,6 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
-    fcu_url_arg = DeclareLaunchArgument(
-        name="fcu_url",
-        default_value="udp://127.0.0.1:14551@",
-        description=(
-            "FCU connection URL (udp://127.0.0.1:14551@ for SITL or "
-            "sub_bringup.launch.py for the real AUV). SITL keeps 14550 free for QGC."
-        ),
-    )
-
     tier_arg = DeclareLaunchArgument(
         name="tier",
         default_value="advanced",
@@ -164,15 +155,15 @@ def generate_launch_description():
         }.items(),
     )
 
-    sitl_mavros_launch = IncludeLaunchDescription(
+    # ArduSub SITL only; MAVROS runs on its own (tools/scripts/launch_mavros.sh --sim).
+    sitl_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(_banyu_bringup_share, "launch", "sitl_mavros.launch.py")
+            os.path.join(_banyu_bringup_share, "launch", "sitl.launch.py")
         ),
         launch_arguments={
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "use_ardusub_sitl": LaunchConfiguration("use_ardusub_sitl"),
-            "fcu_url": LaunchConfiguration("fcu_url"),
             "use_gps": LaunchConfiguration("use_gps"),
             "headless": LaunchConfiguration("headless"),
         }.items(),
@@ -262,7 +253,6 @@ def generate_launch_description():
             use_sim_arg,
             use_sim_time_arg,
             use_ardusub_sitl_arg,
-            fcu_url_arg,
             tier_arg,
             debug_arg,
             use_gps_arg,
@@ -275,7 +265,7 @@ def generate_launch_description():
             set_use_sim_time,
             gazebo_por_launch,
             gazebo_main_launch,
-            sitl_mavros_launch,
+            sitl_launch,
             nogps_odom_beacon,
             mission_recorder,
             mission_launch,
