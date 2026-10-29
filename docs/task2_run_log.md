@@ -300,3 +300,7 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   needs a camera-based depth estimate that I have not built).
 - Light seeds for the remaining colour pairs (seed gives damaged node, Advanced circle, tin, circle): BLUE/BLUE 12 (node 4) 14 (node 1); BLUE/GREEN 18 (n2) 35 (n3); BLUE/RED 3 (n2) 43 (n1) 38 (n4); GREEN/RED 6 (n1) 8 (n2); RED/RED 24 (n4) 34 (n3) 69 (n1).
   Queued: Disruptive on seeds 12 18 35 3 43 6 24 34 and Advanced (circle GREEN) on 12 and 6, all with a random spawn.
+- Random-spawn Advanced: seed 2 (node 1) pass; **seed 5 (node 3): repair and circle correct but the survey order wrong** (`GREEN, GREEN, GREEN, RED`, expected `GREEN, GREEN, RED, GREEN`): the tracker
+  made four records for three nodes seen: progress 0.23, 1.09, 1.97, 2.89 (node 2 true arc 1.55 estimated at 1.09 and again at 1.97), the cap of four stopped node 4 from being recorded. The ring position uses the forward
+  offset only (`ahead`) and ignores the sideways offset, so the node projects onto a different part of the bent pipe each view. H23 (`ring_tracker.cpp`): add the sideways offset (offset_x x 0.5 / focal_ratio x slant range, right of the
+  vehicle) to the ring position before the centerline projection. Ring tracker 21/21 tests pass. Queue restarted.

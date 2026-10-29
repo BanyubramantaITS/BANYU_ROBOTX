@@ -251,8 +251,16 @@ bool RingTracker::ringProgress(const RingTrackerInput & input, double & progress
     const auto & q = input.vehicle_pose_map.pose.orientation;
     const double yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y),
         1.0 - 2.0 * (q.y * q.y + q.z * q.z));
-    x += ahead * std::cos(yaw);
-    y += ahead * std::sin(yaw);
+    // Sideways too: a node off the vehicle's line sits on a different part of a bent pipe, and leaving the offset out put the same
+    // node at progress values 0.9 m apart from one view to the next, which made duplicate records and pushed the last node out.
+    double right = 0.0;
+    if (config_.focal_ratio > 0.0) {
+      const double slant = height / std::cos(angle);
+      right = std::clamp(static_cast<double>(input.observation.offset_x), -1.0, 1.0) *
+        0.5 / config_.focal_ratio * slant;
+    }
+    x += ahead * std::cos(yaw) + right * std::sin(yaw);
+    y += ahead * std::sin(yaw) - right * std::cos(yaw);
   }
   if (hasCenterline() && input.has_vehicle_pose) {
     progress = projectOntoCenterline(x, y);
