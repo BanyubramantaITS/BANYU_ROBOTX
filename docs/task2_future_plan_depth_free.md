@@ -52,13 +52,24 @@ or its datum drops (the sim barometer already jumps by about 0.5 m at arming). O
 The sim camera is a pinhole at 320x240; the real one is fisheye 1920x1080. Calibrate the HORUS T10 (OpenCV fisheye), undistort the points that are used (light centres, pipe edges), and keep every
 threshold in `task2_params.yaml`. Resample the video to the processing size and keep 25 Hz. The contact lid size 0.14, `lid_diameter_m` 0.074 and `focal_ratio` 0.866 are sim values.
 
+### 2.7 The pipe is not found at the start buoy (today this ends the mission with no report)
+Now: the UUV dives at the start buoy, `AcquirePipeline` waits 15 s, then `ReacquirePipeline` does one turning sweep; this is tried 3 times. If all three fail, `DiveAndAcquirePipeline` fails, the mission
+ends in fallback SURFACE and **no report is sent** (seen as "Mission failed: fallback mode -> SURFACE"). In the sim the pipe starts about 1.5 m from the buoy, so it is always found; in Marina Bay the GPS error, the buoy drift
+on its anchor line and the unknown pipe offset can make the first dive miss it. Plan, in this order:
+1. **Widen the search at the start buoy** (section 2.3): steps in depth and lateral sweeps along and across the buoy-to-buoy line, not only a turn on the spot.
+2. **Dive in the middle as a second try.** The pipe lies between the two buoys, so a dive halfway along the line meets it more often. This is allowed because the ring order is already sorted by progress **from the active buoy end,
+   whichever end or direction the pipe is met from** (H18). From the middle: follow to the end nearer the start buoy, come back, follow to the far end, so that all four nodes are seen, repair the red one when it is met, then surface and report.
+   Make it a parameter (`dive_point`: start_buoy, midpoint, or fallback after N failures) and test both orders.
+3. **Always report.** After the search budget (parameter, **Assume** 4 minutes) surface by the GPS-fix rule and send the survey with what was seen (possibly empty). The heartbeat and start-buoy points are kept; the order and repair points are lost only for that run.
+4. Scenarios (section 4): pipe offset from the buoy line by 0-4 m, heading off by +-25 degrees, GPS offset 1-3 m, a buoy drifted 2 m: acceptance is "found within the budget in 10 of 10 runs, or a report is sent".
+
 ## 3. Work items and acceptance
 
 | # | Item | Done when (sim first, then pool, then the site) |
 |---|---|---|
 | D1 | Light/pipe lock during a slow RC descent, with the depth sensor hidden from the mission | The pipe is found with the Bar30 topic removed, at pipe depths 3, 8, 13 m, 10 of 10 |
 | D2 | Pipe-width standoff and heave | The standoff stays within +-0.3 m while the pipe in the world rises and falls by 3 m |
-| D3 | 3D search (steps, sweeps, hydrophone prior, LED toggle) | Finds a pipe offset by up to 4 m and rotated by up to 25 degrees from the buoy line |
+| D3 | 3D search (steps, sweeps, hydrophone prior, LED toggle), the midpoint dive and the always-report fallback (2.7) | Finds a pipe offset by up to 4 m and rotated by up to 25 degrees from the buoy line |
 | D4 | GPS-fix surfacing | Surfaces and reports with the Bar30 stuck, offset by 1 m, or silent |
 | D5 | Bar30 health monitor | Each fault type in section 2.5 is flagged within 3 s in a replay |
 | D6 | Camera calibration and detector retune on the HORUS | Ring and pipe detection recall and false rate on real recordings from a pool and the site |
