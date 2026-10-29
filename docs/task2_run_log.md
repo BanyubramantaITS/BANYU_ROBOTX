@@ -150,3 +150,9 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   repair; needed for the Advanced evidence, to check).
 - Tooling: `task2_sim_e2e.sh` now saves `/robotx/pipeline/status` and ends a Core run 20 s after the survey report;
   `task2_sim_batch.sh` runs it once per light seed (2, 1, 5, 9 = node 1..4) and prints the ground-truth state.
+- **Core batch (GUI, `task2_sim_batch.sh`, one run per damaged node), Gazebo ground truth:** seed 2 (node 1), seed 5 (node 3),
+  seed 9 (node 4), seed 1 (node 2): all four `TASK_COMPLETED_GREEN` and the survey order correct in each. With node 2 in g2,
+  that is 5 of 5 Core runs at 450 points in the sim (`task2_results/core_repair/`). Not yet tested: random spawn and
+  GPS transit from a dock, fisheye camera, turbid water, several runs per node.
+- Next: Advanced. The Advanced and Disruptive branch of `RepairRedRing` still uses the fixed-depth steps; move it to the
+  camera approach and keep the probe on the node while the flash code is read.
