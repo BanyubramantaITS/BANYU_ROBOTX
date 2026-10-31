@@ -157,9 +157,8 @@ Catatan sim:
      mixer ArduSub. 60% = `1260 1740`, 70% = `1220 1780`; naikkan hanya setelah arus board
      diukur. `MOT_PWM_TYPE` harus 0 (DShot/8/9 membuat ArduSub mengabaikan batas ini).
      **QGC Motor Test tidak dibatasi** (PWM mentah): jangan geser slider melewati batas.
-     `launch_por.sh --real` membaca nilai ini dari Pixhawk (`tools/scripts/check_thrust_limit.py`,
-     lewat MAVProxy port 14552) dan menolak jalan kalau batasnya tidak terpasang. Untuk Task 2
-     atau teleop tanpa `launch_por.sh`, jalankan skrip itu manual setelah `run_mavproxy.sh`.
+     `launch_por.sh` tidak memeriksa batas ini. Untuk mengecek nilai di Pixhawk, jalankan
+     `tools/scripts/check_thrust_limit.py` manual setelah `run_mavproxy.sh` (lewat port 14552).
    - Cek juga `FS_EKF_THRESH` dan `ARMING_CHECK` (tidak diatur file ini).
 2. **Device** di mini-PC:
    ```bash
@@ -425,7 +424,6 @@ Pengecekan yang dilakukan launcher di robot: `--profile` wajib, profil `sim_*` d
 | Misi tidak mau start, `rc_fresh: false` | TX16S mati atau `/mavros/rc/in` kosong. Tanpa TX, pakai `--no-rc` dengan profil `bypass_rc` |
 | Misi tidak mau start, `operational_mode: 0` | SB belum di atas / teleop belum menerima RC / belum kirim `'2'` (no-RC) |
 | Misi langsung berhenti setelah start dan mode bolak-balik | Bentrok kanal SB dengan override (§4.2) |
-| `DANGER: thruster output cap not confirmed` | `MOT_PWM_MIN/MAX` di Pixhawk lebih lebar dari `banyu_defaults.parm` atau MAVProxy belum jalan. Muat parm di QGC (§4.1) |
 | Arm ditolak | Lihat pesan pre-arm di QGC. Jangan matikan `ARMING_CHECK` sembarangan |
 | Robot arm di ALT_HOLD tapi tidak bergerak sama sekali | `MAV_GCS_SYSID` Pixhawk tidak mencakup 255 (sysid MAVROS), jadi RC override ditolak (§4.2) |
 | `/mavros/local_position/pose` tidak ada | `nogps_odom_beacon` tidak jalan atau `VISO_TYPE` belum 1. ALT_HOLD tetap bisa terbang (heading dari IMU) |

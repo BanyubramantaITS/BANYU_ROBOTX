@@ -288,7 +288,7 @@ vehicle_execution_node:
       require_guided: true
       autonomy_mode: "ALT_HOLD"
       output_mode: "rc_override"   # sticks over /mavros/rc/override
-      max_linear_speed: 1.2
+      max_linear_speed: 1.4 # full-stick taught legs (400 us / 300) are not clipped
       max_yaw_rate: 1.5   # replayed full-stick turns reach ~1.3 rad/s; 0.8 would clip them
     surface:
       depth_sources: ["pressure_depth"]

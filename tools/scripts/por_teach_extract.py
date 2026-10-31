@@ -12,11 +12,18 @@ QGC joystick (or TX16S) in ALT_HOLD, disarm. The bag holds what the Pixhawk appl
 The track is cut from the first to the last stick input of the chosen armed window
 (default: the last one) and written to $BANYU_REPLAY_DIR (default ~/banyu_replays).
 Replay it with: launch_por.sh --real --profile replay [--replay-track <name>]
+
+Without an RC receiver the Pixhawk reports no RC channels, so /mavros/rc/in stays empty.
+Take the sticks from MAVProxy's telemetry log instead (QGC joystick MANUAL_CONTROL,
+converted to stick PWM like ArduSub, following its "#Gain is NN%" messages):
+
+    python3 tools/scripts/por_teach_extract.py <run> --tlog ~/ros_ws/mav.tlog --name rute1
 """
 import argparse
 import bisect
 import math
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -25,6 +32,9 @@ TOPIC_STATE = "/mavros/state"
 TOPIC_DEPTH = "/mavros/global_position/rel_alt"
 TOPIC_IMU = "/mavros/imu/data"
 TOPIC_POSE = "/mavros/local_position/pose"
+MSG_MANUAL_CONTROL = 69
+MSG_STATUSTEXT = 253
+CRC_EXTRA = {MSG_MANUAL_CONTROL: 243, MSG_STATUSTEXT: 83}
 COLUMNS = ["time_s", "forward_pwm", "lateral_pwm", "yaw_pwm", "heading_rad", "depth_m"]
 
 
@@ -50,6 +60,12 @@ def parse_args():
     parser.add_argument("--lateral-ch", type=int, default=1, help="RCMAP_LATERAL (1-based)")
     parser.add_argument("--throttle-ch", type=int, default=3, help="RCMAP_THROTTLE (1-based)")
     parser.add_argument("--yaw-ch", type=int, default=4, help="RCMAP_YAW (1-based)")
+    parser.add_argument("--tlog",
+                        help="MAVProxy .tlog to take the sticks from (QGC joystick MANUAL_CONTROL) "
+                             "instead of /mavros/rc/in, for a Pixhawk without an RC receiver")
+    parser.add_argument("--js-gain", type=float, default=0.5,
+                        help="--tlog: joystick gain before the first '#Gain is' message "
+                             "(JS_GAIN_DEFAULT, default 0.5)")
     parser.add_argument("--force", action="store_true", help="overwrite an existing track")
     return parser.parse_args()
 
@@ -89,6 +105,78 @@ def read_bag(path):
         samples.sort(key=lambda s: s[0])
         out[topic] = [((ns - first) * 1e-9, msg) for ns, msg in samples]
     return out, first
+
+
+def x25_crc(data):
+    crc = 0xFFFF
+    for b in data:
+        tmp = (b ^ crc) & 0xFF
+        tmp = (tmp ^ (tmp << 4)) & 0xFF
+        crc = ((crc >> 8) ^ (tmp << 8) ^ (tmp << 3) ^ (tmp >> 4)) & 0xFFFF
+    return crc
+
+
+def read_tlog(path):
+    """Yield (unix_s, msgid, payload) for MANUAL_CONTROL and STATUSTEXT in a MAVProxy .tlog.
+
+    A .tlog is a sequence of 8-byte big-endian microsecond timestamps, each followed by
+    one raw MAVLink v1/v2 packet. Standard library only (no pymavlink on the vehicle).
+    """
+    with open(os.path.expanduser(path), "rb") as f:
+        buf = f.read()
+    i, n = 0, len(buf)
+    while i + 18 <= n:
+        ts = int.from_bytes(buf[i:i + 8], "big") * 1e-6
+        magic, length = buf[i + 8], buf[i + 9]
+        if magic == 0xFE:
+            header, msgid, tail = 6, buf[i + 13], 0
+        elif magic == 0xFD:
+            header, msgid = 10, int.from_bytes(buf[i + 15:i + 18], "little")
+            tail = 13 if buf[i + 10] & 0x01 else 0  # signed packet
+        else:
+            i += 1
+            continue
+        end = i + 8 + header + length + 2 + tail
+        if not 1e9 < ts < 5e9 or end > n:
+            i += 1
+            continue
+        if msgid in CRC_EXTRA:
+            packet = buf[i + 8:i + 8 + header + length + 2]
+            crc = x25_crc(packet[1:header + length] + bytes([CRC_EXTRA[msgid]]))
+            if crc != int.from_bytes(packet[header + length:], "little"):
+                i += 1
+                continue
+            # MAVLink 2 trims trailing zero bytes from the payload
+            yield ts, msgid, packet[header:header + length] + bytes(64)
+        i = end
+
+
+def tlog_sticks(path, bag_first_ns, bag_end, start_gain):
+    """Stick deflections (t, forward, lateral, yaw, throttle) as ArduSub applies MANUAL_CONTROL.
+
+    ArduSub joystick.cpp: forward/lateral/yaw = 1500 + axis * 0.4 * gain, throttle =
+    1500 + (z - 500) * 0.8 * gain (JS_THR_GAIN 1). The gain starts at start_gain and
+    follows the vehicle's "#Gain is NN%" messages.
+    """
+    first = bag_first_ns * 1e-9
+    gain, sticks, gains = start_gain, [], set()
+    for ts, msgid, payload in read_tlog(path):
+        if msgid == MSG_STATUSTEXT:
+            text = payload[1:51].split(b"\0", 1)[0].decode("ascii", "replace")
+            match = re.search(r"Gain is\s*(\d+)%", text)
+            if match:
+                gain = int(match.group(1)) / 100.0
+            continue
+        t = ts - first
+        if t < 0.0 or t > bag_end:
+            continue
+        x, y, z, r = (int.from_bytes(payload[k:k + 2], "little", signed=True) for k in (0, 2, 4, 6))
+        rpy = 0.4 * gain
+        sticks.append((t, max(-400, min(400, round(x * rpy))), max(-400, min(400, round(y * rpy))),
+                       max(-400, min(400, round(r * rpy))), round((z - 500) * 0.8 * gain)))
+        gains.add(round(gain * 100))
+    sticks.sort(key=lambda s: s[0])
+    return sticks, sorted(gains)
 
 
 def yaw_of(q):
@@ -137,9 +225,6 @@ def main():
     path = bag_dir(args.run)
     print(f"Reading {path} ...")
     data, bag_first_ns = read_bag(path)
-    rc = data[TOPIC_RC]
-    if not rc:
-        sys.exit(f"{TOPIC_RC} is not in the bag: the sticks cannot be recovered.")
     bag_end = max(s[-1][0] for s in data.values() if s)
     windows = armed_windows(data[TOPIC_STATE], bag_end)
 
@@ -148,13 +233,31 @@ def main():
             return 0
         return int(msg.channels[channel - 1]) - args.neutral
 
-    def active(msg):
-        sticks = (args.forward_ch, args.lateral_ch, args.yaw_ch, args.throttle_ch)
-        return any(abs(deflection(msg, ch)) > args.deadband for ch in sticks)
+    # Sticks as (t, forward, lateral, yaw, throttle) PWM deflections
+    if args.tlog:
+        print(f"Reading sticks from {args.tlog} ...")
+        rc, tlog_gains = tlog_sticks(args.tlog, bag_first_ns, bag_end, args.js_gain)
+        if not rc:
+            sys.exit(f"{args.tlog} has no MANUAL_CONTROL during this bag: was the QGC joystick on, "
+                     "and is it the log of the MAVProxy that ran during the run?")
+        stick_source = f"MANUAL_CONTROL in {os.path.abspath(os.path.expanduser(args.tlog))}"
+    else:
+        rc = [(t, deflection(m, args.forward_ch), deflection(m, args.lateral_ch),
+               deflection(m, args.yaw_ch), deflection(m, args.throttle_ch)) for t, m in data[TOPIC_RC]]
+        if not rc:
+            sys.exit(f"{TOPIC_RC} is not in the bag: the sticks cannot be recovered.")
+        if not any(m.channels for _, m in data[TOPIC_RC]):
+            print(f"WARNING: {TOPIC_RC} has no channels (no RC receiver on the Pixhawk?). "
+                  "Pass --tlog with MAVProxy's log to use the QGC joystick input.")
+        stick_source = (f"{TOPIC_RC} forward CH{args.forward_ch}, lateral CH{args.lateral_ch}, "
+                        f"yaw CH{args.yaw_ch}")
+
+    def active(stick):
+        return any(abs(v) > args.deadband for v in stick[1:])
 
     print(f"Armed windows (seconds from bag start, bag length {bag_end:.1f} s):")
     for i, (w0, w1, modes) in enumerate(windows, 1):
-        n = sum(1 for t, m in rc if w0 <= t <= w1 and active(m))
+        n = sum(1 for s in rc if w0 <= s[0] <= w1 and active(s))
         print(f"  {i}: {w0:7.1f} - {w1:7.1f}  ({w1 - w0:5.1f} s)  modes {', '.join(modes)}"
               f"  stick samples {n}")
     if args.list:
@@ -166,7 +269,7 @@ def main():
         if not 1 <= index <= len(windows):
             sys.exit(f"--window must be 1..{len(windows)}")
         w0, w1, _ = windows[index - 1]
-        moving = [t for t, m in rc if w0 <= t <= w1 and active(m)]
+        moving = [s[0] for s in rc if w0 <= s[0] <= w1 and active(s)]
         if not moving:
             sys.exit(f"Window {index} has no stick input above {args.deadband} PWM.")
         start = args.start if args.start is not None else moving[0]
@@ -198,16 +301,14 @@ def main():
     heading0 = interp(head_t, head_v, start)
 
     rows, last_t = [], None
-    for t, msg in rc:
+    for t, forward, lateral, yaw, _ in rc:
         if t < start or t > end or (last_t is not None and t <= last_t):
             continue
         last_t = t
         rows.append([
             t - start,
             # +right / +clockwise on the stick: the replay server expects RC deflections
-            deflection(msg, args.forward_ch),
-            deflection(msg, args.lateral_ch),
-            deflection(msg, args.yaw_ch),
+            forward, lateral, yaw,
             interp(head_t, head_v, t) - heading0,
             interp(depth_t, depth_v, t)])
     if len(rows) < 2:
@@ -241,8 +342,7 @@ def main():
                 f"modes {', '.join(modes) or 'unknown'}\n")
         # Bag timestamp of track time 0, for tools/scripts/por_path_compare.py
         f.write(f"# start_ns: {bag_first_ns + round((start + shift) * 1e9)}\n")
-        f.write(f"# channels: forward CH{args.forward_ch}, lateral CH{args.lateral_ch}, "
-                f"yaw CH{args.yaw_ch}; heading from {heading_name}; depth from {TOPIC_DEPTH}\n")
+        f.write(f"# sticks: {stick_source}; heading from {heading_name}; depth from {TOPIC_DEPTH}\n")
         f.write(",".join(COLUMNS) + "\n")
         for row in rows:
             f.write(f"{row[0]:.3f},{row[1]:d},{row[2]:d},{row[3]:d},{row[4]:.4f},{row[5]:.3f}\n")
@@ -255,6 +355,9 @@ def main():
           f"{math.degrees(max(r[4] for r in rows)):+.0f})")
     print(f"  stick max |fwd| {max(abs(r[1]) for r in rows)}, |lat| {max(abs(r[2]) for r in rows)}, "
           f"|yaw| {max(abs(r[3]) for r in rows)} PWM")
+    if args.tlog:
+        print(f"  joystick gain during the bag: {', '.join(f'{g}%' for g in tlog_gains)}"
+              f" (start {args.js_gain * 100:.0f}% until the first '#Gain is' message)")
     if modes and modes != ["ALT_HOLD"]:
         print(f"  WARNING: driven in {', '.join(modes)}; the replay flies ALT_HOLD.")
     if rate < 5.0:

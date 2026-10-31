@@ -23,8 +23,8 @@ banyu_mission:
       surface_tolerance_m: 0.25
       # Continuous missing-prerequisite watchdog; not a fixed surface phase duration.
       surface_watchdog_timeout_s: 5.0
-      gate_depth_m: 1.8
-      gate_depth_tolerance_m: 0.3
+      gate_depth_m: 1.4
+      gate_depth_tolerance_m: 0.1
       acquire_gate_timeout_s: 20.0
       gate_align_deadband_x: 0.03
       gate_align_deadband_y: 0.03

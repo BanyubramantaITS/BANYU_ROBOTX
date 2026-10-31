@@ -302,6 +302,39 @@ Di sim yang berhasil hanya dithering per segmen antara dua nilai trim yang berbe
 di [`sim_results.md`](sim_results.md)). Ukur laju naik/turun di 1496/1497 µs di robot sebelum
 memakainya. Solusi yang lebih aman: perbaiki Bar30 atau buat daya apung hampir netral.
 
+## 6b. Hanya thruster belakang (1 + 2 mati)
+
+Kalau thruster depan 1 + 2 mati, pasangan belakang 3 + 4 hanya bisa maju/mundur dan yaw. Perintah
+geser (`speed_y`) tidak menggeser robot tapi memutarnya, jadi profil strafe-box tidak bisa dipakai.
+Profil `por_params_rear_only_no_rc.yaml` hanya memakai maju, putar di tempat, dan maju + yaw:
+
+| Segmen | Gerakan |
+|---|---|
+| `dive` | turun di tempat |
+| `timed_pass_gate`, `approach_pole` | maju stick penuh sampai `ORBIT_R` sebelum marker |
+| `circle_turn_1` | putar kanan 90° (IMU) |
+| `circle_turn_2` | busur ke kiri mengelilingi marker (maju + yaw), berhenti di 360° (IMU) |
+| `return_turn` | putar kanan 90° (IMU), menghadap gate |
+| `return_to_gate` | maju stick penuh lewat gate |
+
+`speed_x_mps: 1.33` × gain 300 = 400 µs = stick penuh (`control.max_linear_speed` 1.4). Busur
+selalu kembali ke titik awal kalau IMU benar; salah kecepatan hanya mengubah radius
+(`radius = v_busur / yaw_rate`). Durasi di file masih perkiraan (0,5 m/s). Di kolam:
+
+1. **Kecepatan**: jalankan satu leg maju stick penuh 10 s, ukur `v`. Ulangi untuk stick busur
+   (`speed_x 1.0`) → `v_busur`.
+2. **Durasi** (dead time 0,8 s, rumus juga ada di kepala profil):
+   `timed_pass_gate = (start_ke_gate + 1) / v + 0.8`,
+   `approach_pole = (gate_ke_marker − ORBIT_R − 1) / v + 0.8`,
+   `return_to_gate = (gate_ke_marker − ORBIT_R + 1.5) / v + 0.8`,
+   `circle_turn_2_yaw_rate = v_busur / ORBIT_R`.
+3. **Sudut**: cek heading akhir tiap putaran di QGC. Lebih dari target: turunkan
+   `*_target_angle_rad` (1.45 untuk 90°, 6.2 untuk 360°); kurang: naikkan.
+
+Alternatif kotak: `por_params_timed_safe_no_rc.yaml` mengitari marker dengan empat putaran 90°
+(IMU) + maju, lalu `return_turn` belok kiri ~14° dan `return_to_gate` maju diagonal ke tengah
+gate. Rumus durasi ada di kepala profil (`durasi = jarak / v + 0.8`).
+
 ## 7. Profil blind (`config/blind/`)
 
 Sama dengan profil normal, dengan perbedaan:

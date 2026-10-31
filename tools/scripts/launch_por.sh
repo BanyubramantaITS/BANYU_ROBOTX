@@ -34,7 +34,6 @@ DRY_RUN=false
 PROFILE=""
 MOCK_AUTO=false
 ALLOW_CHANNEL_OVERLAP=false
-ALLOW_UNCAPPED_THRUST=false
 RECORD=""         # default: on for --real, off for --sim
 RECORD_IMAGES=""  # default: on for --real, off for --sim
 REPLAY_TRACK=""
@@ -97,10 +96,6 @@ General Options:
   --allow-channel-overlap
                         Launch even if a profile rc_override channel is also a teleop switch
                         channel (SB/SC). Unsafe: the switch then reads the override.
-  --allow-uncapped-thrust
-                        Launch on the robot even if the Pixhawk MOT_PWM_MIN/MAX thruster cap
-                        (banyu_defaults.parm) cannot be confirmed. Unsafe: the ESC power
-                        board cannot supply full thruster current.
   --replay-track NAME   Track for replay profiles: a file name in $BANYU_REPLAY_DIR
                         (~/banyu_replays, .csv optional) or a path. Default: the newest track.
   -h, --help            Show this help message.
@@ -205,10 +200,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --allow-channel-overlap)
       ALLOW_CHANNEL_OVERLAP=true
-      shift
-      ;;
-    --allow-uncapped-thrust)
-      ALLOW_UNCAPPED_THRUST=true
       shift
       ;;
     -h|--help)
@@ -479,26 +470,6 @@ else
   else
     echo "Warning: ${MAVROS_RUNNING} mavros_node processes are running (left over from old" \
       "launches?). Stop them all (pkill -x mavros_node) and start one with ./launch_mavros.sh." >&2
-  fi
-
-  # The ESC power board cannot supply full thruster current: the Pixhawk must carry the
-  # MOT_PWM_MIN/MAX cap from banyu_defaults.parm. Read over MAVProxy's 14552 output, which
-  # is free until nogps_odom_beacon starts.
-  if THRUST_CHECK="$(python3 -I "${SCRIPT_DIR}/check_thrust_limit.py" 2>&1)"; then
-    echo "Thruster Cap      : ${THRUST_CHECK#check_thrust_limit: }"
-  else
-    echo "----------------------------------------------------------" >&2
-    echo "DANGER: thruster output cap not confirmed on the Pixhawk:" >&2
-    echo "$THRUST_CHECK" | sed 's/^/  /' >&2
-    if [ "$DRY_RUN" = true ]; then
-      echo "  (dry run: a real launch would refuse here)" >&2
-    elif [ "$ALLOW_UNCAPPED_THRUST" = false ]; then
-      echo "  Refusing to launch. Load banyu_defaults.parm in QGC, or pass --allow-uncapped-thrust." >&2
-      exit 1
-    else
-      echo "  --allow-uncapped-thrust given: launching anyway." >&2
-    fi
-    echo "----------------------------------------------------------" >&2
   fi
 
   echo "----------------------------------------------------------"

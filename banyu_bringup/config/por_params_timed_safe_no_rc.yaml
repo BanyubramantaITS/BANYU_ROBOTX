@@ -23,8 +23,8 @@ banyu_mission:
       surface_tolerance_m: 0.25
       # Continuous missing-prerequisite watchdog; not a fixed surface phase duration.
       surface_watchdog_timeout_s: 5.0
-      gate_depth_m: 1.95 # +/- gate_depth_tolerance_m -> 1.90-2.00 m
-      gate_depth_tolerance_m: 0.05
+      gate_depth_m: 1.4
+      gate_depth_tolerance_m: 0.1
       acquire_gate_timeout_s: 20.0
       gate_align_deadband_x: 0.03
       gate_align_deadband_y: 0.03
@@ -76,18 +76,26 @@ banyu_mission:
       return_gate_pass_timeout_s: 35.0
 
       # =======================================================================
-      # SAFE strafe-box profile, sped up halfway to FAST (0.75 fwd / 0.6 strafe), durations
-      # interpolated between the sim-verified SAFE and FAST; depth band 1.90-2.00 m
-      # Yaw is never changed: the circle_turn_* slots are used as STRAFES.
-      #   dive in place from the surface -> forward to ~2 m before pole
-      #   turn_1: strafe right 2 m   forward_1: forward 3.5 m (pass pole)
-      #   turn_2: strafe left 4 m    forward_2: backward 3.5 m
-      #   turn_3: strafe right 2 m   (back on the centre line)
-      #   return_to_gate: BACK UP through the gate, then surface.
-      # ALT_HOLD + RC override is open loop: speed_* is stick strength, not m/s.
-      # In sim the actual speed is ~1.34 * sqrt(speed_x) (fwd/back) and ~1.39 *
-      # sqrt(speed_y) (strafe), with ~0.7-1 m of coast after each leg. Calibrate
-      # on the real vehicle (docs/por/tuning.md) before trusting durations.
+      # SAFE box profile for REAR-ONLY thrust (thrusters 1 + 2 off, 3 + 4 on): no
+      # strafes, every corner is a 90 deg turn in place ended by the IMU. Clockwise box:
+      #   dive in place -> pass_gate + approach_pole forward to D before the marker
+      #   turn_1 right 90, forward_1 W        (out to the right)
+      #   turn_2 left 90,  forward_2 2D       (past the marker)
+      #   turn_3 left 90,  forward_3 2W       (across behind it)
+      #   turn_4 left 90,  forward_4 2D       (back along the left side, facing the gate)
+      #   return_turn left atan(W / (GATE_TO_MARKER - D)) ~14 deg, return_to_gate
+      #   forward diagonally through the gate centre, then surface.
+      # speed_x 1.33 * gain_xy 300 = 400 us = full stick (control.max_linear_speed 1.4).
+      #
+      # PLACEHOLDER TIMES: v 0.5 m/s at full stick, 0.8 s start-up lag, START_TO_GATE
+      # 3.2 m, GATE_TO_MARKER 10.0 m, D 2.0 m, W 2.0 m. Measure v (10 s full-stick leg,
+      # tape), then duration = distance / v + 0.8:
+      #   timed_pass_gate START_TO_GATE + 1.0   approach_pole GATE_TO_MARKER - D - 1.0
+      #   forward_1 W   forward_2 2D   forward_3 2W   forward_4 2D
+      #   return_to_gate sqrt((GATE_TO_MARKER - D)^2 + W^2) + 1.5
+      # Turn durations are caps only: the IMU ends the turn (1.45 rad for 90 deg,
+      # 0.2 rad for the ~14 deg return turn, leaving room for the overshoot).
+      # Each leg coasts ~0.7-1 m after it ends; shorten the next leg if corners run wide.
       # =======================================================================
       # -----------------------------------------------------------------------
       # Timed POR Strategy Parameters (used when use_vision is false)
@@ -118,81 +126,81 @@ banyu_mission:
       dive_yaw_rate_rad_s: 0.0
 
       # 2. Go forward to pass through the gate
-      timed_pass_gate_duration_s: 6
-      timed_pass_gate_speed_x_mps: 0.75
+      timed_pass_gate_duration_s: 20.0
+      timed_pass_gate_speed_x_mps: 1.33
       timed_pass_gate_speed_y_mps: 0.0
       timed_pass_gate_speed_z_mps: 0.0
       timed_pass_gate_yaw_rate_rad_s: 0.0
 
       # 3. Go forward approaching the pole
-      approach_pole_duration_s: 6
-      approach_pole_speed_x_mps: 0.75
+      approach_pole_duration_s: 50.8
+      approach_pole_speed_x_mps: 1.33
       approach_pole_speed_y_mps: 0.0
       approach_pole_speed_z_mps: 0.0
       approach_pole_yaw_rate_rad_s: 0.0
 
-      # 4. Circle the pole (4-sided polygon: Turn 90 deg -> Forward x 4, default clockwise)
-      # Step 1: Turn right (-90 deg) and move forward
-      circle_turn_1_duration_s: 1.5
+      # 4. Box around the pole (Turn 90 deg on the IMU -> Forward, x 4, clockwise)
+      # Step 1: Turn right (-90 deg) and move forward out to the right
+      circle_turn_1_duration_s: 6.0
       circle_turn_1_speed_x_mps: 0.0
-      circle_turn_1_speed_y_mps: -0.6
+      circle_turn_1_speed_y_mps: 0.0
       circle_turn_1_speed_z_mps: 0.0
-      circle_turn_1_yaw_rate_rad_s: 0.0
-      circle_turn_1_target_angle_rad: 0.0
-      circle_forward_1_duration_s: 3.07
-      circle_forward_1_speed_x_mps: 0.6
+      circle_turn_1_yaw_rate_rad_s: -0.6
+      circle_turn_1_target_angle_rad: 1.45
+      circle_forward_1_duration_s: 4.8
+      circle_forward_1_speed_x_mps: 1.33
       circle_forward_1_speed_y_mps: 0.0
       circle_forward_1_speed_z_mps: 0.0
       circle_forward_1_yaw_rate_rad_s: 0.0
 
       # Step 2: Turn left (+90 deg) and move forward past pole
-      circle_turn_2_duration_s: 3.69
+      circle_turn_2_duration_s: 6.0
       circle_turn_2_speed_x_mps: 0.0
-      circle_turn_2_speed_y_mps: 0.6
+      circle_turn_2_speed_y_mps: 0.0
       circle_turn_2_speed_z_mps: 0.0
-      circle_turn_2_yaw_rate_rad_s: 0.0
-      circle_turn_2_target_angle_rad: 0.0
-      circle_forward_2_duration_s: 3.28
-      circle_forward_2_speed_x_mps: -0.6
+      circle_turn_2_yaw_rate_rad_s: 0.6
+      circle_turn_2_target_angle_rad: 1.45
+      circle_forward_2_duration_s: 8.8
+      circle_forward_2_speed_x_mps: 1.33
       circle_forward_2_speed_y_mps: 0.0
       circle_forward_2_speed_z_mps: 0.0
       circle_forward_2_yaw_rate_rad_s: 0.0
 
       # Step 3: Turn left (+90 deg) and move forward behind pole
-      circle_turn_3_duration_s: 1.54
+      circle_turn_3_duration_s: 6.0
       circle_turn_3_speed_x_mps: 0.0
-      circle_turn_3_speed_y_mps: -0.6
+      circle_turn_3_speed_y_mps: 0.0
       circle_turn_3_speed_z_mps: 0.0
-      circle_turn_3_yaw_rate_rad_s: 0.0
-      circle_turn_3_target_angle_rad: 0.0
-      circle_forward_3_duration_s: 0.0
-      circle_forward_3_speed_x_mps: 0.5
+      circle_turn_3_yaw_rate_rad_s: 0.6
+      circle_turn_3_target_angle_rad: 1.45
+      circle_forward_3_duration_s: 8.8
+      circle_forward_3_speed_x_mps: 1.33
       circle_forward_3_speed_y_mps: 0.0
       circle_forward_3_speed_z_mps: 0.0
       circle_forward_3_yaw_rate_rad_s: 0.0
 
       # Step 4: Turn left (+90 deg) and move forward alongside pole
-      circle_turn_4_duration_s: 0.0
+      circle_turn_4_duration_s: 6.0
       circle_turn_4_speed_x_mps: 0.0
       circle_turn_4_speed_y_mps: 0.0
       circle_turn_4_speed_z_mps: 0.0
       circle_turn_4_yaw_rate_rad_s: 0.6
-      circle_turn_4_target_angle_rad: 1.570796327
-      circle_forward_4_duration_s: 0.0
-      circle_forward_4_speed_x_mps: 0.5
+      circle_turn_4_target_angle_rad: 1.45
+      circle_forward_4_duration_s: 8.8
+      circle_forward_4_speed_x_mps: 1.33
       circle_forward_4_speed_y_mps: 0.0
       circle_forward_4_speed_z_mps: 0.0
       circle_forward_4_yaw_rate_rad_s: 0.0
 
-      # 5. Final turn to face the gate & go forward back to gate
-      return_turn_duration_s: 0.0
+      # 5. Small left turn toward the gate centre & go forward diagonally through it
+      return_turn_duration_s: 3.0
       return_turn_speed_x_mps: 0.0
       return_turn_speed_y_mps: 0.0
       return_turn_speed_z_mps: 0.0
-      return_turn_yaw_rate_rad_s: 0.6
-      return_turn_target_angle_rad: 1.570796327
-      return_to_gate_duration_s: 9.23
-      return_to_gate_speed_x_mps: -0.75
+      return_turn_yaw_rate_rad_s: 0.3
+      return_turn_target_angle_rad: 0.2
+      return_to_gate_duration_s: 20.3
+      return_to_gate_speed_x_mps: 1.33
       return_to_gate_speed_y_mps: 0.0
       return_to_gate_speed_z_mps: 0.0
       return_to_gate_yaw_rate_rad_s: 0.0
@@ -252,7 +260,7 @@ vehicle_execution_node:
       # Hard cap on horizontal (forward and lateral) speed in m/s; 0 disables
       max_horizontal_speed_mps: 0.0
       heading_hold:
-        # Straight timed legs hold the heading from segment start (thruster 2/3 yaw drift)
+        # Straight timed legs hold the heading from segment start
         enabled: true
         kp: 1.0
         max_yaw_rate_rad_s: 0.3
@@ -269,7 +277,7 @@ vehicle_execution_node:
       require_guided: true
       autonomy_mode: "ALT_HOLD"
       output_mode: "rc_override" # sticks over /mavros/rc/override
-      max_linear_speed: 1.2
+      max_linear_speed: 1.4 # speed_x 1.33 = full stick
       max_yaw_rate: 0.8
     surface:
       depth_sources: ["pressure_depth"]
