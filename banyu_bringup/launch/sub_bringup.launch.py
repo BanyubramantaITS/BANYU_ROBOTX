@@ -85,6 +85,14 @@ def generate_launch_description():
         choices=["core", "advanced", "disruptive"],
     )
 
+    sensors_arg = DeclareLaunchArgument(
+        name="sensors",
+        default_value="full",
+        description="Task 2 sensor set: 'full' (Bar30 depth, ALT_HOLD) or 'minimal' (bottom camera, IMU/compass, "
+        "surface GPS; STABILIZE under water, heave from the camera).",
+        choices=["full", "minimal"],
+    )
+
     fcu_url_arg = DeclareLaunchArgument(
         name="fcu_url",
         default_value="udp://127.0.0.1:14551@",
@@ -309,6 +317,7 @@ def generate_launch_description():
             "use_sim_time": "False",
             "debug": LaunchConfiguration("debug"),
             "tier": LaunchConfiguration("tier"),
+            "sensors": LaunchConfiguration("sensors"),
             "enable_esp32_trigger": LaunchConfiguration("enable_esp32_trigger"),
             "enable_esp32_bridge": LaunchConfiguration("enable_esp32_bridge"),
             "por_params_file": por_params,
@@ -321,6 +330,7 @@ def generate_launch_description():
         [
             mode_arg,
             tier_arg,
+            sensors_arg,
             fcu_url_arg,
             use_dvl_arg,
             use_gps_arg,

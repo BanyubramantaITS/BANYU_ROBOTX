@@ -1,0 +1,5 @@
+# Task 2 sensor overlay for sensors:=full (Bar30 depth, ALT_HOLD under water): the defaults of task2_params.yaml.
+# mission.launch.py loads the sensors overlay after the params and tier files.
+calibrated_depth_node:
+  ros__parameters:
+    depth_source: "pressure"

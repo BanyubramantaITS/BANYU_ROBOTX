@@ -33,6 +33,8 @@ GPS_GATE_OPTS_SET=false
 LIGHT_SEED=""
 SPAWN_SEED=""
 SPAWN_XYZ=""
+SENSORS="full"
+PIPE_DEPTH=""
 EXTRA_ARGS=()
 
 print_usage() {
@@ -57,6 +59,7 @@ Simulation Options (--sim only):
   --spawn-seed <n>      Spawn the UUV at a random place 10-20 m from the world origin (the GPS home, midway between the two
                         buoys) with a random heading, picked from this seed, so it has to navigate to the start buoy by GPS.
   --spawn <x> <y> <yaw> Spawn the UUV at x east, y north (m from the origin) with heading yaw (rad).
+  --pipe-depth <m>      Put the pipeline's light nodes this deep (1 to 13.4 m; default: the world's 13.4 m).
   --gps-gate            Simulate GPS loss/reacquire around depth (gps_gate:=True).
   --no-gps-gate         (Default) Do not gate GPS (gps_gate:=False).
   --gps-loss-depth <m>  Depth at which GPS is lost (default: 0.1; gps_loss_depth_m).
@@ -67,6 +70,9 @@ Simulation Options (--sim only):
 
 Both targets:
   --tier <t>            (see above) On --real the default is core, like sub_bringup.launch.py.
+  --sensors <s>         full (default: Bar30 depth, ALT_HOLD under water) | minimal (bottom camera, Pixhawk
+                        IMU/compass and RTK GPS at the surface only: STABILIZE under water, heave from the camera,
+                        surface proven by a GPS fix; no depth sensor is used for any decision).
   --use-gps             (Default) GPS available (use_gps:=True); Task 2 needs the surface
                         GPS leg (NavigateSurfaceGps).
   --no-gps              use_gps:=False.
@@ -78,6 +84,7 @@ Any other argument is passed through to ros2 launch (e.g. task2_params_file:=/pa
 Examples:
   ./tools/scripts/launch_task2.sh --sim
   ./tools/scripts/launch_task2.sh --sim --headless --tier disruptive --gps-gate --gps-loss-depth 0.2
+  ./tools/scripts/launch_task2.sh --sim --sensors minimal --pipe-depth 8
   ./tools/scripts/launch_task2.sh --real --dry-run
 EOF
 }
@@ -102,6 +109,12 @@ while [[ $# -gt 0 ]]; do
     --spawn)
       [ $# -ge 4 ] || { echo "Error: --spawn needs x y yaw." >&2; exit 1; }
       SPAWN_XYZ="$2 $3 $4"; GPS_GATE_OPTS_SET=true; shift 4 ;;
+    --pipe-depth)
+      [ $# -ge 2 ] || { echo "Error: --pipe-depth needs a value in metres." >&2; exit 1; }
+      PIPE_DEPTH="$2"; GPS_GATE_OPTS_SET=true; shift 2 ;;
+    --sensors)
+      [ $# -ge 2 ] || { echo "Error: --sensors needs a value (full|minimal)." >&2; exit 1; }
+      SENSORS="$2"; shift 2 ;;
     --gps-gate) GPS_GATE=true; GPS_GATE_OPTS_SET=true; shift ;;
     --no-gps-gate) GPS_GATE=false; shift ;;
     --gps-loss-depth)
@@ -123,6 +136,10 @@ case "$TIER" in
   core|advanced|disruptive) ;;
   *) echo "Error: --tier must be core, advanced or disruptive (got '$TIER')." >&2; exit 1 ;;
 esac
+case "$SENSORS" in
+  full|minimal) ;;
+  *) echo "Error: --sensors must be full or minimal (got '$SENSORS')." >&2; exit 1 ;;
+esac
 NUM_RE='^[0-9]+([.][0-9]+)?$'
 if ! [[ "$GPS_LOSS_DEPTH" =~ $NUM_RE ]]; then
   echo "Error: --gps-loss-depth must be a non-negative number (got '$GPS_LOSS_DEPTH')." >&2; exit 1
@@ -132,7 +149,7 @@ if ! [[ "$GPS_REACQUIRE_DELAY" =~ $NUM_RE ]]; then
 fi
 if [ "$TARGET" = "real" ]; then
   if [ "$GPS_GATE" = true ] || [ "$GPS_GATE_OPTS_SET" = true ]; then
-    echo "Error: --gps-gate / --gps-loss-depth / --gps-reacquire-delay / --light-seed are simulation only" >&2
+    echo "Error: --gps-gate / --gps-loss-depth / --gps-reacquire-delay / --light-seed / --spawn* / --pipe-depth are simulation only" >&2
     echo "  (the GPS gate is a sim shim); they are refused with --real. Use --sim." >&2
     exit 1
   fi
@@ -158,7 +175,9 @@ echo "Active Git Branch : $CURRENT_BRANCH"
 echo "Target Platform   : $([ "$TARGET" = "sim" ] && echo "Gazebo Simulation (SITL)" || echo "Real AUV Physical Hardware")"
 echo "use_gps           : $(TF $USE_GPS)"
 echo "Tier              : $([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && echo core || echo "$TIER")"
+echo "Sensors           : $SENSORS$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")"
 if [ "$TARGET" = "sim" ]; then
+  [ -n "$PIPE_DEPTH" ] && echo "Pipe depth        : light nodes at ${PIPE_DEPTH} m"
   echo "Gazebo GUI        : $([ "$HEADLESS" = true ] && echo "HEADLESS (server only)" || echo "ENABLED")"
   echo "GPS gate          : $(TF $GPS_GATE) (loss depth ${GPS_LOSS_DEPTH} m, reacquire delay ${GPS_REACQUIRE_DELAY} s)"
 fi
@@ -193,6 +212,7 @@ if [ "$TARGET" = "sim" ]; then
     ros2 launch banyu_bringup main_launch.launch.py
     mode:=task2
     tier:="$TIER"
+    sensors:="$SENSORS"
     headless:="$(TF $HEADLESS)"
     use_gps:="$(TF $USE_GPS)"
     gps_gate:="$(TF $GPS_GATE)"
@@ -200,6 +220,7 @@ if [ "$TARGET" = "sim" ]; then
     gps_reacquire_delay_s:="$GPS_REACQUIRE_DELAY"
   )
   [ -n "$LIGHT_SEED" ] && LAUNCH_CMD+=(light_seed:="$LIGHT_SEED")
+  [ -n "$PIPE_DEPTH" ] && LAUNCH_CMD+=(pipe_depth:="$PIPE_DEPTH")
   if [ -n "$SPAWN_SEED" ]; then
     # Random spawn: 10-20 m from the origin, random bearing and heading, from this seed (the buoys are 3.8 m either side).
     SPAWN_XYZ="$(python3 -c "
@@ -241,6 +262,7 @@ else
     ros2 launch banyu_bringup sub_bringup.launch.py
     mode:=task2
     tier:="$([ "$TIER_SET" = true ] && echo "$TIER" || echo core)"
+    sensors:="$SENSORS"
     use_gps:="$(TF $USE_GPS)"
   )
   [ ${#EXTRA_ARGS[@]} -gt 0 ] && LAUNCH_CMD+=("${EXTRA_ARGS[@]}")

@@ -107,7 +107,20 @@ def main():
             self.surfaced_since = None
             self.pending = None
             self.cli = self.create_client(ParamSetV2, "/mavros/param/set")
-            self.create_subscription(WaterDepth, depth_topic, self.on_depth, 10)
+            # sensors:=minimal: the mission has no depth topic from the barometer; the world's depth for the gate then
+            # comes straight from the SITL barometer (rel_alt), which the mission never reads.
+            rel_alt_topic = self.declare_parameter("rel_alt_topic", "").value
+            if rel_alt_topic and rel_alt_topic != "none":
+                from std_msgs.msg import Float64
+                from rclpy.qos import qos_profile_sensor_data
+
+                class _Depth:
+                    def __init__(self, d):
+                        self.valid, self.depth_m = True, d
+                self.create_subscription(
+                    Float64, rel_alt_topic, lambda m: self.on_depth(_Depth(-m.data)), qos_profile_sensor_data)
+            else:
+                self.create_subscription(WaterDepth, depth_topic, self.on_depth, 10)
             self.get_logger().info(
                 f"GPS gate armed: off below {self.loss_depth} m, on after "
                 f"{self.reacquire_delay} s at <= {self.resurface_depth} m")

@@ -1,0 +1,22 @@
+# Task 2 sensor overlay for sensors:=minimal: bottom camera + Pixhawk (IMU, compass) + RTK GPS at the surface only.
+# No depth sensor is used for any decision: ArduSub ALT_HOLD needs one, so under water the vehicle flies STABILIZE and
+# the heave comes from the camera (descent until the pipe or a light is in view, then a standoff from the pipe's
+# apparent width); the surface is proven by a GPS fix. mission.launch.py loads it after the params and tier files.
+banyu_mission:
+  ros__parameters:
+    autonomy_mode: "GUIDED,STABILIZE"
+    mission:
+      underwater_mode: "STABILIZE"
+banyu_vehicle_status:
+  ros__parameters:
+    autonomy_mode: "GUIDED,STABILIZE"
+vehicle_execution_node:
+  ros__parameters:
+    control:
+      autonomy_mode: "GUIDED,STABILIZE"
+      use_pressure_depth: false
+    camera_heave:
+      enabled: true
+calibrated_depth_node:
+  ros__parameters:
+    depth_source: "gps_surface"

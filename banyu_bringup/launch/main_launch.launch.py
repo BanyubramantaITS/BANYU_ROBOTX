@@ -117,6 +117,19 @@ def generate_launch_description():
         "tin RED, circle BLUE). Seeds 2, 1, 5, 9 give damaged node 1, 2, 3, 4.",
     )
 
+    sensors_arg = DeclareLaunchArgument(
+        name="sensors",
+        default_value="full",
+        description="Task 2 sensor set: 'full' (Bar30 depth) or 'minimal' (bottom camera, Pixhawk IMU/compass, "
+        "surface GPS; STABILIZE under water, heave from the camera).",
+        choices=["full", "minimal"],
+    )
+    pipe_depth_arg = DeclareLaunchArgument(
+        name="pipe_depth",
+        default_value="",
+        description="Simulation: depth (m) of the pipeline's light nodes below the surface; empty = the world's 13.4 m.",
+    )
+
     use_dvl_arg = DeclareLaunchArgument(
         name="use_dvl",
         default_value="False",
@@ -208,6 +221,7 @@ def generate_launch_description():
             "headless": LaunchConfiguration("headless"),
             "tier": LaunchConfiguration("tier"),
             "light_seed": LaunchConfiguration("light_seed"),
+            "pipe_depth": LaunchConfiguration("pipe_depth"),
             "spawn_x": task2_spawn_x,
             "spawn_y": task2_spawn_y,
             "spawn_z": task2_spawn_z,
@@ -240,6 +254,7 @@ def generate_launch_description():
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "debug": LaunchConfiguration("debug"),
             "tier": LaunchConfiguration("tier"),
+            "sensors": LaunchConfiguration("sensors"),
             "task2_params_file": LaunchConfiguration("task2_params_file"),
             "por_params_file": LaunchConfiguration("por_params_file"),
         }.items(),
@@ -266,6 +281,8 @@ def generate_launch_description():
         cmd=["ros2", "run", "banyu_bringup", "sim_gps_gate.py", "--ros-args",
              "-p", ["loss_depth_m:=", LaunchConfiguration("gps_loss_depth_m")],
              "-p", ["reacquire_delay_s:=", LaunchConfiguration("gps_reacquire_delay_s")],
+             "-p", ["rel_alt_topic:=", PythonExpression(
+                 ["'/mavros/global_position/rel_alt' if '", LaunchConfiguration("sensors"), "' == 'minimal' else 'none'"])],
              "-p", "use_sim_time:=true"],
         name="sim_gps_gate",
         output="screen",
@@ -292,6 +309,8 @@ def generate_launch_description():
             use_gps_arg,
             gps_gate_arg,
             light_seed_arg,
+            sensors_arg,
+            pipe_depth_arg,
             spawn_x_arg,
             spawn_y_arg,
             spawn_yaw_arg,

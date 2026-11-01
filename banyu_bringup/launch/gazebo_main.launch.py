@@ -60,6 +60,21 @@ def layout_world(template, layout):
     return set_pose(text, "robobuoy_red", "%.3f %.3f 0 0 0 0" % layout["red"])
 
 
+NODE_ABOVE_PIPE_ORIGIN = 1.596   # light nodes sit this far above the pipeline model's origin
+
+
+def set_pipe_depth(template, node_depth_m):
+    """Move the pipeline (and the nodes placed relative to it) so the light nodes are node_depth_m below the surface."""
+    if not 1.0 <= node_depth_m <= -PIPE_Z - NODE_ABOVE_PIPE_ORIGIN:
+        raise ValueError(f"pipe_depth {node_depth_m} m: must be 1 to {-PIPE_Z - NODE_ABOVE_PIPE_ORIGIN:.1f} m")
+    pat = r"(<name>pipeline</name>\s*<uri>[^<]*</uri>\s*<pose>)([^<]*)(</pose>)"
+    m = re.search(pat, template)
+    assert m, "pipeline pose"
+    v = m.group(2).split()
+    v[2] = f"{-node_depth_m - NODE_ABOVE_PIPE_ORIGIN:.3f}"
+    return template[:m.start(2)] + " ".join(v) + template[m.end(2):]
+
+
 def self_check():
     for seed in range(200):
         lay = random_layout(seed)
@@ -72,6 +87,7 @@ def self_check():
            "<name>robobuoy_green</name><uri>u</uri><pose>0 0 0 0 0 0</pose>"
            "<name>robobuoy_red</name><uri>u</uri><pose>0 0 0 0 0 0</pose>")
     assert "0 0 0 0 0 0" not in layout_world(tpl, random_layout(1))
+    assert "<pose>0 0 -4.596 0 0 0</pose>" in set_pipe_depth(tpl, 3.0)
     print("gazebo_main layout self-check OK")
 
 
@@ -122,6 +138,9 @@ def generate_launch_description():
         choices=["core", "advanced", "disruptive"],
     )
 
+    pipe_depth_arg = DeclareLaunchArgument(
+        name="pipe_depth", default_value="",
+        description="Depth (m) of the light nodes below the surface; empty = the world's 13.4 m.")
     spawn_x_arg = DeclareLaunchArgument(name="spawn_x", default_value="0")
     spawn_y_arg = DeclareLaunchArgument(name="spawn_y", default_value="0")
     spawn_z_arg = DeclareLaunchArgument(name="spawn_z", default_value="-0.06")
@@ -175,11 +194,19 @@ def generate_launch_description():
             )
         else:
             world_path = _world_file
+            pipe_depth = LaunchConfiguration("pipe_depth").perform(context)
+            if pipe_depth:
+                with open(_world_file) as f:
+                    world = set_pipe_depth(f.read(), float(pipe_depth))
+                world_path = os.path.join(tempfile.gettempdir(), "banyu_main_world.world")
+                with open(world_path, "w") as f:
+                    f.write(world)
             sx = float(LaunchConfiguration("spawn_x").perform(context))
             sy = float(LaunchConfiguration("spawn_y").perform(context))
             sz = float(LaunchConfiguration("spawn_z").perform(context))
             syaw = float(LaunchConfiguration("spawn_yaw").perform(context))
-            info_msg = f"[layout] using world {world_path} with spawn ({sx}, {sy}, {sz}, yaw {syaw})"
+            info_msg = (f"[layout] using world {world_path} with spawn ({sx}, {sy}, {sz}, yaw {syaw})"
+                        + (f", light nodes at {pipe_depth} m" if pipe_depth else ""))
 
         return [
             Node(
@@ -305,6 +332,7 @@ def generate_launch_description():
             layout_seed_arg,
             light_seed_arg,
             tier_arg,
+            pipe_depth_arg,
             spawn_x_arg,
             spawn_y_arg,
             spawn_z_arg,

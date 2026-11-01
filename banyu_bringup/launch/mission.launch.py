@@ -63,6 +63,14 @@ def generate_launch_description():
         choices=["core", "advanced", "disruptive"],
     )
 
+    sensors_arg = DeclareLaunchArgument(
+        name="sensors",
+        default_value="full",
+        description="Task 2 sensor set: 'full' (Bar30 depth, ALT_HOLD under water) or 'minimal' (bottom camera, "
+        "Pixhawk IMU/compass and surface GPS only: STABILIZE under water, heave from the camera).",
+        choices=["full", "minimal"],
+    )
+
     task2_params_arg = DeclareLaunchArgument(
         name="task2_params_file",
         default_value=default_task2_params,
@@ -116,6 +124,9 @@ def generate_launch_description():
     task2_tier_file = PythonExpression(
         ["'", banyu_bringup_share, "/config/task2_tier_' + '", LaunchConfiguration("tier"), "' + '.yaml'"]
     )
+    task2_sensors_file = PythonExpression(
+        ["'", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"), "' + '.yaml'"]
+    )
     por_params = LaunchConfiguration("por_params_file")
     hardware_params = LaunchConfiguration("hardware_params_file")
 
@@ -161,6 +172,7 @@ def generate_launch_description():
                 "mission_mode": mode,
             },
             task2_tier_file,
+            task2_sensors_file,
         ],
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -247,6 +259,7 @@ def generate_launch_description():
         name="banyu_vehicle_status",
         parameters=[
             task2_params,
+            task2_sensors_file,
             {
                 "default_operational_mode": ParameterValue(
                     default_op_mode_expr,
@@ -304,7 +317,7 @@ def generate_launch_description():
         package="banyu_vehicle_execution",
         executable="vehicle_execution_node",
         name="vehicle_execution_node",
-        parameters=[task2_params],
+        parameters=[task2_params, task2_sensors_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -322,7 +335,7 @@ def generate_launch_description():
         package="banyu_vehicle_execution",
         executable="calibrated_depth_node",
         name="calibrated_depth_node",
-        parameters=[task2_params],
+        parameters=[task2_params, task2_sensors_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -407,6 +420,7 @@ def generate_launch_description():
             use_sim_time_arg,
             debug_arg,
             tier_arg,
+            sensors_arg,
             task2_params_arg,
             por_params_arg,
             hardware_params_arg,
