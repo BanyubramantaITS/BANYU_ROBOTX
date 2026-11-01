@@ -208,7 +208,7 @@ uuv_comm_node:
       task2_tier: 2
       evidence_sources: ["pipeline_topology"]
       buoy_sources: ["usv_pipeline_buoys", "uuv_buoy_localizer", "gcs_buoy_observer"]
-      depth_sources: ["pressure_depth"]
+      depth_sources: ["pressure_depth", "gps_surface"]
       minimum_confidence: 0.2
       maximum_buoy_uncertainty_m: 5.0
       ingress_max_age_s: 2.0
@@ -265,6 +265,10 @@ vehicle_execution_node:
       # Water depth is datum minus EKF baro altitude, which drifts ~0.2-0.4 m over a dive;
       # 0.5 m matches the GPS surface tolerance used elsewhere in this file.
       surface_max_depth_m: 0.5
+      # No depth (no Bar30, or it failed): rise at this rate until a GPS fix proves the surface, for at most this long
+      # (maximum depth 15 m at 0.25 m/s, plus margin).
+      surface_blind_rise_rate_mps: 0.25
+      surface_blind_timeout_s: 120.0
       require_run_authorization: true
       run_lifecycle_timeout_s: 1.0
       enable_mavros_publish: true
@@ -301,7 +305,7 @@ vehicle_execution_node:
       deadzone_z_pwm: 50
       deadzone_yaw_pwm: 20
     surface:
-      depth_sources: ["pressure_depth"]
+      depth_sources: ["pressure_depth", "gps_surface"]
     topics:
       water_depth: "/banyu/vehicle/water_depth"
       run_lifecycle: "/banyu/mission/run_lifecycle"
@@ -327,6 +331,17 @@ pipeline_end_node:
     end_topic: "/banyu/pipeline/end"
 calibrated_depth_node:
   ros__parameters:
+    # "pressure" (Bar30) or "gps_surface" (no depth sensor: depth 0 while a GPS fix proves the surface, else unknown).
+    depth_source: "pressure"
+    gps_source_id: "gps_surface"
+    gps_surface_timeout_s: 2.0
+    # Bar30 health under water during the run; a fault switches to the GPS surface proof for the rest of the run.
+    health:
+      enabled: true
+      silent_s: 3.0
+      stuck_s: 3.0
+      max_step_m: 0.3
+      max_disagree_m: 1.0
     source_id: "pressure_depth"
     datum: "water_surface"
     calibration_id: "surface_rel_alt_datum"
@@ -338,6 +353,9 @@ calibrated_depth_node:
       rel_alt: "/mavros/global_position/rel_alt"
       water_depth: "/banyu/vehicle/water_depth"
       run_lifecycle: "/banyu/mission/run_lifecycle"
+      gps_fix: "/mavros/global_position/global"
+      command: "/banyu/execution/preview_target"
+      depth_health: "/banyu/vehicle/depth_health"
 
 survey_evidence_node:
   ros__parameters:

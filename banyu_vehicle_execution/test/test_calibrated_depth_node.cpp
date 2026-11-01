@@ -337,3 +337,77 @@ TEST_F(CalibratedDepthNodeTest, GpsFixAtTheSurfaceKeepsTheDatumThroughABaroJumpB
   spinFor(50ms);
   EXPECT_NEAR(depth_node_->surfaceDatumOffset(), -0.40, 1e-6);
 }
+
+TEST_F(CalibratedDepthNodeTest, GpsSurfaceSourceGivesDepthZeroOnlyWithAFreshFix)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("topics.rel_alt", "/test_gps_depth/rel_alt");
+  options.append_parameter_override("topics.water_depth", "/test_gps_depth/water_depth");
+  options.append_parameter_override("topics.run_lifecycle", "/test_gps_depth/lifecycle");
+  options.append_parameter_override("topics.gps_fix", "/test_gps_depth/fix");
+  options.append_parameter_override("topics.depth_health", "/test_gps_depth/health");
+  options.append_parameter_override("depth_source", "gps_surface");
+  options.append_parameter_override("gps_surface_timeout_s", 0.3);
+  auto node = std::make_shared<banyu_vehicle_execution::CalibratedDepthNode>(
+    options.arguments({"--ros-args", "-r", "__node:=gps_depth_node"}));
+  std::vector<banyu_msgs::msg::WaterDepth> got;
+  auto sub = test_node_->create_subscription<banyu_msgs::msg::WaterDepth>(
+    "/test_gps_depth/water_depth", rclcpp::QoS(10).reliable(),
+    [&got](const banyu_msgs::msg::WaterDepth::SharedPtr msg) {got.push_back(*msg);});
+  auto fix_pub = test_node_->create_publisher<sensor_msgs::msg::NavSatFix>(
+    "/test_gps_depth/fix", rclcpp::SensorDataQoS());
+  auto alt_pub = test_node_->create_publisher<std_msgs::msg::Float64>(
+    "/test_gps_depth/rel_alt", rclcpp::SensorDataQoS());
+  executor_.add_node(node);
+  EXPECT_TRUE(node->usingGpsSurface());
+  EXPECT_EQ(node->depthHealth(), "DISABLED");
+
+  sensor_msgs::msg::NavSatFix fix;
+  fix.status.status = sensor_msgs::msg::NavSatStatus::STATUS_FIX;
+  fix.latitude = 1.28;
+  fix.longitude = 103.86;
+  for (int i = 0; i < 5; ++i) {
+    fix_pub->publish(fix);
+    spinFor(60ms);
+  }
+  ASSERT_FALSE(got.empty());
+  EXPECT_TRUE(got.back().valid);
+  EXPECT_TRUE(got.back().calibrated);
+  EXPECT_DOUBLE_EQ(got.back().depth_m, 0.0);
+  EXPECT_EQ(got.back().source_id, "gps_surface");
+  EXPECT_EQ(got.back().datum, "water_surface");
+
+  // Under water: no fix, and a barometer reading is never turned into a depth.
+  std_msgs::msg::Float64 alt;
+  alt.data = -8.0;
+  alt_pub->publish(alt);
+  spinFor(600ms);
+  EXPECT_FALSE(got.back().valid);
+  for (const auto & d : got) {EXPECT_EQ(d.source_id, "gps_surface");}
+  executor_.remove_node(node);
+}
+
+TEST_F(CalibratedDepthNodeTest, PressureFaultDuringTheRunSwitchesToTheGpsSurfaceProof)
+{
+  std_msgs::msg::Float64 alt;
+  alt.data = 0.0;
+  rel_alt_pub_->publish(alt);
+  spinFor(50ms);
+  banyu_msgs::msg::RunLifecycle life;
+  life.header.stamp = test_node_->now();
+  life.run_id = 3;
+  life.epoch = 1;
+  life.phase = banyu_msgs::msg::RunLifecycle::ACTIVE;
+  lifecycle_pub_->publish(life);
+  spinFor(50ms);
+  EXPECT_FALSE(depth_node_->usingGpsSurface());
+  alt.data = -2.0;
+  rel_alt_pub_->publish(alt);
+  spinFor(50ms);
+  alt.data = -3.0;   // 1 m step
+  rel_alt_pub_->publish(alt);
+  spinFor(300ms);
+  EXPECT_TRUE(depth_node_->usingGpsSurface());
+  EXPECT_EQ(depth_node_->depthHealth(), "STEP");
+  EXPECT_EQ(received_depths_.back().source_id, "gps_surface");
+}

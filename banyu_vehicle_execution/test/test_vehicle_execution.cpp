@@ -1493,6 +1493,35 @@ TEST_F(VehicleExecutionNodeTest, SurfaceWatchdogTimesOutWhenEnabledAndDepthIsMis
   EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::ABORTED);
 }
 
+TEST_F(VehicleExecutionNodeTest, SurfaceWithNoDepthRisesBlindUntilItsTimeLimit)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("control.surface_blind_rise_rate_mps", 0.3);
+  options.append_parameter_override("control.surface_blind_timeout_s", 1.0);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  double max_vz = 0.0;
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&max_vz](const mavros_msgs::msg::PositionTarget::SharedPtr msg) {max_vz = std::max(max_vz, (double)msg->velocity.z);});
+  using Action = banyu_msgs::action::Surface;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/surface");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  Action::Goal goal;
+  goal.target_depth_m = 0.0; goal.depth_tolerance_m = 0.3; goal.watchdog_timeout_s = 0.15;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  spinFor(node, 5);
+  // Not the 0.15 s depth watchdog: the blind rise runs.
+  EXPECT_TRUE(result_future.wait_for(0ms) != std::future_status::ready);
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::ABORTED);
+  EXPECT_NEAR(max_vz, 0.3, 1e-6);
+}
+
 TEST_F(VehicleExecutionNodeTest, SurfaceWatchdogZeroDisablesMissingDepthTimeout)
 {
   rclcpp::NodeOptions options;

@@ -284,6 +284,9 @@ void VehicleExecutionNode::initActionServers()
     this, surface_action, this, depth_kp, max_depth_rate, require_calibrated_surface_depth_,
     declare_parameter<double>("control.surface_hold_time_s", 1.0), surface_depth_timeout_s_,
     declare_parameter<double>("control.surface_max_depth_m", 0.2));
+  surface_server->setBlindRise(
+    declare_parameter<double>("control.surface_blind_rise_rate_mps", 0.0),
+    declare_parameter<double>("control.surface_blind_timeout_s", 180.0));
   auto acquire_gate_server = std::make_shared<AcquireGateServer>(
     this, acquire_gate_action, this);
   auto search_marker_server = std::make_shared<SearchMarkerServer>(

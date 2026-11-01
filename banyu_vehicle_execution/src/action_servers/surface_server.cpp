@@ -50,14 +50,24 @@ bool SurfaceServer::validateGoal(const Goal & goal, std::string & reason)
   return true;
 }
 
+void SurfaceServer::setBlindRise(double rate_mps, double timeout_s)
+{
+  if (!std::isfinite(rate_mps) || rate_mps < 0.0 || !std::isfinite(timeout_s) || timeout_s < 0.0) {
+    throw std::invalid_argument("Surface blind rise rate and timeout must not be negative");
+  }
+  blind_rise_rate_ = rate_mps;
+  blind_timeout_s_ = timeout_s;
+}
+
 void SurfaceServer::onGoalStarted()
 {
+  blind_s_ = 0.0;
   last_valid_depth_time_ = std::chrono::steady_clock::now();
   hold_active_ = false;
 }
 
 MotionIntent SurfaceServer::tick(
-  const VehicleTelemetry & telemetry, const rclcpp::Time & now, double /*dt*/)
+  const VehicleTelemetry & telemetry, const rclcpp::Time & now, double dt)
 {
   if (!active_handle_) {
     return zeroIntent();
@@ -91,6 +101,20 @@ MotionIntent SurfaceServer::tick(
     !water.source_id.empty() && !water.calibration_id.empty();
   const bool depth_fresh = source_fresh && receipt_fresh &&
     (!require_calibrated_depth_ || calibrated);
+  if (!depth_fresh && blind_rise_rate_ > 0.0) {
+    hold_active_ = false;
+    blind_s_ += std::max(0.0, dt);
+    if (blind_s_ >= blind_timeout_s_) {
+      auto result = std::make_shared<Result>();
+      result->success = false;
+      result->reason = "Surface not proven by a GPS fix within the blind rise time";
+      result->final_depth_m = depth_m;
+      result->final_error_m = goal->target_depth_m - depth_m;
+      abortActiveWithResult(result);
+      return zeroIntent();
+    }
+    return MotionIntent::localEnu(0.0, 0.0, blind_rise_rate_, 0.0);
+  }
   if (!depth_fresh) {
     hold_active_ = false;
     if (goal->watchdog_timeout_s > 0.0 &&

@@ -25,6 +25,10 @@ public:
     double depth_timeout_s = 0.5,
     double max_surface_depth_m = 0.2);
 
+  // With no depth (no depth sensor, or it failed and the depth comes from the GPS surface proof): rise at this rate until
+  // the surface is proven, for at most timeout_s. Rate 0 keeps the old behaviour (wait, then the watchdog aborts).
+  void setBlindRise(double rate_mps, double timeout_s);
+
   void onGoalStarted() override;
   MotionIntent tick(
     const VehicleTelemetry & telemetry, const rclcpp::Time & now,
@@ -45,6 +49,9 @@ private:
   bool hold_active_{false};
   uint64_t hold_depth_generation_{0};
   int64_t hold_first_source_stamp_ns_{0};
+  double blind_rise_rate_{0.0};
+  double blind_timeout_s_{0.0};
+  double blind_s_{0.0};
 };
 
 }  // namespace banyu_vehicle_execution
