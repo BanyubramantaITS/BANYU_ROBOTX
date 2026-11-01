@@ -25,6 +25,7 @@
 
 #include "banyu_msgs/msg/pinger_observation.hpp"
 #include "banyu_vehicle_execution/action_servers.hpp"
+#include "banyu_vehicle_execution/camera_heave.hpp"
 #include "banyu_vehicle_execution/command_encoder.hpp"
 #include "banyu_vehicle_execution/goal_arbiter.hpp"
 #include "banyu_vehicle_execution/motion_intent.hpp"
@@ -132,6 +133,12 @@ private:
   uint64_t revoked_epoch_{0};
   bool require_calibrated_surface_depth_{false};
   double surface_depth_timeout_s_{0.5};
+  // No depth sensor: rel_alt and the EKF height are never used as a depth.
+  bool use_pressure_depth_{true};
+  // Heave from the pipe's apparent width for the actions that hold the vehicle over the pipe.
+  bool camera_heave_enabled_{false};
+  CameraHeave camera_heave_;
+  std::unordered_set<std::string> camera_heave_servers_;
   std::vector<std::string> surface_depth_sources_;
   int64_t run_context_start_ns_{0};
   int64_t last_water_depth_stamp_ns_{0};

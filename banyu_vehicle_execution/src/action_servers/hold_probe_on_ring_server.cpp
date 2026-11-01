@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <optional>
 
 #include "banyu_msgs/msg/pipeline_ring_observation.hpp"
 
@@ -20,6 +21,14 @@ constexpr double kLastOffsetHoldS = 3.0;   // keep correcting with the last offs
 constexpr double kOnNodeMaxOffset = 0.5;    // on the node the lid is near the centre; a lit ring further off is another node   // the detector's confidence for a lit light; colour-threshold rings are weaker
 constexpr double kBackOffM = 0.6;   // after the repair, rise this far so the lid and its neighbourhood stay in view while the code is read
 constexpr double kGreenConfirmS = 1.5;  // s of steady GREEN that count as the repair
+
+// Down-positive vertical position for relative moves: the depth sensor, or with none the integrated commanded heave.
+std::optional<double> verticalDepth(const VehicleTelemetry & t)
+{
+  if (t.depth_valid) {return t.depth_m;}
+  if (t.depth_free) {return t.heave_odom_m;}
+  return std::nullopt;
+}
 }  // namespace
 
 HoldProbeOnRingServer::HoldProbeOnRingServer(
@@ -88,8 +97,9 @@ MotionIntent HoldProbeOnRingServer::tick(
 
   const auto goal = active_handle_->get_goal();
   if (goal->climb_only) {
-    if (!telemetry.pose_valid || !telemetry.depth_valid) {return zeroIntent();}
-    if (!std::isfinite(origin_depth_m_) || telemetry.depth_m <= origin_depth_m_ + 0.05) {
+    const auto depth = verticalDepth(telemetry);
+    if (!telemetry.pose_valid || !depth) {return zeroIntent();}
+    if (!std::isfinite(origin_depth_m_) || *depth <= origin_depth_m_ + 0.05) {
       finish(true, "Back at the depth where the approach started");
       return zeroIntent();
     }
@@ -179,13 +189,15 @@ void HoldProbeOnRingServer::finish(bool success, const std::string & reason)
 MotionIntent HoldProbeOnRingServer::approachTick(
   const VehicleTelemetry & telemetry, const rclcpp::Time & now, double dt)
 {
-  if (!telemetry.pose_valid || !telemetry.depth_valid) {
+  const auto depth = verticalDepth(telemetry);
+  if (!telemetry.pose_valid || !depth) {
     return zeroIntent();
   }
+  const double depth_m = *depth;
   const auto goal = active_handle_->get_goal();
   if (!depth_captured_) {
-    start_depth_m_ = telemetry.depth_m;
-    origin_depth_m_ = telemetry.depth_m;
+    start_depth_m_ = depth_m;
+    origin_depth_m_ = depth_m;
     depth_captured_ = true;
   }
   // Before contact any ring of the right colour guides the sink; once on the node only the lit lid counts.
@@ -215,12 +227,12 @@ MotionIntent HoldProbeOnRingServer::approachTick(
       if (!goal->climb_back) {
         // Stay near the node, but rise a little first: on the node the lid fills the image, the vehicle slides off it within
         // seconds and the flashes leave the view. From 0.6 m higher the same drift keeps the lid in view.
-        back_off_depth_m_ = telemetry.depth_m - kBackOffM;
+        back_off_depth_m_ = depth_m - kBackOffM;
         phase_ = Phase::BackOff;
       }
     }
   }
-  const double depth_below_start = telemetry.depth_m - start_depth_m_;
+  const double depth_below_start = depth_m - start_depth_m_;
 
   auto feedback = std::make_shared<Feedback>();
   feedback->stamp = now;
@@ -268,7 +280,7 @@ MotionIntent HoldProbeOnRingServer::approachTick(
       }
       break;
     case Phase::BackOff:
-      if (telemetry.depth_m <= back_off_depth_m_ + 0.05) {
+      if (depth_m <= back_off_depth_m_ + 0.05) {
         finish(true, "Ring repaired");
         return zeroIntent();
       }

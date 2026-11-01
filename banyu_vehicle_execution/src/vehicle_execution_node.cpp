@@ -284,6 +284,31 @@ void VehicleExecutionNode::initActionServers()
     this, surface_action, this, depth_kp, max_depth_rate, require_calibrated_surface_depth_,
     declare_parameter<double>("control.surface_hold_time_s", 1.0), surface_depth_timeout_s_,
     declare_parameter<double>("control.surface_max_depth_m", 0.2));
+  use_pressure_depth_ = declare_parameter<bool>("control.use_pressure_depth", true);
+  telemetry_.depth_free = !use_pressure_depth_;
+  camera_heave_enabled_ = declare_parameter<bool>("camera_heave.enabled", false);
+  CameraHeaveConfig heave_config;
+  heave_config.pipe_diameter_m = declare_parameter<double>("camera_heave.pipe_diameter_m", heave_config.pipe_diameter_m);
+  heave_config.hfov_rad = declare_parameter<double>("camera_heave.hfov_rad", heave_config.hfov_rad);
+  heave_config.standoff_m = declare_parameter<double>("camera_heave.standoff_m", heave_config.standoff_m);
+  heave_config.kp = declare_parameter<double>("camera_heave.kp", heave_config.kp);
+  heave_config.max_rate_mps = declare_parameter<double>("camera_heave.max_rate_mps", heave_config.max_rate_mps);
+  heave_config.deadband_m = declare_parameter<double>("camera_heave.deadband_m", heave_config.deadband_m);
+  heave_config.trim_mps = declare_parameter<double>("camera_heave.trim_mps", heave_config.trim_mps);
+  if (!(heave_config.pipe_diameter_m > 0.0) || !(heave_config.hfov_rad > 0.0) || !(heave_config.standoff_m > 0.0) ||
+    !(heave_config.max_rate_mps > 0.0))
+  {
+    throw std::invalid_argument("camera_heave diameter, fov, standoff and rate must be positive");
+  }
+  camera_heave_ = CameraHeave(heave_config);
+  {
+    const double rate = declare_parameter<double>("camera_descent.rate_mps", 0.15);
+    dive_server->setCameraDescent(
+      rate, declare_parameter<double>("camera_descent.lock_s", 1.0),
+      declare_parameter<double>("camera_descent.max_depth_m", 15.0) / rate);
+  }
+  camera_heave_servers_ = {acquire_server->name(), search_server->name(), follow_server->name(),
+    center_server->name()};
   surface_server->setBlindRise(
     declare_parameter<double>("control.surface_blind_rise_rate_mps", 0.0),
     declare_parameter<double>("control.surface_blind_timeout_s", 180.0));
@@ -494,6 +519,10 @@ void VehicleExecutionNode::timerCallback()
   }
 
 
+  const auto camera_range = camera_heave_.range(current_ros_time.seconds());
+  telemetry_.camera_range_valid = camera_range.has_value();
+  telemetry_.camera_range_m = camera_range.value_or(0.0);
+
   MotionIntent intent = zeroIntent();
   bool readiness_output_selected = false;
   bool readiness_output_published = false;
@@ -515,7 +544,13 @@ void VehicleExecutionNode::timerCallback()
     const auto & handle = *arbiter_.activeGoal();
     auto it = server_map_.find(handle.goal.owner);
     if (it != server_map_.end()) {
-      const auto requested = it->second->tick(telemetry_, current_ros_time, dt);
+      auto requested = it->second->tick(telemetry_, current_ros_time, dt);
+      // No depth sensor: an action that does not command heave holds the standoff above the pipe by camera.
+      if (camera_heave_enabled_ && requested.linear_z == 0.0 &&
+        camera_heave_servers_.count(handle.goal.owner) > 0)
+      {
+        requested.linear_z = camera_heave_.command(current_ros_time.seconds());
+      }
       intent = arbiter_.selectOutput(handle, requested);
     } else {
       intent = zeroIntent();
@@ -531,6 +566,10 @@ void VehicleExecutionNode::timerCallback()
     !runMotionAuthorized() && !readinessHoldAuthorized()))
   {
     intent = zeroIntent();
+  }
+
+  if (telemetry_.depth_free && !safety_fault) {
+    telemetry_.heave_odom_m -= intent.linear_z * dt;
   }
 
   // Encode to PositionTarget and publish to preview sink
@@ -616,7 +655,7 @@ void VehicleExecutionNode::handlePose(const geometry_msgs::msg::PoseStamped::Sha
     msg->pose.orientation.z, msg->pose.orientation.w);
 
   // If depth is not received from rel_alt, fall back to -pos_z
-  if (!telemetry_.depth_valid) {
+  if (!telemetry_.depth_valid && use_pressure_depth_) {
     telemetry_.depth_m = -telemetry_.pos_z;
   }
 }
@@ -632,6 +671,7 @@ void VehicleExecutionNode::handleGps(const sensor_msgs::msg::NavSatFix::SharedPt
 
 void VehicleExecutionNode::handleRelAlt(const std_msgs::msg::Float64::SharedPtr msg)
 {
+  if (!use_pressure_depth_) {return;}
   const auto receipt = steady_clock_.now();
   const double current_depth = std::isfinite(msg->data) ? -msg->data : 0.0;
   telemetry_.depth_samples_since_last_tick.push_back(current_depth);
@@ -979,6 +1019,10 @@ void VehicleExecutionNode::handlePipelineObs(
   telemetry_.pipeline_offset_y = msg->offset_y;
   telemetry_.pipeline_heading_error_rad = msg->heading_error_rad;
   telemetry_.pipeline_confidence = msg->confidence;
+  telemetry_.pipeline_width = msg->width;
+  if (msg->status == banyu_msgs::msg::PipelineObservation::TRACKED) {
+    camera_heave_.addWidth(msg->width, telemetry_.pipeline_obs_stamp.seconds());
+  }
 }
 
 void VehicleExecutionNode::handleRingObs(

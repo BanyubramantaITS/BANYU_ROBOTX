@@ -126,6 +126,10 @@ if(BUILD_TESTING)
   target_compile_features(test_run_authorization PUBLIC cxx_std_17)
   ament_target_dependencies(test_run_authorization rclcpp rclcpp_action banyu_msgs)
 
+  ament_add_gtest(test_camera_heave test/test_camera_heave.cpp)
+  target_compile_features(test_camera_heave PUBLIC cxx_std_17)
+  target_include_directories(test_camera_heave PRIVATE include)
+
   ament_add_gtest(test_depth_health_monitor test/test_depth_health_monitor.cpp)
   target_compile_features(test_depth_health_monitor PUBLIC cxx_std_17)
   target_include_directories(test_depth_health_monitor PRIVATE include)

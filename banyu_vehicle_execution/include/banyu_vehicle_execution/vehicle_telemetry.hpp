@@ -102,6 +102,14 @@ struct VehicleTelemetry
   double pipeline_offset_y{0.0};
   double pipeline_heading_error_rad{0.0};
   double pipeline_confidence{0.0};
+  double pipeline_width{std::numeric_limits<double>::quiet_NaN()};
+
+  // Depth-free mode: no depth sensor. heave_odom_m integrates the commanded heave (down positive) so actions can make
+  // relative vertical moves; camera_range_m is the range to the pipe from its apparent width.
+  bool depth_free{false};
+  double heave_odom_m{0.0};
+  bool camera_range_valid{false};
+  double camera_range_m{0.0};
 
   // Ring observation
   bool ring_obs_valid{false};
