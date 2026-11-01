@@ -169,6 +169,9 @@ def generate_launch_description():
     pipe_dy_arg = DeclareLaunchArgument(name="pipe_dy", default_value="", description="Scenario: shift the pipe north (m).")
     pipe_dyaw_arg = DeclareLaunchArgument(
         name="pipe_dyaw_deg", default_value="", description="Scenario: rotate the pipe about its start end (deg).")
+    light_fault_arg = DeclareLaunchArgument(
+        name="light_fault", default_value="",
+        description="Scenario: a functional node fault '<node>:thermistor|mag|hot' (blinks RED or goes dark).")
     visibility_arg = DeclareLaunchArgument(
         name="visibility_m", default_value="", description="Scenario: water visibility (m); empty = the world's.")
     spawn_x_arg = DeclareLaunchArgument(name="spawn_x", default_value="0")
@@ -268,6 +271,7 @@ def generate_launch_description():
                 + [world_path],
                 additional_env={
                     "BANYU_LIGHT_SEED": LaunchConfiguration("light_seed").perform(context),
+                    "BANYU_LIGHT_FAULT": LaunchConfiguration("light_fault").perform(context),
                     "BANYU_TIER": tier_val,
                 },
                 output="both",
@@ -295,6 +299,7 @@ def generate_launch_description():
                 ],
                 additional_env={
                     "BANYU_LIGHT_SEED": LaunchConfiguration("light_seed").perform(context),
+                    "BANYU_LIGHT_FAULT": LaunchConfiguration("light_fault").perform(context),
                     "BANYU_TIER": tier_val,
                 },
                 output="screen",
@@ -378,6 +383,7 @@ def generate_launch_description():
             pipe_dy_arg,
             pipe_dyaw_arg,
             visibility_arg,
+            light_fault_arg,
             spawn_x_arg,
             spawn_y_arg,
             spawn_z_arg,

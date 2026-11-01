@@ -142,6 +142,7 @@ def generate_launch_description():
             ("current_east", "Scenario: water current east (m/s)."),
             ("current_north", "Scenario: water current north (m/s)."),
             ("current_gust", "Scenario: extra current along the steady one for 5 s of every 30 s (m/s)."),
+            ("light_fault", "Scenario: a functional light node fault '<node>:thermistor|mag|hot'."),
         )
     ]
 
@@ -241,6 +242,7 @@ def generate_launch_description():
             "pipe_dy": LaunchConfiguration("pipe_dy"),
             "pipe_dyaw_deg": LaunchConfiguration("pipe_dyaw_deg"),
             "visibility_m": LaunchConfiguration("visibility_m"),
+            "light_fault": LaunchConfiguration("light_fault"),
             "spawn_x": task2_spawn_x,
             "spawn_y": task2_spawn_y,
             "spawn_z": task2_spawn_z,

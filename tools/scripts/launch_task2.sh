@@ -65,6 +65,9 @@ Simulation Options (--sim only):
                         Scenario: move the pipe against the buoys: rotate about its start end by dyaw deg, shift dx east,
                         dy north (m).
   --visibility <m>      Scenario: water visibility in metres (turbidity).
+  --light-fault <n:kind>
+                        Scenario: functional node n shows a build-guide fault: thermistor (RED blink 500 ms), mag (RED blink
+                        250 ms) or hot (LEDs off).
   --buoy-error <x> <y>  Scenario: the USV reports both buoys x m east and y m north of their real place.
   --current <e> <n> [<gust>]
                         Scenario: water current east and north (m/s), plus a gust along it for 5 s of every 30 s.
@@ -123,6 +126,9 @@ while [[ $# -gt 0 ]]; do
     --pipe-move)
       [ $# -ge 4 ] || { echo "Error: --pipe-move needs dx dy dyaw." >&2; exit 1; }
       SCENARIO_ARGS+=(pipe_dx:="$2" pipe_dy:="$3" pipe_dyaw_deg:="$4"); GPS_GATE_OPTS_SET=true; shift 4 ;;
+    --light-fault)
+      [ $# -ge 2 ] || { echo "Error: --light-fault needs node:kind." >&2; exit 1; }
+      SCENARIO_ARGS+=(light_fault:="$2"); GPS_GATE_OPTS_SET=true; shift 2 ;;
     --visibility)
       [ $# -ge 2 ] || { echo "Error: --visibility needs metres." >&2; exit 1; }
       SCENARIO_ARGS+=(visibility_m:="$2"); GPS_GATE_OPTS_SET=true; shift 2 ;;

@@ -171,6 +171,16 @@ class RobotXPipelineController:
         self.disruptive_second_color = "BLUE"     # Target circle destination (2nd flash)
         self.challenge_active = True
 
+        # Scenario (build guide faults on a FUNCTIONAL node): BANYU_LIGHT_FAULT="<node>:thermistor|mag|hot", e.g. "3:mag".
+        # thermistor blinks RED every 500 ms, mag every 250 ms, hot switches the LEDs off.
+        self.fault_node, self.fault_kind = None, None
+        fault = os.environ.get("BANYU_LIGHT_FAULT", "").strip()
+        if fault:
+            node_text, _, kind = fault.partition(":")
+            if kind in ("thermistor", "mag", "hot") and node_text.isdigit():
+                self.fault_node, self.fault_kind = int(node_text), kind
+                print(f"[Pipeline] Fault scenario: node {self.fault_node} {kind}")
+
         env_seed = os.environ.get("BANYU_LIGHT_SEED", os.environ.get("ROBOTX_SEED", "")).strip()
         if env_seed:
             try:
@@ -771,6 +781,20 @@ class RobotXPipelineController:
                         node.magnet_above_threshold_start = now
                 else:
                     node.magnet_above_threshold_start = None
+
+                # A node fault (scenario): a functional node that blinks RED or is dark.
+                if node.role == "FUNCTIONAL" and idx == self.fault_node:
+                    if self.fault_kind == "hot":
+                        name = "OFF"
+                    else:
+                        half = 0.5 if self.fault_kind == "thermistor" else 0.25
+                        name = "RED" if (now % (2 * half)) < half else "OFF"
+                    node.state = f"FAULT_{self.fault_kind.upper()}"
+                    if node.active_color_name != name:
+                        node.active_color_name = name
+                        node.active_rgb = COLOR_MAP[name]
+                        to_actuate.append((idx, COLOR_MAP[name]))
+                    continue
 
                 # Functional segments remain solid green throughout
                 if node.role == "FUNCTIONAL":
