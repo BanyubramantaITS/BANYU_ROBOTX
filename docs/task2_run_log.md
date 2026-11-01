@@ -342,3 +342,26 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   AcquirePipeline, SearchPipeline, FollowPipeline and CenterOnRing get their heave from the standoff loop (1.6 m, kp 0.4, max 0.25 m/s,
   deadband 0.1 m); HoldProbeOnRing's relative moves (max descent, the 0.6 m back-off, the climb back) use the integrated commanded heave.
   Not yet run in the sim.
+- **Step 1, Advanced re-runs (random spawn, H23 code):** seed 1 (node 2) PASS 475. **Seed 5 (node 3) FAIL 325**: repair and circle BLUE
+  right, order GREEN, GREEN, GREEN, RED (expected GREEN, GREEN, RED, GREEN), the same failure as before H23. Records: progress 0.0, 0.86,
+  1.82 (GREEN) and 3.16 (RED), the 0.86 and 1.82 records made from x 2.03 and 1.89 within 0.23 s. Gazebo ground truth: the vehicle followed
+  at z -12.25, 1.15 m above the nodes (z -13.4), while the tracker's fixed `camera_height_m` is 1.7, so a far ring was put 50% too far ahead
+  and one node made two records 0.96 m apart (association 0.8 m); the cap of four then kept node 4 out. **H24:** the tracker takes the
+  camera height from the pipe's apparent width (median of 9 frames, within 1 s; range x cos(tilt)), the fixed height only without it.
+  New tracker test (vehicle 1.15 m above the rings, configured 1.7: two records at the right places). Not yet run in the sim.
+- **D7 (order without the pipe map), implemented:** under water the real Pixhawk has no position (no GPS, no DVL; EKF3 stops aiding), while
+  the sim EKF keeps one within 0.1-0.15 m of the Gazebo pose (seen in every rings.jsonl), so the order must not rest on it. With
+  `sensors:=minimal` the ring tracker dead-reckons the vehicle from the last surface fix and the commanded ENU velocity
+  (`/banyu/execution/preview_target`), and measures ring progress along the buoy-to-buoy line (USV PipelineBuoys bearing; origin where the
+  GPS is lost at the dive), low progress at the start buoy. `centerline_points` is then not used.
+- **D3 (always report, second dive), implemented:** a failed dive or traverse surfaces, shifts the target `retry_dive_offset_m` 3 m along the
+  buoy line toward the other buoy and dives again; if that fails too, `GiveUpSurvey` ends the survey and the vehicle surfaces and asks for a
+  best-effort Core survey (report id suffix `.best_effort`): the verified active buoy, the rings seen in progress order, GREEN for the rest.
+  Ledger tests: 3 rings seen -> GREEN, GREEN, RED, GREEN; nothing seen -> all GREEN; no verified buoy -> no report; a complete survey -> the
+  full report. The full search of the plan (depth steps with lateral sweeps, LED toggle, hydrophone prior) is not implemented: the
+  camera descent stops at the first lock, and the hydrophone and LED are not part of the minimal set.
+- **Scenario tooling (sim only), implemented:** `launch_task2.sh --pipe-depth`, `--pipe-move dx dy dyaw` (pipe moved against the buoys;
+  the sim provider's end-of-pipe ground truth moves with it), `--visibility` (turbidity attenuation scaled to 3 / visibility for green),
+  `--buoy-error x y` (USV buoy report error), `--current e n [gust]` (gz `/ocean_current`, gust 5 s of every 30 s), `--light-fault n:kind`
+  (thermistor or magnetometer RED blink on a functional node, or LEDs off). `task2_sim_batch.sh --opts "..."` passes them to every run;
+  `task2_score_run.py` scores each run from Gazebo ground truth.
