@@ -365,3 +365,7 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   `--buoy-error x y` (USV buoy report error), `--current e n [gust]` (gz `/ocean_current`, gust 5 s of every 30 s), `--light-fault n:kind`
   (thermistor or magnetometer RED blink on a functional node, or LEDs off). `task2_sim_batch.sh --opts "..."` passes them to every run;
   `task2_score_run.py` scores each run from Gazebo ground truth.
+- **Step 1 result (random spawn, H23 code, Bar30 depth):** Core 4 of 4 PASS 450 (seeds 2, 1, 5, 9 = nodes 1-4); Disruptive 4 of 4 PASS 500;
+  Advanced 3 of 4 PASS 475 (seed 5 node 3 order wrong, cause and fix H24 above). The two frozen Advanced runs are not counted.
+  Merged into `feat/task2-core-disruptive-sim` (fast-forward) and `install/` rebuilt; next: H24 on Advanced seed 5, then the first
+  `sensors:=minimal` run.
