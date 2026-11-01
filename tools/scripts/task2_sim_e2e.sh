@@ -53,9 +53,13 @@ if [ "$UP" = 1 ]; then
   # Core ends shortly after the survey report, Advanced and Disruptive after the resource request, once the ring
   # recorder has the final state.
   if [ "$TIER" = "core" ]; then DONE_KIND=uuv_pipeline_survey; else DONE_KIND=uuv_resource_delivery; fi
-  for _ in $(seq 1 "$TIMEOUT"); do
+  # A best-effort report (survey not completed) is a Core survey with no resource delivery: end 40 s after the survey.
+  SURVEY_AT=0
+  for i in $(seq 1 "$TIMEOUT"); do
     kill -0 "$GCS_PID" 2>/dev/null || break
     if grep -q "$DONE_KIND" "$OUT/mock_gcs.jsonl" 2>/dev/null; then sleep 20; kill "$GCS_PID" 2>/dev/null; break; fi
+    if [ "$SURVEY_AT" = 0 ] && grep -q uuv_pipeline_survey "$OUT/mock_gcs.jsonl" 2>/dev/null; then SURVEY_AT=$i; fi
+    if [ "$SURVEY_AT" != 0 ] && [ $((i - SURVEY_AT)) -ge 40 ]; then kill "$GCS_PID" 2>/dev/null; break; fi
     sleep 1
   done
   wait "$GCS_PID"

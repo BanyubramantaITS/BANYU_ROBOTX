@@ -35,6 +35,7 @@ SPAWN_SEED=""
 SPAWN_XYZ=""
 SENSORS="full"
 PIPE_DEPTH=""
+SCENARIO_ARGS=()
 EXTRA_ARGS=()
 
 print_usage() {
@@ -60,6 +61,13 @@ Simulation Options (--sim only):
                         buoys) with a random heading, picked from this seed, so it has to navigate to the start buoy by GPS.
   --spawn <x> <y> <yaw> Spawn the UUV at x east, y north (m from the origin) with heading yaw (rad).
   --pipe-depth <m>      Put the pipeline's light nodes this deep (1 to 13.4 m; default: the world's 13.4 m).
+  --pipe-move <dx> <dy> <dyaw>
+                        Scenario: move the pipe against the buoys: rotate about its start end by dyaw deg, shift dx east,
+                        dy north (m).
+  --visibility <m>      Scenario: water visibility in metres (turbidity).
+  --buoy-error <x> <y>  Scenario: the USV reports both buoys x m east and y m north of their real place.
+  --current <e> <n> [<gust>]
+                        Scenario: water current east and north (m/s), plus a gust along it for 5 s of every 30 s.
   --gps-gate            Simulate GPS loss/reacquire around depth (gps_gate:=True).
   --no-gps-gate         (Default) Do not gate GPS (gps_gate:=False).
   --gps-loss-depth <m>  Depth at which GPS is lost (default: 0.1; gps_loss_depth_m).
@@ -112,6 +120,19 @@ while [[ $# -gt 0 ]]; do
     --pipe-depth)
       [ $# -ge 2 ] || { echo "Error: --pipe-depth needs a value in metres." >&2; exit 1; }
       PIPE_DEPTH="$2"; GPS_GATE_OPTS_SET=true; shift 2 ;;
+    --pipe-move)
+      [ $# -ge 4 ] || { echo "Error: --pipe-move needs dx dy dyaw." >&2; exit 1; }
+      SCENARIO_ARGS+=(pipe_dx:="$2" pipe_dy:="$3" pipe_dyaw_deg:="$4"); GPS_GATE_OPTS_SET=true; shift 4 ;;
+    --visibility)
+      [ $# -ge 2 ] || { echo "Error: --visibility needs metres." >&2; exit 1; }
+      SCENARIO_ARGS+=(visibility_m:="$2"); GPS_GATE_OPTS_SET=true; shift 2 ;;
+    --buoy-error)
+      [ $# -ge 3 ] || { echo "Error: --buoy-error needs x y." >&2; exit 1; }
+      SCENARIO_ARGS+=(buoy_error_x:="$2" buoy_error_y:="$3"); GPS_GATE_OPTS_SET=true; shift 3 ;;
+    --current)
+      [ $# -ge 3 ] || { echo "Error: --current needs east north [gust]." >&2; exit 1; }
+      SCENARIO_ARGS+=(current_east:="$2" current_north:="$3"); GPS_GATE_OPTS_SET=true; shift 3
+      if [[ $# -ge 1 && "$1" =~ ^[0-9.]+$ ]]; then SCENARIO_ARGS+=(current_gust:="$1"); shift; fi ;;
     --sensors)
       [ $# -ge 2 ] || { echo "Error: --sensors needs a value (full|minimal)." >&2; exit 1; }
       SENSORS="$2"; shift 2 ;;
@@ -149,7 +170,7 @@ if ! [[ "$GPS_REACQUIRE_DELAY" =~ $NUM_RE ]]; then
 fi
 if [ "$TARGET" = "real" ]; then
   if [ "$GPS_GATE" = true ] || [ "$GPS_GATE_OPTS_SET" = true ]; then
-    echo "Error: --gps-gate / --gps-loss-depth / --gps-reacquire-delay / --light-seed / --spawn* / --pipe-depth are simulation only" >&2
+    echo "Error: --gps-gate / --gps-loss-depth / --gps-reacquire-delay / --light-seed / --spawn* / --pipe-* / scenario options are simulation only" >&2
     echo "  (the GPS gate is a sim shim); they are refused with --real. Use --sim." >&2
     exit 1
   fi
@@ -178,6 +199,7 @@ echo "Tier              : $([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && e
 echo "Sensors           : $SENSORS$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")"
 if [ "$TARGET" = "sim" ]; then
   [ -n "$PIPE_DEPTH" ] && echo "Pipe depth        : light nodes at ${PIPE_DEPTH} m"
+  [ ${#SCENARIO_ARGS[@]} -gt 0 ] && echo "Scenario          : ${SCENARIO_ARGS[*]}"
   echo "Gazebo GUI        : $([ "$HEADLESS" = true ] && echo "HEADLESS (server only)" || echo "ENABLED")"
   echo "GPS gate          : $(TF $GPS_GATE) (loss depth ${GPS_LOSS_DEPTH} m, reacquire delay ${GPS_REACQUIRE_DELAY} s)"
 fi
@@ -221,6 +243,7 @@ if [ "$TARGET" = "sim" ]; then
   )
   [ -n "$LIGHT_SEED" ] && LAUNCH_CMD+=(light_seed:="$LIGHT_SEED")
   [ -n "$PIPE_DEPTH" ] && LAUNCH_CMD+=(pipe_depth:="$PIPE_DEPTH")
+  [ ${#SCENARIO_ARGS[@]} -gt 0 ] && LAUNCH_CMD+=("${SCENARIO_ARGS[@]}")
   if [ -n "$SPAWN_SEED" ]; then
     # Random spawn: 10-20 m from the origin, random bearing and heading, from this seed (the buoys are 3.8 m either side).
     SPAWN_XYZ="$(python3 -c "

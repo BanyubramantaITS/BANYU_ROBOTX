@@ -71,6 +71,11 @@ def generate_launch_description():
         choices=["full", "minimal"],
     )
 
+    scenario_args = [
+        DeclareLaunchArgument(name=n, default_value="0.0", description="Simulation scenario, see main_launch.launch.py")
+        for n in ("pipe_dx", "pipe_dy", "pipe_dyaw_deg", "buoy_error_x", "buoy_error_y")
+    ]
+
     task2_params_arg = DeclareLaunchArgument(
         name="task2_params_file",
         default_value=default_task2_params,
@@ -235,7 +240,14 @@ def generate_launch_description():
         package="banyu_bringup",
         executable="task2_sim_provider.py",
         name="task2_sim_provider",
-        parameters=[task2_params],
+        parameters=[
+            task2_params,
+            {
+                f"scenario_{n}": ParameterValue(
+                    PythonExpression(["'", LaunchConfiguration(n), "' or '0.0'"]), value_type=float)
+                for n in ("pipe_dx", "pipe_dy", "pipe_dyaw_deg", "buoy_error_x", "buoy_error_y")
+            },
+        ],
         output="screen",
         condition=IfCondition(task2_fixture_mode),
     )
@@ -414,7 +426,7 @@ def generate_launch_description():
         ),
     )
     return LaunchDescription(
-        [
+        scenario_args + [
             mode_arg,
             use_sim_arg,
             use_sim_time_arg,

@@ -75,6 +75,27 @@ def set_pipe_depth(template, node_depth_m):
     return template[:m.start(2)] + " ".join(v) + template[m.end(2):]
 
 
+def move_pipe(template, dx, dy, dyaw_deg):
+    """Scenario: rotate the pipeline about its origin (its start end) by dyaw_deg, then shift it (m); the buoys stay."""
+    pat = r"(<name>pipeline</name>\s*<uri>[^<]*</uri>\s*<pose>)([^<]*)(</pose>)"
+    m = re.search(pat, template)
+    assert m, "pipeline pose"
+    v = [float(x) for x in m.group(2).split()]
+    v[0] += dx
+    v[1] += dy
+    v[5] += math.radians(dyaw_deg)
+    return template[:m.start(2)] + " ".join(f"{x:.5f}" for x in v) + template[m.end(2):]
+
+
+def set_visibility(template, visibility_m):
+    """Scenario: scale the turbidity's beam attenuation so the green channel sees visibility_m (contrast 5%: 3 / beta)."""
+    m = re.search(r"<attenuation>([^<]*)</attenuation>", template)
+    assert m, "attenuation"
+    att = [float(x) for x in m.group(1).split()]
+    k = (3.0 / visibility_m) / att[1]
+    return template[:m.start(1)] + " ".join(f"{a * k:.3f}" for a in att) + template[m.end(1):]
+
+
 def self_check():
     for seed in range(200):
         lay = random_layout(seed)
@@ -88,6 +109,9 @@ def self_check():
            "<name>robobuoy_red</name><uri>u</uri><pose>0 0 0 0 0 0</pose>")
     assert "0 0 0 0 0 0" not in layout_world(tpl, random_layout(1))
     assert "<pose>0 0 -4.596 0 0 0</pose>" in set_pipe_depth(tpl, 3.0)
+    assert "<pose>1.00000 -2.00000 0.00000 0.00000 0.00000 0.17453</pose>" in move_pipe(tpl, 1.0, -2.0, 10.0)
+    assert "<attenuation>5.143 3.000 4.714</attenuation>" in set_visibility(
+        "<attenuation>0.60 0.35 0.55</attenuation>", 1.0)
     print("gazebo_main layout self-check OK")
 
 
@@ -141,6 +165,12 @@ def generate_launch_description():
     pipe_depth_arg = DeclareLaunchArgument(
         name="pipe_depth", default_value="",
         description="Depth (m) of the light nodes below the surface; empty = the world's 13.4 m.")
+    pipe_dx_arg = DeclareLaunchArgument(name="pipe_dx", default_value="", description="Scenario: shift the pipe east (m).")
+    pipe_dy_arg = DeclareLaunchArgument(name="pipe_dy", default_value="", description="Scenario: shift the pipe north (m).")
+    pipe_dyaw_arg = DeclareLaunchArgument(
+        name="pipe_dyaw_deg", default_value="", description="Scenario: rotate the pipe about its start end (deg).")
+    visibility_arg = DeclareLaunchArgument(
+        name="visibility_m", default_value="", description="Scenario: water visibility (m); empty = the world's.")
     spawn_x_arg = DeclareLaunchArgument(name="spawn_x", default_value="0")
     spawn_y_arg = DeclareLaunchArgument(name="spawn_y", default_value="0")
     spawn_z_arg = DeclareLaunchArgument(name="spawn_z", default_value="-0.06")
@@ -195,9 +225,18 @@ def generate_launch_description():
         else:
             world_path = _world_file
             pipe_depth = LaunchConfiguration("pipe_depth").perform(context)
-            if pipe_depth:
+            pipe_move = [float(LaunchConfiguration(n).perform(context) or 0.0)
+                         for n in ("pipe_dx", "pipe_dy", "pipe_dyaw_deg")]
+            visibility = LaunchConfiguration("visibility_m").perform(context)
+            if pipe_depth or any(pipe_move) or visibility:
                 with open(_world_file) as f:
-                    world = set_pipe_depth(f.read(), float(pipe_depth))
+                    world = f.read()
+                if pipe_depth:
+                    world = set_pipe_depth(world, float(pipe_depth))
+                if any(pipe_move):
+                    world = move_pipe(world, *pipe_move)
+                if visibility:
+                    world = set_visibility(world, float(visibility))
                 world_path = os.path.join(tempfile.gettempdir(), "banyu_main_world.world")
                 with open(world_path, "w") as f:
                     f.write(world)
@@ -206,7 +245,9 @@ def generate_launch_description():
             sz = float(LaunchConfiguration("spawn_z").perform(context))
             syaw = float(LaunchConfiguration("spawn_yaw").perform(context))
             info_msg = (f"[layout] using world {world_path} with spawn ({sx}, {sy}, {sz}, yaw {syaw})"
-                        + (f", light nodes at {pipe_depth} m" if pipe_depth else ""))
+                        + (f", light nodes at {pipe_depth} m" if pipe_depth else "")
+                        + (f", pipe moved {pipe_move}" if any(pipe_move) else "")
+                        + (f", visibility {visibility} m" if visibility else ""))
 
         return [
             Node(
@@ -333,6 +374,10 @@ def generate_launch_description():
             light_seed_arg,
             tier_arg,
             pipe_depth_arg,
+            pipe_dx_arg,
+            pipe_dy_arg,
+            pipe_dyaw_arg,
+            visibility_arg,
             spawn_x_arg,
             spawn_y_arg,
             spawn_z_arg,

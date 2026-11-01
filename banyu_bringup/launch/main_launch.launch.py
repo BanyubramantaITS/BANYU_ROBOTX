@@ -130,6 +130,21 @@ def generate_launch_description():
         description="Simulation: depth (m) of the pipeline's light nodes below the surface; empty = the world's 13.4 m.",
     )
 
+    # Simulation scenarios (task2_future_plan_depth_free.md section 4); empty = none.
+    scenario_args = [
+        DeclareLaunchArgument(name=n, default_value="", description=d) for n, d in (
+            ("pipe_dx", "Scenario: shift the pipe east against the buoys (m)."),
+            ("pipe_dy", "Scenario: shift the pipe north against the buoys (m)."),
+            ("pipe_dyaw_deg", "Scenario: rotate the pipe about its start end (deg)."),
+            ("visibility_m", "Scenario: water visibility (m)."),
+            ("buoy_error_x", "Scenario: the USV reports both buoys this far east of their place (m)."),
+            ("buoy_error_y", "Scenario: the USV reports both buoys this far north of their place (m)."),
+            ("current_east", "Scenario: water current east (m/s)."),
+            ("current_north", "Scenario: water current north (m/s)."),
+            ("current_gust", "Scenario: extra current along the steady one for 5 s of every 30 s (m/s)."),
+        )
+    ]
+
     use_dvl_arg = DeclareLaunchArgument(
         name="use_dvl",
         default_value="False",
@@ -222,6 +237,10 @@ def generate_launch_description():
             "tier": LaunchConfiguration("tier"),
             "light_seed": LaunchConfiguration("light_seed"),
             "pipe_depth": LaunchConfiguration("pipe_depth"),
+            "pipe_dx": LaunchConfiguration("pipe_dx"),
+            "pipe_dy": LaunchConfiguration("pipe_dy"),
+            "pipe_dyaw_deg": LaunchConfiguration("pipe_dyaw_deg"),
+            "visibility_m": LaunchConfiguration("visibility_m"),
             "spawn_x": task2_spawn_x,
             "spawn_y": task2_spawn_y,
             "spawn_z": task2_spawn_z,
@@ -255,6 +274,11 @@ def generate_launch_description():
             "debug": LaunchConfiguration("debug"),
             "tier": LaunchConfiguration("tier"),
             "sensors": LaunchConfiguration("sensors"),
+            "pipe_dx": LaunchConfiguration("pipe_dx"),
+            "pipe_dy": LaunchConfiguration("pipe_dy"),
+            "pipe_dyaw_deg": LaunchConfiguration("pipe_dyaw_deg"),
+            "buoy_error_x": LaunchConfiguration("buoy_error_x"),
+            "buoy_error_y": LaunchConfiguration("buoy_error_y"),
             "task2_params_file": LaunchConfiguration("task2_params_file"),
             "por_params_file": LaunchConfiguration("por_params_file"),
         }.items(),
@@ -297,8 +321,21 @@ def generate_launch_description():
         ),
     )
 
+    sim_current = ExecuteProcess(
+        cmd=["ros2", "run", "banyu_bringup", "sim_current.py",
+             "--east", PythonExpression(["'", LaunchConfiguration("current_east"), "' or '0'"]),
+             "--north", PythonExpression(["'", LaunchConfiguration("current_north"), "' or '0'"]),
+             "--gust", PythonExpression(["'", LaunchConfiguration("current_gust"), "' or '0'"])],
+        name="sim_current",
+        output="screen",
+        condition=IfCondition(PythonExpression([
+            "'", LaunchConfiguration("use_sim"), "' == 'True' and ('", LaunchConfiguration("current_east"), "' or '",
+            LaunchConfiguration("current_north"), "' or '", LaunchConfiguration("current_gust"), "') != ''"])),
+    )
+
     return LaunchDescription(
-        [
+        scenario_args + [
+            sim_current,
             mode_arg,
             use_sim_arg,
             use_sim_time_arg,

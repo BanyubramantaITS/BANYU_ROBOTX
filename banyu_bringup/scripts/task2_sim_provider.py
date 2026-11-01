@@ -180,6 +180,32 @@ class Task2SimProvider(Node):
             float(self.get_parameter("end_buoy_map_x").value),
             float(self.get_parameter("end_buoy_map_y").value),
         )
+        # Scenario (sim only): the pipe moved against the buoys (rotated about its start, then shifted), and the buoy
+        # positions the USV reports off by an error. gazebo_main.launch.py moves the world's pipe the same way.
+        self.declare_parameter("scenario_pipe_dx", 0.0)
+        self.declare_parameter("scenario_pipe_dy", 0.0)
+        self.declare_parameter("scenario_pipe_dyaw_deg", 0.0)
+        self.declare_parameter("scenario_buoy_error_x", 0.0)
+        self.declare_parameter("scenario_buoy_error_y", 0.0)
+        dx = float(self.get_parameter("scenario_pipe_dx").value)
+        dy = float(self.get_parameter("scenario_pipe_dy").value)
+        dyaw = math.radians(float(self.get_parameter("scenario_pipe_dyaw_deg").value))
+        if dx or dy or dyaw:
+            sx, sy = self.pipeline_start
+            ex, ey = self.pipeline_end[0] - sx, self.pipeline_end[1] - sy
+            c, sn = math.cos(dyaw), math.sin(dyaw)
+            self.pipeline_start = (sx + dx, sy + dy)
+            self.pipeline_end = (sx + dx + c * ex - sn * ey, sy + dy + sn * ex + c * ey)
+            self.get_logger().warn(
+                f"scenario: pipe moved {dx:+.2f} m east, {dy:+.2f} m north, {math.degrees(dyaw):+.1f} deg: "
+                f"start {self.pipeline_start}, end {self.pipeline_end}")
+        bex = float(self.get_parameter("scenario_buoy_error_x").value)
+        bey = float(self.get_parameter("scenario_buoy_error_y").value)
+        if bex or bey:
+            self.start_buoy_map_x += bex
+            self.start_buoy_map_y += bey
+            self.end_buoy_map = (self.end_buoy_map[0] + bex, self.end_buoy_map[1] + bey)
+            self.get_logger().warn(f"scenario: reported buoys off by ({bex:+.2f}, {bey:+.2f}) m")
         self.start_buoy_label = str(
             self.get_parameter("pipeline_buoys_start_label").value).strip().lower()
         if self.start_buoy_label not in ("a", "b"):
