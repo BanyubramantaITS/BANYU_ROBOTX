@@ -65,6 +65,8 @@ Simulation Options (--sim only):
                         Scenario: move the pipe against the buoys: rotate about its start end by dyaw deg, shift dx east,
                         dy north (m).
   --visibility <m>      Scenario: water visibility in metres (turbidity).
+  --fcu-faults <list>   Scenario: FCU sensor faults, comma separated: compass=<deg> (heading off), gps_offset=<e>:<n> (RTK
+                        float, m), gps_drop=<t>:<d> (no fix for d s, t s after start).
   --light-fault <n:kind>
                         Scenario: functional node n shows a build-guide fault: thermistor (RED blink 500 ms), mag (RED blink
                         250 ms) or hot (LEDs off).
@@ -126,6 +128,9 @@ while [[ $# -gt 0 ]]; do
     --pipe-move)
       [ $# -ge 4 ] || { echo "Error: --pipe-move needs dx dy dyaw." >&2; exit 1; }
       SCENARIO_ARGS+=(pipe_dx:="$2" pipe_dy:="$3" pipe_dyaw_deg:="$4"); GPS_GATE_OPTS_SET=true; shift 4 ;;
+    --fcu-faults)
+      [ $# -ge 2 ] || { echo "Error: --fcu-faults needs a list." >&2; exit 1; }
+      SCENARIO_ARGS+=(fcu_faults:="$2"); GPS_GATE_OPTS_SET=true; shift 2 ;;
     --light-fault)
       [ $# -ge 2 ] || { echo "Error: --light-fault needs node:kind." >&2; exit 1; }
       SCENARIO_ARGS+=(light_fault:="$2"); GPS_GATE_OPTS_SET=true; shift 2 ;;

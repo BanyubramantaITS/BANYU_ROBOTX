@@ -23,6 +23,7 @@ install(
         scripts/nogps_odom_beacon.py
         scripts/sim_gps_gate.py
         scripts/sim_current.py
+        scripts/sim_fcu_faults.py
         scripts/task2_sim_provider.py
         scripts/launch_sim.sh
         scripts/record_mission.sh

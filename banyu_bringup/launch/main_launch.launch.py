@@ -143,6 +143,7 @@ def generate_launch_description():
             ("current_north", "Scenario: water current north (m/s)."),
             ("current_gust", "Scenario: extra current along the steady one for 5 s of every 30 s (m/s)."),
             ("light_fault", "Scenario: a functional light node fault '<node>:thermistor|mag|hot'."),
+            ("fcu_faults", "Scenario: FCU sensor faults, e.g. 'compass=20,gps_offset=0.3:0.2,gps_drop=40:15'."),
         )
     ]
 
@@ -335,9 +336,19 @@ def generate_launch_description():
             LaunchConfiguration("current_north"), "' or '", LaunchConfiguration("current_gust"), "') != ''"])),
     )
 
+    sim_fcu_faults = ExecuteProcess(
+        cmd=["ros2", "run", "banyu_bringup", "sim_fcu_faults.py", "--faults", LaunchConfiguration("fcu_faults"),
+             "--ros-args", "-p", "use_sim_time:=true"],
+        name="sim_fcu_faults",
+        output="screen",
+        condition=IfCondition(PythonExpression([
+            "'", LaunchConfiguration("use_sim"), "' == 'True' and '", LaunchConfiguration("fcu_faults"), "' != ''"])),
+    )
+
     return LaunchDescription(
         scenario_args + [
             sim_current,
+            sim_fcu_faults,
             mode_arg,
             use_sim_arg,
             use_sim_time_arg,
