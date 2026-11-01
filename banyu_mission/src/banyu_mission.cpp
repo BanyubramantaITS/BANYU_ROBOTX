@@ -427,6 +427,8 @@ void BanyuMission::commandCallback(const rx_msgs::msg::Command::SharedPtr comman
   std::lock_guard<std::recursive_mutex> lock(control_mutex_);
   using Command = rx_msgs::msg::Command;
   using Lifecycle = banyu_msgs::msg::RunLifecycle;
+  RCLCPP_INFO(get_logger(), "GCS command type %u seq %u run %u target %u", command->command_type,
+    command->command_seq, command->run_id, command->target_vehicle);
   if (!run_ || (command->target_vehicle != rx_msgs::msg::VehicleType::TYPE_UUV &&
     command->target_vehicle != rx_msgs::msg::VehicleType::TYPE_UNKNOWN)) {return;}
   if (command->command_type == Command::CMD_MISSION_DONE) {
@@ -455,6 +457,8 @@ void BanyuMission::commandCallback(const rx_msgs::msg::Command::SharedPtr comman
     command->run_id, command->command_seq,
     initialized_ && autonomousReady() && executionHolding());
   if (result.disposition == RunCoordinator::Disposition::Rejected) {
+    RCLCPP_WARN(get_logger(), "Run start %u rejected: %s (ready %d, holding %d, not ready: %s)", command->run_id,
+      result.reason.c_str(), autonomousReady(), executionHolding(), autonomyNotReadyReason().c_str());
     publishLifecycle(Lifecycle::START_REJECTED, result.reason, command->run_id);
   } else if (result.disposition == RunCoordinator::Disposition::Duplicate) {
     publishLifecycle(Lifecycle::START_DUPLICATE, result.reason, command->run_id);
