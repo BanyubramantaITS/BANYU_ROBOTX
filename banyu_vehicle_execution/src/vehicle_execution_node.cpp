@@ -295,6 +295,9 @@ void VehicleExecutionNode::initActionServers()
   heave_config.max_rate_mps = declare_parameter<double>("camera_heave.max_rate_mps", heave_config.max_rate_mps);
   heave_config.deadband_m = declare_parameter<double>("camera_heave.deadband_m", heave_config.deadband_m);
   heave_config.trim_mps = declare_parameter<double>("camera_heave.trim_mps", heave_config.trim_mps);
+  heave_config.ki = declare_parameter<double>("camera_heave.ki", heave_config.ki);
+  heave_config.max_integral_mps = declare_parameter<double>(
+    "camera_heave.max_integral_mps", heave_config.max_integral_mps);
   if (!(heave_config.pipe_diameter_m > 0.0) || !(heave_config.hfov_rad > 0.0) || !(heave_config.standoff_m > 0.0) ||
     !(heave_config.max_rate_mps > 0.0))
   {
@@ -550,6 +553,9 @@ void VehicleExecutionNode::timerCallback()
         camera_heave_servers_.count(handle.goal.owner) > 0)
       {
         requested.linear_z = camera_heave_.command(current_ros_time.seconds());
+      } else if (camera_heave_enabled_ && rcModeActive()) {
+        // Under water in STABILIZE the heave stick is thrust: every other action gets the learned buoyancy trim too.
+        requested.linear_z += camera_heave_.bias();
       }
       intent = arbiter_.selectOutput(handle, requested);
     } else {

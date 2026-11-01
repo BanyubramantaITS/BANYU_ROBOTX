@@ -20,7 +20,12 @@ struct CameraHeaveConfig
   double kp{0.4};
   double max_rate_mps{0.25};
   double deadband_m{0.1};
-  double trim_mps{0.0};        // heave with no range (e.g. a small push down against positive buoyancy)
+  double trim_mps{0.0};        // fixed heave bias (e.g. a push down against positive buoyancy)
+  // Integral term: in STABILIZE the heave stick is thrust, and a positively buoyant vehicle rises with zero thrust. The
+  // integral learns that trim while the pipe is in view and keeps it when the pipe is lost, so the vehicle does not float
+  // up out of camera range.
+  double ki{0.03};
+  double max_integral_mps{0.15};
   double max_age_s{0.5};
   double min_range_m{0.3};
   double max_range_m{4.0};
@@ -61,15 +66,22 @@ public:
     return v[v.size() / 2];
   }
 
-  // Up-positive heave that holds `standoff` (the configured one if not given).
-  double command(double t, std::optional<double> standoff = std::nullopt) const
+  // Up-positive heave that holds `standoff` (the configured one if not given). Call once per control tick.
+  double command(double t, std::optional<double> standoff = std::nullopt)
   {
+    const double dt = last_command_t_ > -1.0e8 ? std::clamp(t - last_command_t_, 0.0, 0.5) : 0.0;
+    last_command_t_ = t;
     const auto r = range(t);
-    if (!r) {return config_.trim_mps;}
+    if (!r) {return std::clamp(config_.trim_mps + integral_, -config_.max_rate_mps, config_.max_rate_mps);}
     const double error = *r - standoff.value_or(config_.standoff_m);  // > 0: too high
-    if (std::abs(error) <= config_.deadband_m) {return config_.trim_mps;}
-    return std::clamp(-config_.kp * error + config_.trim_mps, -config_.max_rate_mps, config_.max_rate_mps);
+    integral_ = std::clamp(integral_ - config_.ki * error * dt, -config_.max_integral_mps, config_.max_integral_mps);
+    const double p = std::abs(error) <= config_.deadband_m ? 0.0 : -config_.kp * error;
+    return std::clamp(p + config_.trim_mps + integral_, -config_.max_rate_mps, config_.max_rate_mps);
   }
+
+  double integral() const {return integral_;}
+  // The learned buoyancy compensation, for actions that command their own heave.
+  double bias() const {return config_.trim_mps + integral_;}
 
   void reset() {ranges_.clear();}
 
@@ -77,6 +89,8 @@ private:
   CameraHeaveConfig config_;
   std::deque<double> ranges_;
   double last_t_{-1.0e9};
+  double last_command_t_{-1.0e9};
+  double integral_{0.0};
 };
 
 }  // namespace banyu_vehicle_execution

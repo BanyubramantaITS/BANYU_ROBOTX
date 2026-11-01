@@ -37,7 +37,7 @@ TEST(CameraHeave, SinksWhenHighRisesWhenLowHoldsInTheDeadband)
   EXPECT_GT(h.command(0.1), 0.0);
   h.reset();
   h.addWidth(widthAt(c, c.standoff_m + 0.05), 0.0);
-  EXPECT_DOUBLE_EQ(h.command(0.1), c.trim_mps);
+  EXPECT_NEAR(h.command(0.1), c.trim_mps, 1e-9);   // first tick: no integral yet
 }
 
 TEST(CameraHeave, MedianRejectsAWrongWidth)
@@ -55,5 +55,22 @@ TEST(CameraHeave, NoRangeWhenTheWidthIsStale)
   h.addWidth(widthAt(h.config(), 2.0), 0.0);
   EXPECT_TRUE(h.range(0.4));
   EXPECT_FALSE(h.range(0.6));
-  EXPECT_DOUBLE_EQ(h.command(0.6), h.config().trim_mps);
+  EXPECT_NEAR(h.command(0.6), h.config().trim_mps, 1e-9);
+}
+
+TEST(CameraHeave, IntegralLearnsTheBuoyancyAndKeepsItWhenThePipeIsLost)
+{
+  // A vehicle that floats up at 0.04 m/s with zero heave: simulate the height and feed the widths it would see.
+  CameraHeave h;
+  const auto & c = h.config();
+  double height = c.standoff_m;
+  for (int i = 0; i < 1200; ++i) {   // 60 s at 20 Hz
+    const double t = i * 0.05;
+    h.addWidth(widthAt(c, height), t);
+    height += (h.command(t) + 0.04) * 0.05;
+  }
+  EXPECT_NEAR(height, c.standoff_m, 0.15);
+  EXPECT_NEAR(h.integral(), -0.04, 0.015);
+  // Pipe lost: the learned push down stays.
+  EXPECT_NEAR(h.command(61.0), -0.04, 0.015);
 }

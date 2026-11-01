@@ -325,6 +325,9 @@ vehicle_execution_node:
       max_rate_mps: 0.25
       deadband_m: 0.1
       trim_mps: 0.0
+      # Learns the buoyancy trim while the pipe is in view (STABILIZE: heave stick = thrust) and keeps it when the pipe is lost.
+      ki: 0.03
+      max_integral_mps: 0.15
     # Dive with no depth sensor: sink until the camera has the pipe or a light for lock_s; give up at max_depth_m / rate.
     camera_descent:
       rate_mps: 0.15
