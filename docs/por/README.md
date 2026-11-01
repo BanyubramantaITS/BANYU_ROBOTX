@@ -331,12 +331,16 @@ dan posisi start yang berbeda tetap membuat hasilnya bergeser.
 
 1. **Rekam (teach).** Jalankan stack seperti biasa (profil apa saja, rekaman bag aktif), arm,
    pilih **ALT_HOLD**, kemudikan rute dengan joystick QGC (atau TX16S) dari permukaan sampai
-   selesai, lalu disarm. **Jangan** start misi. Joystick QGC muncul di `/mavros/rc/in` sebagai
-   override, jadi ikut terekam. Selama tidak ada aksi misi yang jalan, `vehicle_execution` melepas
+   selesai, lalu disarm. **Jangan** start misi. Stick diambil dari `/mavros/rc/in` (TX16S, atau
+   joystick QGC kalau ada receiver RC di Pixhawk). **Tanpa receiver** Pixhawk tidak melaporkan
+   kanal RC, jadi joystick QGC diambil dari log MAVProxy (`MANUAL_CONTROL`): `run_mavproxy.sh`
+   menulis satu log per sesi ke `~/banyu_bags/mavproxy/` (`$BANYU_MAVPROXY_LOG_DIR`), dan
+   extractor memilih sumbernya sendiri. Gain joystick (`#Gain is NN%`) ikut dihitung; stick penuh
+   = 400 × gain µs, jadi naikkan gain (dan `JS_GAIN_MAX`) kalau rute butuh dorongan penuh. Selama tidak ada aksi misi yang jalan, `vehicle_execution` melepas
    stick (`rc_override.idle_release_s`), jadi tidak melawan pilot. Mulai dari posisi dan arah
    yang sama dengan run nanti. Pegang stick dengan stabil (jangan diketuk-ketuk) dan pisahkan
    belokan dari gerak maju/geser.
-2. **Potong jadi track** (di NUC, setelah stack dihentikan):
+2. **Potong jadi track** (di komputer robot, setelah stack dihentikan):
 
    ```bash
    python3 src/BANYU_ROBOTX/tools/scripts/por_teach_extract.py ~/banyu_bags/<run> --list
@@ -344,7 +348,8 @@ dan posisi start yang berbeda tetap membuat hasilnya bergeser.
    ```
 
    Default: jendela arm terakhir, dari input stick pertama sampai terakhir + 1 s. `--window N`,
-   `--start`/`--end` (detik dari awal bag) untuk memilih lain. Hasil: `~/banyu_replays/rute1.csv`
+   `--start`/`--end` (detik dari awal bag) untuk memilih lain, `--tlog <file>` untuk memaksa log
+   MAVProxy tertentu. Baris `sticks from` menunjukkan sumber yang dipakai. Hasil: `~/banyu_replays/rute1.csv`
    (`$BANYU_REPLAY_DIR`). Ringkasan yang dicetak (durasi, kedalaman maks, perubahan heading)
    harus cocok dengan yang dikemudikan.
 3. **Putar ulang:**
@@ -356,6 +361,18 @@ dan posisi start yang berbeda tetap membuat hasilnya bergeser.
 
    Tanpa `--replay-track` dipakai track terbaru. Banner menampilkan file, durasi dan
    kedalaman maks track; launcher menolak jalan kalau track tidak ada.
+4. **Kalau satu kaki berhenti terlalu cepat** (mis. baterai turun, dorongan sama tapi jarak
+   lebih pendek), panjangkan kaki itu di track tanpa rekam ulang:
+
+   ```bash
+   python3 src/BANYU_ROBOTX/tools/scripts/por_track_stretch.py rute1 --list
+   python3 src/BANYU_ROBOTX/tools/scripts/por_track_stretch.py rute1 --hold 18:1.5 --name rute1_long
+   ```
+
+   `--hold T:S` menahan stick (dan heading/kedalaman rekaman) pada waktu track `T` selama `S`
+   detik lebih lama, lalu menggeser semua sesudahnya. Pilih `T` di bagian stabil kaki itu (lihat
+   `--list`); `--hold` boleh diulang untuk beberapa kaki. Track asli tidak diubah. Hindari `T`
+   yang sedang yaw (ada peringatan): menahannya menambah putaran.
 
 - **Matikan joystick di QGC sebelum start.** QGC mengirim stick ~24 Hz selama joystick aktif,
   dan ArduSub memakai override terakhir, jadi stick netral dari QGC melawan override misi (ini

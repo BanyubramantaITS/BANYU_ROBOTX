@@ -13,11 +13,12 @@ The track is cut from the first to the last stick input of the chosen armed wind
 (default: the last one) and written to $BANYU_REPLAY_DIR (default ~/banyu_replays).
 Replay it with: launch_por.sh --real --profile replay [--replay-track <name>]
 
-Without an RC receiver the Pixhawk reports no RC channels, so /mavros/rc/in stays empty.
-Take the sticks from MAVProxy's telemetry log instead (QGC joystick MANUAL_CONTROL,
-converted to stick PWM like ArduSub, following its "#Gain is NN%" messages):
-
-    python3 tools/scripts/por_teach_extract.py <run> --tlog ~/ros_ws/mav.tlog --name rute1
+Sticks come from /mavros/rc/in when it has stick input (TX16S, or the QGC joystick with
+an RC receiver on the Pixhawk). Without a receiver the Pixhawk reports no RC channels, so
+the QGC joystick is taken from MAVProxy's telemetry log instead: MANUAL_CONTROL converted
+to stick PWM like ArduSub does, following its "#Gain is NN%" messages. run_mavproxy.sh
+writes one log per session to $BANYU_MAVPROXY_LOG_DIR (~/banyu_bags/mavproxy); the one
+covering the bag is found automatically, or pass it with --tlog.
 """
 import argparse
 import bisect
@@ -61,8 +62,9 @@ def parse_args():
     parser.add_argument("--throttle-ch", type=int, default=3, help="RCMAP_THROTTLE (1-based)")
     parser.add_argument("--yaw-ch", type=int, default=4, help="RCMAP_YAW (1-based)")
     parser.add_argument("--tlog",
-                        help="MAVProxy .tlog to take the sticks from (QGC joystick MANUAL_CONTROL) "
-                             "instead of /mavros/rc/in, for a Pixhawk without an RC receiver")
+                        help="MAVProxy .tlog to take the QGC joystick sticks from (MANUAL_CONTROL) "
+                             "instead of /mavros/rc/in (default: found automatically when "
+                             "/mavros/rc/in has no stick input)")
     parser.add_argument("--js-gain", type=float, default=0.5,
                         help="--tlog: joystick gain before the first '#Gain is' message "
                              "(JS_GAIN_DEFAULT, default 0.5)")
@@ -151,6 +153,21 @@ def read_tlog(path):
         i = end
 
 
+def tlog_covering(t0, t1):
+    """MAVProxy log whose time span (first timestamp .. last write) covers t0..t1 (unix s)."""
+    import glob
+    log_dir = os.environ.get("BANYU_MAVPROXY_LOG_DIR") or os.path.expanduser("~/banyu_bags/mavproxy")
+    candidates = glob.glob(os.path.join(log_dir, "*.tlog")) + [os.path.expanduser("~/ros_ws/mav.tlog")]
+    for path in sorted(candidates, key=os.path.getmtime, reverse=True):
+        if not os.path.isfile(path):
+            continue
+        with open(path, "rb") as f:
+            head = f.read(8)
+        if len(head) == 8 and int.from_bytes(head, "big") * 1e-6 <= t0 and os.path.getmtime(path) >= t1:
+            return path
+    return None
+
+
 def tlog_sticks(path, bag_first_ns, bag_end, start_gain):
     """Stick deflections (t, forward, lateral, yaw, throttle) as ArduSub applies MANUAL_CONTROL.
 
@@ -233,27 +250,28 @@ def main():
             return 0
         return int(msg.channels[channel - 1]) - args.neutral
 
-    # Sticks as (t, forward, lateral, yaw, throttle) PWM deflections
-    if args.tlog:
-        print(f"Reading sticks from {args.tlog} ...")
-        rc, tlog_gains = tlog_sticks(args.tlog, bag_first_ns, bag_end, args.js_gain)
-        if not rc:
-            sys.exit(f"{args.tlog} has no MANUAL_CONTROL during this bag: was the QGC joystick on, "
-                     "and is it the log of the MAVProxy that ran during the run?")
-        stick_source = f"MANUAL_CONTROL in {os.path.abspath(os.path.expanduser(args.tlog))}"
-    else:
-        rc = [(t, deflection(m, args.forward_ch), deflection(m, args.lateral_ch),
-               deflection(m, args.yaw_ch), deflection(m, args.throttle_ch)) for t, m in data[TOPIC_RC]]
-        if not rc:
-            sys.exit(f"{TOPIC_RC} is not in the bag: the sticks cannot be recovered.")
-        if not any(m.channels for _, m in data[TOPIC_RC]):
-            print(f"WARNING: {TOPIC_RC} has no channels (no RC receiver on the Pixhawk?). "
-                  "Pass --tlog with MAVProxy's log to use the QGC joystick input.")
-        stick_source = (f"{TOPIC_RC} forward CH{args.forward_ch}, lateral CH{args.lateral_ch}, "
-                        f"yaw CH{args.yaw_ch}")
-
     def active(stick):
         return any(abs(v) > args.deadband for v in stick[1:])
+
+    # Sticks as (t, forward, lateral, yaw, throttle) PWM deflections
+    rc = [(t, deflection(m, args.forward_ch), deflection(m, args.lateral_ch),
+           deflection(m, args.yaw_ch), deflection(m, args.throttle_ch)) for t, m in data[TOPIC_RC]]
+    tlog = args.tlog
+    if not tlog and not any(active(s) for s in rc):
+        tlog = tlog_covering(bag_first_ns * 1e-9, bag_first_ns * 1e-9 + bag_end)
+        if not tlog:
+            sys.exit(f"{TOPIC_RC} has no stick input (no RC receiver on the Pixhawk?) and no MAVProxy "
+                     "log covers this bag; pass the log of the MAVProxy that ran with --tlog.")
+    if tlog:
+        print(f"Reading sticks from {tlog} (QGC joystick) ...")
+        rc, tlog_gains = tlog_sticks(tlog, bag_first_ns, bag_end, args.js_gain)
+        if not rc:
+            sys.exit(f"{tlog} has no MANUAL_CONTROL during this bag: was the QGC joystick on, "
+                     "and is it the log of the MAVProxy that ran during the run?")
+        stick_source = f"MANUAL_CONTROL in {os.path.abspath(os.path.expanduser(tlog))}"
+    else:
+        stick_source = (f"{TOPIC_RC} forward CH{args.forward_ch}, lateral CH{args.lateral_ch}, "
+                        f"yaw CH{args.yaw_ch}")
 
     print(f"Armed windows (seconds from bag start, bag length {bag_end:.1f} s):")
     for i, (w0, w1, modes) in enumerate(windows, 1):
@@ -355,7 +373,8 @@ def main():
           f"{math.degrees(max(r[4] for r in rows)):+.0f})")
     print(f"  stick max |fwd| {max(abs(r[1]) for r in rows)}, |lat| {max(abs(r[2]) for r in rows)}, "
           f"|yaw| {max(abs(r[3]) for r in rows)} PWM")
-    if args.tlog:
+    print(f"  sticks from {stick_source}")
+    if tlog:
         print(f"  joystick gain during the bag: {', '.join(f'{g}%' for g in tlog_gains)}"
               f" (start {args.js_gain * 100:.0f}% until the first '#Gain is' message)")
     if modes and modes != ["ALT_HOLD"]:
