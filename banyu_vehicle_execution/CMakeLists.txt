@@ -73,6 +73,7 @@ target_link_libraries(calibrated_depth_node ${PROJECT_NAME})
 ament_target_dependencies(calibrated_depth_node
   rclcpp
   banyu_msgs
+  mavros_msgs
   std_msgs)
 
 add_executable(underwater_odometry_node src/underwater_odometry_node.cpp)
@@ -125,12 +126,16 @@ if(BUILD_TESTING)
   target_compile_features(test_run_authorization PUBLIC cxx_std_17)
   ament_target_dependencies(test_run_authorization rclcpp rclcpp_action banyu_msgs)
 
+  ament_add_gtest(test_depth_health_monitor test/test_depth_health_monitor.cpp)
+  target_compile_features(test_depth_health_monitor PUBLIC cxx_std_17)
+  target_include_directories(test_depth_health_monitor PRIVATE include)
+
   ament_add_gtest(test_calibrated_depth_node test/test_calibrated_depth_node.cpp src/calibrated_depth_node.cpp)
   target_compile_definitions(test_calibrated_depth_node PRIVATE BANYU_VEHICLE_EXECUTION_NO_MAIN)
   target_link_libraries(test_calibrated_depth_node ${PROJECT_NAME})
   target_compile_features(test_calibrated_depth_node PUBLIC cxx_std_17)
   target_include_directories(test_calibrated_depth_node PRIVATE include)
-  ament_target_dependencies(test_calibrated_depth_node rclcpp banyu_msgs std_msgs)
+  ament_target_dependencies(test_calibrated_depth_node rclcpp banyu_msgs mavros_msgs std_msgs)
 
   ament_add_gtest(test_underwater_filter test/test_underwater_filter.cpp)
   target_compile_features(test_underwater_filter PUBLIC cxx_std_17)
