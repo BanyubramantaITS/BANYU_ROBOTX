@@ -281,7 +281,7 @@ def generate_launch_description():
         package="banyu_detection",
         executable="ring_tracker_node",
         name="ring_tracker",
-        parameters=[task2_params, task2_hardware_override],
+        parameters=[task2_params, task2_hardware_override, task2_sensors_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )

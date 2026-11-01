@@ -173,6 +173,18 @@ ring_tracker:
     camera_half_vfov_rad: 0.408
     lid_diameter_m: 0.074     # sim lid; height above the ring from observation.size once the vehicle leaves the survey altitude
     focal_ratio: 0.866        # fx / image width (554 / 640)
+    # ekf: the vehicle pose from MAVROS (the sim EKF keeps a near-perfect position under water; the real one has none).
+    # dead_reckoning: the last surface fix, then the commanded velocity x velocity_gain.
+    pose_source: "ekf"
+    dead_reckoning:
+      velocity_gain: 1.0
+    # centerline: progress along centerline_points (the sim pipe map). buoy_line: along the line from the start buoy
+    # toward the other one (USV PipelineBuoys bearing), origin where the GPS is lost at the dive; no pipe map needed.
+    progress_axis: "centerline"
+    buoy_line_half_length_m: 30.0
+    gps_fix_topic: "/mavros/global_position/global"
+    command_topic: "/banyu/execution/preview_target"
+    buoy_target_topic: "/banyu/task2/buoy_target"
     # Ordered from the active (start) buoy end so progress increases along the survey;
     # survey_evidence low_progress_endpoint_id is start_buoy.
     # Through the four light nodes of main_world.world (2.35,0) (0.93,-0.62) (-0.35,-0.62) (-1.75,0).

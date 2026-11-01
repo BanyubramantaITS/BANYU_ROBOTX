@@ -22,6 +22,7 @@ find_package(ros_gz_interfaces REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(std_srvs REQUIRED)
+find_package(mavros_msgs REQUIRED)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -38,7 +39,7 @@ target_include_directories(perception_state_machines PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
-ament_target_dependencies(perception_state_machines rclcpp banyu_msgs geometry_msgs std_msgs)
+ament_target_dependencies(perception_state_machines rclcpp banyu_msgs geometry_msgs std_msgs sensor_msgs mavros_msgs)
 
 # Task 2 vision algorithms and acoustics ported from main_mission_sim
 add_library(banyu_task2_perception STATIC
@@ -66,7 +67,7 @@ target_link_libraries(pinger_localization banyu_task2_perception)
 ament_target_dependencies(pinger_localization rclcpp sensor_msgs ros_gz_interfaces banyu_msgs tf2_ros)
 
 add_executable(ring_tracker_node src/ring_tracker_main.cpp)
-ament_target_dependencies(ring_tracker_node rclcpp sensor_msgs geometry_msgs banyu_msgs)
+ament_target_dependencies(ring_tracker_node rclcpp sensor_msgs geometry_msgs banyu_msgs mavros_msgs)
 target_link_libraries(ring_tracker_node perception_state_machines)
 
 add_executable(pipeline_end_node src/pipeline_end_main.cpp)
@@ -143,6 +144,9 @@ if(BUILD_TESTING)
       test/test_ring_tracker.cpp)
   target_link_libraries(test_ring_tracker perception_state_machines)
   ament_target_dependencies(test_ring_tracker banyu_msgs geometry_msgs)
+
+  ament_add_gtest(test_dead_reckoner test/test_dead_reckoner.cpp)
+  target_include_directories(test_dead_reckoner PRIVATE include)
 
   ament_add_gtest(test_ring_tracker_adapter
       test/test_ring_tracker_adapter.cpp)

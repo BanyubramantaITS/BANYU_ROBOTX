@@ -306,3 +306,39 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   vehicle) to the ring position before the centerline projection. Ring tracker 21/21 tests pass. Queue restarted.
 - **Stopped by the operator (2026-10-29).** All sim processes were stopped and cleaned. Final state and what was not done are in `task2_feasibility_verdict.md` and `task2_sim_results.md`. The queue
   (Advanced, Core, Disruptive with a random spawn on the H23 code, then the 9 colour pairs) had just started and gave no results. Nothing is pushed beyond the earlier push; all later commits are local.
+
+## Worst-case run (goal: minimal sensors, 2026-11-02)
+
+- **Setup:** the handbook folder `/media/erlangga/DATA/RobotX` is not mounted (no such directory), so the handbook was not re-read; the scoring
+  and rules come from the goal prompt and the earlier docs. `install/` was rebuilt from `feat/task2-core-disruptive-sim` (H23 code) before
+  the first run. Code changes are made in a separate git worktree (the batch launches from symlinked YAML and Python, so editing the main tree
+  would change a running batch) and merged between batches; unit tests build in `/tmp/b`, `/tmp/i`.
+- **Process fault found: no builds while a sim runs, even in a separate build dir.** Two Advanced runs (random spawn seeds 1 and 5) froze with
+  "ArduPilot controller has reset" and no pose while a colcon build ran in parallel (CPU starvation breaks the ArduSub JSON lockstep). Seed 2
+  and seed 9, run with nothing else on the machine, were clean. Both frozen runs are not counted and are re-run. Builds are now only done
+  between batches; the run monitor (every 30 s) flags controller resets, a mission failure and 120 s with no new ring row or pose change.
+- **Step 1, Advanced, random spawn, H23 code:** seed 2 (node 1) PASS 475 (order RED, GREEN, GREEN, GREEN; circle RED = target);
+  seed 9 (node 4) PASS 475 (order GREEN, GREEN, GREEN, RED; circle). Seeds 1 and 5: frozen sim (above), re-run queued.
+- **Pre-existing test failure:** `test_run_lifecycle` `NavigationExecutionFailureClearsTask` fails on the unchanged build too (most likely since
+  H22 retries the surface navigation for 3 minutes, so a failed navigation no longer clears the task within the test's wait). Not caused by
+  this work; left for now.
+- **Decision (sensor set):** the target set is the bottom camera, the Pixhawk (IMU, compass) and RTK GPS at the surface. ArduSub's ALT_HOLD
+  needs a depth sensor, so with no Bar30 the vehicle flies **STABILIZE** under water (the IMU holds the attitude, the heave stick is thrust)
+  and every vertical decision comes from the camera or the GPS. A sim that hides the Bar30 from the mission but keeps ALT_HOLD would still be
+  holding depth from it, so it would not test the real case. `sensors:=minimal` (launch argument, `launch_task2.sh --sensors minimal`, overlay
+  `task2_sensors_minimal.yaml`) sets: STABILIZE under water, no rel_alt or EKF height as a depth, camera heave on, depth from the GPS surface proof.
+- **D5 (Bar30 health), implemented:** `DepthHealthMonitor` flags SILENT (no sample 3 s), STUCK (no change 3 s while heave is commanded), STEP
+  (> 0.3 m between samples) and DISAGREE (> 1 m against the integrated commanded heave over 10 s). Watched only under water during the run
+  (at the surface the GPS fix is the proof, and the sim barometer jumps at arming). A fault is latched for the run and switches the depth to
+  the GPS surface proof. Replay tests: each fault flagged within 3 s (DISAGREE within 4 s of a 0.25 m/s drift); a healthy dive and a hold at
+  depth are not flagged (7 tests).
+- **D4 (GPS-fix surfacing), implemented:** `calibrated_depth_node depth_source: gps_surface` publishes depth 0 (source `gps_surface`) while a
+  fresh GPS fix proves the surface and invalid otherwise; the barometer is never turned into a depth. `Surface` with no depth rises blind at
+  0.25 m/s until the fix proves the surface (at most 120 s), instead of waiting for a watchdog. The report's surface guard accepts
+  `gps_surface`. The datum rule is unchanged (taken only before the run).
+- **D1/D2 (camera descent and pipe-width standoff), implemented:** the detector reports the pipe's apparent width (edge-pair distance / image
+  width). Range = diameter / (width x 2 tan(hfov/2)) (sim: 0.0889 m PVC, hfov 1.047 rad), median of 7 samples. With `sensors:=minimal`
+  DiveToDepth sinks at 0.15 m/s holding the heading until the pipe (with a range) or a lit light is in view for 1 s (limit 15 m / 0.15 m/s);
+  AcquirePipeline, SearchPipeline, FollowPipeline and CenterOnRing get their heave from the standoff loop (1.6 m, kp 0.4, max 0.25 m/s,
+  deadband 0.1 m); HoldProbeOnRing's relative moves (max descent, the 0.6 m back-off, the climb back) use the integrated commanded heave.
+  Not yet run in the sim.

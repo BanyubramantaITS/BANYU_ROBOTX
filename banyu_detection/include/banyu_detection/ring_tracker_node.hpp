@@ -4,15 +4,21 @@
 #include <deque>
 #include <mutex>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <banyu_msgs/msg/pipeline_ring_observation.hpp>
 #include <banyu_msgs/msg/pipeline_ring_state.hpp>
 #include <banyu_msgs/msg/task2_ring_record.hpp>
 #include <banyu_msgs/srv/acknowledge_ring_repair.hpp>
 #include <banyu_msgs/srv/reset_task2.hpp>
+#include <banyu_msgs/msg/task2_buoy_target.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <mavros_msgs/msg/position_target.hpp>
+#include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <rclcpp/rclcpp.hpp>
 
+#include "banyu_detection/dead_reckoner.hpp"
 #include "banyu_detection/ring_tracker_adapter.hpp"
 #include "banyu_detection/run_context_gate.hpp"
 
@@ -69,6 +75,22 @@ private:
   mutable std::mutex adapter_mutex_;
   mutable std::mutex pose_mutex_;
   std::deque<geometry_msgs::msg::PoseStamped> pose_history_;
+
+  // sensors:=minimal: dead-reckoned pose under water and ring progress along the buoy-to-buoy line (no pipe map).
+  bool dead_reckoning_{false};
+  bool buoy_line_axis_{false};
+  double buoy_line_half_length_m_{30.0};
+  double gps_fresh_s_{1.0};
+  DeadReckoner reckoner_;
+  bool fix_valid_{false};
+  rclcpp::Time fix_time_{0, 0, RCL_ROS_TIME};
+  bool buoy_heading_valid_{false};
+  double buoy_heading_enu_{0.0};
+  bool axis_set_{false};
+  std::vector<std::pair<double, double>> pending_axis_;
+  rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr fix_sub_;
+  rclcpp::Subscription<mavros_msgs::msg::PositionTarget>::SharedPtr command_sub_;
+  rclcpp::Subscription<banyu_msgs::msg::Task2BuoyTarget>::SharedPtr buoy_sub_;
 
   rclcpp::Subscription<banyu_msgs::msg::PipelineRingObservation>::SharedPtr observation_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
