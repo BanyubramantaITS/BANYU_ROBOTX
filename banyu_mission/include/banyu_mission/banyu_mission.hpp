@@ -41,7 +41,9 @@ void registerMissionNodes(
   std::function<void()> on_abort = nullptr,
   std::function<BT::NodeStatus()> on_survey_complete = nullptr,
   std::function<BT::NodeStatus()> on_surface_success = nullptr,
-  std::function<BT::NodeStatus()> on_lock_buoy_target = nullptr);
+  std::function<BT::NodeStatus()> on_lock_buoy_target = nullptr,
+  std::function<BT::NodeStatus()> on_give_up_survey = nullptr,
+  std::function<BT::NodeStatus()> on_shift_buoy_target = nullptr);
 
 class BanyuMission : public rclcpp::Node
 {
@@ -114,6 +116,7 @@ private:
   // USV active buoy target; it replaces the configured target until LockBuoyTarget runs.
   std::optional<banyu_msgs::msg::Task2BuoyTarget> buoy_target_;
   bool buoy_target_locked_{false};
+  double retry_dive_offset_m_{3.0};
   bool explicit_heading_{false};
   BT::Blackboard::Ptr blackboard_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr preparation_service_;

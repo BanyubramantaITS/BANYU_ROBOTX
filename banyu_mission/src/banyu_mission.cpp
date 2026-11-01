@@ -96,7 +96,9 @@ void registerMissionNodes(
   std::function<void()> on_abort,
   std::function<BT::NodeStatus()> on_survey_complete,
   std::function<BT::NodeStatus()> on_surface_success,
-  std::function<BT::NodeStatus()> on_lock_buoy_target)
+  std::function<BT::NodeStatus()> on_lock_buoy_target,
+  std::function<BT::NodeStatus()> on_give_up_survey,
+  std::function<BT::NodeStatus()> on_shift_buoy_target)
 {
   registerConditionNodes(factory, state);
   registerActionNodes(factory, node, state, std::move(on_abort));
@@ -108,6 +110,12 @@ void registerMissionNodes(
   if (!on_lock_buoy_target) {on_lock_buoy_target = []() {return BT::NodeStatus::SUCCESS;};}
   factory.registerSimpleAction("LockBuoyTarget",
     [on_lock_buoy_target](BT::TreeNode &) {return on_lock_buoy_target();});
+  if (!on_give_up_survey) {on_give_up_survey = []() {return BT::NodeStatus::FAILURE;};}
+  factory.registerSimpleAction("GiveUpSurvey",
+    [on_give_up_survey](BT::TreeNode &) {return on_give_up_survey();});
+  if (!on_shift_buoy_target) {on_shift_buoy_target = []() {return BT::NodeStatus::SUCCESS;};}
+  factory.registerSimpleAction("ShiftBuoyTarget",
+    [on_shift_buoy_target](BT::TreeNode &) {return on_shift_buoy_target();});
 }
 
 BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
@@ -682,6 +690,7 @@ void BanyuMission::initialize()
   const auto surface_depth = declare_parameter<double>("mission.surface_depth_m", 0.0);
   const auto surface_tolerance = declare_parameter<double>("mission.surface_tolerance_m", 0.2);
   const auto retries = declare_parameter<int>("mission.max_retries", 3);
+  retry_dive_offset_m_ = declare_parameter<double>("mission.retry_dive_offset_m", 3.0);
   const auto crc = declare_parameter<int64_t>("mission.crc32", 0);
   const auto camera = declare_parameter<std::string>("mission.camera_name", "front_camera");
   const auto id = declare_parameter<std::string>("mission.id", "banyu-mission");
@@ -765,6 +774,34 @@ void BanyuMission::initialize()
           blackboard_->get<double>("target_latitude"), blackboard_->get<double>("target_longitude"),
           buoy_target_ ? "USV PipelineBuoys" : "configured");
       }
+      return BT::NodeStatus::SUCCESS;
+    },
+    // The survey could not be completed (pipe not found, traverse lost): end it so the vehicle can surface and send the
+    // best-effort Core survey (the report service only sends from SURFACED, which follows SURVEY_COMPLETE).
+    [this]() {
+      if (!run_ || state_->lifecycle() != MissionState::Lifecycle::Active) {return BT::NodeStatus::FAILURE;}
+      const auto context = run_->snapshot();
+      if (context.phase == RunCoordinator::Phase::SurveyComplete) {return BT::NodeStatus::SUCCESS;}
+      if (context.phase != RunCoordinator::Phase::Active ||
+        !run_->transition(context.epoch, RunCoordinator::Phase::SurveyComplete, "SURVEY_INCOMPLETE_BEST_EFFORT"))
+      {return BT::NodeStatus::FAILURE;}
+      RCLCPP_WARN(get_logger(), "Survey not complete: reporting what was seen (best effort)");
+      publishLifecycle();
+      return BT::NodeStatus::SUCCESS;
+    },
+    // Second dive try further along the buoy line (toward the other buoy): the pipe lies between the buoys.
+    [this]() {
+      std::lock_guard<std::recursive_mutex> lock(control_mutex_);
+      const double lat = blackboard_->get<double>("target_latitude");
+      const double lon = blackboard_->get<double>("target_longitude");
+      const double heading = blackboard_->get<double>("heading");
+      const double d = retry_dive_offset_m_;
+      constexpr double kEarthRadiusM = 6378137.0;
+      const double new_lat = lat + (d * std::sin(heading) / kEarthRadiusM) * 180.0 / M_PI;
+      const double new_lon = lon + (d * std::cos(heading) / (kEarthRadiusM * std::cos(lat * M_PI / 180.0))) * 180.0 / M_PI;
+      blackboard_->set("target_latitude", new_lat);
+      blackboard_->set("target_longitude", new_lon);
+      RCLCPP_WARN(get_logger(), "Second dive %.1f m along the buoy line: %.7f, %.7f", d, new_lat, new_lon);
       return BT::NodeStatus::SUCCESS;
   });
   auto blackboard = BT::Blackboard::create();

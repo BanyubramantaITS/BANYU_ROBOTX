@@ -16,6 +16,29 @@
             <SubTree ID="DiveAndAcquirePipeline" _autoremap="true" />
             <SubTree ID="TraversePipeline" _autoremap="true" />
           </Sequence>
+          <!-- Second try: surface, move retry_dive_offset_m along the buoy line toward the other buoy (the pipe lies
+               between them), dive again. The ring order is by progress along the buoy line, from whichever point. -->
+          <Sequence name="second_dive_along_the_buoy_line">
+            <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}" />
+            <ShiftBuoyTarget />
+            <SetFcuMode mode="GUIDED" />
+            <Timeout msec="120000">
+              <RetryUntilSuccessful num_attempts="-1">
+                <Fallback>
+                  <NavigateSurfaceGps target_latitude="{target_latitude}" target_longitude="{target_longitude}"
+                    start_latitude="{start_latitude}" start_longitude="{start_longitude}"
+                    tolerance="{gps_tolerance}" />
+                  <Sequence>
+                    <Sleep msec="1000" />
+                    <AlwaysFailure />
+                  </Sequence>
+                </Fallback>
+              </RetryUntilSuccessful>
+            </Timeout>
+            <AlignHeading target_heading="{heading}" tolerance="{heading_tolerance}" />
+            <SubTree ID="DiveAndAcquirePipeline" _autoremap="true" />
+            <SubTree ID="TraversePipeline" _autoremap="true" />
+          </Sequence>
           <AlwaysSuccess />
         </Fallback>
         <SubTree ID="SurfaceAndReport" _autoremap="true" />
@@ -169,11 +192,12 @@
 
   <BehaviorTree ID="SurfaceAndReport">
     <Sequence>
-      <ForceSuccess>
+      <Fallback>
         <Timeout msec="5000">
           <WaitSurveyComplete />
         </Timeout>
-      </ForceSuccess>
+        <GiveUpSurvey />
+      </Fallback>
       <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}" />
       <ConfirmSurfaceAction />
       <Fallback>
