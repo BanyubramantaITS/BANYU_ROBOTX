@@ -560,3 +560,44 @@ TEST(RingTracker, PipeMetFromTheFarEndKeepsOrderingVerifiedInThatDirection) {
   EXPECT_TRUE(meet(1.5).record.ordering_verified);   // keeps falling
   EXPECT_FALSE(meet(6.5).record.ordering_verified);  // jumps back up past the first ring: not in order
 }
+
+TEST(RingTracker, MeasuredCameraHeightPlacesRingsWhenTheVehicleIsLowerThanTheConfiguredHeight) {
+  // The vehicle follows 1.15 m above the rings, the configured height is 1.7 m; the measured height (pipe width) is given.
+  auto config = trackerConfig(3, 2, 2);
+  config.minimum_rearm_distance_m = 0.25;
+  config.node_association_distance_m = 0.4;
+  config.camera_height_m = 1.7;
+  config.camera_forward_m = 0.2;
+  config.camera_tilt_from_vertical_rad = 0.227;
+  config.camera_half_vfov_rad = 0.408;
+  banyu_detection::RingTracker tracker(config);
+  using Obs = banyu_msgs::msg::PipelineRingObservation;
+  const double height = 1.15;
+  const std::vector<double> rings{1.0, 1.85};
+  uint64_t seq = 1;
+  for (double p = -0.6; p <= 2.2; p += 0.02) {
+    double best_offset = 2.0;
+    for (double ring_position : rings) {
+      const double angle = std::atan((ring_position - p - 0.2) / height);
+      const double offset = (0.227 - angle) / 0.408;
+      if (std::abs(offset) <= 1.0 && std::abs(offset) < std::abs(best_offset)) {best_offset = offset;}
+    }
+    banyu_detection::RingTrackerInput input;
+    const bool visible = std::abs(best_offset) <= 1.0;
+    input.observation = ring(seq, Obs::COLOR_GREEN, visible);
+    if (visible) {input.observation.offset_y = static_cast<float>(best_offset);}
+    input.has_path_distance = true;
+    input.path_distance_m = p;
+    input.has_vehicle_pose = true;
+    input.vehicle_pose_map.header.frame_id = "map";
+    input.vehicle_pose_map.header.stamp = input.observation.header.stamp;
+    input.vehicle_pose_map.pose.position.x = p;
+    input.vehicle_pose_map.pose.orientation.w = 1.0;
+    input.camera_height_m = height;
+    tracker.update(input);
+    ++seq;
+  }
+  ASSERT_EQ(tracker.records().size(), 2U);
+  EXPECT_NEAR(tracker.records()[0].pipeline_progress_m, 1.0, 0.1);
+  EXPECT_NEAR(tracker.records()[1].pipeline_progress_m, 1.85, 0.1);
+}

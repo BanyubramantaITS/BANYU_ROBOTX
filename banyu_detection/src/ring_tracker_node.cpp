@@ -46,6 +46,19 @@ RingTrackerNode::RingTrackerNode(const rclcpp::NodeOptions & options)
         }
       });
   }
+  if (pipe_height_enabled_) {
+    pipe_sub_ = create_subscription<banyu_msgs::msg::PipelineObservation>(
+      declare_parameter<std::string>("pipeline_observation_topic", "/banyu/pipeline/observation"),
+      rclcpp::SensorDataQoS(), [this](const banyu_msgs::msg::PipelineObservation::SharedPtr m) {
+        if (m->status != banyu_msgs::msg::PipelineObservation::TRACKED || !std::isfinite(m->width) ||
+        m->width <= 0.0F) {return;}
+        const double range = pipe_diameter_m_ / (m->width * 2.0 * std::tan(pipe_hfov_rad_ / 2.0));
+        if (range < 0.3 || range > 4.0) {return;}
+        std::lock_guard<std::mutex> lock(pose_mutex_);
+        pipe_heights_.emplace_back(stampSeconds(m->header.stamp), range * std::cos(camera_tilt_rad_));
+        while (pipe_heights_.size() > 9) {pipe_heights_.pop_front();}
+      });
+  }
   observation_sub_ = create_subscription<banyu_msgs::msg::PipelineRingObservation>(
     observation_topic_, rclcpp::SensorDataQoS(),
     std::bind(&RingTrackerNode::observationCallback, this, std::placeholders::_1));
@@ -105,6 +118,10 @@ void RingTrackerNode::declareParameters()
     "node_association_distance_m", 0.8);
   adapter_ = RingTrackerAdapter(config);
 
+  pipe_height_enabled_ = declare_parameter<bool>("pipe_height.enabled", true);
+  pipe_diameter_m_ = declare_parameter<double>("pipe_height.pipe_diameter_m", 0.0889);
+  pipe_hfov_rad_ = declare_parameter<double>("pipe_height.hfov_rad", 1.047);
+  camera_tilt_rad_ = config.camera_tilt_from_vertical_rad;
   const auto pose_source = declare_parameter<std::string>("pose_source", "ekf");
   const auto progress_axis = declare_parameter<std::string>("progress_axis", "centerline");
   if ((pose_source != "ekf" && pose_source != "dead_reckoning") ||
@@ -126,6 +143,18 @@ void RingTrackerNode::declareParameters()
     }
     adapter_.setCenterline(waypoints);
   }
+}
+
+double RingTrackerNode::pipeHeight(double t) const
+{
+  constexpr double kMaxAgeS = 1.0;
+  std::vector<double> recent;
+  for (const auto & sample : pipe_heights_) {
+    if (std::abs(t - sample.first) <= kMaxAgeS) {recent.push_back(sample.second);}
+  }
+  if (recent.size() < 3) {return 0.0;}
+  std::nth_element(recent.begin(), recent.begin() + recent.size() / 2, recent.end());
+  return recent[recent.size() / 2];
 }
 
 double RingTrackerNode::stampSeconds(const builtin_interfaces::msg::Time & stamp)
@@ -222,6 +251,10 @@ void RingTrackerNode::observationCallback(
   input.epoch = run_context_.epoch();
   input.observation = *msg;
   input.has_vehicle_pose = nearestPose(msg->header.stamp, input.vehicle_pose_map);
+  {
+    std::lock_guard<std::mutex> pose_lock(pose_mutex_);
+    input.camera_height_m = pipeHeight(stampSeconds(msg->header.stamp));
+  }
   if (input.has_vehicle_pose && adapter_.hasCenterline()) {
     input.path_distance_m = adapter_.projectOntoCenterline(
       input.vehicle_pose_map.pose.position.x,

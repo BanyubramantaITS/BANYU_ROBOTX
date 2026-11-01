@@ -177,6 +177,11 @@ ring_tracker:
     focal_ratio: 0.866        # fx / image width (554 / 640)
     # ekf: the vehicle pose from MAVROS (the sim EKF keeps a near-perfect position under water; the real one has none).
     # dead_reckoning: the last surface fix, then the commanded velocity x velocity_gain.
+    # Camera height above the pipe from its apparent width (fixed camera_height_m when the pipe is not measured).
+    pipe_height:
+      enabled: true
+      pipe_diameter_m: 0.0889
+      hfov_rad: 1.047
     pose_source: "ekf"
     dead_reckoning:
       velocity_gain: 1.0

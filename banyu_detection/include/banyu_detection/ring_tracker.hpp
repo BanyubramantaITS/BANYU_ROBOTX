@@ -55,6 +55,8 @@ struct RingTrackerInput
   bool has_vehicle_pose{false};
   double path_distance_m{0.0};
   bool has_path_distance{false};
+  // Camera height above the pipe measured now (from the pipe's apparent width); 0 = use camera_height_m.
+  double camera_height_m{0.0};
 };
 
 struct RingTrackerUpdate

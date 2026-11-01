@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include <banyu_msgs/msg/pipeline_observation.hpp>
 #include <banyu_msgs/msg/pipeline_ring_observation.hpp>
 #include <banyu_msgs/msg/pipeline_ring_state.hpp>
 #include <banyu_msgs/msg/task2_ring_record.hpp>
@@ -88,6 +89,15 @@ private:
   double buoy_heading_enu_{0.0};
   bool axis_set_{false};
   std::vector<std::pair<double, double>> pending_axis_;
+
+  // Camera height above the pipe from its apparent width (median of the recent frames).
+  bool pipe_height_enabled_{true};
+  double pipe_diameter_m_{0.0889};
+  double pipe_hfov_rad_{1.047};
+  double camera_tilt_rad_{0.0};
+  std::deque<std::pair<double, double>> pipe_heights_;   // (stamp s, height m)
+  double pipeHeight(double t) const;
+  rclcpp::Subscription<banyu_msgs::msg::PipelineObservation>::SharedPtr pipe_sub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr fix_sub_;
   rclcpp::Subscription<mavros_msgs::msg::PositionTarget>::SharedPtr command_sub_;
   rclcpp::Subscription<banyu_msgs::msg::Task2BuoyTarget>::SharedPtr buoy_sub_;

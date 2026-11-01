@@ -13,10 +13,11 @@ import sys
 
 
 def parse_status(text):
-    m = re.search(r'data: "(.*)"\s*$', text.strip(), re.S)
-    if not m:
+    """The last gz message in the file (gz topic -e can print more than one)."""
+    blocks = re.findall(r'^data: "(.*)"\s*$', text, re.M)
+    if not blocks:
         return None
-    return json.loads(m.group(1).encode().decode('unicode_escape'))
+    return json.loads(blocks[-1].encode().decode('unicode_escape'))
 
 
 def score(status, gcs_rows, tier):
