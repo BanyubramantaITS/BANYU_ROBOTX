@@ -354,8 +354,6 @@ def generate_launch_description():
 
     return LaunchDescription(
         scenario_args + [
-            sim_current,
-            sim_fcu_faults,
             mode_arg,
             use_sim_arg,
             use_sim_time_arg,
@@ -384,5 +382,8 @@ def generate_launch_description():
             nogps_odom_beacon,
             sim_gps_gate,
             mission_launch,
+            # After every argument is declared: their conditions read use_sim.
+            sim_current,
+            sim_fcu_faults,
         ]
     )
