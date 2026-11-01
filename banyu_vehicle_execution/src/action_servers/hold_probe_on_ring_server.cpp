@@ -273,6 +273,10 @@ MotionIntent HoldProbeOnRingServer::approachTick(
         depth_below_start < goal->max_descent_m)
       {
         heave = -kCreepRateFactor * goal->descent_rate_mps;
+      } else if (telemetry.depth_free) {
+        // No depth hold (STABILIZE: the heave stick is thrust): a positively buoyant vehicle floats off the switch with zero
+        // heave. Keep pressing gently until the ring has been GREEN long enough.
+        heave = -kCreepRateFactor * goal->descent_rate_mps;
       }
       if (hold_s_ >= goal->hold_duration_s) {
         failure_ = "Ring did not turn green on contact";
