@@ -96,6 +96,18 @@ def set_visibility(template, visibility_m):
     return template[:m.start(1)] + " ".join(f"{a * k:.3f}" for a in att) + template[m.end(1):]
 
 
+# Barrel distortion (Brown model) standing in for the HORUS T10 fisheye; the detector undistorts with camera_info.
+BOTTOM_CAMERA_DISTORTION = (
+    "<distortion><k1>-0.28</k1><k2>0.07</k2><k3>0.0</k3><p1>0.0</p1><p2>0.0</p2>"
+    "<center>0.5 0.5</center></distortion>")
+
+
+def distort_bottom_camera(robot_xml):
+    tag = '<camera name="bottom_camera">'
+    assert tag in robot_xml, "bottom camera"
+    return robot_xml.replace(tag, tag + BOTTOM_CAMERA_DISTORTION, 1)
+
+
 def self_check():
     for seed in range(200):
         lay = random_layout(seed)
@@ -169,6 +181,9 @@ def generate_launch_description():
     pipe_dy_arg = DeclareLaunchArgument(name="pipe_dy", default_value="", description="Scenario: shift the pipe north (m).")
     pipe_dyaw_arg = DeclareLaunchArgument(
         name="pipe_dyaw_deg", default_value="", description="Scenario: rotate the pipe about its start end (deg).")
+    camera_model_arg = DeclareLaunchArgument(
+        name="camera_model", default_value="pinhole", choices=["pinhole", "fisheye"],
+        description="Scenario: 'fisheye' adds barrel distortion to the bottom camera (the HORUS T10 is a fisheye).")
     light_fault_arg = DeclareLaunchArgument(
         name="light_fault", default_value="",
         description="Scenario: a functional node fault '<node>:thermistor|mag|hot' (blinks RED or goes dark).")
@@ -208,6 +223,8 @@ def generate_launch_description():
         tier_val = LaunchConfiguration("tier").perform(context)
         probe = "false" if tier_val == "core" else "true"
         bluerov2_heavy_xml = xacro.process(_bluerov2_heavy_file, mappings={"probe": probe})
+        if LaunchConfiguration("camera_model").perform(context) == "fisheye":
+            bluerov2_heavy_xml = distort_bottom_camera(bluerov2_heavy_xml)
 
         seed_text = LaunchConfiguration("layout_seed").perform(context)
         if seed_text:
@@ -384,6 +401,7 @@ def generate_launch_description():
             pipe_dyaw_arg,
             visibility_arg,
             light_fault_arg,
+            camera_model_arg,
             spawn_x_arg,
             spawn_y_arg,
             spawn_z_arg,

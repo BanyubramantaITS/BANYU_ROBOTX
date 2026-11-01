@@ -143,6 +143,7 @@ def generate_launch_description():
             ("current_north", "Scenario: water current north (m/s)."),
             ("current_gust", "Scenario: extra current along the steady one for 5 s of every 30 s (m/s)."),
             ("light_fault", "Scenario: a functional light node fault '<node>:thermistor|mag|hot'."),
+            ("camera_model", "Scenario: 'fisheye' distorts the bottom camera (empty or 'pinhole': none)."),
             ("fcu_faults", "Scenario: FCU sensor faults, e.g. 'compass=20,gps_offset=0.3:0.2,gps_drop=40:15'."),
         )
     ]
@@ -244,6 +245,7 @@ def generate_launch_description():
             "pipe_dyaw_deg": LaunchConfiguration("pipe_dyaw_deg"),
             "visibility_m": LaunchConfiguration("visibility_m"),
             "light_fault": LaunchConfiguration("light_fault"),
+            "camera_model": PythonExpression(["'", LaunchConfiguration("camera_model"), "' or 'pinhole'"]),
             "spawn_x": task2_spawn_x,
             "spawn_y": task2_spawn_y,
             "spawn_z": task2_spawn_z,

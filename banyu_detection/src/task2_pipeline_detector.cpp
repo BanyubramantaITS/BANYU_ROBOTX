@@ -8,6 +8,7 @@
 #include <limits>
 #include <mutex>
 #include <opencv2/highgui.hpp>
+#include <opencv2/calib3d.hpp>
 #include <opencv2/imgproc.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/image_encodings.hpp>
@@ -102,6 +103,7 @@ private:
   void declareParameters()
   {
     use_gui_ = declare_parameter<bool>("use_gui", false);
+    undistort_ = declare_parameter<bool>("undistort", true);
     image_topic_ = declare_parameter<std::string>("image_topic", "/front_camera/image_raw");
     use_compressed_image_ = declare_parameter<bool>("use_compressed_image", false);
     camera_info_topic_ = declare_parameter<std::string>("camera_info_topic", "/camera/camera_info");
@@ -353,6 +355,24 @@ private:
     camera_height_ = msg->height;
     camera_cx_ = msg->k[2];
     camera_cy_ = msg->k[5];
+    // A lens with distortion (the fisheye HORUS, or the sim's distorted camera): undistort each frame with the
+    // calibration so the pipe edges are straight and the pinhole range model holds. Maps are built once per size.
+    const bool distorted = std::any_of(msg->d.begin(), msg->d.end(), [](double v) {return std::abs(v) > 1e-6;});
+    if (undistort_ && distorted && (undistort_map_x_.empty() ||
+      undistort_map_x_.cols != static_cast<int>(msg->width) || undistort_map_x_.rows != static_cast<int>(msg->height)))
+    {
+      const cv::Mat k(3, 3, CV_64F, const_cast<double *>(msg->k.data()));
+      const cv::Mat d(1, static_cast<int>(msg->d.size()), CV_64F, const_cast<double *>(msg->d.data()));
+      const cv::Size size(static_cast<int>(msg->width), static_cast<int>(msg->height));
+      if (msg->distortion_model == "equidistant" && msg->d.size() >= 4) {
+        cv::fisheye::initUndistortRectifyMap(k, d.colRange(0, 4), cv::Mat(), k, size, CV_32FC1,
+          undistort_map_x_, undistort_map_y_);
+      } else {
+        cv::initUndistortRectifyMap(k, d, cv::Mat(), k, size, CV_32FC1, undistort_map_x_, undistort_map_y_);
+      }
+      RCLCPP_INFO(get_logger(), "Bottom camera distortion (%s, %zu coefficients): undistorting each frame",
+        msg->distortion_model.c_str(), msg->d.size());
+    }
   }
 
   void compressedImageCallback(const sensor_msgs::msg::CompressedImage::SharedPtr msg)
@@ -383,7 +403,15 @@ private:
         throw std::runtime_error("unsupported image encoding: " + msg->encoding);
       }
 
-      const cv::Mat image = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8)->image;
+      cv::Mat image = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8)->image;
+      {
+        std::lock_guard<std::mutex> lock(camera_mutex_);
+        if (!undistort_map_x_.empty() && undistort_map_x_.size() == image.size()) {
+          cv::Mat straight;
+          cv::remap(image, straight, undistort_map_x_, undistort_map_y_, cv::INTER_LINEAR);
+          image = straight;
+        }
+      }
       if (image.empty() || image.cols <= 0 || image.rows <= 0) {
         throw std::runtime_error("converted image is empty");
       }
@@ -1125,6 +1153,9 @@ private:
 
   uint64_t frame_sequence_ {0};
   mutable std::mutex camera_mutex_;
+  bool undistort_ {true};
+  cv::Mat undistort_map_x_;
+  cv::Mat undistort_map_y_;
   uint32_t camera_width_ {0};
   uint32_t camera_height_ {0};
   double camera_cx_ {0.0};

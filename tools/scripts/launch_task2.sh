@@ -67,6 +67,7 @@ Simulation Options (--sim only):
   --visibility <m>      Scenario: water visibility in metres (turbidity).
   --fcu-faults <list>   Scenario: FCU sensor faults, comma separated: compass=<deg> (heading off), gps_offset=<e>:<n> (RTK
                         float, m), gps_drop=<t>:<d> (no fix for d s, t s after start).
+  --fisheye             Scenario: distort the bottom camera like a fisheye (the detector undistorts it).
   --light-fault <n:kind>
                         Scenario: functional node n shows a build-guide fault: thermistor (RED blink 500 ms), mag (RED blink
                         250 ms) or hot (LEDs off).
@@ -131,6 +132,7 @@ while [[ $# -gt 0 ]]; do
     --fcu-faults)
       [ $# -ge 2 ] || { echo "Error: --fcu-faults needs a list." >&2; exit 1; }
       SCENARIO_ARGS+=(fcu_faults:="$2"); GPS_GATE_OPTS_SET=true; shift 2 ;;
+    --fisheye) SCENARIO_ARGS+=(camera_model:=fisheye); GPS_GATE_OPTS_SET=true; shift ;;
     --light-fault)
       [ $# -ge 2 ] || { echo "Error: --light-fault needs node:kind." >&2; exit 1; }
       SCENARIO_ARGS+=(light_fault:="$2"); GPS_GATE_OPTS_SET=true; shift 2 ;;

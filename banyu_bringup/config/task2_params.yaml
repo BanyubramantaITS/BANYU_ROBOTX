@@ -98,6 +98,8 @@ task2_pipeline_detector:
     # Launch sets this true on the real AUV (use_sim:=False)
     use_compressed_image: false
     camera_info_topic: "/bottom_camera/camera_info"
+    # Undistort each frame when camera_info has distortion (fisheye HORUS: equidistant model; sim --fisheye: Brown).
+    undistort: true
     observation_topic: "/banyu/pipeline/observation"
     ring_observation_topic: "/banyu/pipeline/ring_observation"
     min_aspect_ratio: 1.5
