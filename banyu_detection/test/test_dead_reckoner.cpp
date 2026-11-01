@@ -10,7 +10,7 @@ TEST(DeadReckoner, IntegratesTheCommandFromTheLastFix)
   EXPECT_FALSE(r.valid());
   r.reset(2.0, -1.0, 10.0);
   r.setCommand(0.2, 0.0, 10.0);
-  for (int i = 1; i <= 50; ++i) {r.advance(10.0 + 0.1 * i);}   // 5 s at 0.2 m/s east
+  for (int i = 1; i <= 50; ++i) {r.setCommand(0.2, 0.0, 10.0 + 0.1 * i);}   // 5 s at 0.2 m/s east, 10 Hz commands
   EXPECT_NEAR(r.x(), 3.0, 1e-9);
   EXPECT_NEAR(r.y(), -1.0, 1e-9);
 }

@@ -239,9 +239,11 @@ TEST_F(MissionTest, ActionResultSemanticFailureIsNotTransportSuccess)
       SuccessfulResult{}));
 }
 
-TEST_F(MissionTest, PublishPipelineSurveyNodeProvidedPortsIsEmpty)
+TEST_F(MissionTest, PublishPipelineSurveyNodeHasOnlyTheBestEffortPort)
 {
-  EXPECT_TRUE(banyu_mission::PublishPipelineSurveyNode::providedPorts().empty());
+  const auto ports = banyu_mission::PublishPipelineSurveyNode::providedPorts();
+  ASSERT_EQ(ports.size(), 1U);
+  EXPECT_EQ(ports.begin()->first, "best_effort");
 }
 
 TEST_F(MissionTest, PublishPipelineSurveyWaitsForDelayedServiceDiscovery)
