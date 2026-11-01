@@ -67,6 +67,7 @@ Simulation Options (--sim only):
   --visibility <m>      Scenario: water visibility in metres (turbidity).
   --fcu-faults <list>   Scenario: FCU sensor faults, comma separated: compass=<deg> (heading off), gps_offset=<e>:<n> (RTK
                         float, m), gps_drop=<t>:<d> (no fix for d s, t s after start).
+  --site <name>         marina_bay: GPS home and course coordinates at Marina Bay, Singapore (default: Long Beach).
   --fisheye             Scenario: distort the bottom camera like a fisheye (the detector undistorts it).
   --ir-led              Scenario: the bottom camera's LED ring on (a spot light along the camera).
   --light-fault <n:kind>
@@ -134,6 +135,9 @@ while [[ $# -gt 0 ]]; do
       [ $# -ge 2 ] || { echo "Error: --fcu-faults needs a list." >&2; exit 1; }
       SCENARIO_ARGS+=(fcu_faults:="$2"); GPS_GATE_OPTS_SET=true; shift 2 ;;
     --fisheye) SCENARIO_ARGS+=(camera_model:=fisheye); GPS_GATE_OPTS_SET=true; shift ;;
+    --site)
+      [ $# -ge 2 ] || { echo "Error: --site needs a name." >&2; exit 1; }
+      SCENARIO_ARGS+=(site:="$2"); GPS_GATE_OPTS_SET=true; shift 2 ;;
     --ir-led) SCENARIO_ARGS+=(ir_led:=on); GPS_GATE_OPTS_SET=true; shift ;;
     --light-fault)
       [ $# -ge 2 ] || { echo "Error: --light-fault needs node:kind." >&2; exit 1; }

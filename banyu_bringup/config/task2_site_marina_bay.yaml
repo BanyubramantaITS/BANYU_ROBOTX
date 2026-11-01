@@ -1,0 +1,16 @@
+# Simulation site overlay for site:=marina_bay: the sim's GPS home (ArduSub SITL custom location) and the course
+# coordinates at Marina Bay, Singapore (~1.2816 N 103.8636 E), the Task 2 venue. The world is the same; only the geodetic
+# origin moves (the magnetic field, the declination and the metres per degree of longitude change with it).
+banyu_mission:
+  ros__parameters:
+    mission:
+      start_latitude: 1.2816000
+      start_longitude: 103.8636000
+      target_latitude: 1.2816000   # green (active) buoy, 3.8 m east of the spawn
+      target_longitude: 103.8636341
+      end_latitude: 1.2816000   # red buoy, 3.8 m west of the spawn
+      end_longitude: 103.8635659
+uuv_comm_node:
+  ros__parameters:
+    anchor_latitude: 1.2816000
+    anchor_longitude: 103.8636000

@@ -74,7 +74,8 @@ def generate_launch_description():
     scenario_args = [
         DeclareLaunchArgument(name=n, default_value="0.0", description="Simulation scenario, see main_launch.launch.py")
         for n in ("pipe_dx", "pipe_dy", "pipe_dyaw_deg", "buoy_error_x", "buoy_error_y")
-    ]
+    ] + [DeclareLaunchArgument(
+        name="site", default_value="", description="Simulation site overlay: empty = none, 'marina_bay'.")]
 
     task2_params_arg = DeclareLaunchArgument(
         name="task2_params_file",
@@ -132,6 +133,11 @@ def generate_launch_description():
     task2_sensors_file = PythonExpression(
         ["'", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"), "' + '.yaml'"]
     )
+    # Simulation only: the site's coordinates (a no-op re-load of the sensors overlay when there is no site or on hardware).
+    task2_site_file = PythonExpression([
+        "'", banyu_bringup_share, "/config/task2_site_' + '", LaunchConfiguration("site"), "' + '.yaml' if '",
+        LaunchConfiguration("site"), "' and '", LaunchConfiguration("use_sim"), "'.lower() == 'true' else '",
+        banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"), "' + '.yaml'"])
     por_params = LaunchConfiguration("por_params_file")
     hardware_params = LaunchConfiguration("hardware_params_file")
 
@@ -178,6 +184,7 @@ def generate_launch_description():
             },
             task2_tier_file,
             task2_sensors_file,
+            task2_site_file,
         ],
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -311,7 +318,7 @@ def generate_launch_description():
         package="banyu_communication",
         executable="uuv_comm_node",
         name="uuv_comm_node",
-        parameters=[task2_params, task2_tier_file],
+        parameters=[task2_params, task2_tier_file, task2_site_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )

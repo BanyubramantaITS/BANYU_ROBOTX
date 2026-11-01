@@ -145,6 +145,7 @@ def generate_launch_description():
             ("light_fault", "Scenario: a functional light node fault '<node>:thermistor|mag|hot'."),
             ("camera_model", "Scenario: 'fisheye' distorts the bottom camera (empty or 'pinhole': none)."),
             ("ir_led", "Scenario: 'on' adds the bottom camera's LED ring as a spot light (empty or 'off': none)."),
+            ("site", "Simulation site: empty = Long Beach (RATBeach), 'marina_bay' = Marina Bay home and course."),
             ("fcu_faults", "Scenario: FCU sensor faults, e.g. 'compass=20,gps_offset=0.3:0.2,gps_drop=40:15'."),
         )
     ]
@@ -267,6 +268,7 @@ def generate_launch_description():
             "use_dvl": LaunchConfiguration("use_dvl"),
             "use_gps": LaunchConfiguration("use_gps"),
             "headless": LaunchConfiguration("headless"),
+            "site": LaunchConfiguration("site"),
         }.items(),
     )
 
@@ -281,6 +283,7 @@ def generate_launch_description():
             "debug": LaunchConfiguration("debug"),
             "tier": LaunchConfiguration("tier"),
             "sensors": LaunchConfiguration("sensors"),
+            "site": LaunchConfiguration("site"),
             "pipe_dx": LaunchConfiguration("pipe_dx"),
             "pipe_dy": LaunchConfiguration("pipe_dy"),
             "pipe_dyaw_deg": LaunchConfiguration("pipe_dyaw_deg"),

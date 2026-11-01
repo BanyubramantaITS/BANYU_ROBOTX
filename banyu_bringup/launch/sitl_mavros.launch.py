@@ -65,6 +65,12 @@ def generate_launch_description():
         ),
     )
 
+    site_arg = DeclareLaunchArgument(
+        name="site",
+        default_value="",
+        description="Simulation GPS home: empty = RATBeach (Long Beach), 'marina_bay' = Marina Bay, Singapore.",
+    )
+
     headless_arg = DeclareLaunchArgument(
         name="headless",
         default_value="False",
@@ -130,8 +136,8 @@ def generate_launch_description():
 
     _ardusub_sitl_base_cmd = [
         "sim_vehicle.py",
-        "-L",
-        "RATBeach",
+        PythonExpression(["'--custom-location=1.2816,103.8636,0,270' if '", LaunchConfiguration("site"),
+                          "' == 'marina_bay' else '--location=RATBeach'"]),
         "-v",
         "ArduSub",
         "-f",
@@ -296,6 +302,7 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
+            site_arg,
             use_sim_arg,
             use_ardusub_sitl_arg,
             use_sim_time_arg,

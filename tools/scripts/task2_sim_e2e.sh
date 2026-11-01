@@ -28,6 +28,8 @@ mkdir -p "$OUT"
 source /opt/ros/jazzy/setup.bash && source "${WS_DIR}/install/setup.bash"
 export ROS_DOMAIN_ID=40
 echo "start $(date +%T) tier=$TIER" > "$OUT/progress.txt"
+# The mock GCS course boundary is centred on the sim's GPS home.
+if [[ " ${LAUNCH_ARGS[*]} " == *" marina_bay "* ]]; then GCS_ARGS+=(--home-lat 1.2816 --home-lon 103.8636); fi
 UP=0
 for ATTEMPT in 1 2 3; do
   "${SCRIPT_DIR}/launch_task2.sh" --sim "$MODE" --no-clean --tier "$TIER" "${GATE[@]}" "${LAUNCH_ARGS[@]}" \
