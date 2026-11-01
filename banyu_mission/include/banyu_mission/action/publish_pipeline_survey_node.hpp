@@ -22,11 +22,18 @@ public:
     rclcpp::Node::SharedPtr node, std::shared_ptr<MissionState> state,
     std::string service_name = "/banyu/communication/trigger_pipeline_survey");
 
-  static BT::PortsList providedPorts() {return {};}
+  // best_effort: if the survey is incomplete, ask for the Core survey of what was seen (report id suffix ".best_effort").
+  static BT::PortsList providedPorts()
+  {
+    return {BT::InputPort<bool>("best_effort", false, "report what was seen when the survey is incomplete")};
+  }
 
   BT::NodeStatus onStart() override;
   BT::NodeStatus onRunning() override;
   void onHalted() override;
+
+private:
+  bool best_effort_{false};
 
 private:
   rclcpp::Node::SharedPtr node_;

@@ -294,6 +294,48 @@ SurveyLedger::Report SurveyLedger::build(const std::string & report_id) const
   return report;
 }
 
+bool SurveyLedger::bestEffortAvailable() const
+{
+  return evidence_.revision != 0 && evidence_.run_id == run_id_ && evidence_.epoch == epoch_ &&
+         !evidence_.active_buoy.endpoint_id.empty() && std::isfinite(evidence_.active_buoy.fix.latitude) &&
+         std::isfinite(evidence_.active_buoy.fix.longitude);
+}
+
+SurveyLedger::Report SurveyLedger::buildBestEffort(const std::string & report_id) const
+{
+  if (complete_) {return build(report_id);}
+  if (!bestEffortAvailable()) {throw std::logic_error("BEST_EFFORT_UNAVAILABLE: no verified active buoy");}
+  if (!validReportId(report_id)) {
+    throw std::invalid_argument("Invalid report identity: " + report_id);
+  }
+  Report report;
+  report.run_id = run_id_;
+  report.epoch = epoch_;
+  report.report_id = report_id;
+  report.course_id = course_id_;
+  report.tier = 2;
+  report.buoy_latitude = evidence_.active_buoy.fix.latitude;
+  report.buoy_longitude = evidence_.active_buoy.fix.longitude;
+
+  std::vector<banyu_msgs::msg::Task2RingRecord> seen;
+  for (const auto & ring : originals_) {seen.push_back(ring.second);}
+  if (seen.empty()) {
+    for (const auto & ring : evidence_.rings) {
+      if ((ring.color == 1 || ring.color == 2) && std::isfinite(ring.pipeline_progress_m)) {seen.push_back(ring);}
+    }
+  }
+  const bool ascending = evidence_.active_buoy.endpoint_id == evidence_.low_progress_endpoint_id;
+  std::sort(seen.begin(), seen.end(), [ascending](const auto & first, const auto & second) {
+      return ascending ? first.pipeline_progress_m<second.pipeline_progress_m :
+             first.pipeline_progress_m> second.pipeline_progress_m;
+    });
+  report.original_conditions.fill(1);  // GREEN where nothing was seen
+  for (std::size_t i = 0; i < 4 && i < seen.size(); ++i) {
+    report.original_conditions[i] = seen[i].color == 1 ? 2 : 1;
+  }
+  return report;
+}
+
 rx_msgs::msg::PipelineSurvey SurveyLedger::Report::toPipelineSurvey() const
 {
   rx_msgs::msg::PipelineSurvey survey;

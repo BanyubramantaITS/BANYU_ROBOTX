@@ -9,8 +9,15 @@
       <Sequence name="mission_phases">
         <SubTree ID="MissionPreflight" _autoremap="true" />
         <SubTree ID="SurfaceTransitToStart" _autoremap="true" />
-        <SubTree ID="DiveAndAcquirePipeline" _autoremap="true" />
-        <SubTree ID="TraversePipeline" _autoremap="true" />
+        <!-- Always report: a pipe that is not found or a traverse that is lost still surfaces and sends the Core survey of
+             what was seen (the heartbeat and start-buoy points are kept). -->
+        <Fallback name="survey_or_report_what_was_seen">
+          <Sequence>
+            <SubTree ID="DiveAndAcquirePipeline" _autoremap="true" />
+            <SubTree ID="TraversePipeline" _autoremap="true" />
+          </Sequence>
+          <AlwaysSuccess />
+        </Fallback>
         <SubTree ID="SurfaceAndReport" _autoremap="true" />
       </Sequence>
     </ReactiveFallback>
@@ -162,14 +169,21 @@
 
   <BehaviorTree ID="SurfaceAndReport">
     <Sequence>
-      <Timeout msec="5000">
-        <WaitSurveyComplete />
-      </Timeout>
+      <ForceSuccess>
+        <Timeout msec="5000">
+          <WaitSurveyComplete />
+        </Timeout>
+      </ForceSuccess>
       <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}" />
       <ConfirmSurfaceAction />
-      <Timeout msec="5000">
-        <PublishPipelineSurvey />
-      </Timeout>
+      <Fallback>
+        <Timeout msec="5000">
+          <PublishPipelineSurvey />
+        </Timeout>
+        <Timeout msec="5000">
+          <PublishPipelineSurvey best_effort="true" />
+        </Timeout>
+      </Fallback>
     </Sequence>
   </BehaviorTree>
 </root>

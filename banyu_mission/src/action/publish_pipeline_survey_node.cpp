@@ -27,6 +27,7 @@ BT::NodeStatus PublishPipelineSurveyNode::onStart()
     success_ = false;
     request_sent_ = false;
     retryable_ = false;
+    best_effort_ = getInput<bool>("best_effort").value_or(false);
   }
   return onRunning();
 }
@@ -56,7 +57,8 @@ BT::NodeStatus PublishPipelineSurveyNode::onRunning()
     auto request = std::make_shared<banyu_msgs::srv::TriggerPipelineSurvey::Request>();
     request->run_id = run_id_;
     request->epoch = epoch_;
-    request->report_id = "task2-survey-" + std::to_string(run_id_) + "-" + std::to_string(epoch_);
+    request->report_id = "task2-survey-" + std::to_string(run_id_) + "-" + std::to_string(epoch_) +
+      (best_effort_ ? ".best_effort" : "");
     const auto generation = generation_;
     const auto report_id = request->report_id;
     request_sent_ = true;

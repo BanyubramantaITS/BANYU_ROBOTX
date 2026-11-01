@@ -58,6 +58,11 @@ public:
   bool complete() const {return complete_;}
   std::string reason() const {return reason_;}
   Report build(const std::string & report_id) const;
+  // A Core survey from what was seen when the survey could not be completed (a pipe not found, a lost traverse): the
+  // verified active buoy, the rings seen in progress order and GREEN for the rest. Keeps the heartbeat and start-buoy
+  // points instead of sending nothing. Throws when no active buoy was ever verified.
+  Report buildBestEffort(const std::string & report_id) const;
+  bool bestEffortAvailable() const;
 
 private:
   Config config_;

@@ -502,7 +502,11 @@ void UuvCommNode::surveyCallback(
     reply(Response::RUN_NOT_ACTIVE, "RUN_NOT_ACTIVE: fresh eligible mission required");
     return;
   }
-  if (!survey_ledger_->complete()) {
+  // ".best_effort": the mission gave up on a full survey (pipe not found, traverse lost); report what was seen.
+  const std::string kBestEffort = ".best_effort";
+  const bool best_effort = request->report_id.size() > kBestEffort.size() &&
+    request->report_id.compare(request->report_id.size() - kBestEffort.size(), kBestEffort.size(), kBestEffort) == 0;
+  if (!survey_ledger_->complete() && !(best_effort && survey_ledger_->bestEffortAvailable())) {
     reply(Response::SURVEY_INVALID, survey_ledger_->reason());
     return;
   }
@@ -519,7 +523,11 @@ void UuvCommNode::surveyCallback(
 
   SurveyLedger::Report report;
   try {
-    report = survey_ledger_->build(request->report_id);
+    report = best_effort ? survey_ledger_->buildBestEffort(request->report_id) :
+      survey_ledger_->build(request->report_id);
+    if (best_effort && !survey_ledger_->complete()) {
+      RCLCPP_WARN(get_logger(), "Best-effort Core survey (incomplete: %s)", survey_ledger_->reason().c_str());
+    }
   } catch (const std::exception & error) {
     reply(Response::SURVEY_INVALID, error.what());
     return;

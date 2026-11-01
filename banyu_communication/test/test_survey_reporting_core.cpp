@@ -491,3 +491,44 @@ TEST(SurfaceGuard, SingleSampleMustNotVerifyContinuousSurfacing)
   guard.observe(depth(10 * kSecond), 10 * kSecond, kSecond);
   EXPECT_FALSE(guard.ready(10 * kSecond + 160000000LL, kSecond + 160000000LL));
 }
+
+TEST(SurveyLedger, BestEffortReportsWhatWasSeenWithTheVerifiedBuoy)
+{
+  SurveyLedger ledger(ledgerConfig());
+  initialize(ledger);
+  auto value = evidence();
+  value.rings.resize(3);   // rings 100 (GREEN), 101 (GREEN), 102 (RED) seen, the fourth never reached
+  value.traversal_complete = false;
+  EXPECT_FALSE(ledger.ingest(value, 11 * kSecond).empty());
+  EXPECT_FALSE(ledger.complete());
+  ASSERT_TRUE(ledger.bestEffortAvailable());
+  const auto report = ledger.buildBestEffort("task2-survey-13-1.best_effort");
+  EXPECT_EQ(report.tier, 2);
+  EXPECT_DOUBLE_EQ(report.buoy_latitude, 33.0);
+  const std::array<uint8_t, 4> expected{1, 1, 2, 1};   // GREEN, GREEN, RED as seen, then GREEN
+  EXPECT_EQ(report.original_conditions, expected);
+}
+
+TEST(SurveyLedger, BestEffortWithNothingSeenIsAllGreenAndNeedsABuoy)
+{
+  SurveyLedger ledger(ledgerConfig());
+  initialize(ledger);
+  EXPECT_FALSE(ledger.bestEffortAvailable());
+  EXPECT_THROW(ledger.buildBestEffort("x.best_effort"), std::logic_error);
+  auto value = evidence();
+  value.rings.clear();
+  value.traversal_complete = false;
+  ledger.ingest(value, 11 * kSecond);
+  ASSERT_TRUE(ledger.bestEffortAvailable());
+  const std::array<uint8_t, 4> all_green{1, 1, 1, 1};
+  EXPECT_EQ(ledger.buildBestEffort("x.best_effort").original_conditions, all_green);
+}
+
+TEST(SurveyLedger, BestEffortOfACompleteSurveyIsTheFullReport)
+{
+  SurveyLedger ledger(ledgerConfig());
+  initialize(ledger);
+  ASSERT_TRUE(ledger.ingest(evidence(), 11 * kSecond).empty());
+  EXPECT_EQ(ledger.buildBestEffort("x.best_effort").original_conditions,
+    ledger.build("x").original_conditions);
+}
