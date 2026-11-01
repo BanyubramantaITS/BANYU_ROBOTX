@@ -48,7 +48,14 @@ if [ "$UP" = 1 ]; then
   python3 "${REPO_DIR}/tools/sos_integration/ring_recorder.py" "$OUT/rings.jsonl" "$TIMEOUT" > /dev/null 2>&1 &
   ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger '{}' > "$OUT/prepare.out" 2>&1
   echo "prepared $(date +%T)" >> "$OUT/progress.txt"
-  sleep 8
+  # The GCS sends the run start once; a start before the mission reports autonomous_ready is rejected and the run never
+  # begins. Wait (up to 60 s) for the readiness the mission publishes.
+  for _ in $(seq 1 30); do
+    timeout 3 ros2 topic echo --once /banyu/mission/run_lifecycle 2>/dev/null | grep -q "autonomous_ready: true" && break
+    sleep 2
+  done
+  echo "ready $(date +%T)" >> "$OUT/progress.txt"
+  sleep 3
   timeout "$TIMEOUT" python3 "${REPO_DIR}/tools/sos_integration/mock_gcs.py" --send run-start --serve \
     --timeout "$TIMEOUT" --log "$OUT/mock_gcs.jsonl" "${GCS_ARGS[@]}" > "$OUT/mock_gcs.out" 2>&1 &
   GCS_PID=$!
