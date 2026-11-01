@@ -380,7 +380,7 @@ calibrated_depth_node:
       silent_s: 3.0
       stuck_s: 3.0
       max_step_m: 0.3
-      max_disagree_m: 1.0
+      max_disagree_m: 0.0   # 0 = off: in ALT_HOLD the real climb rate does not follow the command (false fault in the sim)
     source_id: "pressure_depth"
     datum: "water_surface"
     calibration_id: "surface_rel_alt_datum"

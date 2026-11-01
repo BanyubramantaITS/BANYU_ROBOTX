@@ -59,7 +59,9 @@ TEST(DepthHealthMonitor, StepIsFlaggedAtOnce)
 TEST(DepthHealthMonitor, SlowOffsetAgainstTheHeaveIsFlagged)
 {
   // A drift of 0.25 m/s on top of the real depth (an offset that grows) is not a step, but disagrees with the heave.
-  DepthHealthMonitor m;
+  DepthHealthMonitor::Config config;
+  config.max_disagree_m = 1.0;
+  DepthHealthMonitor m(config);
   const double t = replay(m, 30.0, [](double t) {return std::optional<double>(0.2 * t + (t >= 10.0 ? 0.25 * (t - 10.0) : 0.0));});
   EXPECT_EQ(m.fault(), Fault::kDisagree);
   EXPECT_LE(t - 10.0, 10.0);

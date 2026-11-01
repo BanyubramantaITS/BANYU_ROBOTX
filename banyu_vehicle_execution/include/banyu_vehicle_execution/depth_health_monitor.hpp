@@ -16,7 +16,9 @@ struct DepthHealthConfig
   double stuck_epsilon_m{0.002};
   double heave_active_mps{0.05}; // commanded heave above this counts as "moving"
   double max_step_m{0.3};        // jump between two samples
-  double max_disagree_m{1.0};    // depth change against the integrated commanded heave
+  // Depth change against the integrated commanded heave; 0 = off. Off by default: in ALT_HOLD the vehicle does not
+  // follow the commanded climb rate closely (a healthy dive in the sim was flagged).
+  double max_disagree_m{0.0};
   double disagree_window_s{10.0};
 };
 
@@ -69,7 +71,7 @@ public:
       window_started_ = true;
       window_start_t_ = t;
       expected_depth_ = depth_m;
-    } else if (std::abs(depth_m - expected_depth_) > config_.max_disagree_m) {
+    } else if (config_.max_disagree_m > 0.0 && std::abs(depth_m - expected_depth_) > config_.max_disagree_m) {
       latch(Fault::kDisagree);
     }
     have_sample_ = true;

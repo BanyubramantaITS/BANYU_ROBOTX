@@ -315,8 +315,9 @@ def generate_launch_description():
         cmd=["ros2", "run", "banyu_bringup", "sim_gps_gate.py", "--ros-args",
              "-p", ["loss_depth_m:=", LaunchConfiguration("gps_loss_depth_m")],
              "-p", ["reacquire_delay_s:=", LaunchConfiguration("gps_reacquire_delay_s")],
-             "-p", ["rel_alt_topic:=", PythonExpression(
-                 ["'/mavros/global_position/rel_alt' if '", LaunchConfiguration("sensors"), "' == 'minimal' else 'none'"])],
+             # The world's depth for the gate: the SITL barometer, never the mission's water depth (which a depth fault or
+             # sensors:=minimal turns into the GPS surface proof, so the GPS would never come back).
+             "-p", "rel_alt_topic:=/mavros/global_position/rel_alt",
              "-p", "use_sim_time:=true"],
         name="sim_gps_gate",
         output="screen",
