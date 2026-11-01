@@ -377,3 +377,23 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   `enable_mavros_publish`, `autonomy_mode` and the rest of `control` became children of `camera_descent`. Moved the blocks after `control`;
   a key-by-key comparison with the previous `task2_params.yaml` shows only the intended additions and the two `depth_sources` changes.
   The two runs (Advanced seed 5 H24 test, minimal smoke) are not counted.
+- **Start race found:** the mock GCS sends the run start once; a start that arrives before the mission reports `autonomous_ready` is
+  rejected (`NOT_READY`) and the run never begins (the stuck Advanced runs). A leftover e2e process from a stopped batch also ran a second
+  mock GCS into the next sim. Fixes: the e2e script sends the start only after `autonomous_ready: true` (harness only, the mission rule is
+  unchanged); the mission logs each GCS command and the reason a start is rejected; processes are stopped by PID from a script.
+- **H24 confirmed (Advanced seed 5, random spawn, Bar30):** four records at progress 0.2, 1.98, 3.15 (RED), 4.58, order GREEN, GREEN, RED,
+  GREEN right, repair and flash code (circle BLUE) right; no report because the Surface step failed (H25).
+- **H25:** the Bar30 DISAGREE check flagged a healthy dive (in ALT_HOLD the vehicle does not follow the commanded climb rate), switched the
+  depth to the GPS surface proof, and the sim GPS gate, which read the mission's water depth, then never gave the GPS back at the surface:
+  Surface failed after its 120 s blind rise. Fixes: DISAGREE off by default (`max_disagree_m: 0`; stuck, step and silent stay); the sim GPS
+  gate always reads the SITL barometer (the world), never the mission's depth.
+- **First `sensors:=minimal` run (Core seed 1, node 2, middle spawn; STABILIZE, no depth sensor):** camera descent locked on the pipe after
+  30 s (Gazebo z -12.48, 0.9 m above the nodes); CenterOnRing, the camera repair (Gazebo node 2 TASK_COMPLETED_GREEN), and the order from
+  dead reckoning along the buoy line: four records at 31.17, 32.0 (RED), 33.45, 34.75 = GREEN, RED, GREEN, GREEN, right (D7 works). Then at
+  the far end the vehicle floated up (z -12.5 to -10.8 at about 0.04 m/s: positive buoyancy, the STABILIZE heave stick is thrust and
+  had zero thrust once the pipe left the view) out of camera range, the end was never detected and the traverse ran to its 600 s timeout.
+  After that the second-dive branch ran: Surface rose blind until the GPS fix proved the surface (D4 works), the target moved 3 m along the
+  buoy line and the second dive started; stopped there by me (the same float-up would repeat). Not counted as a pass.
+- **H26:** the camera heave gets an integral term (ki 0.03, limit 0.15 m/s) that learns the buoyancy trim while the pipe is in view and keeps
+  it when the pipe is lost; every other underwater action in STABILIZE gets the same learned trim added. Test: a vehicle floating up at
+  0.04 m/s holds the standoff within 0.15 m and keeps a push down when the pipe is lost.
