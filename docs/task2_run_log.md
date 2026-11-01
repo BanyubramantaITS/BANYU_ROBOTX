@@ -369,3 +369,6 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   Advanced 3 of 4 PASS 475 (seed 5 node 3 order wrong, cause and fix H24 above). The two frozen Advanced runs are not counted.
   Merged into `feat/task2-core-disruptive-sim` (fast-forward) and `install/` rebuilt; next: H24 on Advanced seed 5, then the first
   `sensors:=minimal` run.
+- **Process slip:** a `pkill -f` with a pattern from my own command killed my own shell (the rule says use PIDs); nothing else was hit, the
+  sim was cleaned with the cleanup script and PIDs. The first Advanced H24 run did not start: `main_launch` evaluated the new scenario
+  helpers' conditions before `use_sim` was declared (fixed, no sim result lost).
