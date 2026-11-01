@@ -389,7 +389,9 @@ private:
       }
 
       // Primary: edge-pair pipe fitting from pipeline_vision
-      const cv::Mat edge_mask = banyu_detection::pipeMask(image, probe_rect_);
+      float pipe_width_px = 0.0f;
+      const cv::Mat edge_mask = banyu_detection::pipeMask(image, probe_rect_, &pipe_width_px);
+      observation.width = std::numeric_limits<float>::quiet_NaN();
       const auto ahead_fit = banyu_detection::fitPipe(edge_mask,
           banyu_detection::aheadBand(image.rows));
       const auto ahead_centroid = banyu_detection::pipeCentroid(edge_mask);
@@ -410,6 +412,7 @@ private:
         } else {
           observation.offset_y = 0.0f;
         }
+        if (pipe_width_px > 0.0f) {observation.width = pipe_width_px / image.cols;}
         const int inliers = cv::countNonZero(edge_mask);
         observation.confidence = std::clamp(static_cast<float>(inliers / 300.0f), 0.35f, 1.0f);
         pipeline_detected = true;
@@ -615,6 +618,7 @@ private:
     observation.offset_x = unavailable;
     observation.offset_y = unavailable;
     observation.heading_error_rad = unavailable;
+    observation.width = unavailable;
     observation.confidence = 0.0F;
     return observation;
   }

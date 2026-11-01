@@ -28,3 +28,7 @@ float32 heading_error_rad
 
 # Detector confidence in [0, 1].
 float32 confidence
+
+# Apparent pipe width, edge to edge, as a fraction of the image width; NaN when not measured. With the pipe's real
+# diameter and the camera's field of view it gives the range to the pipe (no depth sensor needed).
+float32 width

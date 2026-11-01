@@ -36,8 +36,9 @@ inline int referenceRow(int height) {return height / 2;}
 // body between (whichever way its contrast runs; thin frames and stand bars fail it), then grown
 // along the pipe over a faint-contrast mask (smoothed image against a wide median background),
 // keeping only the parts the edge pairs touch. `ignore` is where the repair probe rod sits in the
-// image (empty: no probe).
-cv::Mat pipeMask(const cv::Mat & bgr, const cv::Rect & ignore = {});
+// image (empty: no probe). `width_px`, when given, receives the pipe's apparent width (edge to edge, px; 0 when no pipe):
+// with the pipe's real diameter it gives the range to the pipe with no depth sensor.
+cv::Mat pipeMask(const cv::Mat & bgr, const cv::Rect & ignore = {}, float * width_px = nullptr);
 
 // Line fit of the pipe inside `band`; fitting only the stretch ahead takes a zigzag one leg at
 // a time. nullopt when too little pipe is in the band.

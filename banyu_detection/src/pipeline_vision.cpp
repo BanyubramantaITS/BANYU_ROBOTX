@@ -124,7 +124,7 @@ std::pair<cv::Mat, float> edgePairs(const cv::Mat & green, const cv::Mat & rod)
 
 }  // namespace
 
-cv::Mat pipeMask(const cv::Mat & bgr, const cv::Rect & ignore)
+cv::Mat pipeMask(const cv::Mat & bgr, const cv::Rect & ignore, float * width_px)
 {
   cv::Mat green;
   cv::extractChannel(bgr, green, 1);
@@ -135,6 +135,7 @@ cv::Mat pipeMask(const cv::Mat & bgr, const cv::Rect & ignore)
   const cv::Rect area = ignore & cv::Rect(0, 0, bgr.cols, bgr.rows);
   if (area.area() > 0) {rod(area).setTo(1);}
   const auto [seed, width] = edgePairs(green, rod);
+  if (width_px) {*width_px = std::max(0.0f, width);}
   if (width <= 0) {return seed;}
   green.setTo(cv::mean(green, rod == 0)[0], rod);
   // Background from a half-size copy: the window is then ~100 px, wider than the pipe even as the
