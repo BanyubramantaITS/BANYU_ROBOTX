@@ -397,3 +397,11 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
 - **H26:** the camera heave gets an integral term (ki 0.03, limit 0.15 m/s) that learns the buoyancy trim while the pipe is in view and keeps
   it when the pipe is lost; every other underwater action in STABILIZE gets the same learned trim added. Test: a vehicle floating up at
   0.04 m/s holds the standoff within 0.15 m and keeps a push down when the pipe is lost.
+- **H25 confirmed (Advanced seed 5, random spawn, Bar30): PASS 475** (order GREEN, GREEN, RED, GREEN, circle BLUE). Advanced random spawn is
+  now 4 of 4 on the current code (seeds 2, 1, 9 earlier, seed 5 here).
+- **Minimal Core seed 1 with H26: FAIL 200**: order right (GREEN, RED, GREEN, GREEN, from dead reckoning on the buoy line), the traverse
+  ended and the report came in about 4 minutes (H26 fixed the float-up at the pipe end), but the repair failed: contact at Gazebo z -13.32,
+  then the vehicle floated 0.5 m off the switch during the hold (zero heave in STABILIZE). **H27** (committed, built, not yet run): with no
+  depth hold, keep pressing gently down until the repair is confirmed.
+- **Stopped here (usage limit), 2026-11-02 05:56.** Not done: H27 sim run; step 2 colour pairs; minimal-sensor 5 of 5 per tier and node;
+  pipe depth 3/8/13 m; scenarios 1-18 and the worst-case combos (the launch options exist); verdict and sim results docs update.
