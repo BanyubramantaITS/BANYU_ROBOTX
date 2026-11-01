@@ -372,3 +372,8 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
 - **Process slip:** a `pkill -f` with a pattern from my own command killed my own shell (the rule says use PIDs); nothing else was hit, the
   sim was cleaned with the cleanup script and PIDs. The first Advanced H24 run did not start: `main_launch` evaluated the new scenario
   helpers' conditions before `use_sim` was declared (fixed, no sim result lost).
+- **Bug found by the first runs on the new build (both did not start: `autonomous_ready` false, execution readiness "MAVROS output
+  disabled"):** the new `camera_heave` and `camera_descent` blocks were inserted in the middle of `vehicle_execution_node.control`, so
+  `enable_mavros_publish`, `autonomy_mode` and the rest of `control` became children of `camera_descent`. Moved the blocks after `control`;
+  a key-by-key comparison with the previous `task2_params.yaml` shows only the intended additions and the two `depth_sources` changes.
+  The two runs (Advanced seed 5 H24 test, minimal smoke) are not counted.

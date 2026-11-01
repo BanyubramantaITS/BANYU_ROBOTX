@@ -292,22 +292,6 @@ vehicle_execution_node:
       surface_blind_timeout_s: 120.0
       # false: no depth sensor; rel_alt and the EKF height are never a depth (sensors:=minimal).
       use_pressure_depth: true
-    # Heave from the pipe's apparent width (sensors:=minimal): range = diameter / (width x 2 tan(hfov / 2)).
-    # Diameter: 3" Schedule 40 PVC in the sim (measure the real pipe). hfov: the sim bottom camera (re-calibrate the HORUS).
-    camera_heave:
-      enabled: false
-      pipe_diameter_m: 0.0889
-      hfov_rad: 1.047
-      standoff_m: 1.6
-      kp: 0.4
-      max_rate_mps: 0.25
-      deadband_m: 0.1
-      trim_mps: 0.0
-    # Dive with no depth sensor: sink until the camera has the pipe or a light for lock_s; give up at max_depth_m / rate.
-    camera_descent:
-      rate_mps: 0.15
-      lock_s: 1.0
-      max_depth_m: 15.0
       require_run_authorization: true
       run_lifecycle_timeout_s: 1.0
       enable_mavros_publish: true
@@ -330,6 +314,22 @@ vehicle_execution_node:
       search_pinger_timeout_s: 3.0
       search_pinger_kp: 0.8
       search_pinger_forward_speed: 0.25
+    # Heave from the pipe's apparent width (sensors:=minimal): range = diameter / (width x 2 tan(hfov / 2)).
+    # Diameter: 3" Schedule 40 PVC in the sim (measure the real pipe). hfov: the sim bottom camera (re-calibrate the HORUS).
+    camera_heave:
+      enabled: false
+      pipe_diameter_m: 0.0889
+      hfov_rad: 1.047
+      standoff_m: 1.6
+      kp: 0.4
+      max_rate_mps: 0.25
+      deadband_m: 0.1
+      trim_mps: 0.0
+    # Dive with no depth sensor: sink until the camera has the pipe or a light for lock_s; give up at max_depth_m / rate.
+    camera_descent:
+      rate_mps: 0.15
+      lock_s: 1.0
+      max_depth_m: 15.0
     rc_override:   # = Pixhawk RCMAP_FORWARD/LATERAL/THROTTLE/YAW (robot: 2/1/3/4); same gains as POR
       channel_forward: 2
       channel_lateral: 1
