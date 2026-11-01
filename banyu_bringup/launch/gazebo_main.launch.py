@@ -108,6 +108,20 @@ def distort_bottom_camera(robot_xml):
     return robot_xml.replace(tag, tag + BOTTOM_CAMERA_DISTORTION, 1)
 
 
+# The HORUS T10's IR LED ring as a spot light along the bottom camera's axis (Gazebo cameras look along +X).
+IR_LED = (
+    '<gazebo reference="bottom_camera_link"><light name="bottom_led" type="spot">'
+    "<pose>0 0 0 0 0 0</pose><diffuse>0.8 0.8 0.8 1</diffuse><specular>0.1 0.1 0.1 1</specular>"
+    "<direction>1 0 0</direction><attenuation><range>6</range><constant>0.3</constant><linear>0.2</linear>"
+    "<quadratic>0.05</quadratic></attenuation><spot><inner_angle>0.6</inner_angle><outer_angle>1.0</outer_angle>"
+    "<falloff>1.0</falloff></spot><cast_shadows>false</cast_shadows></light></gazebo>")
+
+
+def add_ir_led(robot_xml):
+    assert "</robot>" in robot_xml, "robot"
+    return robot_xml.replace("</robot>", IR_LED + "</robot>", 1)
+
+
 def self_check():
     for seed in range(200):
         lay = random_layout(seed)
@@ -184,6 +198,9 @@ def generate_launch_description():
     camera_model_arg = DeclareLaunchArgument(
         name="camera_model", default_value="pinhole", choices=["pinhole", "fisheye"],
         description="Scenario: 'fisheye' adds barrel distortion to the bottom camera (the HORUS T10 is a fisheye).")
+    ir_led_arg = DeclareLaunchArgument(
+        name="ir_led", default_value="off", choices=["on", "off"],
+        description="Scenario: 'on' adds the camera's LED ring as a spot light along the bottom camera.")
     light_fault_arg = DeclareLaunchArgument(
         name="light_fault", default_value="",
         description="Scenario: a functional node fault '<node>:thermistor|mag|hot' (blinks RED or goes dark).")
@@ -225,6 +242,8 @@ def generate_launch_description():
         bluerov2_heavy_xml = xacro.process(_bluerov2_heavy_file, mappings={"probe": probe})
         if LaunchConfiguration("camera_model").perform(context) == "fisheye":
             bluerov2_heavy_xml = distort_bottom_camera(bluerov2_heavy_xml)
+        if LaunchConfiguration("ir_led").perform(context) == "on":
+            bluerov2_heavy_xml = add_ir_led(bluerov2_heavy_xml)
 
         seed_text = LaunchConfiguration("layout_seed").perform(context)
         if seed_text:
@@ -402,6 +421,7 @@ def generate_launch_description():
             visibility_arg,
             light_fault_arg,
             camera_model_arg,
+            ir_led_arg,
             spawn_x_arg,
             spawn_y_arg,
             spawn_z_arg,
