@@ -463,3 +463,15 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
 - **H37 run result:** FAIL 50 (order RED, GREEN, GREEN, GREEN against GREEN, RED, GREEN, GREEN; node 2 not repaired): the 2 m dive offset put the
   vehicle past node 1 (x 1.14 at the dive, node 1 at 2.35), so node 1 was never seen. **H37b:** dive offset 1.5 m (the shortest
   buoy gap of the course: the vehicle starts over the pipe's start).
+- **H37b batch (minimal Core, middle spawn, seeds 2 and 1), stopped after two runs:** seed 2 FAIL 25 (dive locked; repair missed; the
+  vehicle later floated to the surface during the traverse and searched there; the 600 s traverse timeout plus the second dive did not fit
+  the 900 s run, no survey). Seed 1: dive locked, repair missed (`Ring did not turn green on contact`), then the vehicle sank onto the
+  seabed past the pipe's far end (Gazebo x -3.4, z -14.9) and searched there.
+- **FAILED: the Core survey with the minimal sensor set (in this sim).** The parts that work: the camera dive (H37b, the dive point inside
+  the buoys), the GPS-fix surfacing (D4), the order from dead reckoning on the buoy line (D7: right in every run that saw the four nodes),
+  the second dive and the always-report path (D3). What fails is holding a height over the pipe with no depth hold: the STABILIZE heave
+  stick is raw thrust and the camera-range loop (H26 integral, H29/H34 gains) lets the vehicle float to the surface or sink to the seabed
+  once the pipe leaves the view (four runs, both directions, Gazebo ground truth). Fixes on this item: H26, H29, H34 (gains), plus the
+  dive items H30-H37b. **Sensor limit:** a depth hold (Bar30 + ALT_HOLD) is what makes both the traverse and the repair work: with it
+  Core, Advanced and Disruptive pass 4 of 4 with a random spawn (step 1). Steps 4 and 5 in the minimal configuration are blocked by this
+  failure; the scenario runs below use the Bar30 configuration and say so.
