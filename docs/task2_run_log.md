@@ -405,3 +405,9 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   depth hold, keep pressing gently down until the repair is confirmed.
 - **Stopped here (usage limit), 2026-11-02 05:56.** Not done: H27 sim run; step 2 colour pairs; minimal-sensor 5 of 5 per tier and node;
   pipe depth 3/8/13 m; scenarios 1-18 and the worst-case combos (the launch options exist); verdict and sim results docs update.
+- **H27 / H27b (minimal Core seed 1 and seed 2):** both repairs failed (`Ring did not turn green on contact`, Gazebo DAMAGED_RED). Seed 1:
+  contact 0.3 m off node 2, lid at the image corner, and the H27 push kept pressing while off-centre (H27b: push only while centred).
+  Seed 2 with H27b: the vehicle reached node 1 (0.15 m off, at the node's depth) but sank from z -13.06 to -13.34 in 0.5 s (about 0.56 m/s
+  for 0.12 commanded): in STABILIZE the heave stick is thrust, so the commanded rate sinks the vehicle about 4 times faster than in
+  ALT_HOLD, and the lid slid to the bottom edge before contact. **H28 (third fix on this item):** the repair's sink thrust is scaled
+  to 0.35 with no depth hold. Batch Core seeds 2 1 5 9 minimal next.
