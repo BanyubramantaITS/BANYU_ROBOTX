@@ -485,3 +485,6 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   x 3.59 to 1.04, y -0.93: following 0.9 m beside the line) before node 4; the cap of four kept the RED node out, the survey never had a RED
   and the best-effort Core survey reported all GREEN. Same failure class as before H24 (duplicate records of one node seen from far or
   from the side). Open: a tracker that keeps more than four candidate records and merges them by spacing at the end.
+- **Step 2 result (Bar30, random spawn):** Disruptive colour pairs 7 of 8 PASS 500 (seeds 12, 35, 3, 43, 6, 34 PASS; 18 = 450 by the
+  tier, now fixed by H38; 24 FAIL 50, duplicate records); Advanced circle GREEN seeds 12 (node 4) and 6 (node 1): 2 of 2 PASS 475. H38
+  built, ledger tests 24/24.
