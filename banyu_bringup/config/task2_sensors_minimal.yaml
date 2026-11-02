@@ -27,6 +27,9 @@ vehicle_execution_node:
     # surface. 0.3 m/s (about 66 PWM) sinks steadily; it stops as soon as the pipe is in view.
     camera_descent:
       rate_mps: 0.3
+      # The time limit is max_depth_m / rate_mps; the real sink in the sim is about 0.24 m/s for 0.3 commanded, so 25 gives 83 s
+      # (about 20 m). With no depth sensor the time is the only bound on the dive.
+      max_depth_m: 25.0
 calibrated_depth_node:
   ros__parameters:
     depth_source: "gps_surface"

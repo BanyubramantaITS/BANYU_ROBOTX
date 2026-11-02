@@ -427,3 +427,6 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   the pipe's end and, at the slower descent, the pipe never came into the camera's footprint below the buoy (the earlier fast dive saw it
   from higher up, where the footprint is wider). The blind Surface then rose at about 0.3 m/s (z -11.9 to -4.2 in 16 s, Gazebo). **H32:**
   the camera descent creeps forward at 0.05 m/s along the buoy-to-buoy heading (the pipe lies between the buoys).
+- **H32 run:** the dive failed again; the cause was the time limit, not the footprint: the limit is `max_depth_m / rate_mps` = 15 / 0.3 = 50 s
+  after H31, and the real sink is about 0.24 m/s (H31: z -11.87 at the limit), so the dive stopped about 1.5 m above the nodes. **H33:**
+  `camera_descent.max_depth_m` 25 in `sensors:=minimal` (83 s, about 20 m of sink). The H32 creep stays.
