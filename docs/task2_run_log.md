@@ -436,3 +436,9 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   global gain change broke it. H34: back to the original descent settings (no creep; H30's pipe-only lock kept), and the STABILIZE
   scaling only where the overshoot was: camera heave kp 0.12, max 0.08 m/s (`sensors:=minimal`), and the repair sink thrust 0.35 (H28
   restored).
+- **H34 runs and a dive diagnostic (Gazebo depth and the pipe check on live frames every 2 s):** with the default gain the minimal dive
+  sinks at about 1.2 m/s (z -0.65, -2.32, -4.79, -7.53, ... -13.24 at 14 s, seabed -14.9 at 16 s; throttle 1390 = 110 PWM below neutral)
+  straight down at the start buoy, where the pipe is not (it ends 1.5 m before the buoy): no frame ever had the pipe (edge-pair width 0),
+  and the depth window in which the pipe would be visible (about 3 m above it) passes in 2-3 s. The first minimal run's lock was most
+  likely a light (H30 since removed lights). **H35:** sink slowly (0.05 commanded, about 70 PWM) and creep 0.03 along the buoy line so the
+  camera sweeps the gap while the vehicle is low enough; explicit `camera_descent.max_time_s` 100 s (the commanded rate is not the sink).

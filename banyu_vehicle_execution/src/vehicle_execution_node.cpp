@@ -306,9 +306,11 @@ void VehicleExecutionNode::initActionServers()
   camera_heave_ = CameraHeave(heave_config);
   {
     const double rate = declare_parameter<double>("camera_descent.rate_mps", 0.15);
+    // The time limit: max_time_s if set (the commanded rate is not the real sink rate in STABILIZE), else max_depth_m / rate.
+    const double max_time = declare_parameter<double>("camera_descent.max_time_s", 0.0);
     dive_server->setCameraDescent(
       rate, declare_parameter<double>("camera_descent.lock_s", 1.0),
-      declare_parameter<double>("camera_descent.max_depth_m", 15.0) / rate,
+      max_time > 0.0 ? max_time : declare_parameter<double>("camera_descent.max_depth_m", 15.0) / rate,
       declare_parameter<double>("camera_descent.surge_mps", 0.0));
   }
   camera_heave_servers_ = {acquire_server->name(), search_server->name(), follow_server->name(),

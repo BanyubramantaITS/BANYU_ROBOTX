@@ -22,6 +22,13 @@ vehicle_execution_node:
       # default gain (a slower dive passed over the pipe while still too high to see it).
       kp: 0.12
       max_rate_mps: 0.08
+    # STABILIZE dive (Gazebo ground truth): 0.15 commanded sank at about 1.2 m/s and passed the pipe's depth in 2 s, below the start buoy
+    # where the pipe is not (it ends 1.5-2.5 m before the buoy). Sink slowly (0.05 -> about 0.25 m/s) and creep along the buoy line so
+    # the camera sweeps the gap while the vehicle is low enough to see the pipe (about 3 m).
+    camera_descent:
+      rate_mps: 0.05
+      max_time_s: 100.0
+      surge_mps: 0.03
 calibrated_depth_node:
   ros__parameters:
     depth_source: "gps_surface"
