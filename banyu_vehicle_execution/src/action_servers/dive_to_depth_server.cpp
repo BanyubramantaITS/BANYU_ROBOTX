@@ -53,12 +53,13 @@ bool DiveToDepthServer::validateGoal(const Goal & goal, std::string & reason)
 MotionIntent DiveToDepthServer::cameraDescentTick(
   const VehicleTelemetry & telemetry, const rclcpp::Time & now, double dt, const Goal & goal)
 {
-  constexpr double kLitConfidence = 0.85;
   elapsed_s_ += std::max(0.0, dt);
   const bool pipe = telemetry.pipeline_obs_valid &&
     telemetry.pipeline_status == banyu_msgs::msg::PipelineObservation::TRACKED && telemetry.camera_range_valid;
-  const bool light = telemetry.ring_obs_valid && telemetry.ring_visible && telemetry.ring_confidence >= kLitConfidence;
-  locked_s_ = (pipe || light) ? locked_s_ + std::max(0.0, dt) : 0.0;
+  // Only the pipe (with a range from its width) ends the descent: a lit light alone can be the start buoy's indicator at the
+  // surface (a dive ended at 0.2 m depth on it).
+  const bool light = false;
+  locked_s_ = pipe ? locked_s_ + std::max(0.0, dt) : 0.0;
   const bool heading_valid = telemetry.pose_valid || telemetry.imu_valid;
   const double yaw = telemetry.pose_valid ? telemetry.yaw : telemetry.imu_yaw;
   const double heading_err = heading_valid ? normalizeAngle(goal.target_heading_rad - yaw) : 0.0;

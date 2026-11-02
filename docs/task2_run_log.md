@@ -417,3 +417,6 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   wound-up integral kept pushing down. **H29 (replaces H28):** in `sensors:=minimal` the RC throttle gain is 120 PWM per m/s instead of
   the ALT_HOLD 400 (and the offset 30 = RC3_DZ), so every heave command matches the real speed; the camera heave integral only learns within
   0.5 m of the standoff (no wind-up during an approach). H28's repair-only scaling removed.
+- **H29 run (minimal Core seed 2):** the dive ended at 0.2 m depth: DiveToDepth succeeded at the surface, and the vehicle then searched there.
+  With the slower H29 sink the start buoy's lit GREEN indicator stayed in view long enough to pass as "a light in view" for 1 s. **H30:**
+  only the pipe (with a range from its width) ends the camera descent; a light alone does not.
