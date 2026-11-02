@@ -28,7 +28,12 @@ vehicle_execution_node:
     camera_descent:
       rate_mps: 0.05
       max_time_s: 100.0
-      surge_mps: 0.03
+      surge_mps: 0.02
+      lock_s: 0.5
+    # The stick offset added to any heave command (deadzone_z_pwm 50, for the ALT_HOLD stick deadband) was itself a strong thrust in
+    # STABILIZE: 0.05 commanded sank at 0.85 m/s. 31 = just past RC3_DZ (30), so small commands are small thrusts.
+    rc_override:
+      deadzone_z_pwm: 31
 calibrated_depth_node:
   ros__parameters:
     depth_source: "gps_surface"
