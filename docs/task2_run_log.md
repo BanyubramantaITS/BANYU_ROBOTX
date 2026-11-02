@@ -411,3 +411,9 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   for 0.12 commanded): in STABILIZE the heave stick is thrust, so the commanded rate sinks the vehicle about 4 times faster than in
   ALT_HOLD, and the lid slid to the bottom edge before contact. **H28 (third fix on this item):** the repair's sink thrust is scaled
   to 0.35 with no depth hold. Batch Core seeds 2 1 5 9 minimal next.
+- **H28 run (minimal Core seed 2):** the vehicle sank from z -11.1 to -14.5 (seabed at -15) during AcquirePipeline in about 12 s, past
+  the pipe, and CenterOnRing then failed again and again (camera below the nodes). The camera heave (kp 0.4, max 0.25 m/s) went through
+  the same STABILIZE thrust gain: the commands sank the vehicle about 4 times faster than intended, it overshot, lost the range, and the
+  wound-up integral kept pushing down. **H29 (replaces H28):** in `sensors:=minimal` the RC throttle gain is 120 PWM per m/s instead of
+  the ALT_HOLD 400 (and the offset 30 = RC3_DZ), so every heave command matches the real speed; the camera heave integral only learns within
+  0.5 m of the standoff (no wind-up during an approach). H28's repair-only scaling removed.

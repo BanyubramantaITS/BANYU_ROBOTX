@@ -35,6 +35,8 @@ struct CameraHeaveConfig
 class CameraHeave
 {
 public:
+  static constexpr double kIntegralBandM = 0.5;
+
   explicit CameraHeave(CameraHeaveConfig config = CameraHeaveConfig()) : config_(config) {}
 
   const CameraHeaveConfig & config() const {return config_;}
@@ -74,7 +76,11 @@ public:
     const auto r = range(t);
     if (!r) {return std::clamp(config_.trim_mps + integral_, -config_.max_rate_mps, config_.max_rate_mps);}
     const double error = *r - standoff.value_or(config_.standoff_m);  // > 0: too high
-    integral_ = std::clamp(integral_ - config_.ki * error * dt, -config_.max_integral_mps, config_.max_integral_mps);
+    // Learn only near the standoff: during a large approach the error is the approach, not the buoyancy (wind-up sank the
+    // vehicle past the pipe once the range was lost).
+    if (std::abs(error) < kIntegralBandM) {
+      integral_ = std::clamp(integral_ - config_.ki * error * dt, -config_.max_integral_mps, config_.max_integral_mps);
+    }
     const double p = std::abs(error) <= config_.deadband_m ? 0.0 : -config_.kp * error;
     return std::clamp(p + config_.trim_mps + integral_, -config_.max_rate_mps, config_.max_rate_mps);
   }
