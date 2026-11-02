@@ -25,8 +25,9 @@ DiveToDepthServer::DiveToDepthServer(
 {
 }
 
-void DiveToDepthServer::setCameraDescent(double rate_mps, double lock_s, double max_time_s)
+void DiveToDepthServer::setCameraDescent(double rate_mps, double lock_s, double max_time_s, double surge_mps)
 {
+  camera_surge_mps_ = std::isfinite(surge_mps) ? std::max(0.0, surge_mps) : 0.0;
   if (!(rate_mps > 0.0) || !(lock_s > 0.0) || !(max_time_s > 0.0)) {
     throw std::invalid_argument("camera descent rate, lock time and maximum time must be positive");
   }
@@ -96,7 +97,9 @@ MotionIntent DiveToDepthServer::cameraDescentTick(
   // Something in view: stop sinking while the lock is confirmed.
   const double vz = (pipe || light) ? 0.0 : -camera_rate_mps_;
   const double yaw_rate = std::clamp(yaw_kp_ * heading_err, -max_yaw_rate_, max_yaw_rate_);
-  return MotionIntent::localEnu(0.0, 0.0, vz, yaw_rate);
+  const double surge = (pipe || light || !heading_valid) ? 0.0 : camera_surge_mps_;
+  const auto local = bodyFluToLocalEnu(MotionIntent::bodyFlu(surge, 0.0, vz, yaw_rate), yaw);
+  return local.value_or(MotionIntent::localEnu(0.0, 0.0, vz, yaw_rate));
 }
 
 MotionIntent DiveToDepthServer::tick(

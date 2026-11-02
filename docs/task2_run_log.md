@@ -423,3 +423,7 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
 - **H30 run (minimal Core seed 2):** DiveToDepth failed on its 100 s limit near the surface: with the H29 gain the 0.15 m/s descent is about
   48 PWM, which barely beats the buoyancy. **H31:** camera descent 0.3 m/s in `sensors:=minimal` (about 66 PWM; the dive with the old gain
   sank on about 110 PWM). The second-dive branch ran after the failed dive (Surface by GPS fix, shift 3 m) as designed.
+- **H31 run (minimal Core seed 2):** the dive now sinks (Gazebo z -11.87 at the 100 s limit) but still failed: the start buoy is 1.5 m beyond
+  the pipe's end and, at the slower descent, the pipe never came into the camera's footprint below the buoy (the earlier fast dive saw it
+  from higher up, where the footprint is wider). The blind Surface then rose at about 0.3 m/s (z -11.9 to -4.2 in 16 s, Gazebo). **H32:**
+  the camera descent creeps forward at 0.05 m/s along the buoy-to-buoy heading (the pipe lies between the buoys).

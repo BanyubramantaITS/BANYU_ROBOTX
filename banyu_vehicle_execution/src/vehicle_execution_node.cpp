@@ -308,7 +308,8 @@ void VehicleExecutionNode::initActionServers()
     const double rate = declare_parameter<double>("camera_descent.rate_mps", 0.15);
     dive_server->setCameraDescent(
       rate, declare_parameter<double>("camera_descent.lock_s", 1.0),
-      declare_parameter<double>("camera_descent.max_depth_m", 15.0) / rate);
+      declare_parameter<double>("camera_descent.max_depth_m", 15.0) / rate,
+      declare_parameter<double>("camera_descent.surge_mps", 0.0));
   }
   camera_heave_servers_ = {acquire_server->name(), search_server->name(), follow_server->name(),
     center_server->name()};
