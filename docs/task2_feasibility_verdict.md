@@ -17,6 +17,8 @@ slowly onto the magnetic switch with the lid centred, and too coarse to hold a s
 floated to the surface or sank to the seabed). The repair (250 points) needs a depth hold. **Keep the Bar30 on the real vehicle.** The
 pipe depth is still unknown with the Bar30, so its dive must also stop by camera (planned H39).
 
+**Fallback:** `task2_gamble_strategy.md` (GPS to the buoy, a timed dive, a guessed light order; at most 200 points, about 87.5 on average; sim only).
+
 ## Success rates (Gazebo ground truth, Bar30, final code)
 
 | Case | Result |

@@ -512,3 +512,11 @@ the stop.
   Bar30 configuration each node has 2-3 passing runs (`task2_sim_results.md`), not 5.
 - **Step 6:** done (`task2_feasibility_verdict.md`, `task2_sim_results.md`); next plan and goal prompt in `task2_next_plan.md` and
   `task2_next_goal_prompt.txt`.
+
+## Gamble strategy (requested by the user, 2026-11-02)
+
+- **Decision:** a fallback mode, `--sensors gamble` (`task2_gamble_strategy.md`): GPS to the active buoy, a timed dive and bobbing in STABILIZE, Surface by a GPS fix, best-effort Core survey with one guessed RED. No camera, no Bar30 for any decision.
+- **Bug: TimedMove refused in Task 2** ("originating run (0, 0) does not match"): the action had no run identity, and ForceSuccess hid the failure (the vehicle reported without diving). Fix: `run_id` and `epoch` in `TimedMove.action`. POR not re-run in the sim.
+- **Results:** 3 of 3 runs complete with RED random in 1-4, depth about 2 m, 50 points each (the guess missed).
+- **`--gamble-red` (user request):** RED positions, default `2,3`. First test ignored `--gamble-red 4` (the value in `task2_params.yaml` won over the launch dict; removed from the file). After the fix `--gamble-red 4` reported GREEN, GREEN, GREEN, RED. Handbook read: one node RED, no distribution stated, so the 2 or 3 choice is a guess.
+
