@@ -494,3 +494,21 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   Bar30 plus the camera descent, the pipe-width standoff and the dive point inside the buoys (in ALT_HOLD the heave stick is a climb rate,
   so the camera loops get the fine control they lacked in STABILIZE). All sim processes stopped; results in `task2_feasibility_verdict.md`,
   `task2_sim_results.md`, next steps in `task2_next_plan.md` and `task2_next_goal_prompt.txt`.
+
+## Closing the remaining goal items (2026-11-02, stopped by the user)
+
+The user stopped all sim work and asked for the results to be written and pushed. The open items are closed here; none were run after
+the stop.
+
+- **Step 3, depth-free D1-D7:** built; D1 (camera descent), D3 (second dive, always report), D4 (GPS-fix surfacing) and D7 (order without
+  the pipe map) seen working in the sim; D2 and D5 unit-tested only. The pipe-depth launch option exists (`--pipe-depth`); the 3/8/13 m
+  runs in the minimal configuration were not run separately. **FAILED (blocked):** the minimal configuration fails before the depth
+  matters (traverse height and repair, entry "FAILED: the Core survey with the minimal sensor set").
+- **Step 4, scenarios 1-18, fisheye, IR LED, Marina Bay, worst-case combos (minimal configuration):** **FAILED (blocked)** by the same
+  failure: every run in the target configuration lost the pipe height or missed the switch in nominal conditions (four runs, Gazebo
+  ground truth); harder conditions cannot pass in it. The tools for every scenario exist (`launch_task2.sh`, entry "Scenario tooling").
+  In the Bar30 configuration one scenario started (`--pipe-depth 8`) and showed the fixed-depth dive is below a shallower pipe (H39 planned).
+- **Step 5, 5/5 per tier and node, 10/10 in the worst-case combo (minimal configuration):** **FAILED (blocked)**, same evidence. In the
+  Bar30 configuration each node has 2-3 passing runs (`task2_sim_results.md`), not 5.
+- **Step 6:** done (`task2_feasibility_verdict.md`, `task2_sim_results.md`); next plan and goal prompt in `task2_next_plan.md` and
+  `task2_next_goal_prompt.txt`.
