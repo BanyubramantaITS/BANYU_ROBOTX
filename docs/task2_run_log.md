@@ -420,3 +420,6 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
 - **H29 run (minimal Core seed 2):** the dive ended at 0.2 m depth: DiveToDepth succeeded at the surface, and the vehicle then searched there.
   With the slower H29 sink the start buoy's lit GREEN indicator stayed in view long enough to pass as "a light in view" for 1 s. **H30:**
   only the pipe (with a range from its width) ends the camera descent; a light alone does not.
+- **H30 run (minimal Core seed 2):** DiveToDepth failed on its 100 s limit near the surface: with the H29 gain the 0.15 m/s descent is about
+  48 PWM, which barely beats the buoyancy. **H31:** camera descent 0.3 m/s in `sensors:=minimal` (about 66 PWM; the dive with the old gain
+  sank on about 110 PWM). The second-dive branch ran after the failed dive (Surface by GPS fix, shift 3 m) as designed.

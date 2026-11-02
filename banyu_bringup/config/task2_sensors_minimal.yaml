@@ -23,6 +23,10 @@ vehicle_execution_node:
       deadzone_z_pwm: 30
     camera_heave:
       enabled: true
+    # With the STABILIZE gain a 0.15 m/s descent is about 48 PWM, too little against the buoyancy: the dive ran out of time near the
+    # surface. 0.3 m/s (about 66 PWM) sinks steadily; it stops as soon as the pipe is in view.
+    camera_descent:
+      rate_mps: 0.3
 calibrated_depth_node:
   ros__parameters:
     depth_source: "gps_surface"
