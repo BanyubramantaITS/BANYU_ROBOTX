@@ -1,29 +1,34 @@
 # Task 2 simulation results
 
-Verdict and success rates: `task2_feasibility_verdict.md`. Every hypothesis and result (H1-H23, the bugs found by the random spawn,
-the decisions): `task2_run_log.md`. Earlier work: `task2_interim_results.md`, `task2_mode_experiments.md`, `task2_core_repair_by_camera.md`.
+Verdict: `task2_feasibility_verdict.md`. Every hypothesis and run: `task2_run_log.md`. Updated 2026-11-02.
 
-## Summary (Gazebo ground truth, simulation only, stopped 2026-10-29)
+## Per tier (Bar30, random spawn, Gazebo ground truth)
 
-| Tier | Spawn at the middle (4 nodes) | Random spawn 12-20 m away | UUV points in the sim |
-|---|---|---|---|
-| Core | 5 of 5 pass | 4 of 4 pass (last batch) | 450 |
-| Advanced | 4 of 4 pass (one run each) | node 1 pass, node 3 order wrong before H23 (not re-run) | 450 + 25 |
-| Disruptive | 4 of 4 pass (one run each; tin/circle RED/BLUE, RED/GREEN, GREEN/BLUE, GREEN/GREEN) | not run | 450 + 50 |
+| Tier | Node 1 | Node 2 | Node 3 | Node 4 | Points per pass | Failing step seen |
+|---|---|---|---|---|---|---|
+| Core | PASS | PASS | PASS | PASS | 450 | none in the last batch |
+| Advanced | PASS (+ GREEN seed 6) | PASS | PASS (after H24, H25) | PASS (+ GREEN seed 12) | 475 | order (H24), Surface after a false Bar30 fault (H25) |
+| Disruptive | PASS (seeds 2, 43, 6) | PASS (seeds 1, 3; seed 18 450) | PASS (seeds 5, 35, 34) | PASS (seed 9, 12); seed 24 FAIL 50 | 500 | order unverified (seed 18), duplicate records (seed 24) |
 
-Not done: 5 of 5 repeats, the other 4 colour pairs in the sim, fisheye and turbid-water detector tests, the Marina Bay datum, vertical pipe tracking,
-hydrophone and search prior. The plan items are listed in the verdict.
+## Minimal sensors (no depth sensor, STABILIZE), Core
 
-## Files
+| Run | Result | Failing step |
+|---|---|---|
+| First run (H23 code) | order right, repair GREEN, traverse never ended | floated up off the pipe at the far end |
+| H26 | 200 (order right) | repair: floated off the switch |
+| H27 / H27b / H28 | 25-200 | repair: contact 0.15-0.3 m off the switch, sink too fast |
+| H29-H36 | dive failures | heave thrust too coarse; the pipe not below the start buoy; time limit |
+| H37 / H37b | dive locks; 50, 25 | repair missed; the vehicle floated to the surface or sank to the seabed |
 
-- `task2_results/core_repair/`: trimmed mock GCS logs (survey and resource delivery as received by the GCS) and the ground-truth pipeline status of the batch runs
-  (`batch_*`, `a1`-`a4`, `d1`-`d2`, `dis_*`, `adv_*`, `rs_*`). `batch_summary.txt` is the Core batch.
-- `task2_results/` (older): mode experiments and the first Core matrices.
+## Scenarios
 
-## How to reproduce
+Only `--pipe-depth 8` (Bar30) started: the fixed 12.5 m dive is below the pipe (no score, stopped). The other scenarios were not run.
 
-- One run, Gazebo GUI: `tools/scripts/task2_sim_e2e.sh --gui --out <dir> --tier core|advanced|disruptive [--launch-arg --light-seed --launch-arg N] [--launch-arg --spawn-seed --launch-arg N]`
-- A batch over the light seeds 2, 1, 5, 9 (damaged node 1, 2, 3, 4) with the ground-truth state printed: `tools/scripts/task2_sim_batch.sh --out <dir> --tier <t> [--seeds "..."] [--random-spawn]`
-- Light seeds for the 9 tin/circle pairs: BLUE/BLUE 12, BLUE/GREEN 18, BLUE/RED 3, GREEN/RED 6, RED/RED 24 (node and Advanced circle in `task2_run_log.md`).
-- Clean up: `tools/scripts/task2_sim_cleanup.sh`. Recorder: `tools/sos_integration/ring_recorder.py`. Wrap long batches in `systemd-inhibit --what=sleep:idle` (a suspend froze runs once).
-- Gazebo sometimes does not finish loading (1 in 3); the e2e script retries. Do not rebuild while a sim runs, and check that `install/` is built from this branch.
+## Tools
+
+- `tools/scripts/task2_sim_batch.sh --out <dir> --tier <t> --seeds "..." [--random-spawn] [--opts "<launch_task2.sh options>"]`
+  scores each run with `task2_score_run.py` (PASS/FAIL and points from Gazebo).
+- `tools/scripts/launch_task2.sh` options: `--sensors full|minimal`, `--pipe-depth`, `--pipe-move dx dy dyaw`, `--visibility`,
+  `--current e n [gust]`, `--buoy-error x y`, `--fcu-faults compass=..,gps_offset=..,gps_drop=..`, `--light-fault n:kind`, `--fisheye`,
+  `--ir-led`, `--camera-width`, `--site marina_bay`.
+- Raw logs (`sim.log`, `rings.jsonl`) stay out of the repo.

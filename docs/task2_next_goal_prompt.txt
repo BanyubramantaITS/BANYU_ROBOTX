@@ -1,0 +1,17 @@
+Goal: make Task 2 work in sim for the BANYU UUV with the real sensor set: bottom camera + Pixhawk (IMU/compass) + RTK GPS at the surface + Bar30 (ALT_HOLD depth hold). Pipe depth and place unknown (Marina Bay ~1.28 N 103.86 E). Work autonomously, never stop midway; log every decision and result in docs/task2_run_log.md. First read docs/task2_feasibility_verdict.md, task2_next_plan.md, task2_sim_results.md and the end of task2_run_log.md (H24-H38, the minimal-sensor FAILED and why).
+
+Score: Core 450 (heartbeat 25, start buoy 25, order 150, repair 250); Advanced +25 circle; Disruptive +25+25 tin and circle. Never regress a tier; a failed repair or code read still sends the Core survey.
+
+State: with the Bar30 and the fixed 12.5 m dive, Core/Advanced/Disruptive pass 4/4 with a random spawn; colour pairs 7/8 (seed 24 duplicate records); no depth sensor FAILED (STABILIZE heave too coarse). The fixed dive is below a pipe at 8 m.
+
+Do in this order, one hypothesis per change, a sim run per hypothesis:
+1. H39: launch_task2.sh --sensors baro = ALT_HOLD + Bar30 + camera descent (stop at the pipe, not a fixed depth) + pipe-width standoff + dive point 1.5 m inside the start buoy + dead-reckoned order on the buoy line. Pass Core at --pipe-depth 3, 8, 13.
+2. Fix the duplicate records (Disruptive seed 24, a 0.9 m lateral offset).
+3. Re-run Core/Advanced/Disruptive nodes 1-4 and the colour seeds 12 18 35 3 43 6 24 34 in the baro profile, random spawn.
+4. Scenarios (baro): visibility 1 and 2 m, current 0.2 m/s with gusts, compass 20 deg, GPS float and a lost fix, buoy error 2 m, fisheye, IR LED, node faults, Marina Bay, pipe moved and rotated; then the worst-case combo.
+5. 5/5 per tier and node; 10/10 order and repair in the worst-case combo.
+6. Update task2_feasibility_verdict.md and task2_sim_results.md; commit.
+
+Method: after 3 failed fixes on one item try a different approach, then log FAILED with evidence and move on. Run tools/scripts/task2_sim_batch.sh (--opts "<launch_task2 options>", scores each run from Gazebo) with the Gazebo GUI, wrapped in systemd-inhibit --what=sleep:idle; check each run at least every 30 s; stop stalled runs by PID or tools/scripts/task2_sim_cleanup.sh, never pkill/pgrep -f a pattern in your own command. Never start mock_gcs by hand. One sim at a time; never build while a sim runs (it freezes ArduSub). Judge by Gazebo ground truth, not the mission log. The depth datum is only taken before the run starts.
+
+Rules: branch feat/task2-core-disruptive-sim; small local commits; push only when I ask; no Co-Authored-By or AI attribution. ROS from the ros2_ws_robotx root, no absolute paths in commits. New params in task2_params.yaml (and the sensors overlays) and mission.launch.py; keep tools/scripts/launch_task2.sh in sync.

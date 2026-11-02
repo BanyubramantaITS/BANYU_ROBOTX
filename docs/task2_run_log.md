@@ -488,3 +488,9 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
 - **Step 2 result (Bar30, random spawn):** Disruptive colour pairs 7 of 8 PASS 500 (seeds 12, 35, 3, 43, 6, 34 PASS; 18 = 450 by the
   tier, now fixed by H38; 24 FAIL 50, duplicate records); Advanced circle GREEN seeds 12 (node 4) and 6 (node 1): 2 of 2 PASS 475. H38
   built, ledger tests 24/24.
+- **Step 4 started, stopped by the user (2026-11-02 11:25):** the first scenario (Bar30, `--pipe-depth 8`) showed that the Bar30 configuration
+  dives to the fixed `inspection_depth_m` 12.5 m, below a pipe at 8 m (the vehicle searched at z -12.2): with the Bar30 the pipe depth is
+  still unknown, so the dive must also stop by camera. Planned **H39** (not implemented): a `sensors:=baro` profile = ALT_HOLD with the
+  Bar30 plus the camera descent, the pipe-width standoff and the dive point inside the buoys (in ALT_HOLD the heave stick is a climb rate,
+  so the camera loops get the fine control they lacked in STABILIZE). All sim processes stopped; results in `task2_feasibility_verdict.md`,
+  `task2_sim_results.md`, next steps in `task2_next_plan.md` and `task2_next_goal_prompt.txt`.

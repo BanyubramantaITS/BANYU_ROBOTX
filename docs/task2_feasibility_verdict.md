@@ -1,75 +1,57 @@
-# Task 2 Core, Advanced, Disruptive: feasibility verdict (simulation, minimal sensors)
+# Task 2 Core, Advanced, Disruptive: feasibility verdict (simulation)
 
-Branch `feat/task2-core-disruptive-sim`. Evidence: `task2_results/`, `task2_run_log.md` (every hypothesis H1-H23 and its result),
-`task2_core_repair_by_camera.md`, `task2_mode_experiments.md`. Simulation only; nothing here is a hardware result.
-The sim is Gazebo Harmonic + ArduSub SITL with the GPS cut under water (lost at 0.1 m), no DVL, Bar30 depth, IMU, a bottom
-camera, a mock GCS and a mock UAV. Every result below is judged from Gazebo ground truth (`/robotx/light_node_N/status`
-and the vehicle pose), not from the mission log. Stopped by the operator on 2026-10-29; the planned 5 of 5 repeats, the
-fisheye and turbid-water detector tests and the other plan items were not reached (list at the end).
+Branch `feat/task2-core-disruptive-sim`. Updated 2026-11-02 after the worst-case run (goal: minimal sensors, bad conditions). Every result
+is judged from Gazebo ground truth (`/robotx/pipeline/status`, `ring_recorder.py`) and scored by `tools/scripts/task2_score_run.py`.
+Simulation only; nothing here is a hardware result. Hypotheses H1-H38 and every run: `task2_run_log.md`. Earlier verdict (H1-H23): git history.
 
-## Verdict per tier
+## Verdict per sensor set
 
-| Tier | Verdict | Points in the sim (UUV side) | What was shown |
-|---|---|---|---|
-| Core | **YES in the sim** | 450 per passing run (25 + 25 + 150 + 250) | Repair RED to GREEN confirmed by Gazebo and the survey order correct on all four damaged nodes, with the UUV at the middle of the course (5 of 5 runs) and with a random spawn 12-20 m away (4 of 4 runs, after four fixes). |
-| Advanced | **YES in the sim, narrower evidence** | 450 + 25 for the delivery circle (and it enables the 225 UAV points; the UAV is a mock) | One passing run on each of the four nodes at the middle spawn; with a random spawn node 1 passed and node 3 had a wrong survey order (fixed afterwards by H23, **not re-run**). Circle colours RED and BLUE shown; GREEN not run. |
-| Disruptive | **YES in the sim, narrower evidence** | 450 + 25 + 25 for the tin and the circle (enables the 625 UAV points, mock) | One passing run on each of the four nodes at the middle spawn. 5 of the 9 tin/circle pairs run in the sim; the 4 others only in the decoder unit tests. **Not run with a random spawn.** |
+| Sensor set | Verdict | Evidence |
+|---|---|---|
+| Bottom camera + Pixhawk (IMU, compass) + RTK GPS at the surface + **Bar30** (ALT_HOLD = depth hold) | **YES in the sim, all three tiers** | Random spawn on the final code: Core 4/4 (450), Advanced 4/4 (475), Disruptive 4/4 (500); Disruptive colour pairs 7/8, Advanced circle GREEN 2/2. |
+| Bottom camera + Pixhawk + RTK GPS, **no depth sensor** (STABILIZE) | **FAILED in the sim** (repair and the traverse) | The dive, the GPS-fix surfacing, the order without a pipe map and the always-report path work; holding a height over the pipe and the repair do not (details below). |
 
-"YES" means the tier works end to end in the sim under the stated conditions; it is not a claim about the real robot.
+**Sensor limit that decides it:** with no depth sensor ArduSub cannot use ALT_HOLD; in STABILIZE the heave stick is raw thrust. In this sim
+a few PWM past the deadband sink the vehicle at 0.2-1.2 m/s and below it the vehicle floats up at about 0.04 m/s, too coarse to sink
+slowly onto the magnetic switch with the lid centred, and too coarse to hold a standoff once the pipe leaves the view (four runs:
+floated to the surface or sank to the seabed). The repair (250 points) needs a depth hold. **Keep the Bar30 on the real vehicle.** The
+pipe depth is still unknown with the Bar30, so its dive must also stop by camera (planned H39).
 
-## Success rates (Gazebo ground truth)
+## Success rates (Gazebo ground truth, Bar30, final code)
 
 | Case | Result |
 |---|---|
-| Core, spawn at the middle, damaged nodes 1, 2, 3, 4 (light seeds 2, 1, 5, 9) plus node 2 default | 5 of 5 (repair GREEN, survey order correct) |
-| Core, random spawn (seeds 2, 5, 9, 1 = nodes 1, 3, 4, 2) | 4 of 4 in the last batch. Earlier batches on older code: 2 of 4 and 3 of 4, the failures were the fixes below |
-| Advanced, spawn at the middle, nodes 2, 1, 3, 4 | 1 run each, all pass (survey order, repair, circle) |
-| Advanced, random spawn | seed 2 (node 1) pass; seed 5 (node 3) repair and circle right, **order wrong** (red in slot 4): fixed by H23, not re-run |
-| Disruptive, spawn at the middle | node 2 (tin RED, circle BLUE), node 1 (RED, GREEN), node 2 (RED, GREEN), node 3 (GREEN, BLUE), node 4 (GREEN, GREEN): all pass |
-| Disruptive, colour pairs not run in the sim | BLUE/BLUE, BLUE/GREEN, BLUE/RED, GREEN/RED, RED/RED (seeds 12 18 35 3 43 6 24 34 were queued, not run). The decoder unit tests (14) cover all 9 pairs. |
-| Hydrophone, search prior, surface-to-fix, other-end-active cases, S2, S3, S11 | not done |
+| Core, random spawn, nodes 1-4 (seeds 2, 1, 5, 9) | 4/4 PASS 450 |
+| Advanced, random spawn, nodes 1-4 | 4/4 PASS 475 (seed 5 needed H24 and H25) |
+| Disruptive, random spawn, nodes 1-4 | 4/4 PASS 500 |
+| Disruptive colour pairs (seeds 12 18 35 3 43 6 24 34) | 7/8: six PASS 500; seed 18 450 (order unverified, best-effort Core report; H38 now keeps the code); seed 24 FAIL 50 (duplicate records, the RED node never recorded) |
+| Advanced circle GREEN (seeds 12, 6) | 2/2 PASS 475 |
+| Minimal sensors, Core (middle spawn) | best 200 (order right, repair failed); most runs 25-50 (see the run log) |
 
-Each node has only one or two passing runs on the final code, so none of this is a statistical rate. The target of 5 of 5 per node was not reached.
+Each node has 2-3 passing runs on the final code, not the 5/5 the plan asked for; none of this is a statistical rate.
 
-## What the approach is now (what changed from the first plan)
+## What works with the minimal set (built and seen in the sim)
 
-1. **Dive:** a fixed `inspection_depth_m` 12.5 m (Bar30), then the pipe is found and followed by camera at that depth. There is no vertical tracking, so a pipe that rises or falls beyond the camera range cannot be followed (the sim pipe is at about 13.4 m). The handbook asks for variable depth: **open**.
-2. **Repair by camera, no fixed depth** (`HoldProbeOnRing` approach mode): centre the RED ring, sink at 0.12 m/s with the ring centred, stop on the lid's apparent size (`observation.size` >= 0.14), creep a little further, hold until the ring stays GREEN for 1.5 s, then climb back (Core) or rise 0.6 m (Advanced and Disruptive).
-3. **Flash code:** read from 0.6 m above the node, no centring while reading (centring on the lit lid walked the vehicle off the node; the lid is dark for most of the code), decoder only counts lit rings (confidence >= 0.85) and only flashes after the repair was seen (RED, then steady GREEN).
-4. **Reporting:** the tracker keeps ring order whichever end of the pipe is met first, and the ring position includes the sideways offset.
-5. **Run robustness:** the navigation to the start buoy is retried for 3 minutes (the start point can arrive after the run start), the depth datum follows the barometer jump after arming while a GPS fix proves the surface (never during the run), the `Surface` deadlock and the report rejection were not seen again in the runs after these fixes (a handful of runs, not proof).
+- **D1 camera descent:** sinks until the pipe (with a range from its width) is in view; the dive point is 1.5 m inside the start buoy
+  (the pipe is not below the buoy); a light alone does not end the dive (the start buoy's indicator once did).
+- **D4 GPS-fix surfacing:** with no depth, rise until a fresh GPS fix proves the surface (seen: z -11.9 to the surface, Surface SUCCESS).
+- **D7 order without a pipe map:** ring positions dead-reckoned from the last fix and the commanded velocity, progress along the
+  buoy-to-buoy line: the order was right in every run that saw the four nodes.
+- **D3 second dive and always report:** a failed dive or traverse surfaces, moves 3 m along the buoy line and dives again; an incomplete
+  survey still sends the best-effort Core survey (saved 425 points in Disruptive seed 18).
+- **D5 Bar30 health** (silent, stuck, step; the drift check is off after a false fault in ALT_HOLD) and **D2 pipe-width range**: unit tests;
+  in the sim D2 alone could not hold the height in STABILIZE.
 
-## Failures found and fixed on the way (details in `task2_run_log.md`)
+## Failures fixed in this run
 
-| What | Cause | Fix |
-|---|---|---|
-| Repair never confirmed | The tip sat at the 0.15 m limit; one green frame counted as a repair | creep to a larger lid size; need 1.5 s of steady GREEN |
-| Repair loop (Advanced) | Fixed camera height 1.7 m in the tracker put the ring 1 m off once the vehicle was 0.4 m above it | height from the lid size when it is large (>= 0.08) |
-| Survey order all GREEN | The first far sighting of the red node was GREEN and was kept as the original | before the repair, GREEN then RED = originally RED |
-| False flash code | The dark half of a flash reads as a weak GREEN (the water); red flicker counted as flashes | weak colour-threshold rings capped at 0.8 and ignored by the decoder; no code before RED then steady GREEN |
-| Vehicle left the node while reading | Centring on a neighbouring lit node, then on the lid itself; drift of 0.06-0.15 m/s | rise 0.6 m and hold without centring |
-| Tie GREEN/BLUE in Advanced | dark half reads GREEN | a colour that agrees on its own beats GREEN |
-| Follow/Search livelock | Both goals ticked every 50 ms displaced each other at the goal arbiter | wait 2 s after a failed reacquire |
-| Report rejected (random spawn) | Pipe met from the red end, `ordering_verified` only allowed rising progress | direction fixed by the second ring |
-| UUV could not surface (random spawn) | Sim barometer jumps about -0.5 m at arming, datum dropped at the run start | GPS fix as surface proof before the run starts (a stricter safety rule was kept for the run itself; a looser re-calibration was tried, reverted) |
-| Mission failed at once (random spawn) | Start-point message arrived 0.8 s after the run start | retry the surface navigation |
-| Seed 5 order wrong (Advanced, random spawn) | Ring position without the sideways offset gave one node two records | sideways offset in the position (H23, **untested in the sim**) |
+H24 tracker camera height from the pipe width (Advanced seed 5 order); H25 false Bar30 fault and the sim GPS gate; H26 buoyancy integral;
+H38 the best-effort report keeps a verified flash code; harness: run start only after `autonomous_ready`, a YAML insertion that disabled
+the MAVROS output, processes stopped by PID. Details and the failed attempts (H27-H37b): `task2_run_log.md`.
 
-## Sensor limits that decided the result (plan section 13)
+## Not done
 
-- **No position under water.** GUIDED is unsafe once the GPS is gone; ALT_HOLD with RC override held depth and heading. The vehicle drifts 0.06-0.15 m/s whenever it commands nothing (cause not found), which is why the code is read from 0.6 m up.
-- **Bottom camera only** for the pipe, the rings and the flash code. A ring is seen from about 1.3 m ahead down to touch distance, but the lid fills the image at contact and the probe rod hides part of it, so offsets there are unreliable; the lid size gives range without a depth sensor, but only when close.
-- **Depth sensor** reads about 5% high in the sim and its datum jumps at arming; the pipe depth is not known to the robot (no altimeter).
-- **Hydrophone and front camera** were not used (no data on the real ones).
-- The real HORUS T10 is fisheye (1920x1080, 25 FPS); the sim camera is a pinhole at 320x240, so the ring thresholds, the lid-size model (`lid_diameter_m` 0.074, `focal_ratio` 0.866) and the contact size 0.14 are **sim values that must be re-tuned after the camera calibration**.
-
-## Not done (open items)
-
-1. Re-run Advanced and Disruptive with a random spawn on the final code (H23 untested); repeat every node to reach 5 of 5.
-2. The 4 remaining Disruptive colour pairs and Advanced circle GREEN in the sim.
-3. Fisheye distortion, the turbidity plugin and the IR LED in the detector tests; Marina Bay home coordinates (the sim is still at the Long Beach datum, 33.81 N, -118.39 E).
-4. Vertical tracking of a pipe at a variable depth and a dive that does not depend on the Bar30 (design, scenarios and acceptance: `task2_future_plan_depth_free.md`); a node on a vertical support (needs a side camera); the drift under zero command.
-5. The underwater search prior, surface-to-fix (plan W3), the hydrophone cases (W7, S2, S3, S11), the other-end-active cases (R5-R16).
-6. Nothing was pushed since the earlier push of this branch; the work after it is committed locally.
-
-Delegations: none this session (all work done directly); 1 earlier job (`launch_task2.sh`, Sonnet) accepted after verification, 0 rejected.
+1. Step 4 scenarios (pipe depth 3/8/13 m, visibility, current, compass, GPS float and loss, buoy error, fisheye, IR LED, node faults, Marina
+   Bay, pipe moved, the worst-case combo): tools exist in `launch_task2.sh`, only the first run started (it found the fixed-depth problem above).
+2. 5/5 per tier and node, 10/10 in the worst-case combo.
+3. The duplicate-record failure (Disruptive seed 24).
+4. The real camera (HORUS T10 calibration, D6) and every hardware test.
