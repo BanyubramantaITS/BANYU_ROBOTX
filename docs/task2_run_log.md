@@ -480,3 +480,8 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   refused (ORDER_UNVERIFIED) and the always-report path sent the best-effort Core survey (order right: GREEN, RED, GREEN, GREEN) without the
   resource code. Without D3 this run would have sent nothing (25). **H38** (code, built after the batch): the best-effort report keeps a
   verified repair and a complete flash code (tier 3/4 colours) when only the order could not be verified.
+- Step 2 continued: seed 35 (BLUE/GREEN, node 3) PASS 500; seed 3 (BLUE/RED, node 2) PASS 500; seed 43 (BLUE/RED, node 1) PASS 500; seed 6
+  (GREEN/RED, node 1) PASS 500. **Seed 24 (RED/RED, node 4) FAIL 50:** four GREEN records at progress 0.03, 0.85, 2.05, 3.19 (vehicle
+  x 3.59 to 1.04, y -0.93: following 0.9 m beside the line) before node 4; the cap of four kept the RED node out, the survey never had a RED
+  and the best-effort Core survey reported all GREEN. Same failure class as before H24 (duplicate records of one node seen from far or
+  from the side). Open: a tracker that keeps more than four candidate records and merges them by spacing at the end.
