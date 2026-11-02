@@ -15,21 +15,13 @@ vehicle_execution_node:
     control:
       autonomy_mode: "GUIDED,STABILIZE"
       use_pressure_depth: false
-      # STABILIZE: the heave stick is thrust, not a climb rate. With the ALT_HOLD gain (400 PWM per m/s) the vehicle sank about 4 times
-      # faster than commanded (0.56 m/s for 0.12) and overshot the pipe; this gain makes a command match the real speed in the sim.
-      # The offset matches RC3_DZ (30). Re-measure on the robot (its buoyancy and thrusters differ).
-    rc_override:
-      gain_z_pwm_per_mps: 120.0
-      deadzone_z_pwm: 30
     camera_heave:
       enabled: true
-    # With the STABILIZE gain a 0.15 m/s descent is about 48 PWM, too little against the buoyancy: the dive ran out of time near the
-    # surface. 0.3 m/s (about 66 PWM) sinks steadily; it stops as soon as the pipe is in view.
-    camera_descent:
-      rate_mps: 0.3
-      # The time limit is max_depth_m / rate_mps; the real sink in the sim is about 0.24 m/s for 0.3 commanded, so 25 gives 83 s
-      # (about 20 m). With no depth sensor the time is the only bound on the dive.
-      max_depth_m: 25.0
+      # STABILIZE: the heave stick is thrust, not a climb rate, and the same command moves the vehicle about 4 times faster than in
+      # ALT_HOLD (0.56 m/s for 0.12 commanded). Gentler standoff gains, so it does not overshoot the pipe; the dive keeps the
+      # default gain (a slower dive passed over the pipe while still too high to see it).
+      kp: 0.12
+      max_rate_mps: 0.08
 calibrated_depth_node:
   ros__parameters:
     depth_source: "gps_surface"

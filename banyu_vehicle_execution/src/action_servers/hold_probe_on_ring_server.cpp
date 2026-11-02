@@ -21,6 +21,9 @@ constexpr double kLastOffsetHoldS = 3.0;   // keep correcting with the last offs
 constexpr double kOnNodeMaxOffset = 0.5;    // on the node the lid is near the centre; a lit ring further off is another node   // the detector's confidence for a lit light; colour-threshold rings are weaker
 constexpr double kBackOffM = 0.6;   // after the repair, rise this far so the lid and its neighbourhood stay in view while the code is read
 constexpr double kGreenConfirmS = 1.5;  // s of steady GREEN that count as the repair
+// No depth hold (STABILIZE): the heave stick is thrust, and the commanded sink made the vehicle sink about 4 times faster than in
+// ALT_HOLD (0.56 m/s for 0.12 commanded), past the lid before it could centre. Scale the sink thrust down.
+constexpr double kStabilizeSinkScale = 0.35;
 
 // Down-positive vertical position for relative moves: the depth sensor, or with none the integrated commanded heave.
 std::optional<double> verticalDepth(const VehicleTelemetry & t)
@@ -300,6 +303,7 @@ MotionIntent HoldProbeOnRingServer::approachTick(
       break;
   }
 
+  if (telemetry.depth_free && heave < 0.0) {heave *= kStabilizeSinkScale;}
   const bool is_red = telemetry.ring_color == banyu_msgs::msg::PipelineRingObservation::COLOR_RED;
   const bool tracking = visible && (phase_ != Phase::Descend || is_red);
   if (tracking) {

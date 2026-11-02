@@ -430,3 +430,9 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
 - **H32 run:** the dive failed again; the cause was the time limit, not the footprint: the limit is `max_depth_m / rate_mps` = 15 / 0.3 = 50 s
   after H31, and the real sink is about 0.24 m/s (H31: z -11.87 at the limit), so the dive stopped about 1.5 m above the nodes. **H33:**
   `camera_descent.max_depth_m` 25 in `sensors:=minimal` (83 s, about 20 m of sink). The H32 creep stays.
+- **H33 run:** the dive failed again (96 s): the forward creep is thrust in STABILIZE too and moved the vehicle 9 m (to x -5.45, past the
+  pipe's far end) while it was still too high to see the pipe. **Four fixes on the camera descent (H30-H33) without a pass: different
+  approach (H34).** The descent worked in the first minimal run with the original settings (ALT_HOLD gain 400, 0.15 m/s, no creep); H29's
+  global gain change broke it. H34: back to the original descent settings (no creep; H30's pipe-only lock kept), and the STABILIZE
+  scaling only where the overshoot was: camera heave kp 0.12, max 0.08 m/s (`sensors:=minimal`), and the repair sink thrust 0.35 (H28
+  restored).
