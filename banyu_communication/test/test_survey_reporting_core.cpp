@@ -550,3 +550,28 @@ TEST(SurveyLedger, BestEffortKeepsAVerifiedFlashCode)
   EXPECT_EQ(report.resource_color, 3);
   EXPECT_EQ(report.delivery_circle_color, 2);
 }
+
+TEST(SurveyLedger, GambleRedOnlyAtTheConfiguredPositions)
+{
+  for (const std::vector<int> & allowed : {std::vector<int>{2, 3}, std::vector<int>{4}}) {
+    auto config = ledgerConfig();
+    config.gamble_order = true;
+    config.gamble_red_positions = allowed;
+    SurveyLedger ledger(config);
+    initialize(ledger);
+    auto value = evidence();
+    value.rings.clear();
+    value.traversal_complete = false;
+    ledger.ingest(value, 11 * kSecond);
+    std::array<int, 5> count{};
+    for (int i = 0; i < 400; ++i) {
+      const auto conditions = ledger.buildBestEffort("x.best_effort").original_conditions;
+      EXPECT_EQ(std::count(conditions.begin(), conditions.end(), 2), 1);
+      ++count[std::find(conditions.begin(), conditions.end(), 2) - conditions.begin() + 1];
+    }
+    for (int position = 1; position <= 4; ++position) {
+      const bool wanted = std::find(allowed.begin(), allowed.end(), position) != allowed.end();
+      EXPECT_EQ(count[position] > 0, wanted) << position;
+    }
+  }
+}

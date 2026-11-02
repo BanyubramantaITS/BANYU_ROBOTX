@@ -68,13 +68,16 @@ def generate_launch_description():
         default_value="full",
         description="Task 2 sensor set: 'full' (Bar30 depth, ALT_HOLD under water) or 'minimal' (bottom camera, "
         "Pixhawk IMU/compass and surface GPS only: STABILIZE under water, heave from the camera).",
-        choices=["full", "minimal"],
+        choices=["full", "minimal", "gamble"],
     )
 
     scenario_args = [
         DeclareLaunchArgument(name=n, default_value="0.0", description="Simulation scenario, see main_launch.launch.py")
         for n in ("pipe_dx", "pipe_dy", "pipe_dyaw_deg", "buoy_error_x", "buoy_error_y")
     ] + [DeclareLaunchArgument(
+        name="gamble_red", default_value="2,3",
+        description="sensors:=gamble: RED positions, 1 = closest to the active buoy; '2,3' = one of them at random, '3' = always 3.",
+    ), DeclareLaunchArgument(
         name="site", default_value="", description="Simulation site overlay: empty = none, 'marina_bay'.")]
 
     task2_params_arg = DeclareLaunchArgument(
@@ -318,7 +321,10 @@ def generate_launch_description():
         package="banyu_communication",
         executable="uuv_comm_node",
         name="uuv_comm_node",
-        parameters=[task2_params, task2_tier_file, task2_site_file],
+        parameters=[
+            task2_params, task2_tier_file, task2_sensors_file, task2_site_file,
+            {"survey.gamble_red_positions": ParameterValue(LaunchConfiguration("gamble_red"), value_type=str)},
+        ],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )

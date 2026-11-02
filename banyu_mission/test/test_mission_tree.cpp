@@ -102,6 +102,17 @@ void abortMission(const rclcpp::Node::SharedPtr & node)
 }
 }  // namespace
 
+TEST_F(MissionTest, GambleTreeLoads)
+{
+  auto node = std::make_shared<rclcpp::Node>("mission_tree_gamble_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get(), false);
+  BT::BehaviorTreeFactory factory;
+  banyu_mission::registerMissionNodes(factory, node, state);
+  const auto path = ament_index_cpp::get_package_share_directory("banyu_mission") + "/bt/task2_gamble_mission.xml";
+  EXPECT_NO_THROW(factory.registerBehaviorTreeFromFile(path));
+  EXPECT_NO_THROW({auto tree = factory.createTree("Main", BT::Blackboard::create()); (void)tree;});
+}
+
 TEST_F(MissionTest, LoadsAndRegistersAllNodes)
 {
   auto node = std::make_shared<rclcpp::Node>("mission_tree_parser_test");

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <functional>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <vector>
 #include <cstdlib>
@@ -83,6 +84,19 @@ UuvCommNode::UuvCommNode(const rclcpp::NodeOptions & options)
   const auto tier = declare_parameter<int>("survey.task2_tier", 2);
   if (tier < 2 || tier > 4) {throw std::invalid_argument("Invalid declared Task 2 tier");}
   ledger_config.tier = static_cast<uint8_t>(tier);
+  ledger_config.gamble_order = declare_parameter<bool>("survey.gamble_order", false);
+  // "2,3" = RED at position 2 or 3 at random, "3" = always position 3 (1 = closest to the active buoy).
+  ledger_config.gamble_red_positions.clear();
+  std::stringstream gamble_positions(declare_parameter<std::string>("survey.gamble_red_positions", "2,3"));
+  for (std::string item; std::getline(gamble_positions, item, ',');) {
+    if (item != "1" && item != "2" && item != "3" && item != "4") {
+      throw std::invalid_argument("survey.gamble_red_positions must be positions 1-4, e.g. 2,3");
+    }
+    ledger_config.gamble_red_positions.push_back(std::stoi(item));
+  }
+  if (ledger_config.gamble_red_positions.empty()) {
+    throw std::invalid_argument("survey.gamble_red_positions must not be empty");
+  }
   survey_ledger_ = std::make_unique<SurveyLedger>(ledger_config);
   SurfaceGuard::Config guard_config;
   guard_config.hold_s = declare_parameter<double>("survey.surface_hold_s", 1.0);

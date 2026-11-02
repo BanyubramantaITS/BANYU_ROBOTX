@@ -85,12 +85,16 @@ def generate_launch_description():
         choices=["core", "advanced", "disruptive"],
     )
 
+    gamble_red_arg = DeclareLaunchArgument(
+        name="gamble_red", default_value="2,3",
+        description="sensors:=gamble: RED positions, 1 = closest to the active buoy; '2,3' = one of them at random, '3' = always 3.",
+    )
     sensors_arg = DeclareLaunchArgument(
         name="sensors",
         default_value="full",
         description="Task 2 sensor set: 'full' (Bar30 depth, ALT_HOLD) or 'minimal' (bottom camera, IMU/compass, "
         "surface GPS; STABILIZE under water, heave from the camera).",
-        choices=["full", "minimal"],
+        choices=["full", "minimal", "gamble"],
     )
 
     fcu_url_arg = DeclareLaunchArgument(
@@ -318,6 +322,7 @@ def generate_launch_description():
             "debug": LaunchConfiguration("debug"),
             "tier": LaunchConfiguration("tier"),
             "sensors": LaunchConfiguration("sensors"),
+            "gamble_red": LaunchConfiguration("gamble_red"),
             "enable_esp32_trigger": LaunchConfiguration("enable_esp32_trigger"),
             "enable_esp32_bridge": LaunchConfiguration("enable_esp32_bridge"),
             "por_params_file": por_params,
@@ -331,6 +336,7 @@ def generate_launch_description():
             mode_arg,
             tier_arg,
             sensors_arg,
+            gamble_red_arg,
             fcu_url_arg,
             use_dvl_arg,
             use_gps_arg,

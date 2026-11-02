@@ -28,6 +28,7 @@ banyu_mission:
     mission:
       underwater_mode: "ALT_HOLD"   # second entry of autonomy_mode
       # A failed first dive or traverse surfaces, moves this far along the buoy line toward the other buoy and dives again.
+      strategy: "survey"   # survey or gamble (task2_gamble_mission.xml; sensors:=gamble)
       retry_dive_offset_m: 3.0
       # Dive point this far from the start buoy toward the other one (0 = at the buoy). The reported buoy position is unchanged.
       dive_offset_m: 0.0
@@ -232,6 +233,9 @@ uuv_comm_node:
       evidence_sources: ["pipeline_topology"]
       buoy_sources: ["usv_pipeline_buoys", "uuv_buoy_localizer", "gcs_buoy_observer"]
       depth_sources: ["pressure_depth", "gps_surface"]
+      gamble_order: false   # sensors:=gamble: a best-effort report with no RED seen gets one RED by chance
+      # survey.gamble_red_positions (where that RED may go) comes only from the launch argument gamble_red (launch_task2.sh --gamble-red,
+      # default "2,3"): a value in this file would win over the launch argument (launch_ros loads files after dicts).
       minimum_confidence: 0.2
       maximum_buoy_uncertainty_m: 5.0
       ingress_max_age_s: 2.0

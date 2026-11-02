@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <random>
 #include <limits>
 #include <set>
 #include <stdexcept>
@@ -342,6 +343,14 @@ SurveyLedger::Report SurveyLedger::buildBestEffort(const std::string & report_id
   report.original_conditions.fill(1);  // GREEN where nothing was seen
   for (std::size_t i = 0; i < 4 && i < seen.size(); ++i) {
     report.original_conditions[i] = seen[i].color == 1 ? 2 : 1;
+  }
+  const bool red_seen = std::find(
+    report.original_conditions.begin(), report.original_conditions.end(), 2) != report.original_conditions.end();
+  if (config_.gamble_order && !red_seen && !config_.gamble_red_positions.empty()) {
+    std::random_device device;
+    const auto last = static_cast<int>(config_.gamble_red_positions.size()) - 1;
+    const int position = config_.gamble_red_positions[std::uniform_int_distribution<int>(0, last)(device)];
+    report.original_conditions[position - 1] = 2;
   }
   return report;
 }

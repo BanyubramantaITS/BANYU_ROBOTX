@@ -630,7 +630,9 @@ std::string BanyuMission::xmlPath()
   }
   const auto default_tree = ament_index_cpp::get_package_share_directory(
     "banyu_mission") + "/bt/" +
-    (mission_mode == "por" ? por_tree : std::string("banyu_mission.xml"));
+    (mission_mode == "por" ? por_tree :
+    declare_parameter<std::string>("mission.strategy", "survey") == "gamble" ?
+    std::string("task2_gamble_mission.xml") : std::string("banyu_mission.xml"));
   return declare_parameter<std::string>(
     "bt_xml", default_tree);
 }

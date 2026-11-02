@@ -34,6 +34,7 @@ LIGHT_SEED=""
 SPAWN_SEED=""
 SPAWN_XYZ=""
 SENSORS="full"
+GAMBLE_RED="2,3"
 PIPE_DEPTH=""
 SCENARIO_ARGS=()
 EXTRA_ARGS=()
@@ -89,7 +90,11 @@ Both targets:
   --tier <t>            (see above) On --real the default is core, like sub_bringup.launch.py.
   --sensors <s>         full (default: Bar30 depth, ALT_HOLD under water) | minimal (bottom camera, Pixhawk
                         IMU/compass and RTK GPS at the surface only: STABILIZE under water, heave from the camera,
-                        surface proven by a GPS fix; no depth sensor is used for any decision).
+                        surface proven by a GPS fix; no depth sensor is used for any decision)
+                        | gamble (Pixhawk and surface GPS only: go to the start buoy, short timed dive and bobbing, surface,
+                        report the buoy with a RANDOM light order; no camera, no pipe, no repair).
+  --gamble-red <list>   --sensors gamble: where the RED goes, 1 = node closest to the active buoy, 4 = farthest.
+                        "2,3" (default) = 2 or 3 at random; "3" = always 3; "1,2,3,4" = any.
   --use-gps             (Default) GPS available (use_gps:=True); Task 2 needs the surface
                         GPS leg (NavigateSurfaceGps).
   --no-gps              use_gps:=False.
@@ -156,6 +161,9 @@ while [[ $# -gt 0 ]]; do
       [ $# -ge 3 ] || { echo "Error: --current needs east north [gust]." >&2; exit 1; }
       SCENARIO_ARGS+=(current_east:="$2" current_north:="$3"); GPS_GATE_OPTS_SET=true; shift 3
       if [[ $# -ge 1 && "$1" =~ ^[0-9.]+$ ]]; then SCENARIO_ARGS+=(current_gust:="$1"); shift; fi ;;
+    --gamble-red)
+      [ $# -ge 2 ] || { echo "Error: --gamble-red needs positions, e.g. 2,3 or 3." >&2; exit 1; }
+      GAMBLE_RED="$2"; shift 2 ;;
     --sensors)
       [ $# -ge 2 ] || { echo "Error: --sensors needs a value (full|minimal)." >&2; exit 1; }
       SENSORS="$2"; shift 2 ;;
@@ -181,9 +189,12 @@ case "$TIER" in
   *) echo "Error: --tier must be core, advanced or disruptive (got '$TIER')." >&2; exit 1 ;;
 esac
 case "$SENSORS" in
-  full|minimal) ;;
-  *) echo "Error: --sensors must be full or minimal (got '$SENSORS')." >&2; exit 1 ;;
+  full|minimal|gamble) ;;
+  *) echo "Error: --sensors must be full, minimal or gamble (got '$SENSORS')." >&2; exit 1 ;;
 esac
+if ! [[ "$GAMBLE_RED" =~ ^[1-4](,[1-4])*$ ]]; then
+  echo "Error: --gamble-red must be positions 1-4, e.g. 2,3 or 3 (got '$GAMBLE_RED')." >&2; exit 1
+fi
 NUM_RE='^[0-9]+([.][0-9]+)?$'
 if ! [[ "$GPS_LOSS_DEPTH" =~ $NUM_RE ]]; then
   echo "Error: --gps-loss-depth must be a non-negative number (got '$GPS_LOSS_DEPTH')." >&2; exit 1
@@ -219,7 +230,7 @@ echo "Active Git Branch : $CURRENT_BRANCH"
 echo "Target Platform   : $([ "$TARGET" = "sim" ] && echo "Gazebo Simulation (SITL)" || echo "Real AUV Physical Hardware")"
 echo "use_gps           : $(TF $USE_GPS)"
 echo "Tier              : $([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && echo core || echo "$TIER")"
-echo "Sensors           : $SENSORS$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")"
+echo "Sensors           : $SENSORS$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")$([ "$SENSORS" = gamble ] && echo " (GPS to the buoy, timed dive and bobbing, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
 if [ "$TARGET" = "sim" ]; then
   [ -n "$PIPE_DEPTH" ] && echo "Pipe depth        : light nodes at ${PIPE_DEPTH} m"
   [ ${#SCENARIO_ARGS[@]} -gt 0 ] && echo "Scenario          : ${SCENARIO_ARGS[*]}"
@@ -258,6 +269,7 @@ if [ "$TARGET" = "sim" ]; then
     mode:=task2
     tier:="$TIER"
     sensors:="$SENSORS"
+    gamble_red:="$GAMBLE_RED"
     headless:="$(TF $HEADLESS)"
     use_gps:="$(TF $USE_GPS)"
     gps_gate:="$(TF $GPS_GATE)"
@@ -309,6 +321,7 @@ else
     mode:=task2
     tier:="$([ "$TIER_SET" = true ] && echo "$TIER" || echo core)"
     sensors:="$SENSORS"
+    gamble_red:="$GAMBLE_RED"
     use_gps:="$(TF $USE_GPS)"
   )
   [ ${#EXTRA_ARGS[@]} -gt 0 ] && LAUNCH_CMD+=("${EXTRA_ARGS[@]}")

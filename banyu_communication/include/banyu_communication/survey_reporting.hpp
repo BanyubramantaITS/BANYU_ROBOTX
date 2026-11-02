@@ -31,6 +31,10 @@ public:
     double ingress_max_age_s{2.0};
     double minimum_progress_separation_m{0.0};
     uint8_t tier{2};
+    // Best-effort report with no RED seen: put one RED at a random one of these positions (1 = the node closest to the active
+    // buoy, 4 = the farthest; one position = always that one). The handbook lights one node RED.
+    bool gamble_order{false};
+    std::vector<int> gamble_red_positions{2, 3};
   };
 
   struct Report

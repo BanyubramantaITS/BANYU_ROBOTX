@@ -117,12 +117,16 @@ def generate_launch_description():
         "tin RED, circle BLUE). Seeds 2, 1, 5, 9 give damaged node 1, 2, 3, 4.",
     )
 
+    gamble_red_arg = DeclareLaunchArgument(
+        name="gamble_red", default_value="2,3",
+        description="sensors:=gamble: RED positions, 1 = closest to the active buoy; '2,3' = one of them at random, '3' = always 3.",
+    )
     sensors_arg = DeclareLaunchArgument(
         name="sensors",
         default_value="full",
         description="Task 2 sensor set: 'full' (Bar30 depth) or 'minimal' (bottom camera, Pixhawk IMU/compass, "
         "surface GPS; STABILIZE under water, heave from the camera).",
-        choices=["full", "minimal"],
+        choices=["full", "minimal", "gamble"],
     )
     pipe_depth_arg = DeclareLaunchArgument(
         name="pipe_depth",
@@ -285,6 +289,7 @@ def generate_launch_description():
             "debug": LaunchConfiguration("debug"),
             "tier": LaunchConfiguration("tier"),
             "sensors": LaunchConfiguration("sensors"),
+            "gamble_red": LaunchConfiguration("gamble_red"),
             "site": LaunchConfiguration("site"),
             "pipe_dx": LaunchConfiguration("pipe_dx"),
             "pipe_dy": LaunchConfiguration("pipe_dy"),
@@ -368,6 +373,7 @@ def generate_launch_description():
             gps_gate_arg,
             light_seed_arg,
             sensors_arg,
+            gamble_red_arg,
             pipe_depth_arg,
             spawn_x_arg,
             spawn_y_arg,
