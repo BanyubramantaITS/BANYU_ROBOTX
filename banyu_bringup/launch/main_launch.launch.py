@@ -146,6 +146,7 @@ def generate_launch_description():
             ("camera_model", "Scenario: 'fisheye' distorts the bottom camera (empty or 'pinhole': none)."),
             ("ir_led", "Scenario: 'on' adds the bottom camera's LED ring as a spot light (empty or 'off': none)."),
             ("site", "Simulation site: empty = Long Beach (RATBeach), 'marina_bay' = Marina Bay home and course."),
+            ("camera_width", "Bottom camera width in pixels (4:3); empty = 320x240."),
             ("fcu_faults", "Scenario: FCU sensor faults, e.g. 'compass=20,gps_offset=0.3:0.2,gps_drop=40:15'."),
         )
     ]
@@ -249,6 +250,7 @@ def generate_launch_description():
             "light_fault": LaunchConfiguration("light_fault"),
             "camera_model": PythonExpression(["'", LaunchConfiguration("camera_model"), "' or 'pinhole'"]),
             "ir_led": PythonExpression(["'", LaunchConfiguration("ir_led"), "' or 'off'"]),
+            "camera_width": LaunchConfiguration("camera_width"),
             "spawn_x": task2_spawn_x,
             "spawn_y": task2_spawn_y,
             "spawn_z": task2_spawn_z,

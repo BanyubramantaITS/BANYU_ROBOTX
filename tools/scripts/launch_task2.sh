@@ -70,6 +70,7 @@ Simulation Options (--sim only):
   --site <name>         marina_bay: GPS home and course coordinates at Marina Bay, Singapore (default: Long Beach).
   --fisheye             Scenario: distort the bottom camera like a fisheye (the detector undistorts it).
   --ir-led              Scenario: the bottom camera's LED ring on (a spot light along the camera).
+  --camera-width <px>   Bottom camera width (4:3; default 320x240; the real HORUS is 1920x1080).
   --light-fault <n:kind>
                         Scenario: functional node n shows a build-guide fault: thermistor (RED blink 500 ms), mag (RED blink
                         250 ms) or hot (LEDs off).
@@ -139,6 +140,9 @@ while [[ $# -gt 0 ]]; do
       [ $# -ge 2 ] || { echo "Error: --site needs a name." >&2; exit 1; }
       SCENARIO_ARGS+=(site:="$2"); GPS_GATE_OPTS_SET=true; shift 2 ;;
     --ir-led) SCENARIO_ARGS+=(ir_led:=on); GPS_GATE_OPTS_SET=true; shift ;;
+    --camera-width)
+      [ $# -ge 2 ] || { echo "Error: --camera-width needs pixels." >&2; exit 1; }
+      SCENARIO_ARGS+=(camera_width:="$2"); GPS_GATE_OPTS_SET=true; shift 2 ;;
     --light-fault)
       [ $# -ge 2 ] || { echo "Error: --light-fault needs node:kind." >&2; exit 1; }
       SCENARIO_ARGS+=(light_fault:="$2"); GPS_GATE_OPTS_SET=true; shift 2 ;;

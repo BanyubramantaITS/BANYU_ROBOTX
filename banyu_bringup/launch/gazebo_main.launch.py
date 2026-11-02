@@ -102,6 +102,14 @@ BOTTOM_CAMERA_DISTORTION = (
     "<center>0.5 0.5</center></distortion>")
 
 
+def set_bottom_camera_width(robot_xml, width):
+    """Bottom camera resolution (4:3); the sim default is 320x240 and the real HORUS is 1920x1080."""
+    tag = '<camera name="bottom_camera">'
+    assert tag in robot_xml, "bottom camera"
+    image = f"<image><width>{width}</width><height>{width * 3 // 4}</height></image>"
+    return robot_xml.replace(tag, tag + image, 1)
+
+
 def distort_bottom_camera(robot_xml):
     tag = '<camera name="bottom_camera">'
     assert tag in robot_xml, "bottom camera"
@@ -198,6 +206,9 @@ def generate_launch_description():
     camera_model_arg = DeclareLaunchArgument(
         name="camera_model", default_value="pinhole", choices=["pinhole", "fisheye"],
         description="Scenario: 'fisheye' adds barrel distortion to the bottom camera (the HORUS T10 is a fisheye).")
+    camera_width_arg = DeclareLaunchArgument(
+        name="camera_width", default_value="",
+        description="Bottom camera width in pixels (4:3); empty = the model's 320x240.")
     ir_led_arg = DeclareLaunchArgument(
         name="ir_led", default_value="off", choices=["on", "off"],
         description="Scenario: 'on' adds the camera's LED ring as a spot light along the bottom camera.")
@@ -242,6 +253,9 @@ def generate_launch_description():
         bluerov2_heavy_xml = xacro.process(_bluerov2_heavy_file, mappings={"probe": probe})
         if LaunchConfiguration("camera_model").perform(context) == "fisheye":
             bluerov2_heavy_xml = distort_bottom_camera(bluerov2_heavy_xml)
+        camera_width = LaunchConfiguration("camera_width").perform(context)
+        if camera_width:
+            bluerov2_heavy_xml = set_bottom_camera_width(bluerov2_heavy_xml, int(camera_width))
         if LaunchConfiguration("ir_led").perform(context) == "on":
             bluerov2_heavy_xml = add_ir_led(bluerov2_heavy_xml)
 
@@ -422,6 +436,7 @@ def generate_launch_description():
             light_fault_arg,
             camera_model_arg,
             ir_led_arg,
+            camera_width_arg,
             spawn_x_arg,
             spawn_y_arg,
             spawn_z_arg,
