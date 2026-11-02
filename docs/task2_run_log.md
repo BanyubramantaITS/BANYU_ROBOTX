@@ -448,3 +448,15 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   creep the vehicle sank straight down at the buoy (x 3.3 to 3.98): a kept frame at 3.5 m above the pipe shows the pipe's start and node 1's
   frame at the top edge of the image. **H37:** with minimal sensors the dive point is 2 m from the start buoy toward the other one
   (`mission.dive_offset_m`, 0 by default), so the pipe is below the vertical dive; no creep.
+- **H37 run (minimal Core seed 1):** the dive worked: from 2 m inside the buoy it sank straight down (x 1.1-1.45) and locked on the pipe
+  near z -9.4; AcquirePipeline and CenterOnRing succeeded. The repair failed again: the vehicle reached 0.2 m from node 2 at contact
+  height (z -13.30, Gazebo) with the lid 0.39 off the image centre, still sinking at about 0.24 m/s, then lost the lid ("Ring did not turn
+  green on contact").
+- **FAILED: the Core repair with the minimal sensor set (no depth sensor, STABILIZE).** Three fixes on this item (H27 press on the switch,
+  H27b press only while centred, H28 scaled sink thrust; H34 restored H28) and a different approach (H29 global STABILIZE gain, which broke
+  the dive instead) did not make it work. Evidence: with no depth hold the heave stick is raw thrust; in this sim a few PWM above the
+  deadband sink the vehicle at 0.2-1.2 m/s and below it the vehicle floats up at about 0.04 m/s, too coarse to sink slowly onto the
+  switch with the lid centred and hold it there (seeds 1 and 2, contacts 0.15-0.3 m off the switch). With the Bar30 and ALT_HOLD the
+  same camera repair passes 4 of 4 (step 1). **Sensor limit:** the repair (250 points) needs a depth hold; keep the Bar30 for the
+  repair, or measure a thrust model on the real vehicle. The minimal set still earns the survey: heartbeat, start buoy and the order
+  (200 points) when the dive and the survey work.
