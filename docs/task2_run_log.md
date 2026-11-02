@@ -460,3 +460,6 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   same camera repair passes 4 of 4 (step 1). **Sensor limit:** the repair (250 points) needs a depth hold; keep the Bar30 for the
   repair, or measure a thrust model on the real vehicle. The minimal set still earns the survey: heartbeat, start buoy and the order
   (200 points) when the dive and the survey work.
+- **H37 run result:** FAIL 50 (order RED, GREEN, GREEN, GREEN against GREEN, RED, GREEN, GREEN; node 2 not repaired): the 2 m dive offset put the
+  vehicle past node 1 (x 1.14 at the dive, node 1 at 2.35), so node 1 was never seen. **H37b:** dive offset 1.5 m (the shortest
+  buoy gap of the course: the vehicle starts over the pipe's start).

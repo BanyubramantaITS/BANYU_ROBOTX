@@ -8,8 +8,8 @@ banyu_mission:
     mission:
       underwater_mode: "STABILIZE"
       # A vertical dive with no depth hold only finds the pipe if it is below: the start buoy is 1.5-2.5 m beyond the pipe's end
-      # (Gazebo frame: the pipe's start at the top edge of the image at the buoy). Dive 2 m inside the buoys.
-      dive_offset_m: 2.0
+      # (Gazebo frame: the pipe's start at the top edge of the image at the buoy). Dive 1.5 m inside the buoys (the shortest gap): 2 m dived past node 1 and the order lost it.
+      dive_offset_m: 1.5
 banyu_vehicle_status:
   ros__parameters:
     autonomy_mode: "GUIDED,STABILIZE"
