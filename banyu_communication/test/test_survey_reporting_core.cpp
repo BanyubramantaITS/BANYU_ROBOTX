@@ -532,3 +532,21 @@ TEST(SurveyLedger, BestEffortOfACompleteSurveyIsTheFullReport)
   EXPECT_EQ(ledger.buildBestEffort("x.best_effort").original_conditions,
     ledger.build("x").original_conditions);
 }
+
+TEST(SurveyLedger, BestEffortKeepsAVerifiedFlashCode)
+{
+  SurveyLedger ledger(ledgerConfig(4));
+  initialize(ledger);
+  auto value = evidence(4);
+  value.repair_verified = true;
+  value.resource_code_complete = true;
+  value.resource_color = 3;
+  value.delivery_circle_color = 2;
+  value.rings[1].ordering_verified = false;   // the order could not be verified
+  EXPECT_FALSE(ledger.ingest(value, 11 * kSecond).empty());
+  ASSERT_TRUE(ledger.bestEffortAvailable());
+  const auto report = ledger.buildBestEffort("x.best_effort");
+  EXPECT_EQ(report.tier, 4);
+  EXPECT_EQ(report.resource_color, 3);
+  EXPECT_EQ(report.delivery_circle_color, 2);
+}

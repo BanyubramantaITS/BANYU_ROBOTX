@@ -475,3 +475,8 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   dive items H30-H37b. **Sensor limit:** a depth hold (Bar30 + ALT_HOLD) is what makes both the traverse and the repair work: with it
   Core, Advanced and Disruptive pass 4 of 4 with a random spawn (step 1). Steps 4 and 5 in the minimal configuration are blocked by this
   failure; the scenario runs below use the Bar30 configuration and say so.
+- **Step 2 (Bar30, random spawn):** Disruptive seed 12 (BLUE/BLUE, node 4) PASS 500. Seed 18 (BLUE/GREEN, node 2): 450 (FAIL on the
+  tier): repair verified and the code read right (tin BLUE, circle GREEN), but one ring was `ordering_verified` false, the full report was
+  refused (ORDER_UNVERIFIED) and the always-report path sent the best-effort Core survey (order right: GREEN, RED, GREEN, GREEN) without the
+  resource code. Without D3 this run would have sent nothing (25). **H38** (code, built after the batch): the best-effort report keeps a
+  verified repair and a complete flash code (tier 3/4 colours) when only the order could not be verified.

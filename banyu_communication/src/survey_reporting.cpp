@@ -316,6 +316,16 @@ SurveyLedger::Report SurveyLedger::buildBestEffort(const std::string & report_id
   report.tier = 2;
   report.buoy_latitude = evidence_.active_buoy.fix.latitude;
   report.buoy_longitude = evidence_.active_buoy.fix.longitude;
+  // A verified repair and a complete flash code are worth their points even when the order could not be verified.
+  if (evidence_.tier > 2 && evidence_.tier == config_.tier && evidence_.repair_verified &&
+    evidence_.resource_code_complete && evidence_.delivery_circle_color >= 1 && evidence_.delivery_circle_color <= 3 &&
+    ((evidence_.tier == 3 && evidence_.resource_color == 4) ||
+    (evidence_.tier == 4 && evidence_.resource_color >= 1 && evidence_.resource_color <= 3)))
+  {
+    report.tier = evidence_.tier;
+    report.resource_color = evidence_.resource_color;
+    report.delivery_circle_color = evidence_.delivery_circle_color;
+  }
 
   std::vector<banyu_msgs::msg::Task2RingRecord> seen;
   for (const auto & ring : originals_) {seen.push_back(ring.second);}
