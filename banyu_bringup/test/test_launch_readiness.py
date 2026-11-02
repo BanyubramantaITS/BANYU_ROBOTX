@@ -70,7 +70,7 @@ def test_gazebo_por_nodes_are_all_sim_gated():
 
 def test_yaml_configs_are_valid_and_free_of_dead_fixture_keys():
     for fname in (
-        "por_params.yaml",
+        "por_params_timed_safe.yaml",
         "task2_params.yaml",
         "hardware_params.yaml",
         "front_camera_info.yaml",
@@ -96,7 +96,7 @@ def test_yaml_configs_are_valid_and_free_of_dead_fixture_keys():
         "bottom_camera_info.yaml"
     )
 
-    with open(os.path.join(CONFIG_DIR, "por_params.yaml"), "r", encoding="utf-8") as f:
+    with open(os.path.join(CONFIG_DIR, "por_params_timed_safe.yaml"), "r", encoding="utf-8") as f:
         por = yaml.safe_load(f)
     assert por["por_detection"]["ros__parameters"]["image_topic"] == "/front_camera/image_raw"
 

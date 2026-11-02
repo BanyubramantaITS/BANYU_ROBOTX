@@ -71,7 +71,7 @@ std::string porMissionTreePath()
 std::string porParamsPath()
 {
   return ament_index_cpp::get_package_share_directory("banyu_bringup") +
-         "/config/por_params.yaml";
+         "/config/por_params_timed_safe.yaml";
 }
 
 std::string readFile(const std::string & path)

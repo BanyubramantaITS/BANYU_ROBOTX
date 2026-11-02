@@ -28,8 +28,8 @@ File profil ada di `src/BANYU_ROBOTX/banyu_bringup/config/`. Workspace memakai
 | 1 | `dive` | Turun ke `gate_depth_m`, selesai saat kedalaman tercapai (atau durasi habis) |
 | 2 | `timed_pass_gate` | Maju lewat gate |
 | 3 | `approach_pole` | Maju sampai jarak tertentu sebelum marker |
-| 4 | `circle_turn_1` … `circle_forward_4` | Delapan slot loop di sekitar marker. Nama "turn/forward" hanya nama slot: di strafe box `circle_turn_*` adalah geser, di diamond semuanya diagonal |
-| 5 | `return_turn` | Putar balik (profil `turn`, `vision`) atau dilewati |
+| 4 | `circle_turn_1` … `circle_forward_4` | Delapan slot loop di sekitar marker. Nama "turn/forward" hanya nama slot: di `safe` `circle_turn_*` adalah putaran 90° di tempat, di diamond (`fastest`) semuanya diagonal |
+| 5 | `return_turn` | Putaran sebelum pulang (`safe`: ~14° ke tengah gate) atau dilewati |
 | 6 | `return_to_gate` | Kembali lewat gate (mundur atau maju) |
 | 7 | `timed_surface` | Naik ke permukaan |
 
@@ -37,7 +37,7 @@ File profil ada di `src/BANYU_ROBOTX/banyu_bringup/config/`. Workspace memakai
 
 | Parameter | Arti |
 |---|---|
-| `use_sensors` | `false` = murni timer, semua sensor diabaikan (profil `blind/`) |
+| `use_sensors` | `false` = murni timer, semua sensor diabaikan (§7) |
 | `use_baro_depth` | Tahan `gate_depth_m` pakai baro di semua segmen |
 | `use_imu_yaw_cap` | Pakai `*_target_angle_rad` untuk menghentikan putaran |
 | `gate_depth_m` | Kedalaman jalan: di tengah antara bawah palang gate dan lantai (1,8 m di kolam 2,5 m; maksimal 2,0) |
@@ -64,7 +64,7 @@ Yang **tidak** perlu diubah untuk tuning: `autonomy_mode` (harus `ALT_HOLD` di t
 `sim_rc_deadman_node`.
 
 Kalau satu angka diubah di satu profil, profil lain tidak ikut berubah (setiap profil berdiri
-sendiri). Profil `blind/` juga harus diubah terpisah.
+sendiri). RC atau tanpa RC tidak ada di profil (`launch_por.sh --no-rc`), jadi satu file cukup.
 
 ## 3. Alur tuning
 
@@ -111,19 +111,21 @@ kiri, geser kanan, dan diagonal (untuk diamond, ukur jarak X dan Y terpisah).
 
 **`durasi = jarak_rencana / v_asli + dead_time`**
 
-Strafe box (`safe`, `fast`, `default`, `slow`, `hybrid`):
+Kotak `safe` (D = jarak berhenti sebelum marker, W = lebar kotak; sekarang D = W = 2 m). Putaran
+`circle_turn_*` berhenti oleh IMU, durasinya hanya batas waktu:
 
 | Segmen | Jarak rencana |
 |---|---|
-| `dive` + `timed_pass_gate` + `approach_pole` | sampai 2 m sebelum marker |
-| `circle_turn_1` | geser kanan 2 m |
-| `circle_forward_1` | maju 3,5 m |
-| `circle_turn_2` | geser kiri 4 m |
-| `circle_forward_2` | mundur 3,5 m |
-| `circle_turn_3` | geser kanan 2 m |
-| `return_to_gate` | mundur sampai 2 m lewat gate |
+| `timed_pass_gate` | start ke gate + 1 m |
+| `approach_pole` | gate ke marker − D − 1 m |
+| `circle_turn_1`, `circle_forward_1` | putar kanan 90°, maju W |
+| `circle_turn_2`, `circle_forward_2` | putar kiri 90°, maju 2D (lewat samping marker) |
+| `circle_turn_3`, `circle_forward_3` | putar kiri 90°, maju 2W (di belakang marker) |
+| `circle_turn_4`, `circle_forward_4` | putar kiri 90°, maju 2D (menghadap gate) |
+| `return_turn` | putar kiri atan(W / (gate ke marker − D)) ≈ 14° |
+| `return_to_gate` | maju diagonal √((gate ke marker − D)² + W²) + 1,5 m lewat tengah gate |
 
-Diamond (`fastest`, `turn`, `vision`):
+Diamond (`fastest`):
 
 | Segmen | Jarak rencana |
 |---|---|
@@ -140,22 +142,24 @@ Setiap kali, segmen berikutnya diset durasi 0. Lanjut hanya kalau segmen ini pas
 berturut-turut.
 
 1. **Dive.** Robot harus sudah di bawah palang gate sebelum sampai gate.
-2. **Approach.** Berhenti 2 m (strafe box) atau 3,3 m (diamond) sebelum marker.
+2. **Approach.** Berhenti 2 m (`safe`) atau 3,3 m (`fastest`) sebelum marker.
 3. **Loop.** Kembali ke garis tengah di depan marker.
 4. **Return.** Lewat tengah gate, lalu naik.
 
-Urutan profil yang disarankan: strafe box sampai 3 kali sukses berturut-turut, lalu diamond
-(kalibrasi lagi di kecepatan diamond), lalu `turn` hanya kalau putarannya konsisten ±3°.
+Urutan profil yang disarankan: `safe` sampai 3 kali sukses berturut-turut, lalu `fastest`
+(kalibrasi lagi di kecepatan diamond).
 
-### 4.5 Putar balik (`turn`, `vision`)
+### 4.5 Akurasi putaran (IMU)
 
-Putaran 180° harus akurat ±3°: di sim, kelebihan 8° membuat robot meleset 2 m dari gate.
+Setiap putaran berhenti di `*_target_angle_rad` (1,45 rad untuk 90°, sedikit kurang supaya
+overshoot terserap). Di sim, error heading 8° di putaran terakhir membuat robot meleset 2 m
+dari gate.
 
-1. Tes `return_turn` saja di tempat dan ukur heading akhir (QGC).
-2. Kurang dari 180° / lewat gate ke **kiri**: naikkan `return_turn_target_angle_rad`
+1. Tes satu putaran saja di tempat dan ukur heading akhir (QGC).
+2. Kurang dari target / lewat gate ke **kiri**: naikkan `*_target_angle_rad`
    (+0,03 rad ≈ 2°). Lebih / lewat ke **kanan**: turunkan.
-3. `return_turn_duration_s` hanya batas waktu; biarkan sedikit lebih lama dari putaran asli.
-4. Di profil `blind/`, putaran hanya diatur durasi; jauh lebih sulit.
+3. `*_duration_s` putaran hanya batas waktu; biarkan sedikit lebih lama dari putaran asli.
+4. Dengan `use_sensors: false` (§7) putaran hanya diatur durasi; jauh lebih sulit.
 
 ### 4.6 Arah start
 
@@ -169,14 +173,18 @@ Sejajarkan badan robot dengan tali atau garis lantai yang menunjuk ke marker, ma
 | Menabrak marker / loop terlalu dekat | kurangi `approach_pole_duration_s` |
 | Loop tidak mengitari marker | tambah `approach_pole_duration_s` |
 | Menabrak dinding belakang | kurangi `approach_pole_duration_s`, atau kalibrasi ulang (kecepatan asli lebih tinggi) |
-| Loop tidak menutup (kembali ke kiri/kanan garis tengah) | atur `circle_forward_2` (diamond) atau `circle_turn_3` (strafe box) |
+| Loop tidak menutup (kembali ke kiri/kanan garis tengah) | atur `circle_forward_2` (`fastest`) atau `circle_forward_3` (`safe`) |
 | Lewat gate melenceng ke samping | cek arah start, lalu keseimbangan geser kiri = kanan |
 | Belum lewat gate saat naik | tambah `return_to_gate_duration_s` |
 | Menabrak dinding start | kurangi `return_to_gate_duration_s` |
 | Menyentuh palang gate | tambah `gate_depth_m` (maksimal 2,0) |
 | Hasil berubah-ubah antar run | baterai turun; kalibrasi ulang di voltase lomba |
 
-## 5. Kamera (`vision`, `hybrid`)
+## 5. Kamera (`use_vision_assist`, `use_vision_return`)
+
+Tidak ada profil kamera lagi (`vision`/`hybrid` dihapus, masih ada di riwayat git). Untuk
+mencoba kamera, salin profil dan set `use_vision_assist: true` (pohon
+`por_vision_assisted_mission.xml`) atau `use_vision_return: true` (`por_hybrid_mission.xml`).
 
 ### 5.1 Cara kerja
 
@@ -191,7 +199,7 @@ timer kalau gagal:
 | diamond, putar 180° (IMU) | – | – |
 | `SearchGate`, `TurnAround` mengunci heading ke gate, `PassGate` maju sambil steering | gate | gate tidak terlihat: `return_to_gate` timer |
 
-`hybrid` = strafe box timer, lalu pulang pakai kamera (fallback `return_to_gate` timer).
+`hybrid` = rute timer, lalu pulang pakai kamera (fallback `return_to_gate` timer).
 
 Jarak tetap diatur timer: estimasi jarak dari kamera tidak bisa dipercaya (di sim, sisi pole
 yang gelap tidak lolos HSV). Kalibrasi kecepatan tetap wajib.
@@ -274,7 +282,7 @@ python3 src/BANYU_ROBOTX/tools/scripts/dead_thruster_por.py --no-position \
   --out src/BANYU_ROBOTX/banyu_bringup/config/por_params_dead_thruster_2_3_no_pos.yaml
 ```
 
-Tambah `--no-rc` untuk versi tanpa TX16S. Opsi penting:
+Profil yang sama dipakai dengan atau tanpa TX16S (`launch_por.sh --no-rc`). Opsi penting:
 
 | Opsi | Arti |
 |---|---|
@@ -294,8 +302,7 @@ Urutan tes di kolam:
    naikkan `--orbit-cap` (+0,05 rad ≈ 3°); lebih: turunkan. Error 1° ≈ 0,17 m di gate.
 4. Full run, ulangi 2–3 sampai lewat tengah gate.
 
-Di sim, `--measured-speed 1.15 --orbit-cap 6.29` memusatkan return (profil
-`config/sim_dead_thruster/`, khusus sim).
+Di sim, `--measured-speed 1.15 --orbit-cap 6.29` memusatkan return.
 
 **Bar30 mati** (`--no-depth-sensor`, STABILIZE): tidak ada satu trim yang menahan kedalaman.
 Di sim yang berhasil hanya dithering per segmen antara dua nilai trim yang berbeda 1 µs (detail
@@ -305,45 +312,23 @@ memakainya. Solusi yang lebih aman: perbaiki Bar30 atau buat daya apung hampir n
 ## 6b. Hanya thruster belakang (1 + 2 mati)
 
 Kalau thruster depan 1 + 2 mati, pasangan belakang 3 + 4 hanya bisa maju/mundur dan yaw. Perintah
-geser (`speed_y`) tidak menggeser robot tapi memutarnya, jadi profil strafe-box tidak bisa dipakai.
-Profil `por_params_rear_only_no_rc.yaml` hanya memakai maju, putar di tempat, dan maju + yaw:
+geser (`speed_y`) tidak menggeser robot tapi memutarnya. Profil `safe` dibuat untuk kondisi ini:
+hanya maju dan putar di tempat (kotak di §4.3).
 
-| Segmen | Gerakan |
-|---|---|
-| `dive` | turun di tempat |
-| `timed_pass_gate`, `approach_pole` | maju stick penuh sampai `ORBIT_R` sebelum marker |
-| `circle_turn_1` | putar kanan 90° (IMU) |
-| `circle_turn_2` | busur ke kiri mengelilingi marker (maju + yaw), berhenti di 360° (IMU) |
-| `return_turn` | putar kanan 90° (IMU), menghadap gate |
-| `return_to_gate` | maju stick penuh lewat gate |
+`speed_x_mps: 1.33` × gain 300 = 400 µs = stick penuh (`control.max_linear_speed` 1.4). Di kolam:
 
-`speed_x_mps: 1.33` × gain 300 = 400 µs = stick penuh (`control.max_linear_speed` 1.4). Busur
-selalu kembali ke titik awal kalau IMU benar; salah kecepatan hanya mengubah radius
-(`radius = v_busur / yaw_rate`). Durasi di file masih perkiraan (0,5 m/s). Di kolam:
+1. **Kecepatan**: jalankan satu leg maju stick penuh 10 s, ukur `v`.
+2. **Durasi** (dead time 0,8 s, rumus juga ada di kepala profil): `durasi = jarak / v + 0.8`
+   dengan jarak dari tabel §4.3.
+3. **Sudut**: cek heading akhir tiap putaran di QGC (§4.5).
 
-1. **Kecepatan**: jalankan satu leg maju stick penuh 10 s, ukur `v`. Ulangi untuk stick busur
-   (`speed_x 1.0`) → `v_busur`.
-2. **Durasi** (dead time 0,8 s, rumus juga ada di kepala profil):
-   `timed_pass_gate = (start_ke_gate + 1) / v + 0.8`,
-   `approach_pole = (gate_ke_marker − ORBIT_R − 1) / v + 0.8`,
-   `return_to_gate = (gate_ke_marker − ORBIT_R + 1.5) / v + 0.8`,
-   `circle_turn_2_yaw_rate = v_busur / ORBIT_R`.
-3. **Sudut**: cek heading akhir tiap putaran di QGC. Lebih dari target: turunkan
-   `*_target_angle_rad` (1.45 untuk 90°, 6.2 untuk 360°); kurang: naikkan.
+## 7. Murni timer (`use_sensors: false`)
 
-Alternatif kotak: `por_params_timed_safe_no_rc.yaml` mengitari marker dengan empat putaran 90°
-(IMU) + maju, lalu `return_turn` belok kiri ~14° dan `return_to_gate` maju diagonal ke tengah
-gate. Rumus durasi ada di kepala profil (`durasi = jarak / v + 0.8`).
-
-## 7. Profil blind (`config/blind/`)
-
-Sama dengan profil normal, dengan perbedaan:
-- `use_sensors: false`: kedalaman dari durasi dive (open-loop, ~1,32 × `speed_z` m/s di sim),
-  putaran dari durasi saja.
-- Heading hold mati, kamera tidak dipakai.
-
-Pakai kalau baro, IMU, atau kamera tidak bisa dipercaya. Setiap perubahan durasi di profil
-normal harus disalin manual ke versi blind-nya.
+Tidak ada folder profil blind lagi. Kalau baro, IMU, atau kamera tidak bisa dipercaya, salin
+profil dan set `use_sensors: false`:
+- kedalaman dari durasi dive (open-loop, ~1,32 × `speed_z` m/s di sim; set `dive_speed_z_mps`),
+  putaran dari durasi saja;
+- matikan heading hold (`vehicle_execution_node.timed_move.heading_hold.enabled: false`).
 
 ## 8. Stick, kanal, dan deadzone (`rc_override`)
 

@@ -27,52 +27,27 @@ atau buka `bash` dulu lalu source kedua file itu.
 
 ## 2. Memilih profil
 
-### Cara cepat
+### Profil
 
-```
-Robot sehat, kamera & warna sudah dituning  →  vision
-Robot sehat, kamera ragu                    →  safe   (lebih cepat: fast, lalu fastest)
-Uji pertama di kolam baru / cek bocor       →  slow
-Thruster 2 + 3 mati                         →  buat profil dengan dead_thruster_por.py (tuning.md §6)
-Sensor & kamera tidak bisa dipercaya        →  blind/<profil>.yaml
-```
+Hanya ada tiga profil. Pakai RC atau tidak dipilih saat launch (`--no-rc`, §4.4), bukan di
+file profil, jadi satu file dipakai untuk dua-duanya.
 
-### Katalog
-
-Waktu = waktu sim sampai lewat gate kembali (ALT_HOLD, tanpa GPS). Di kolam angkanya akan
-berbeda sampai kecepatan dikalibrasi ([`tuning.md`](tuning.md)).
-
-| `--profile` | File | Rute | Kamera | Waktu sim |
-|---|---|---|---|---|
-| `default` | `por_params.yaml` | strafe box aman (rute `safe` versi lama: 0,6/0,5, kedalaman 2,0 ± 0,3 m) | – | ~37 s |
-| `safe` | `por_params_timed_safe.yaml` | strafe box aman, sedikit lebih cepat (0,75 maju / 0,6 geser), kedalaman 1,90–2,00 m | – | ~35 s (estimasi, belum diuji sim) |
-| `fast` | `por_params_timed_fast.yaml` | strafe box cepat | – | ~32 s |
-| `fastest` | `por_params_timed_fastest.yaml` | diamond, mundur lewat gate | – | ~25 s |
-| `turn` | `por_params_timed_fastest_turn.yaml` | diamond, putar 180°, maju lewat gate | – | ~28 s |
-| `vision` | `por_params_vision_assisted.yaml` | diamond + koreksi kamera | gate & marker, fallback timer | ~36 s |
-| `hybrid` | `por_params_hybrid.yaml` | strafe box, pulang pakai kamera | gate, fallback timer | ~44 s |
-| `slow` | `por_params_timed_slow.yaml` | strafe box pelan | – | ~71 s |
-| `replay` | `por_params_replay.yaml` | putar ulang rute yang dikemudikan manual (§4.8) | – | sepanjang rekaman |
-
-- **Strafe box**: yaw tetap. Robot geser kanan, maju melewati marker, geser kiri, mundur, geser
-  kanan, lalu mundur lewat gate. Tidak ada belokan, jadi tidak tergantung kompas. Paling toleran.
-- **Diamond**: empat sisi diagonal (maju+geser sekaligus) di sekitar marker. Paling cepat, tapi
-  paling sensitif terhadap error kecepatan.
-- **Kamera** di `vision` dan `hybrid` selalu dibatasi waktu. Kalau kamera gagal, robot lanjut
-  dengan timer (sudah dites di sim dengan kamera mati).
-
-### Folder tambahan
-
-| Folder | Isi | Boleh di robot? |
+| `--profile` | File | Rute |
 |---|---|---|
-| `config/blind/` | Profil yang sama dengan tabel di atas, tapi **murni timer**: `use_sensors: false`, heading hold mati, dive dan putaran open-loop. Untuk kondisi baro/IMU/kamera tidak bisa dipercaya. | Ya (`--profile blind/por_params_timed_safe.yaml`) |
-| `config/sim_dead_thruster/` | Profil dead-thruster yang dikalibrasi di **sim** (kecepatan sim, trim sim). | **Tidak**, ditolak `launch_por.sh --real` |
-| `config/sim_faults/` | File parameter ArduPilot untuk mensimulasikan kerusakan di SITL. | **Tidak** |
+| `safe` (default sim) | `por_params_timed_safe.yaml` | kotak dengan empat putaran 90° di tempat (berhenti oleh IMU), tanpa geser; maju full stick (1,33), kedalaman 1,4 ± 0,1 m. Dituning di trial 30 Okt |
+| `fastest` | `por_params_timed_fastest.yaml` | diamond (maju + geser diagonal) di sekitar marker, mundur lewat gate; kedalaman 1,0 ± 0,3 m |
+| `replay` | `por_params_replay.yaml` | putar ulang rute yang dikemudikan manual (§4.8) |
 
-Tidak ada profil dead-thruster untuk robot di repo. Kalau thruster 2 + 3 mati, buat profilnya
-dari hasil ukur di kolam dengan `tools/scripts/dead_thruster_por.py` ([`tuning.md`](tuning.md)
-§6). Hasilnya ditulis ke `config/` dan dipakai dengan `--profile <nama file>`. Versi sim ada di
-`config/sim_dead_thruster/` sebagai contoh.
+- **Thruster 2 + 3 mati:** buat profil dari hasil ukur di kolam dengan
+  `tools/scripts/dead_thruster_por.py` ([`tuning.md`](tuning.md) §6), lalu pakai
+  `--profile <nama file>`.
+- **Sensor tidak bisa dipercaya (murni timer):** set `use_sensors: false` di salinan profil
+  (heading hold mati, dive dan putaran open-loop), lalu pakai `--profile <path>`.
+- Profil lain (`fast`, `slow`, `hybrid`, `vision`, folder `blind/` dan `sim_dead_thruster/`)
+  sudah dihapus; masih ada di riwayat git kalau dibutuhkan.
+
+`config/sim_faults/` berisi file parameter ArduPilot untuk mensimulasikan kerusakan di SITL
+(bukan profil, **jangan** dimuat ke robot).
 
 ### File lain di `config/` (bukan profil)
 
@@ -243,11 +218,9 @@ Switch TX16S (sumber: [`banyu_teleop/config/teleop_rcin.yaml`](../../banyu_teleo
 
 ### 4.4 Run tanpa TX16S (`--no-rc`)
 
-Hanya untuk profil dengan `bypass_rc: true` (launcher menolak profil lain). Setiap profil robot
-punya versi `_no_rc` dengan rute yang sama: `por_params_timed_safe_no_rc.yaml`,
-`por_params_timed_fast_no_rc.yaml`, …, `blind/por_params_timed_safe_no_rc.yaml`, dst. (alias
-seperti `safe` selalu memilih versi RC). Kalau mengubah tuning sebuah profil, ubah juga versi
-`_no_rc`-nya. Teleop tidak dijalankan; relay ESP32 dikendalikan `esp32_trigger_node`.
+Berlaku untuk semua profil. `--no-rc` mematikan teleop, menjalankan `esp32_trigger_node` (relay
+ESP32), dan meneruskan `bypass_rc:=True` ke `banyu_vehicle_status`, jadi kesegaran RC tidak
+dicek. `bypass_rc` tidak ditulis di file profil.
 
 Mode kendaraan mengikuti perintah trigger terakhir (`'2'` autonomous, `'1'` manual: misi
 berhenti/tidak bisa start, `'0'` kill); sebelum ada perintah dianggap autonomous. Selain topic
@@ -259,7 +232,7 @@ di bawah, bisa lewat service (juga mengganti warna LED ESP32):
 ```bash
 ./src/BANYU_ROBOTX/tools/scripts/run_mavproxy.sh                     # terminal 1
 ./src/BANYU_ROBOTX/tools/scripts/launch_mavros.sh                    # terminal 2, biarkan jalan
-./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --no-rc --profile por_params_timed_safe_no_rc.yaml   # terminal 3
+./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --no-rc --profile safe   # terminal 3
 ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '2'}"   # relay nyala (autonomous)
 ros2 service call /banyu/mission/start std_srvs/srv/Trigger "{}"
 ```
@@ -356,7 +329,7 @@ dan posisi start yang berbeda tetap membuat hasilnya bergeser.
 
    ```bash
    ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --no-rc \
-     --profile por_params_replay_no_rc.yaml --replay-track rute1
+     --profile replay --replay-track rute1
    ```
 
    Tanpa `--replay-track` dipakai track terbaru. Banner menampilkan file, durasi dan
@@ -412,10 +385,10 @@ sungguhan arus, baterai dan posisi start menambah drift.
 | Flag | Default | Fungsi |
 |---|---|---|
 | `--sim` / `--real` | `--real` | Target: Gazebo + SITL, atau robot (`sub_bringup.launch.py`) |
-| `--profile <alias atau path>` | sim: `default`; robot: **wajib** | Profil (alias di §2, atau path relatif ke `config/`) |
+| `--profile <alias atau path>` | sim: `safe`; robot: **wajib** | Profil (`safe`, `fastest`, `replay`, atau path relatif ke `config/`) |
 | `--headless`, `--gui` | GUI | Sim: tanpa/dengan GUI Gazebo |
 | `--no-clean` | – | Sim: jangan bunuh proses SITL lama |
-| `--rc` / `--no-rc` | `--rc` | Robot: teleop TX16S, atau `esp32_trigger_node` + profil `bypass_rc` |
+| `--rc` / `--no-rc` | `--rc` | Robot: teleop TX16S, atau `esp32_trigger_node` + `bypass_rc:=True` (§4.4) |
 | `--no-cam` | – | Robot: tanpa driver kamera |
 | `--mock-auto` | – | Robot: uji darat (§4.7) |
 | `--replay-track <nama atau path>` | track terbaru | Profil replay: track di `~/banyu_replays` (§4.8) |
@@ -430,15 +403,15 @@ menolak jalan tanpa MAVROS, dan memperingatkan kalau ada lebih dari satu `mavros
 
 Argumen lain diteruskan ke `ros2 launch`, misalnya `extra_sitl_params:=...` (sim) atau `use_gps:=True`.
 
-Pengecekan yang dilakukan launcher di robot: `--profile` wajib, profil `sim_*` ditolak,
-`--no-rc` butuh `bypass_rc: true`, dan kanal override tidak boleh sama dengan kanal SB/SC.
+Pengecekan yang dilakukan launcher di robot: `--profile` wajib, dan kanal override tidak boleh
+sama dengan kanal SB/SC.
 
 ## 6. Troubleshooting
 
 | Gejala | Penyebab / perbaikan |
 |---|---|
 | `Mode change failed: Guided requires position` | Profil lama dengan GUIDED. Semua profil POR harus `autonomy_mode: "ALT_HOLD"` |
-| Misi tidak mau start, `rc_fresh: false` | TX16S mati atau `/mavros/rc/in` kosong. Tanpa TX, pakai `--no-rc` dengan profil `bypass_rc` |
+| Misi tidak mau start, `rc_fresh: false` | TX16S mati atau `/mavros/rc/in` kosong. Tanpa TX, pakai `--no-rc` |
 | Misi tidak mau start, `operational_mode: 0` | SB belum di atas / teleop belum menerima RC / belum kirim `'2'` (no-RC) |
 | Misi langsung berhenti setelah start dan mode bolak-balik | Bentrok kanal SB dengan override (§4.2) |
 | Arm ditolak | Lihat pesan pre-arm di QGC. Jangan matikan `ARMING_CHECK` sembarangan |

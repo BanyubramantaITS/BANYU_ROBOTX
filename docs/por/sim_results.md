@@ -2,6 +2,12 @@
 
 Cara menjalankan ada di [`README.md`](README.md), cara tuning di [`tuning.md`](tuning.md).
 
+> **Catatan (2 Nov 2026):** tabel di bawah adalah hasil 24 Okt dengan profil lama. Sebagian besar
+> profil itu (`fast`, `slow`, `hybrid`, `vision_assisted`, `fastest_turn`, `por_params.yaml`,
+> `blind/`, `sim_dead_thruster/`) sudah dihapus dan masih ada di riwayat git. `safe` dan
+> `fastest` sekarang memakai tuning trial 27–31 Okt (dulu versi `_no_rc`) dan **belum diuji
+> ulang di sim**.
+
 ## Lintasan dan kriteria lulus
 
 - Start x = -7 (permukaan), gate x = -4 (tiang di y = ±1, palang 1 m di bawah air), marker

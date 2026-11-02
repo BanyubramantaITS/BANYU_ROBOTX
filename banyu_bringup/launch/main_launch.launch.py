@@ -90,7 +90,7 @@ def generate_launch_description():
     por_params_arg = DeclareLaunchArgument(
         name="por_params_file",
         default_value=os.path.join(
-            _banyu_bringup_share, "config", "por_params.yaml"
+            _banyu_bringup_share, "config", "por_params_timed_safe.yaml"
         ),
         description="Path to ROS 2 parameter YAML file for POR nodes",
     )

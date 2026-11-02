@@ -64,7 +64,7 @@ def generate_launch_description():
     banyu_teleop_share = get_package_share_directory("banyu_teleop")
 
     default_por_params = os.path.join(
-        banyu_bringup_share, "config", "por_params.yaml"
+        banyu_bringup_share, "config", "por_params_timed_safe.yaml"
     )
     default_task2_params = os.path.join(
         banyu_bringup_share, "config", "task2_params.yaml"
@@ -130,6 +130,14 @@ def generate_launch_description():
         name="enable_esp32_trigger",
         default_value="False",
         description="Whether to launch the ESP32 trigger node.",
+        choices=["True", "False"],
+    )
+
+    bypass_rc_arg = DeclareLaunchArgument(
+        name="bypass_rc",
+        default_value="False",
+        description="No transmitter: mode comes from the ESP32 trigger, not RC (use with "
+        "enable_esp32_trigger:=True).",
         choices=["True", "False"],
     )
 
@@ -284,6 +292,7 @@ def generate_launch_description():
             "debug": LaunchConfiguration("debug"),
             "enable_esp32_trigger": LaunchConfiguration("enable_esp32_trigger"),
             "enable_esp32_bridge": LaunchConfiguration("enable_esp32_bridge"),
+            "bypass_rc": LaunchConfiguration("bypass_rc"),
             "por_params_file": por_params,
             "task2_params_file": task2_params,
             "replay_track": LaunchConfiguration("replay_track"),
@@ -300,6 +309,7 @@ def generate_launch_description():
             enable_mock_auto_arg,
             enable_esp32_bridge_arg,
             enable_esp32_trigger_arg,
+            bypass_rc_arg,
             enable_cameras_arg,
             record_arg,
             record_images_arg,

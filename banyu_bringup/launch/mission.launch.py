@@ -22,7 +22,7 @@ def generate_launch_description():
         banyu_bringup_share, "config", "task2_params.yaml"
     )
     default_por_params = os.path.join(
-        banyu_bringup_share, "config", "por_params.yaml"
+        banyu_bringup_share, "config", "por_params_timed_safe.yaml"
     )
     default_hardware_params = os.path.join(
         banyu_bringup_share, "config", "hardware_params.yaml"
@@ -87,6 +87,16 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    bypass_rc_arg = DeclareLaunchArgument(
+        name="bypass_rc",
+        default_value="False",
+        description=(
+            "No transmitter: POR vehicle status ignores RC freshness and takes the mode from "
+            "the ESP32 trigger (launch_por.sh --no-rc)."
+        ),
+        choices=["True", "False"],
+    )
+
     replay_track_arg = DeclareLaunchArgument(
         name="replay_track",
         default_value="latest",
@@ -117,7 +127,7 @@ def generate_launch_description():
 
     # On hardware the operational mode comes from a kill-switch source (teleop SB, ESP32 bridge
     # or ESP32 trigger); until one reports, the vehicle counts as killed. Sim has no switch.
-    # bypass_rc profiles ignore this and use bypass_operational_mode instead.
+    # With bypass_rc this is ignored in favour of bypass_operational_mode.
     default_op_mode_expr = PythonExpression([
         "0 if '", use_sim, "'.lower() == 'false' else 2"
     ])
@@ -209,6 +219,7 @@ def generate_launch_description():
                     ),
                     value_type=str,
                 ),
+                "bypass_rc": ParameterValue(LaunchConfiguration("bypass_rc"), value_type=bool),
             },
         ],
         output="screen",
@@ -389,6 +400,7 @@ def generate_launch_description():
             hardware_params_arg,
             enable_esp32_trigger_arg,
             enable_esp32_bridge_arg,
+            bypass_rc_arg,
             replay_track_arg,
             set_use_sim_time,
             por_mission_manager,

@@ -331,6 +331,8 @@ banyu_vehicle_status:
     autonomy_mode: "ALT_HOLD"
     default_operational_mode: 0
     kill_switch_timeout_s: 1.0
+    # bypass_rc is set by the launch (launch_por.sh --no-rc), not per profile.
+    bypass_operational_mode: 2 # mode with bypass_rc until the first trigger command
 
 esp32_bridge_node:
   ros__parameters:

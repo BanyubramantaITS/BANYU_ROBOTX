@@ -32,14 +32,11 @@ CONFIG = os.path.join(HERE, "..", "..", "banyu_bringup", "config")
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--base", default=os.path.join(CONFIG, "por_params_timed_fast.yaml"),
+    p.add_argument("--base", default=os.path.join(CONFIG, "por_params_timed_safe.yaml"),
                    help="profile to copy everything else from")
     p.add_argument("--out", default=None,
-                   help="output file (default: por_params_dead_thruster_2_3.yaml, or "
-                        "..._no_rc.yaml with --no-rc)")
-    p.add_argument("--no-rc", action="store_true",
-                   help="run without a transmitter: sets banyu_vehicle_status.bypass_rc so the "
-                        "mission needs no RC switches (launch with enable_teleop:=False)")
+                   help="output file (default: por_params_dead_thruster_2_3*.yaml); RC or no RC "
+                        "is chosen at launch (launch_por.sh --no-rc)")
     p.add_argument("--live-diagonal", choices=["forward-left", "forward-right"], default="forward-left",
                    help="direction the LIVE thruster pair pushes for +forward (2+3 dead -> forward-left)")
     p.add_argument("--no-position", action="store_true",
@@ -47,12 +44,13 @@ def main():
                         "sticks over /mavros/rc/override instead of GUIDED setpoints")
     p.add_argument("--rc-takeover-channel", type=int, default=None,
                    help="banyu_vehicle_status.rc_takeover_channel (0-based; -1 = no stick takeover). "
-                        "Default -1 for the RC (non --no-rc) no-position profile, as set on BANYU")
+                        "Default -1 for the no-position profile, as set on BANYU")
     p.add_argument("--no-depth-sensor", action="store_true",
                    help="Pixhawk only, no external depth sensor (Bar30): implies --no-position, flies "
                         "STABILIZE (ALT_HOLD needs a water baro), dives open-loop and does the first "
                         "45 deg turn on the IMU")
-    p.add_argument("--dive-depth", type=float, default=1.8, help="--no-position: target depth for the open-loop dive (m)")
+    p.add_argument("--dive-depth", type=float, default=1.8,
+                   help="dive depth (m): gate_depth_m, or the open-loop dive target with --no-position")
     p.add_argument("--dive-time", type=float, default=None,
                    help="--no-position: open-loop dive time (s); default dive-depth / dive-vz + 1.5 s lag")
     p.add_argument("--dive-vz", type=float, default=0.4, help="--no-depth-sensor: dive command (m/s, down)")
@@ -118,7 +116,7 @@ def main():
         z_dz = round(a.thr_dz * a.js_gain)
         z_gain = round(400.0 / (a.pilot_speed / 100.0), 1)
     if a.out is None:
-        name = "por_params_dead_thruster_2_3" + ("_no_rc" if a.no_rc else "") + \
+        name = "por_params_dead_thruster_2_3" + \
             ("_pixhawk_only" if a.no_depth_sensor else "_no_pos" if a.no_position else "") + ".yaml"
         a.out = os.path.join(CONFIG, name)
 
@@ -144,6 +142,7 @@ def main():
 
     values = {
         "use_vision": "false", "use_vision_return": "false", "use_sensors": "true",
+        "gate_depth_m": a.dive_depth, "gate_depth_tolerance_m": 0.3,
         "dive_duration_s": round(math.radians(a.dive_turn_deg) / a.dive_yaw_rate, 2),
         "dive_speed_x_mps": 0.0, "dive_speed_y_mps": 0.0, "dive_speed_z_mps": -0.6,
         "dive_yaw_rate_rad_s": round(yaw_sign * a.dive_yaw_rate, 3), "max_depth_speed_mps": 0.6,
@@ -223,8 +222,12 @@ def main():
       # Inputs: speed {v_cmd} m/s cmd, {v_real} m/s measured, start-gate {a.start_to_gate} m,
       # gate-marker {a.gate_to_marker} m. Re-run the script after measuring at the pool.
 """
-    start = text.index("      # FAST strafe-box profile")
-    end = text.index("      # =====", start)
+    # Replace the base profile's description banner (between its two ===== rules).
+    rule = "      # ====="
+    if text.count(rule) < 2:
+        sys.exit("profile description banner (# ===== rules) not found in " + a.base)
+    start = text.index("\n", text.index(rule)) + 1
+    end = text.index(rule, start)
     text = text[:start] + header + text[end:]
     if a.no_position:
         try:
@@ -256,7 +259,7 @@ def main():
             sys.exit("vehicle_execution_node section not found in " + a.base)
         text = text.replace(anchor_ve, anchor_ve + block)
     takeover = a.rc_takeover_channel
-    if takeover is None and a.no_position and not a.no_rc:
+    if takeover is None and a.no_position:
         takeover = -1
     if takeover is not None:
         text, n = re.subn(r"^(    rc_takeover_channel:) [^\s#]+", lambda m: f"{m.group(1)} {takeover}",
@@ -268,12 +271,6 @@ def main():
                           text, count=1, flags=re.M)
         text, n = re.subn(r"^(    fallback_mode:) [^\s#]+", lambda m: f"{m.group(1)} \"DISARM\"",
                           text, count=1, flags=re.M)
-    if a.no_rc:
-        anchor = "    kill_switch_timeout_s: 1.0\n"
-        if text.count(anchor) != 1:
-            sys.exit("banyu_vehicle_status.kill_switch_timeout_s not found in " + a.base)
-        text = text.replace(anchor, anchor + "    bypass_rc: true            # no transmitter needed\n"
-                            "    bypass_operational_mode: 2  # 2 = autonomous\n")
     open(a.out, "w").write(text)
     print(f"wrote {a.out}")
     for key in ("dive_duration_s", "approach_pole_duration_s", "circle_turn_2_duration_s",

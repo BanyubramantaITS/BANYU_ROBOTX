@@ -12,7 +12,7 @@ The autonomy stack is cleanly decoupled into transport-neutral mission coordinat
   - `launch/main_launch.launch.py`: Unified simulation bringup composing Gazebo Harmonic, ArduSub SITL, and mission nodes (MAVROS runs separately via `tools/scripts/launch_mavros.sh`).
   - `launch/mission.launch.py`: Mode-selected autonomy stack (`mode:=por` or `mode:=task2`).
   - `task2_sim_provider.py`: Deterministic Task 2 fixture source launched only when `mode:=task2 use_sim:=True`.
-  - Config files: `por_params.yaml`, `task2_params.yaml`, `mavros_config.yaml`, and `banyu_defaults.parm`.
+  - Config files: `por_params_timed_safe.yaml` / `_timed_fastest` / `_replay`, `task2_params.yaml`, `mavros_config.yaml`, and `banyu_defaults.parm`.
 - **`banyu_msgs`**: ROS 2 message, service, and action definitions for mission coordination, perception, tracking, and vehicle status.
 - **`banyu_mission`**: BehaviorTree.CPP v4 mission manager.
   - Evaluates `bt/por_timed_mission.xml` (POR default; `por_mission.xml`, `por_hybrid_mission.xml` or `por_vision_assisted_mission.xml` depending on `mission.use_vision*`) or `bt/banyu_mission.xml` (Task 2).
@@ -91,7 +91,7 @@ The autonomy stack is cleanly decoupled into transport-neutral mission coordinat
 src/BANYU_ROBOTX/
 ├── banyu_bringup/
 │   ├── launch/{main_launch,mission,sub_bringup,sitl,gazebo_main,gazebo_por,teleop}.launch.py
-│   ├── config/{por_params,task2_params,hardware_params,mavros_config}.yaml
+│   ├── config/{por_params_timed_safe,por_params_timed_fastest,por_params_replay,task2_params,hardware_params,mavros_config}.yaml
 │   └── scripts/{task2_sim_provider,nogps_odom_beacon}.py
 ├── banyu_msgs/
 │   ├── msg/              # VehicleStatus, ActiveBuoyFix, PipelineObservation, Detection, etc.

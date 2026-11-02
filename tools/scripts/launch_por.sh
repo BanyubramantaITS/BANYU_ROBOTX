@@ -62,8 +62,9 @@ Simulation Options (when using --sim):
 
 Physical Hardware Options (when using --real):
   --rc                  (Default) Enable TX16S RC transmitter teleop and safety switches.
-  --no-rc               Disable teleop; enable bypass_rc and esp32_trigger_node (use when
-                        RC battery is dead or running headless).
+  --no-rc               No transmitter: disable teleop, start esp32_trigger_node and pass
+                        bypass_rc:=True (mode comes from the ESP32 trigger). Works with every
+                        profile; RC or no RC is never set in the profile file.
   --no-cam              Disable USB camera drivers to save CPU/bandwidth on timed runs.
   --mock-auto           Enable land-test mock auto mode in teleop (spin thrusters on land).
   --no-record           Do not record the run. By default every real run is recorded to a
@@ -73,22 +74,14 @@ Physical Hardware Options (when using --real):
 MAVROS is not started by this script: run ./launch_mavros.sh [--sim] in its own terminal
 and keep it running across profile changes. --real refuses to launch without it.
 
-Strategy Profile Presets (--profile <name>), sim gate-back times (ALT_HOLD, no GPS):
-  default               : por_params.yaml                    (safe strafe box, ~37 s)
-  safe                  : por_params_timed_safe.yaml         (safe strafe box, ~37 s)
-  fast, fast-strafe     : por_params_timed_fast.yaml         (fast strafe box, ~32 s)
-  fastest               : por_params_timed_fastest.yaml      (diamond, back up through gate, ~25 s)
-  turn, fastest-turn    : por_params_timed_fastest_turn.yaml (diamond, 180 deg turn, ~28 s)
-  vision                : por_params_vision_assisted.yaml    (diamond + camera corrections, ~36 s)
-  hybrid                : por_params_hybrid.yaml             (strafe box + camera return, ~44 s)
-  slow                  : por_params_timed_slow.yaml         (gentle first pool test, ~71 s)
+Strategy Profile Presets (--profile <name>):
+  safe                  : por_params_timed_safe.yaml         (box of 90 deg IMU turns; sim default)
+  fastest               : por_params_timed_fastest.yaml      (diamond, back up through gate)
   replay, teach         : por_params_replay.yaml             (fly a recorded manual drive, see below)
   Thrusters 2+3 dead: generate a profile from pool measurements with
     tools/scripts/dead_thruster_por.py (docs/por/tuning.md section 6) and pass its path.
-  Any other file under banyu_bringup/config/ by relative path, e.g.
-    --profile blind/por_params_timed_safe.yaml   (pure timer, no sensors, no camera)
-  Profiles under sim_dead_thruster/ and sim_faults/ are simulation only (refused with --real).
-  --real requires --profile; --no-rc requires a profile with bypass_rc: true.
+  Any other file by path (relative to banyu_bringup/config/ or absolute).
+  --real requires --profile.
   Guide: docs/por/README.md
 
 General Options:
@@ -114,20 +107,19 @@ Examples:
   # Real AUV (three terminals; only the last one is restarted to change profile):
   ./run_mavproxy.sh
   ./launch_mavros.sh
-  ./launch_por.sh --real --no-rc --profile por_params_timed_safe_no_rc.yaml
+  ./launch_por.sh --real --no-rc --profile safe
 
   # Launch Gazebo simulation headless for CI / rapid verification:
   ./tools/scripts/launch_por.sh --sim --headless --profile safe
 
-  # Launch real AUV with TX16S transmitter and the safe strafe box:
+  # Launch real AUV with TX16S transmitter and the safe box:
   ./tools/scripts/launch_por.sh --real --profile safe
 
-  # Launch real AUV headless without transmitter:
-  ./tools/scripts/launch_por.sh --real --no-rc --profile por_params_timed_safe_no_rc.yaml
-  (every robot profile has a *_no_rc.yaml twin, also under blind/)
+  # Same profile, no transmitter (ESP32 trigger instead of SB):
+  ./tools/scripts/launch_por.sh --real --no-rc --profile safe
 
   # Replay the newest recorded manual drive without a transmitter:
-  ./tools/scripts/launch_por.sh --real --no-rc --profile por_params_replay_no_rc.yaml
+  ./tools/scripts/launch_por.sh --real --no-rc --profile replay
 EOF
 }
 
@@ -238,7 +230,7 @@ mavros_count() { pgrep -x mavros_node | wc -l; }
 # --- Resolve profile ---
 if [ -z "$PROFILE" ]; then
   if [ "$TARGET" = "sim" ]; then
-    PROFILE="por_params.yaml"
+    PROFILE="por_params_timed_safe.yaml"
   else
     # No silent default on the robot: each profile assumes a vehicle state (healthy or
     # dead thrusters, RC or not) and an RC channel map.
@@ -247,15 +239,9 @@ if [ -z "$PROFILE" ]; then
   fi
 else
   case "$PROFILE" in
-    fast|fast-strafe) PROFILE="por_params_timed_fast.yaml" ;;
-    fastest|fastest-diamond) PROFILE="por_params_timed_fastest.yaml" ;;
-    turn|fastest-turn) PROFILE="por_params_timed_fastest_turn.yaml" ;;
-    slow) PROFILE="por_params_timed_slow.yaml" ;;
     safe) PROFILE="por_params_timed_safe.yaml" ;;
-    vision|vision-assisted) PROFILE="por_params_vision_assisted.yaml" ;;
-    hybrid) PROFILE="por_params_hybrid.yaml" ;;
+    fastest|fastest-diamond) PROFILE="por_params_timed_fastest.yaml" ;;
     replay|teach) PROFILE="por_params_replay.yaml" ;;
-    default) PROFILE="por_params.yaml" ;;
   esac
 fi
 
@@ -270,10 +256,6 @@ if [ ! -f "$PROFILE_PATH" ]; then
   echo "Error: Profile file not found: $PROFILE_PATH" >&2
   exit 1
 fi
-
-profile_bypass_rc() {
-  grep -Eq '^[[:space:]]*bypass_rc:[[:space:]]*true' "$PROFILE_PATH"
-}
 
 # Replay profiles fly a teach track; pin it to an absolute path so the banner and the
 # mission (which would otherwise resolve "latest" itself) use the same file.
@@ -297,25 +279,6 @@ elif [ -n "$REPLAY_TRACK" ]; then
 fi
 
 if [ "$TARGET" = "real" ]; then
-  case "$PROFILE_PATH" in
-    */sim_dead_thruster/*|*/sim_faults/*)
-      echo "Error: $(basename "$(dirname "$PROFILE_PATH")")/ profiles are tuned for the simulator" \
-        "(sim speeds, sim trim) and are refused on the real AUV." >&2
-      exit 1
-      ;;
-  esac
-
-  if [ "$USE_RC" = false ] && ! profile_bypass_rc; then
-    echo "Error: --no-rc needs a profile with banyu_vehicle_status bypass_rc: true" >&2
-    echo "  (e.g. one generated with tools/scripts/dead_thruster_por.py --no-rc)." >&2
-    echo "  Without it vehicle status never reports AUTONOMOUS and the mission cannot start." >&2
-    exit 1
-  fi
-  if [ "$USE_RC" = true ] && profile_bypass_rc; then
-    echo "Warning: profile sets bypass_rc: true but teleop is on. Stick takeover is disabled;" >&2
-    echo "  SB still kills (fresh kill_switch), but a stale switch no longer does." >&2
-  fi
-
   if [ "$USE_RC" = true ]; then
     # /mavros/rc/in reports RC override values, so a teleop switch on an override channel
     # reads the autonomy sticks instead of the switch (neutral 1500 = SB Mid = MANUAL).
@@ -491,6 +454,7 @@ else
     LAUNCH_CMD+=(
       enable_teleop:=True
       enable_esp32_trigger:=False
+      bypass_rc:=False
     )
     echo "Operator Instructions (TX16S Active):"
     echo "  1. Switch SB DOWN (Disarmed / Kill) before entering water."
@@ -501,6 +465,7 @@ else
     LAUNCH_CMD+=(
       enable_teleop:=False
       enable_esp32_trigger:=True
+      bypass_rc:=True
     )
     echo "Operator Instructions (No-RC Mode):"
     echo "  1. ESP32 relay is handled by esp32_trigger_node (/dev/ttyUSB0)."

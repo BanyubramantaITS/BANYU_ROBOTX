@@ -1,7 +1,7 @@
 banyu_mission:
   ros__parameters:
     mission_mode: "por"
-    autonomy_mode: "ALT_HOLD"   # POR flies ALT_HOLD + RC override, not GUIDED
+    autonomy_mode: "ALT_HOLD" # POR flies ALT_HOLD + RC override, not GUIDED
     fallback_mode: "DISARM"
     topics:
       pipeline_end_state: "/banyu/pipeline/end_state"
@@ -19,11 +19,11 @@ banyu_mission:
         ["/banyu/pipeline/reset_tracker", "/banyu/pipeline/reset_end"]
     mission:
       task2_tier: 2
-      surface_depth_m: 0.0
-      surface_tolerance_m: 0.25
+      surface_depth_m: 0.2
+      surface_tolerance_m: 0.3
       # Continuous missing-prerequisite watchdog; not a fixed surface phase duration.
       surface_watchdog_timeout_s: 5.0
-      gate_depth_m: 1.8
+      gate_depth_m: 1.0
       gate_depth_tolerance_m: 0.3
       acquire_gate_timeout_s: 20.0
       gate_align_deadband_x: 0.03
@@ -117,7 +117,7 @@ banyu_mission:
       dive_yaw_rate_rad_s: 0.0
 
       # 2. Go forward to pass through the gate
-      timed_pass_gate_duration_s: 0.0
+      timed_pass_gate_duration_s: 5.0
       timed_pass_gate_speed_x_mps: 0.9
       timed_pass_gate_speed_y_mps: 0.0
       timed_pass_gate_speed_z_mps: 0.0
@@ -145,46 +145,46 @@ banyu_mission:
       circle_forward_1_yaw_rate_rad_s: 0.0
 
       # Step 2: Turn left (+90 deg) and move forward past pole
-      circle_turn_2_duration_s: 1.3
+      circle_turn_2_duration_s: 5.0
       circle_turn_2_speed_x_mps: -1.0
       circle_turn_2_speed_y_mps: 1.2
       circle_turn_2_speed_z_mps: 0.0
       circle_turn_2_yaw_rate_rad_s: 0.0
       circle_turn_2_target_angle_rad: 0.0
-      circle_forward_2_duration_s: 1.0
+      circle_forward_2_duration_s: 2.0
       circle_forward_2_speed_x_mps: -1.0
       circle_forward_2_speed_y_mps: -1.2
       circle_forward_2_speed_z_mps: 0.0
       circle_forward_2_yaw_rate_rad_s: 0.0
 
       # Step 3: Turn left (+90 deg) and move forward behind pole
-      circle_turn_3_duration_s: 0.0
+      circle_turn_3_duration_s: 5.0
       circle_turn_3_speed_x_mps: 0.0
       circle_turn_3_speed_y_mps: -0.7
       circle_turn_3_speed_z_mps: 0.0
       circle_turn_3_yaw_rate_rad_s: 0.0
       circle_turn_3_target_angle_rad: 0.0
-      circle_forward_3_duration_s: 0.0
+      circle_forward_3_duration_s: 2.0
       circle_forward_3_speed_x_mps: 0.5
       circle_forward_3_speed_y_mps: 0.0
       circle_forward_3_speed_z_mps: 0.0
       circle_forward_3_yaw_rate_rad_s: 0.0
 
       # Step 4: Turn left (+90 deg) and move forward alongside pole
-      circle_turn_4_duration_s: 0.0
+      circle_turn_4_duration_s: 5.0
       circle_turn_4_speed_x_mps: 0.0
       circle_turn_4_speed_y_mps: 0.0
       circle_turn_4_speed_z_mps: 0.0
       circle_turn_4_yaw_rate_rad_s: 0.6
       circle_turn_4_target_angle_rad: 1.570796327
-      circle_forward_4_duration_s: 0.0
+      circle_forward_4_duration_s: 2.0
       circle_forward_4_speed_x_mps: 0.5
       circle_forward_4_speed_y_mps: 0.0
       circle_forward_4_speed_z_mps: 0.0
       circle_forward_4_yaw_rate_rad_s: 0.0
 
       # 5. Final turn to face the gate & go forward back to gate
-      return_turn_duration_s: 0.0
+      return_turn_duration_s: 5.0
       return_turn_speed_x_mps: 0.0
       return_turn_speed_y_mps: 0.0
       return_turn_speed_z_mps: 0.0
@@ -197,7 +197,7 @@ banyu_mission:
       return_to_gate_yaw_rate_rad_s: 0.0
 
       # 6. Surface
-      timed_surface_duration_s: 5.0
+      timed_surface_duration_s: 8.0
       timed_surface_speed_x_mps: 0.0
       timed_surface_speed_y_mps: 0.0
       timed_surface_speed_z_mps: 0.4
@@ -234,7 +234,7 @@ por_detection:
 
 vehicle_execution_node:
   ros__parameters:
-    rc_override:   # = Pixhawk RCMAP_FORWARD/LATERAL/THROTTLE/YAW (robot: 2/1/3/4, CH2/CH1/CH3/CH4)
+    rc_override: # = Pixhawk RCMAP_FORWARD/LATERAL/THROTTLE/YAW (robot: 2/1/3/4, CH2/CH1/CH3/CH4)
       channel_forward: 2
       channel_lateral: 1
       channel_throttle: 3
@@ -267,7 +267,7 @@ vehicle_execution_node:
       publish_rate_hz: 20.0
       require_guided: true
       autonomy_mode: "ALT_HOLD"
-      output_mode: "rc_override"   # sticks over /mavros/rc/override
+      output_mode: "rc_override" # sticks over /mavros/rc/override
       max_linear_speed: 1.2
       max_yaw_rate: 0.8
     surface:
@@ -305,11 +305,13 @@ banyu_vehicle_status:
     fcu_timeout_s: 5.0
     rc_timeout_s: 3.0
     gps_timeout_s: 5.0
-    rc_takeover_channel: -1   # RC override drives the stick channels; takeover is SB (operational_mode)
+    rc_takeover_channel: -1 # RC override drives the stick channels; takeover is SB (operational_mode)
     rc_takeover_threshold: 1700
     autonomy_mode: "ALT_HOLD"
     default_operational_mode: 0
     kill_switch_timeout_s: 1.0
+    # bypass_rc is set by the launch (launch_por.sh --no-rc), not per profile.
+    bypass_operational_mode: 2 # mode with bypass_rc until the first trigger command
 
 esp32_bridge_node:
   ros__parameters:
@@ -324,7 +326,7 @@ esp32_serial_node:
     baud: 115200
     timer_period_s: 0.1
     append_newline: false
-    default_trigger_cmd: "2"   # issue #15: 2 = autonomous
+    default_trigger_cmd: "2" # issue #15: 2 = autonomous
     trigger_on_cmd: "2"
     trigger_off_cmd: "0"
     trigger_service: "/banyu/trigger/fire"
@@ -339,7 +341,7 @@ esp32_trigger_node:
     baud: 115200
     timer_period_s: 0.1
     append_newline: false
-    default_trigger_cmd: "2"   # issue #15: 2 = autonomous
+    default_trigger_cmd: "2" # issue #15: 2 = autonomous
     trigger_on_cmd: "2"
     trigger_off_cmd: "0"
     trigger_service: "/banyu/trigger/fire"
