@@ -117,6 +117,9 @@ private:
   std::optional<banyu_msgs::msg::Task2BuoyTarget> buoy_target_;
   bool buoy_target_locked_{false};
   double retry_dive_offset_m_{3.0};
+  // Dive this far from the start buoy toward the other one (the pipe starts 1.5-2.5 m inside the buoys). The reported buoy is unchanged.
+  double dive_offset_m_{0.0};
+  void shiftTargetAlongHeading(double distance_m);
   bool explicit_heading_{false};
   BT::Blackboard::Ptr blackboard_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr preparation_service_;

@@ -29,6 +29,8 @@ banyu_mission:
       underwater_mode: "ALT_HOLD"   # second entry of autonomy_mode
       # A failed first dive or traverse surfaces, moves this far along the buoy line toward the other buoy and dives again.
       retry_dive_offset_m: 3.0
+      # Dive point this far from the start buoy toward the other one (0 = at the buoy). The reported buoy position is unchanged.
+      dive_offset_m: 0.0
       task2_tier: 2   # launch argument tier:= overrides this (core 2, advanced 3, disruptive 4)
       surface_depth_m: 0.0
       surface_tolerance_m: 0.5

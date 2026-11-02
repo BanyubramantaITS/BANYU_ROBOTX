@@ -582,6 +582,18 @@ void BanyuMission::terminateRun(bool failure, const std::string & reason, bool r
   {fallbackToSurface();}
 }
 
+void BanyuMission::shiftTargetAlongHeading(double distance_m)
+{
+  if (!blackboard_ || distance_m == 0.0) {return;}
+  const double lat = blackboard_->get<double>("target_latitude");
+  const double lon = blackboard_->get<double>("target_longitude");
+  const double heading = blackboard_->get<double>("heading");
+  constexpr double kEarthRadiusM = 6378137.0;
+  blackboard_->set("target_latitude", lat + (distance_m * std::sin(heading) / kEarthRadiusM) * 180.0 / M_PI);
+  blackboard_->set("target_longitude",
+    lon + (distance_m * std::cos(heading) / (kEarthRadiusM * std::cos(lat * M_PI / 180.0))) * 180.0 / M_PI);
+}
+
 void BanyuMission::applyBuoyTarget()
 {
   if (!blackboard_ || !buoy_target_) {return;}
@@ -596,6 +608,7 @@ void BanyuMission::applyBuoyTarget()
     blackboard_->set("heading", heading);
     blackboard_->set("heading_prior", heading);
   }
+  shiftTargetAlongHeading(dive_offset_m_);
   const auto heading_text = use_heading ?
     std::to_string(target.heading_enu_rad) + " rad" : std::string("unchanged");
   RCLCPP_INFO(
@@ -695,6 +708,7 @@ void BanyuMission::initialize()
   const auto surface_tolerance = declare_parameter<double>("mission.surface_tolerance_m", 0.2);
   const auto retries = declare_parameter<int>("mission.max_retries", 3);
   retry_dive_offset_m_ = declare_parameter<double>("mission.retry_dive_offset_m", 3.0);
+  dive_offset_m_ = declare_parameter<double>("mission.dive_offset_m", 0.0);
   const auto crc = declare_parameter<int64_t>("mission.crc32", 0);
   const auto camera = declare_parameter<std::string>("mission.camera_name", "front_camera");
   const auto id = declare_parameter<std::string>("mission.id", "banyu-mission");
@@ -817,6 +831,7 @@ void BanyuMission::initialize()
   blackboard->set("start_longitude", start_longitude);
   blackboard->set("gps_tolerance", gps_tolerance);
   blackboard->set("heading", effective_heading);
+  shiftTargetAlongHeading(dive_offset_m_);
   blackboard->set("heading_tolerance", heading_tolerance);
   blackboard->set("inspection_depth", inspection_depth);
   blackboard->set("depth_tolerance", depth_tolerance);

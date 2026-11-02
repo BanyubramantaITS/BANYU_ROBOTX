@@ -442,3 +442,9 @@ Getting one clean end-to-end Core run in the sim took four fixes, none of them i
   and the depth window in which the pipe would be visible (about 3 m above it) passes in 2-3 s. The first minimal run's lock was most
   likely a light (H30 since removed lights). **H35:** sink slowly (0.05 commanded, about 70 PWM) and creep 0.03 along the buoy line so the
   camera sweeps the gap while the vehicle is low enough; explicit `camera_descent.max_time_s` 100 s (the commanded rate is not the sink).
+- **H35/H35b/H36 dive diagnostics (Gazebo):** with the stick offset at 31 PWM the dive still sank at about 0.75 m/s, and any forward creep
+  (even 0.02, about 6 PWM) drove the vehicle forward at about 0.35 m/s (from the buoy past the pipe's far end before it was low enough to
+  see the pipe). A 640x480 bottom camera (`--camera-width 640`, H36; the real HORUS is 1920x1080) did not change the outcome. With no
+  creep the vehicle sank straight down at the buoy (x 3.3 to 3.98): a kept frame at 3.5 m above the pipe shows the pipe's start and node 1's
+  frame at the top edge of the image. **H37:** with minimal sensors the dive point is 2 m from the start buoy toward the other one
+  (`mission.dive_offset_m`, 0 by default), so the pipe is below the vertical dive; no creep.

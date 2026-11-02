@@ -7,6 +7,9 @@ banyu_mission:
     autonomy_mode: "GUIDED,STABILIZE"
     mission:
       underwater_mode: "STABILIZE"
+      # A vertical dive with no depth hold only finds the pipe if it is below: the start buoy is 1.5-2.5 m beyond the pipe's end
+      # (Gazebo frame: the pipe's start at the top edge of the image at the buoy). Dive 2 m inside the buoys.
+      dive_offset_m: 2.0
 banyu_vehicle_status:
   ros__parameters:
     autonomy_mode: "GUIDED,STABILIZE"
@@ -28,7 +31,7 @@ vehicle_execution_node:
     camera_descent:
       rate_mps: 0.05
       max_time_s: 100.0
-      surge_mps: 0.02
+      surge_mps: 0.0
       lock_s: 0.5
     # The stick offset added to any heave command (deadzone_z_pwm 50, for the ALT_HOLD stick deadband) was itself a strong thrust in
     # STABILIZE: 0.05 commanded sank at 0.85 m/s. 31 = just past RC3_DZ (30), so small commands are small thrusts.
