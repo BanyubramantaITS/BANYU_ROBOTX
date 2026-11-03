@@ -37,11 +37,11 @@ class SimSupervisor(Node):
         self.last = None
         self.create_subscription(RunLifecycle, '/banyu/mission/run_lifecycle', self.on_lifecycle,
                                  LATCHED)
-        self.create_subscription(Course, '/system/mission/course', self.on_course, LATCHED)
+        self.create_subscription(Course, '/system/mission/course', self.on_course, 10)
         self.create_subscription(Command, '/system/mission/command', self.on_command, 10)
         self.last_buoys = None
         self.create_subscription(PipelineBuoys, '/system/vehicle/usv/task2/pipeline_buoys',
-                                 self.on_buoys, LATCHED)
+                                 self.on_buoys, 10)
         self.create_subscription(Task2BuoyTarget, '/banyu/task2/buoy_target', self.on_target,
                                  LATCHED)
 

@@ -62,7 +62,7 @@ SurveyEvidenceNode::SurveyEvidenceNode(const rclcpp::NodeOptions & options)
     std::bind(&SurveyEvidenceNode::handleResourceCode, this, std::placeholders::_1));
 
   course_sub_ = create_subscription<rx_msgs::msg::Course>(
-    course_topic, rclcpp::QoS(1).reliable().transient_local(),
+    course_topic, rclcpp::QoS(10).reliable(),  // rx-sos spec: Course is volatile
     std::bind(&SurveyEvidenceNode::handleCourse, this, std::placeholders::_1));
 
   lifecycle_sub_ = create_subscription<banyu_msgs::msg::RunLifecycle>(

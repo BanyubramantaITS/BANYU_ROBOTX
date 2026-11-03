@@ -4,7 +4,7 @@
 Publishes /system/vehicle/usv/task2/pipeline_buoys (plain default QoS: reliable, volatile,
 depth 10) the way the USV team's README describes it: buoy A first (buoy_b_valid false) when --second-after-s is
 set, then both buoys; seq increases only when the content changes. course_id is copied from the
-latched /system/mission/course unless --course-id is given.
+/system/mission/course unless --course-id is given.
 
 Run it in the GCS domain (the relay forwards it to the UUV) or directly in the UUV domain:
   ROS_DOMAIN_ID=10 python3 mock_usv.py --a 33.810438 -118.393392 --b 33.810438 -118.393272 \\
@@ -14,11 +14,11 @@ import argparse
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from rx_msgs.msg import Course, LatLng, PipelineBuoys, VehicleType
 
-LATEST = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
-                    durability=DurabilityPolicy.TRANSIENT_LOCAL)
+# rx-sos spec: /system topics use the plain default QoS (reliable, volatile, keep_last 10).
+SYSTEM_QOS = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
 ACTIVE = {'unknown': PipelineBuoys.ACTIVE_UNKNOWN, 'a': PipelineBuoys.ACTIVE_A,
           'b': PipelineBuoys.ACTIVE_B}
 
@@ -32,9 +32,8 @@ class MockUsv(Node):
         self.sent = None
         self.started = self.get_clock().now()
         self.pub = self.create_publisher(
-            PipelineBuoys, '/system/vehicle/usv/task2/pipeline_buoys',
-            QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE))
-        self.create_subscription(Course, '/system/mission/course', self.on_course, LATEST)
+            PipelineBuoys, '/system/vehicle/usv/task2/pipeline_buoys', SYSTEM_QOS)
+        self.create_subscription(Course, '/system/mission/course', self.on_course, SYSTEM_QOS)
         self.create_timer(1.0 / args.rate_hz, self.tick)
 
     def on_course(self, msg):

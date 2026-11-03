@@ -71,7 +71,7 @@ protected:
     depth_pub_ = peer_->create_publisher<Depth>(
       "/banyu/vehicle/water_depth", rclcpp::QoS(5).reliable());
     course_pub_ = peer_->create_publisher<rx_msgs::msg::Course>(
-      "/system/mission/course", rclcpp::QoS(1).reliable().transient_local());
+      "/system/mission/course", rclcpp::QoS(10).reliable());
     progress_sub_ = peer_->create_subscription<Progress>(
       "/banyu/communication/survey_progress", rclcpp::QoS(5).reliable().transient_local(),
       [this](Progress::SharedPtr value) {progress_.push_back(*value);});

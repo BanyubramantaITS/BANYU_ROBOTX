@@ -58,7 +58,7 @@ class MockGcs(Node):
         self.uuv_hb_state = None
 
         self.cmd_pub = self.create_publisher(Command, '/system/mission/command', VOLATILE)
-        self.course_pub = self.create_publisher(Course, '/system/mission/course', LATCHED)
+        self.course_pub = self.create_publisher(Course, '/system/mission/course', VOLATILE)
         self.uav_delivery_pub = self.create_publisher(
             ResourceDelivery, '/system/vehicle/uav/task2/delivery', LATCHED)
         self.uav_hb_pub = self.create_publisher(Heartbeat, '/system/vehicle/uav/heartbeat', VOLATILE)
@@ -73,7 +73,8 @@ class MockGcs(Node):
             self.create_timer(0.5, self.uav_heartbeat)
 
     def publish_course(self):
-        """Course configuration (GCS -> vehicles): the UUV rejects survey evidence without it."""
+        """Course configuration (GCS -> vehicles): the UUV rejects survey evidence without it.
+        The topic is volatile, so it is repeated about 1 Hz for nodes that start late."""
         a = self.args
         m_lat = 111320.0
         m_lon = 111320.0 * math.cos(math.radians(a.home_lat))
@@ -247,12 +248,12 @@ def main():
             need_survey = args.expect_segments is not None
             need_delivery = bool(args.expect_circle or args.expect_tin)
             end = time.time() + args.timeout
-            next_course = time.time() + 5.0
+            next_course = time.time() + 1.0
             while time.time() < end:
                 rclpy.spin_once(node, timeout_sec=0.2)
                 if args.course and time.time() > next_course:
                     node.publish_course()
-                    next_course = time.time() + 5.0
+                    next_course = time.time() + 1.0
                 if (not need_survey or node.survey) and (not need_delivery or node.uav_echoes):
                     if need_survey or need_delivery:
                         break

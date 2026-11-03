@@ -40,7 +40,7 @@ protected:
     buoys_pub_ = peer_->create_publisher<PipelineBuoys>(
       "/system/vehicle/usv/task2/pipeline_buoys", latched);
     course_pub_ = peer_->create_publisher<rx_msgs::msg::Course>(
-      "/system/mission/course", latched);
+      "/system/mission/course", rclcpp::QoS(10).reliable());
     lifecycle_pub_ = peer_->create_publisher<RunLifecycle>(
       "/banyu/mission/run_lifecycle", latched);
     depth_pub_ = peer_->create_publisher<banyu_msgs::msg::WaterDepth>(
@@ -55,6 +55,9 @@ protected:
     rx_msgs::msg::Course course;
     course.course_id = "ITSN-SIM-A";
     course.pinger_freq_hz = 25000;
+    // Course is volatile: publish only once the node's reader has matched.
+    for (int i = 0; i < 200 && course_pub_->get_subscription_count() == 0; ++i) {spinFor(10ms);}
+    ASSERT_GT(course_pub_->get_subscription_count(), 0u);
     course_pub_->publish(course);
     spinFor(200ms);
   }

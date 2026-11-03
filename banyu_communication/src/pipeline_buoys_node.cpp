@@ -70,12 +70,13 @@ PipelineBuoysNode::PipelineBuoysNode(const rclcpp::NodeOptions & options)
   active_buoy_pub_ = create_publisher<banyu_msgs::msg::ActiveBuoyFix>(active_buoy_topic, latched);
 
   using std::placeholders::_1;
-  // rx-sos spec: PipelineBuoys uses the plain default QoS (reliable, volatile, keep_last 10) and
-  // is repeated ~1 Hz. A transient_local subscription would be incompatible with that publisher.
+  // rx-sos spec: PipelineBuoys and Course use the plain default QoS (reliable, volatile, keep_last 10).
+  // A transient_local subscription would be incompatible with those publishers.
   buoys_sub_ = create_subscription<rx_msgs::msg::PipelineBuoys>(
     buoys_topic, rclcpp::QoS(10).reliable(), std::bind(&PipelineBuoysNode::handleBuoys, this, _1));
   course_sub_ = create_subscription<rx_msgs::msg::Course>(
-    course_topic, latched, std::bind(&PipelineBuoysNode::handleCourse, this, _1));
+    course_topic, rclcpp::QoS(10).reliable(),
+      std::bind(&PipelineBuoysNode::handleCourse, this, _1));
   lifecycle_sub_ = create_subscription<banyu_msgs::msg::RunLifecycle>(
     lifecycle_topic, latched, std::bind(&PipelineBuoysNode::handleLifecycle, this, _1));
   depth_sub_ = create_subscription<banyu_msgs::msg::WaterDepth>(

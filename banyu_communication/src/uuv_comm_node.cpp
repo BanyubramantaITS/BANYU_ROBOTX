@@ -121,8 +121,10 @@ UuvCommNode::UuvCommNode(const rclcpp::NodeOptions & options)
   using std::placeholders::_1;
   command_sub_ = create_subscription<rx_msgs::msg::Command>(
     "/system/mission/command", 10, std::bind(&UuvCommNode::commandCallback, this, _1));
+  // rx-sos spec: Course uses the plain default QoS (reliable, volatile). A transient_local
+  // subscription would be incompatible with that publisher.
   course_sub_ = create_subscription<rx_msgs::msg::Course>(
-    "/system/mission/course", rclcpp::QoS(1).reliable().transient_local(),
+    "/system/mission/course", rclcpp::QoS(10).reliable(),
     std::bind(&UuvCommNode::courseCallback, this, _1));
   state_sub_ = create_subscription<mavros_msgs::msg::State>(
     "/mavros/state", 10, std::bind(&UuvCommNode::stateCallback, this, _1));

@@ -6,6 +6,22 @@ This is the single maintained document for [Issue #13: integrate the RobotX SoS 
 
 **Verdict:** the UUV ⇄ GCS ⇄ RoboCommand communication path is verified end to end in simulation against the GCS team's `GcsReporter` and RoboCommand's official schemas and test client. A full simulated Task 2 run, started by RoboCommand, delivered a correct `PipelineSurvey` to RoboCommand (§0). What remains is hardware/field work and joint decisions (real DDS Router/two-machine test, GCS-side bridge, Task 4 scope, pinger use).
 
+## 0a. Update — November 3, 2026: `rx_msgs` sync to `0a968ad`
+
+Three upstream commits since `a2a1ccc`: `cc7d9fa` (QoS), `198d208` (latest RoboCommand), `0a968ad` (`Waypoints`).
+
+| Change | UUV impact | Action |
+|---|---|---|
+| `Course` (and every `/system` topic) uses the plain default QoS: reliable, volatile, keep_last 10 | The latched course subscriptions in `uuv_comm_node`, `pipeline_buoys_node` and `survey_evidence_node` were incompatible with a volatile publisher: no course from the real GCS, so no survey report. The sim missed it because `mock_gcs.py` and `dds_relay.py` published latched | Subscriptions are `QoS(10).reliable()`. `mock_gcs.py`, `dds_relay.py`, `gcs_ros_bridge.py`, the sim provider, `mock_usv.py`, `sim_supervisor.py` and the test fixtures follow the spec; the mock GCS and the reference bridge repeat the course about 1 Hz |
+| `Heartbeat.uav_registration`; `Course.uav_transit_area`, `uav_geofence_max_altitude_hae_m` | UAV only; the message layout changed, so the workspace must be rebuilt to talk to a GCS on the new `rx_msgs` | Rebuilt; no UUV code change |
+| The USV publishes `CMD_MISSION_DONE` (target `TYPE_UAV`) on `/system/mission/command` | None: `uuv_comm_node` and `banyu_mission` drop commands not for `TYPE_UUV`/`TYPE_UNKNOWN` | — |
+| `CMD_TASK4_MOVING_OBJECT` carries `radius_m` (keep-out, 5 m default) | Only matters once Task 4 moves (still the ACK-only stub) | — |
+| `Waypoints` (USV → UAV) | None | — |
+
+UUV publishers of the one-shot reports (`PipelineSurvey`, `ResourceDelivery`) stay transient_local: compatible with a volatile GCS subscriber, and a late transient_local reader still gets the report.
+
+**Joint item for the GCS team:** `Course` is volatile but the `rx_msgs` README still says it is "published once before the run". A UUV node that starts after it never receives it. Ask the GCS to repeat it about 1 Hz (bridge spec requirement 5).
+
 ## 0. Update — October 11, 2026
 
 Scope decisions from the UUV team: Task 2 is attempted at the **Disruptive** tier; Task 4 is **undecided** (keep the ACK-only stub); use of the acoustic pinger on the robot is **undecided**. (`pinger_localization` already turns hydrophone TDOA arrivals into `/banyu/pinger/observation` and `SearchPipeline` steers on it, but nothing filters on the course's pinger frequency yet.)

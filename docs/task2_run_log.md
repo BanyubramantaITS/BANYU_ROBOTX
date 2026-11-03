@@ -13,6 +13,7 @@ Running log for the autonomous run of `docs/task2_core_disruptive_plan.md` (bran
   `banyu_communication` rebuilt.
 - Open item: `/system/mission/course` is still subscribed latched on the UUV side while the spec says plain
   default QoS. Not changed here; the mock GCS will republish `Course` periodically.
+  Closed 2026-11-03: see `docs/issue13.md` §0a.
 
 ## Step 1: sim_gps_gate and mode experiments (in progress)
 - Added `banyu_bringup/scripts/sim_gps_gate.py` (sim only, `gps_gate:=True`, `gps_loss_depth_m`,

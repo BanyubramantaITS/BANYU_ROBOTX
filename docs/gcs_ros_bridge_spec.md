@@ -14,7 +14,7 @@ UUV (ROS domain 40) --DDS Router: /system/* only--> GCS (ROS domain 10) --bridge
 
 | ROS topic (GCS domain) | Direction | RoboCommand message |
 |---|---|---|
-| `/system/mission/course` (`Course`, reliable, transient-local) | RC → vehicle | `RxCourse` (retained). `corners` → `boundary`; `uav_geofence` from the declaration |
+| `/system/mission/course` (`Course`, reliable, volatile; repeated about 1 Hz) | RC → vehicle | `RxCourse` (retained). `corners` → `boundary`; `uav_geofence` from the declaration |
 | `/system/mission/command` (`Command`, reliable) | RC → vehicle | `RxCommand`; `command_seq = RxCommand.seq` (never renumber) |
 | `/system/vehicle/uuv/heartbeat` (`Heartbeat`) | vehicle → RC | `RxReport.heartbeat`, resampled at 2 Hz by `GcsReporter` |
 | `/system/vehicle/uuv/task2/pipeline_survey` (`PipelineSurvey`, transient-local) | vehicle → RC | `RxReport.pipeline_survey` |
@@ -54,6 +54,11 @@ so enum fields copy across unchanged.
    receives them after the UUV surfaces (store-and-forward). The same property re-delivers them to
    a restarted bridge. De-duplicate per run, e.g. by payload hash (the public messages carry no
    report id — a stronger receipt protocol would need a joint `rx_msgs` change).
+5. **Repeat the course.** Since `rx_msgs` `cc7d9fa`, `Course` uses the plain default QoS (reliable,
+   volatile), so a vehicle node that starts or restarts after the course was published never receives
+   it, and the UUV rejects survey evidence without a course. Republish the last course about once per
+   second until the run ends (reference: `gcs_ros_bridge.py`), like `PipelineBuoys`. The `rx_msgs`
+   README still says "published once"; this is a **joint decision** to record there.
 
 ## Vehicle-side behaviour the GCS can rely on (BANYU UUV, Issue #13)
 

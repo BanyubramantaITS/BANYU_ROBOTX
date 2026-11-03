@@ -276,8 +276,10 @@ class Task2SimProvider(Node):
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
+        # rx-sos spec: /system topics use the plain default QoS (reliable, volatile, keep_last 10).
+        system_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
         self.pipeline_buoys_pub = self.create_publisher(
-            PipelineBuoys, "/system/vehicle/usv/task2/pipeline_buoys", latched
+            PipelineBuoys, "/system/vehicle/usv/task2/pipeline_buoys", system_qos
         )
         self.end_candidate_pub = self.create_publisher(
             PipelineEndCandidate, "/banyu/pipeline/end_candidate_state", 10
@@ -295,7 +297,7 @@ class Task2SimProvider(Node):
         self.create_subscription(
             RunLifecycle, "/banyu/mission/run_lifecycle", self._on_lifecycle, latched
         )
-        self.create_subscription(Course, "/system/mission/course", self._on_course, latched)
+        self.create_subscription(Course, "/system/mission/course", self._on_course, system_qos)
 
         self._latest_global_fix = None
         self._latest_vehicle_pose = None

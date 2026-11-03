@@ -83,12 +83,12 @@ float32 uncertainty_m         # horizontal position error, metres; 0 = unknown
 |---|---|
 | Topic | `/system/vehicle/usv/task2/pipeline_buoys` (USV), `/system/vehicle/uav/task2/pipeline_buoys` (UAV) |
 | Type | `rx_msgs/PipelineBuoys` |
-| QoS | reliable, transient_local, depth 1 (same as `/system/mission/course`) |
+| QoS | plain default: reliable, volatile, keep_last 10 (same as `/system/mission/course`; `rx_msgs` `cc7d9fa`) |
 | When to publish | As soon as the first buoy is found, on every change, and repeated about once per second until the run ends |
 | Routing | DDS Router forwards the topic from USV domain 20 / UAV domain 30 to UUV domain 40 (and to the GCS for display) |
 
-Transient-local plus the once-per-second repeat means the UUV still gets the latest estimate if it
-connects late or its Wi-Fi drops for a moment while surfaced.
+The once-per-second repeat means the UUV still gets the latest estimate if it connects late or its
+Wi-Fi drops for a moment while surfaced.
 
 ```mermaid
 sequenceDiagram
@@ -127,7 +127,7 @@ Once the message is in `rx_msgs`, you can publish a sample from your vehicle or 
 check our side receives it:
 
 ```bash
-ROS_DOMAIN_ID=20 ros2 topic pub --qos-durability transient_local --qos-reliability reliable \
+ROS_DOMAIN_ID=20 ros2 topic pub --qos-reliability reliable \
   /system/vehicle/usv/task2/pipeline_buoys rx_msgs/msg/PipelineBuoys \
   "{course_id: 'ITSN-SIM-A', source_vehicle: 1, seq: 1,
     buoy_a: {latitude: 33.810438, longitude: -118.393392},

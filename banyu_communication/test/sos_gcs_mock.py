@@ -115,9 +115,7 @@ class TeamGcsMock(Node):
                 message_type, topic, lambda msg, target=messages: target.append(msg), qos))
 
         self.command_pub = self.create_publisher(Command, '/system/mission/command', 10)
-        self.course_pub = self.create_publisher(
-            Course, '/system/mission/course',
-            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.course_pub = self.create_publisher(Course, '/system/mission/course', 10)
         self.gps_pub = self.create_publisher(
             NavSatFix, '/mavros/global_position/global', qos_profile_sensor_data)
         self.pose_pub = self.create_publisher(

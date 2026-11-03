@@ -32,7 +32,7 @@ UUV_TO_GCS = [
     ('/system/vehicle/uuv/task4/readiness', ReadinessReport, VOLATILE),
 ]
 GCS_TO_UUV = [
-    ('/system/mission/course', Course, LATCHED),
+    ('/system/mission/course', Course, VOLATILE),
     ('/system/mission/command', Command, VOLATILE),
     ('/system/vehicle/usv/task2/pipeline_buoys', PipelineBuoys, VOLATILE),
 ]
