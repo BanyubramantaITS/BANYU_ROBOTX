@@ -11,7 +11,7 @@ order, and the debug scripts.
 | Pixhawk 1 (ArduSub) | `1209:5741` | `/dev/pixhawk` | `run_mavproxy.sh` (only process that opens it) |
 | ESP32 kill-switch indicator (Espressif USB JTAG/serial) | `303a:1001` | `/dev/esp32_kill` | `banyu_teleop` (or `esp32_trigger_node` with `--no-rc`) |
 | u-blox RTK GNSS receiver | `1546:01a9` | `/dev/gps_rtk` | `run_gps_bridge.sh` (reads), `rtk-rover` service (writes RTCM) |
-| Front camera "H264 USB Camera" | `32e4:9422` | `/dev/front_camera` | `front_camera` usb_cam node (POR) |
+| Front camera "H264 USB Camera" | `32e4:9422` | `/dev/front_camera` | `front_camera` usb_cam node; Task 2 YOLO collision avoidance (planned) |
 | Bottom camera "2M WebCam" (Horus B) | `2ce3:3894` | `/dev/bottom_camera` | `bottom_camera` usb_cam node (Task 2) |
 
 All configs use these names, so the `ttyACM*` / `video*` order after a replug does not matter.
@@ -31,14 +31,28 @@ Check everything at once:
 
 | Camera | Mode | Topic |
 |---|---|---|
-| Front (POR) | MJPEG 640x480 @ 30 (measured ~20 fps indoors: auto exposure) | `/front_camera/image_raw` (+ `/compressed`), info `/camera/camera_info` |
+| Front (Task 2 YOLO, planned) | MJPEG 640x480 @ 30 (measured 17-20 fps indoors: auto exposure) | `/front_camera/image_raw` (+ `/compressed`), info `/camera/camera_info` |
 | Bottom (Task 2) | MJPEG 1920x1080 @ 15 (the only size; YUYV at 1080p arrives green over USB 2.0) | `/bottom_camera/image_raw` (+ `/compressed`) |
 
 usb_cam 0.8 opens the udev symlinks directly. It also keeps idle read-only handles on every
 `/dev/video*`, so `fuser` lists a running usb_cam on both cameras; those handles do not block the
-other camera. Both cameras, the GPS and the ESP32 share one USB 2.0
-hub; only one camera runs per mission mode. `front_camera_info.yaml` still holds the old Logitech
-C270 intrinsics: recalibrate before using anything that needs them.
+other camera. Both cameras, the GPS and the ESP32 share one USB 2.0 hub; both cameras streaming at
+once works (2026-11-03: bottom 14 fps, front 17 fps; decoding the 1080p bottom stream takes about
+half a Pi 5 core).
+
+POR is finished. In Task 2 the front camera will feed YOLO object detection for collision avoidance
+(model in training). Until that node exists, `sub_bringup.launch.py` still starts the front camera
+only for `mode:=por`; add it to `mode:=task2` together with the YOLO node.
+
+**Front camera orientation:** the image is rotated 90° (on the bench the ceiling is on the right
+edge), and the camera has no V4L2 rotate/flip control. Either mount it upright or rotate in the YOLO
+node right after decoding, before inference: `cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)`
+(C++ `cv::rotate`), well under 1 ms at 640x480. Re-check the direction once it is mounted, and
+prefer a `rotation` parameter (0/90/180/270) over hard-coding. The result is a 480x640 portrait
+frame; boxes and left/right decisions are then in the rotated frame. Bags record the raw sideways
+image, so apply the same rotation when building the training set. `front_camera_info.yaml` still
+holds the old Logitech C270 intrinsics: recalibrate (and rotate fx/fy, cx/cy) before using anything
+that needs them.
 Camera details: [`horus_camera.md`](horus_camera.md).
 
 ## 3. Kill switch (ESP32 indicator, `indikator_banyu.ino`)
@@ -79,7 +93,7 @@ With `--no-rc`, `esp32_trigger_node` does the same: `'0'/'1'/'2'` commands are s
 
 ## 4. RTK GPS
 
-Chain (Task 2 surface leg; POR runs without GPS):
+Chain (Task 2 surface GPS leg):
 
 ```
 base station --RTCM, tcp :2002--> str2str (rtk-rover.service) --> /dev/gps_rtk (u-blox)
@@ -114,10 +128,11 @@ or `ros2 topic echo /mavros/gpsstatus/gps1/raw --once` with MAVROS running.
 ```bash
 cd ~/ros_ws
 ./src/BANYU_ROBOTX/tools/scripts/run_mavproxy.sh          # 1. Pixhawk link (outs 14550/14551/14552, in 14553)
-./src/BANYU_ROBOTX/tools/scripts/run_gps_bridge.sh        # 2. Task 2 only: GPS -> Pixhawk
+./src/BANYU_ROBOTX/tools/scripts/run_gps_bridge.sh        # 2. GPS -> Pixhawk
 ./src/BANYU_ROBOTX/tools/scripts/launch_mavros.sh         # 3. MAVROS, leave running
 ./src/BANYU_ROBOTX/tools/scripts/debug/check_devices.sh   # 4. everything green?
-./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --profile safe   # 5. mission stack
+./src/BANYU_ROBOTX/tools/scripts/debug/test_hardware.sh   # 5. optional bench test (stack stopped)
+# 6. mission stack: tools/scripts/launch_task2.sh --real (on the Task 2 branch; not on this branch yet)
 ```
 
 `rtk-rover.service` starts by itself on boot once installed.

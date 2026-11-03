@@ -1,6 +1,6 @@
 # Horus B Camera Guide (2M WebCam)
 
-This document provides setup instructions, driver requirements, hardware constraints, and troubleshooting tips for operating the **Horus B Camera** (`2M WebCam`) on the BANYU ROV platform with ROS 2 Jazzy. The Horus B is the **bottom camera** (Task 2); the front camera (POR) is an "H264 USB Camera" (`32e4:9422`). Both are set up in [`hardware_setup.md`](hardware_setup.md).
+This document provides setup instructions, driver requirements, hardware constraints, and troubleshooting tips for operating the **Horus B Camera** (`2M WebCam`) on the BANYU ROV platform with ROS 2 Jazzy. The Horus B is the **bottom camera** (Task 2); the front camera is an "H264 USB Camera" (`32e4:9422`, Task 2 YOLO collision avoidance). Both are set up in [`hardware_setup.md`](hardware_setup.md).
 
 `sub_bringup.launch.py` already runs both cameras with `usb_cam`; their settings are in `banyu_bringup/config/hardware_params.yaml` (Horus: `mjpeg2rgb`, 1920x1080, 15 fps). The standalone commands below are for bench testing.
 
