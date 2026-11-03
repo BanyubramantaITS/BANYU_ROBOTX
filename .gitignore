@@ -10,3 +10,6 @@ log/
 .slim/deepwork/
 
 /.claude/worktrees
+
+# HailoRT writes its log into the current directory
+hailort.log
