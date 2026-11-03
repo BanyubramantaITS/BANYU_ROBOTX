@@ -5,8 +5,8 @@ Live mode (default): run on the laptop while por_detection runs on the robot
 or in the sim. The sliders write the detector's parameters live, and the
 windows show the detector's own debug images (annotated + both masks).
 
-    python3 tools/scripts/por_hsv_tuner.py            # compressed debug images
-    python3 tools/scripts/por_hsv_tuner.py --raw      # raw images (sim / wired)
+    python3 tools/scripts/por/por_hsv_tuner.py            # compressed debug images
+    python3 tools/scripts/por/por_hsv_tuner.py --raw      # raw images (sim / wired)
 
 The detector's debug_rate_hz is raised to --debug-rate (default 15) while the
 tuner runs and restored on exit.
@@ -14,7 +14,7 @@ tuner runs and restored on exit.
 Offline mode: tune on recorded footage (video file, image or image folder)
 without ROS. The mask is computed here with the same rules as the detector.
 
-    python3 tools/scripts/por_hsv_tuner.py --source pool_run.mp4
+    python3 tools/scripts/por/por_hsv_tuner.py --source pool_run.mp4
 
 Keys: s = save (live: /por_detection/save_params, offline: print + write YAML)
       r = reload values from the node, space = pause (offline), q / Esc = quit

@@ -12,7 +12,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+REPO_DIR="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 WS_DIR="$(cd "${REPO_DIR}/../.." && pwd)"
 MAVROS_CONFIG="${REPO_DIR}/banyu_bringup/config/mavros_config.yaml"
 
@@ -22,7 +22,7 @@ DRY_RUN=false
 
 print_usage() {
   cat << 'EOF'
-Usage: ./tools/scripts/launch_mavros.sh [--real | --sim] [OPTIONS]
+Usage: ./tools/scripts/run/launch_mavros.sh [--real | --sim] [OPTIONS]
 
 Starts MAVROS (mavros_node with banyu_bringup/config/mavros_config.yaml) in this terminal.
 The launch files no longer start MAVROS, so start it once and keep it running while the

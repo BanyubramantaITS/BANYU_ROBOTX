@@ -29,7 +29,7 @@ CAPPABLE_PWM_TYPES = (0, 1, 2, 3)
 PARAMS = ("MOT_PWM_MIN", "MOT_PWM_MAX", "MOT_PWM_TYPE")
 
 DEFAULT_PARM = os.path.normpath(os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "..",
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "..",
     "banyu_bringup", "config", "banyu_defaults.parm"))
 
 

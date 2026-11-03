@@ -5,7 +5,7 @@ Both runs must be recorded with ground truth: launch_por.sh --sim --record
 (/sim/ground_truth/odom). Teach with the safe profile, extract the track with
 por_teach_extract.py, then fly it with --profile replay --record.
 
-    python3 tools/scripts/por_path_compare.py ~/banyu_bags/<date>_por_replay_sim
+    python3 tools/scripts/por/por_path_compare.py ~/banyu_bags/<date>_por_replay_sim
 
 The replay run folder holds a copy of the track it flew (params/*.csv); the track names its
 teach bag and start time. Override with --track / --teach. The two runs are lined up on

@@ -22,7 +22,7 @@ ESP32 plugged in.
 Check everything at once:
 
 ```bash
-./src/BANYU_ROBOTX/tools/scripts/debug/check_devices.sh
+./src/BANYU_ROBOTX/tools/scripts/check/check_devices.sh
 ```
 
 ## 2. Cameras
@@ -106,10 +106,10 @@ base station --RTCM, tcp :2002--> str2str (rtk-rover.service) --> /dev/gps_rtk (
   [`fix_rtk_rover.sh`](https://github.com/jausyan/RobotX/blob/main/script/fix_rtk_rover.sh)
   (vendored in `tools/scripts/rtk/`) installs `rtk-rover.service`: `str2str -in
   tcpcli://<base>:2002 -out serial://<u-blox>`, restarted on failure and started on boot. Run it once
-  per computer, and again whenever the base IP changes, with `debug/rtk_setup.sh` (installs
+  per computer, and again whenever the base IP changes, with `setup/rtk_setup.sh` (installs
   `rtklib` first; prompts for the base IP, default `192.168.0.1:2002`). `rtklib` is installed on the
   Pi; the service is not installed yet because no base station was reachable.
-- **GPS bridge:** `tools/scripts/run_gps_bridge.sh` runs `gps_to_pixhawk.py` from the team repo
+- **GPS bridge:** `tools/scripts/run/run_gps_bridge.sh` runs `gps_to_pixhawk.py` from the team repo
   `BanyubramantaITS/RTK-GPS-GNSS` (`~/RTK-GPS-GNSS`) with `--pixhawk-port udpout:127.0.0.1:14553`, so
   only MAVProxy opens the Pixhawk serial port. It uses `--no-anti-drift` (the bridge's filter freezes
   the position below 0.35 m/s / 1.6 m, which the AUV is during the whole GPS leg) and re-applies the
@@ -120,19 +120,19 @@ base station --RTCM, tcp :2002--> str2str (rtk-rover.service) --> /dev/gps_rtk (
 - `gps_to_pixhawk.py --check-gps-cfg` prints the wrong byte for the elevation mask (it always shows
   16°, the low byte of `fixedAltVar`); the dynamic model line is correct.
 
-Check: `debug/rtk_status.sh` (service state, then fix type: 3 = 3D, 5 = RTK float, 6 = RTK fixed),
+Check: `check/rtk_status.sh` (service state, then fix type: 3 = 3D, 5 = RTK float, 6 = RTK fixed),
 or `ros2 topic echo /mavros/gpsstatus/gps1/raw --once` with MAVROS running.
 
 ## 5. Bring-up order on the robot
 
 ```bash
 cd ~/ros_ws
-./src/BANYU_ROBOTX/tools/scripts/run_mavproxy.sh          # 1. Pixhawk link (outs 14550/14551/14552, in 14553)
-./src/BANYU_ROBOTX/tools/scripts/run_gps_bridge.sh        # 2. GPS -> Pixhawk
-./src/BANYU_ROBOTX/tools/scripts/launch_mavros.sh         # 3. MAVROS, leave running
-./src/BANYU_ROBOTX/tools/scripts/debug/check_devices.sh   # 4. everything green?
-./src/BANYU_ROBOTX/tools/scripts/debug/test_hardware.sh   # 5. optional bench test (stack stopped)
-# 6. mission stack: tools/scripts/launch_task2.sh --real (on the Task 2 branch; not on this branch yet)
+./src/BANYU_ROBOTX/tools/scripts/run/run_mavproxy.sh          # 1. Pixhawk link (outs 14550/14551/14552, in 14553)
+./src/BANYU_ROBOTX/tools/scripts/run/run_gps_bridge.sh        # 2. GPS -> Pixhawk
+./src/BANYU_ROBOTX/tools/scripts/run/launch_mavros.sh         # 3. MAVROS, leave running
+./src/BANYU_ROBOTX/tools/scripts/check/check_devices.sh   # 4. everything green?
+./src/BANYU_ROBOTX/tools/scripts/check/test_hardware.sh   # 5. optional bench test (stack stopped)
+# 6. mission stack: launch_task2.sh --real (on the Task 2 branch; belongs in tools/scripts/run/)
 ```
 
 `rtk-rover.service` starts by itself on boot once installed.
@@ -142,9 +142,9 @@ cd ~/ros_ws
 One command checks everything that is wired, with a PASS/FAIL line per check:
 
 ```bash
-./src/BANYU_ROBOTX/tools/scripts/debug/test_hardware.sh            # all tests, interactive
-./src/BANYU_ROBOTX/tools/scripts/debug/test_hardware.sh kill       # only the kill switch
-./src/BANYU_ROBOTX/tools/scripts/debug/test_hardware.sh --no-prompt  # no questions (skips the physical kill steps)
+./src/BANYU_ROBOTX/tools/scripts/check/test_hardware.sh            # all tests, interactive
+./src/BANYU_ROBOTX/tools/scripts/check/test_hardware.sh kill       # only the kill switch
+./src/BANYU_ROBOTX/tools/scripts/check/test_hardware.sh --no-prompt  # no questions (skips the physical kill steps)
 ```
 
 Stop the mission stack first (teleop owns the ESP32, usb_cam the cameras); keep `run_mavproxy.sh`
@@ -161,21 +161,26 @@ Stop the mission stack first (teleop owns the ESP32, usb_cam the cameras); keep 
 Until the kill switch is wired, `kill` fails at "physical kill released" (the board reads the
 unwired input as emergency): expected.
 
-## 7. Debug scripts (`tools/scripts/debug/`)
+## 7. Scripts (`tools/scripts/`)
 
-Stop the mission stack first: a serial port can only have one owner, and a camera only one stream.
+Grouped by function; the full index is [`tools/scripts/README.md`](../tools/scripts/README.md).
+Stop the mission stack before `check/` and `debug/`: a serial port can only have one owner, and a
+camera only one stream.
 
 | Script | What it does |
 |---|---|
-| `test_hardware.sh [tests] [--no-prompt]` | Bench test above |
-| `check_devices.sh` | udev devices and who holds them, MAVProxy (with the GPS port), MAVROS, GPS bridge, rtk-rover, last kill-switch report |
-| `front_camera.sh [--fps N] [--snapshot f.jpg]` | Front camera alone, same usb_cam settings as the mission (or one JPEG, no ROS) |
-| `bottom_camera.sh [--fps N] [--snapshot f.jpg]` | Bottom camera alone, same options |
-| `camera.sh <front\|bottom> ...` | The common script behind the two above |
-| `kill_lamp.sh <manual\|auto\|emergency\|status>` | Set the ESP32 lamp or print its reports (`its2` while setting manual/auto = physical kill active) |
-| `rtk_setup.sh` | One-time RTK rover setup (rtklib + teammate script → `rtk-rover.service`) |
-| `rtk_status.sh [seconds]` | RTK corrections service and the receiver fix |
+| `run/run_mavproxy.sh` | Pixhawk link: outs 14550 (QGC) / 14551 (MAVROS) / 14552, in 14553 (GPS) |
+| `run/launch_mavros.sh` | MAVROS on its own, leave running |
+| `run/run_gps_bridge.sh` | u-blox → Pixhawk `GPS_INPUT` through MAVProxy |
+| `check/test_hardware.sh [tests] [--no-prompt]` | Bench test (section 6) |
+| `check/check_devices.sh` | udev devices and who holds them, MAVProxy (with the GPS port), MAVROS, GPS bridge, rtk-rover, last kill-switch report |
+| `check/rtk_status.sh [seconds]` | RTK corrections service and the receiver fix |
+| `check/check_pixhawk_params.py`, `check/check_thrust_limit.py` | Pixhawk parameters against `banyu_defaults.parm`, thruster PWM cap |
+| `debug/front_camera.sh [--fps N] [--snapshot f.jpg]` | Front camera alone, same usb_cam settings as the mission (or one JPEG, no ROS) |
+| `debug/bottom_camera.sh [--fps N] [--snapshot f.jpg]` | Bottom camera alone, same options (`debug/camera.sh` is the common script) |
+| `debug/kill_lamp.sh <manual\|auto\|emergency\|status>` | Set the ESP32 lamp or print its reports (`its2` while setting manual/auto = physical kill active) |
+| `debug/esp32_kill_cmd.py`, `debug/mock_esp32.py` | Lower level ESP32 tool; PTY mock of the indicator board (`k` toggles the physical kill) |
+| `debug/reset_pixhawk_usb.sh` | Re-enumerate a hung Pixhawk USB link |
+| `setup/rtk_setup.sh` | One-time RTK rover setup (rtklib + teammate script `setup/fix_rtk_rover.sh` → `rtk-rover.service`) |
 
 View a camera from the laptop on the same `ROS_DOMAIN_ID`: `ros2 run rqt_image_view rqt_image_view`.
-Lower level tools: `tools/scripts/esp32_kill_cmd.py`, `tools/scripts/mock_esp32.py` (PTY mock of
-the indicator board, `k` toggles the physical kill).

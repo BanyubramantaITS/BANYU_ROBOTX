@@ -1,6 +1,6 @@
 #!/bin/bash
 # Set or read the ESP32 kill-switch indicator lamp by hand (the port must be free: no teleop,
-# no esp32_trigger_node). Wraps tools/scripts/esp32_kill_cmd.py.
+# no esp32_trigger_node). Wraps esp32_kill_cmd.py.
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 PORT="${BANYU_ESP32_PORT:-/dev/esp32_kill}"
@@ -31,9 +31,9 @@ if command -v fuser > /dev/null && fuser "$PORT" > /dev/null 2>&1; then
 fi
 
 case "$ACTION" in
-  manual) exec "$PYTHON" "${SCRIPT_DIR}/../esp32_kill_cmd.py" remote --port "$PORT" "$@" ;;
-  auto) exec "$PYTHON" "${SCRIPT_DIR}/../esp32_kill_cmd.py" auto --port "$PORT" "$@" ;;
-  emergency) exec "$PYTHON" "${SCRIPT_DIR}/../esp32_kill_cmd.py" kill --port "$PORT" "$@" ;;
+  manual) exec "$PYTHON" "${SCRIPT_DIR}/esp32_kill_cmd.py" remote --port "$PORT" "$@" ;;
+  auto) exec "$PYTHON" "${SCRIPT_DIR}/esp32_kill_cmd.py" auto --port "$PORT" "$@" ;;
+  emergency) exec "$PYTHON" "${SCRIPT_DIR}/esp32_kill_cmd.py" kill --port "$PORT" "$@" ;;
   status)
     stty -F "$PORT" 115200 raw -echo -hupcl
     echo "Reports from $PORT (its0 manual, its1 auto, its2 emergency):"

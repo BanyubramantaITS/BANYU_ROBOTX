@@ -23,7 +23,7 @@ atau buka `bash` dulu lalu source kedua file itu.
 - **Satu run = satu file profil** (`banyu_bringup/config/por_params*.yaml`). Profil berisi
   setting semua node POR; yang berbeda antar-profil terutama rute (durasi dan kecepatan tiap
   segmen) dan pemakaian kamera.
-- Semua dijalankan lewat [`tools/scripts/launch_por.sh`](../../tools/scripts/launch_por.sh).
+- Semua dijalankan lewat [`tools/scripts/por/launch_por.sh`](../../tools/scripts/por/launch_por.sh).
 
 ## 2. Memilih profil
 
@@ -39,7 +39,7 @@ file profil, jadi satu file dipakai untuk dua-duanya.
 | `replay` | `por_params_replay.yaml` | putar ulang rute yang dikemudikan manual (§4.8) |
 
 - **Thruster 2 + 3 mati:** buat profil dari hasil ukur di kolam dengan
-  `tools/scripts/dead_thruster_por.py` ([`tuning.md`](tuning.md) §6), lalu pakai
+  `tools/scripts/por/dead_thruster_por.py` ([`tuning.md`](tuning.md) §6), lalu pakai
   `--profile <nama file>`.
 - **Sensor tidak bisa dipercaya (murni timer):** set `use_sensors: false` di salinan profil
   (heading hold mati, dive dan putaran open-loop), lalu pakai `--profile <path>`.
@@ -65,14 +65,14 @@ file profil, jadi satu file dipakai untuk dua-duanya.
 ## 3. Menjalankan di simulasi
 
 ```bash
-env -u TMUX ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --profile safe
-env -u TMUX ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --headless --profile fastest
+env -u TMUX ./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --sim --profile safe
+env -u TMUX ./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --sim --headless --profile fastest
 ```
 
 MAVROS tidak dijalankan oleh launch file mana pun. Di terminal lain:
 
 ```bash
-./src/BANYU_ROBOTX/tools/scripts/launch_mavros.sh --sim
+./src/BANYU_ROBOTX/tools/scripts/run/launch_mavros.sh --sim
 ```
 
 Restart MAVROS setiap kali sim di-restart (waktu sim mulai dari 0 lagi).
@@ -114,7 +114,7 @@ Catatan sim:
    (bukan `sim_only.parm`), lalu reboot. Setelah itu simpan dump parameter dari QGC
    (Parameters → Tools → Save to file) dan cek:
    ```bash
-   python3 src/BANYU_ROBOTX/tools/scripts/check_pixhawk_params.py <dump>.params
+   python3 src/BANYU_ROBOTX/tools/scripts/check/check_pixhawk_params.py <dump>.params
    ```
    Skrip ini membandingkan dump dengan `banyu_defaults.parm`, frame, fungsi motor SERVO1–8, dan
    mendeteksi Bar30. Harus berakhir dengan `OK`. Yang penting untuk robot:
@@ -133,7 +133,7 @@ Catatan sim:
      diukur. `MOT_PWM_TYPE` harus 0 (DShot/8/9 membuat ArduSub mengabaikan batas ini).
      **QGC Motor Test tidak dibatasi** (PWM mentah): jangan geser slider melewati batas.
      `launch_por.sh` tidak memeriksa batas ini. Untuk mengecek nilai di Pixhawk, jalankan
-     `tools/scripts/check_thrust_limit.py` manual setelah `run_mavproxy.sh` (lewat port 14552).
+     `tools/scripts/check/check_thrust_limit.py` manual setelah `run_mavproxy.sh` (lewat port 14552).
    - Cek juga `FS_EKF_THRESH` dan `ARMING_CHECK` (tidak diatur file ini).
 2. **Device** di mini-PC:
    ```bash
@@ -143,7 +143,7 @@ Catatan sim:
    [`../udev_rules.md`](../udev_rules.md)), jadi urutan `ttyACM*`/`video*` setelah cabut-pasang
    tidak berpengaruh. Kamera depan = "H264 USB Camera", kamera bawah = "2M WebCam" (Horus B).
    Semua perangkat, kill switch, GPS RTK dan script debug: [`../hardware_setup.md`](../hardware_setup.md)
-   (cek cepat: `tools/scripts/debug/check_devices.sh`).
+   (cek cepat: `tools/scripts/check/check_devices.sh`).
 
 ### 4.2 Peta kanal RC dan parameter Pixhawk
 
@@ -184,18 +184,18 @@ Pengaman:
 
 1. Terminal 1, bridge Pixhawk:
    ```bash
-   ./src/BANYU_ROBOTX/tools/scripts/run_mavproxy.sh            # opsional: <device> <IP laptop QGC>
+   ./src/BANYU_ROBOTX/tools/scripts/run/run_mavproxy.sh            # opsional: <device> <IP laptop QGC>
    ```
 2. Terminal 2, MAVROS (biarkan jalan; tidak perlu restart saat ganti profil):
    ```bash
-   ./src/BANYU_ROBOTX/tools/scripts/launch_mavros.sh            # opsional: --fcu-url /dev/ttyACM0:921600
+   ./src/BANYU_ROBOTX/tools/scripts/run/launch_mavros.sh            # opsional: --fcu-url /dev/ttyACM0:921600
    ```
 3. Terminal 3, stack POR (**`--profile` wajib** di robot). Launch file tidak pernah menjalankan
    MAVROS; launcher menolak jalan kalau `mavros_node` belum ada. Ganti profil cukup Ctrl+C di
    terminal ini lalu jalankan lagi.
    ```bash
-   ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --profile safe --dry-run   # cek dulu
-   ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --profile safe
+   ./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --real --profile safe --dry-run   # cek dulu
+   ./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --real --profile safe
    ```
    Tambah `--no-cam` untuk profil timer supaya CPU lebih ringan.
 3. SB **bawah** (kill) selama robot dipegang di darat.
@@ -248,9 +248,9 @@ di bawah, bisa lewat service (juga mengganti warna LED ESP32):
 `false` = `'0'`).
 
 ```bash
-./src/BANYU_ROBOTX/tools/scripts/run_mavproxy.sh                     # terminal 1
-./src/BANYU_ROBOTX/tools/scripts/launch_mavros.sh                    # terminal 2, biarkan jalan
-./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --no-rc --profile safe   # terminal 3
+./src/BANYU_ROBOTX/tools/scripts/run/run_mavproxy.sh                     # terminal 1
+./src/BANYU_ROBOTX/tools/scripts/run/launch_mavros.sh                    # terminal 2, biarkan jalan
+./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --real --no-rc --profile safe   # terminal 3
 ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '2'}"   # autonomous (LED AUTO)
 ros2 service call /banyu/mission/start std_srvs/srv/Trigger "{}"
 ```
@@ -303,7 +303,7 @@ Semua profil POR memakai fallback `DISARM`, juga saat misi selesai.
 Untuk memastikan semua thruster berputar tanpa air. **Jangan pernah dipakai untuk misi.**
 
 ```bash
-./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --profile safe --mock-auto
+./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --real --profile safe --mock-auto
 ```
 
 - SB atas: arm, mode MANUAL, override 1540 µs di forward dan throttle (8 thruster berputar
@@ -311,7 +311,7 @@ Untuk memastikan semua thruster berputar tanpa air. **Jangan pernah dipakai untu
 - SB tengah: mock berhenti, stick kembali. SB bawah: kill + disarm.
 - Default `enable_mock_auto` sekarang `false` di `teleop_rcin.yaml`, jadi teleop yang dijalankan
   sendiri (`teleop.launch.py`) juga tidak memutar thruster.
-- Tanpa ESP32: `python3 src/BANYU_ROBOTX/tools/scripts/mock_esp32.py` membuat `/tmp/ttyESP32`;
+- Tanpa ESP32: `python3 src/BANYU_ROBOTX/tools/scripts/debug/mock_esp32.py` membuat `/tmp/ttyESP32`;
   jalankan teleop dengan `-p serial_port:=/tmp/ttyESP32`.
 
 ### 4.8 Teach & replay (rekam manual, putar ulang otomatis)
@@ -335,8 +335,8 @@ dan posisi start yang berbeda tetap membuat hasilnya bergeser.
 2. **Potong jadi track** (di komputer robot, setelah stack dihentikan):
 
    ```bash
-   python3 src/BANYU_ROBOTX/tools/scripts/por_teach_extract.py ~/banyu_bags/<run> --list
-   python3 src/BANYU_ROBOTX/tools/scripts/por_teach_extract.py ~/banyu_bags/<run> --name rute1
+   python3 src/BANYU_ROBOTX/tools/scripts/por/por_teach_extract.py ~/banyu_bags/<run> --list
+   python3 src/BANYU_ROBOTX/tools/scripts/por/por_teach_extract.py ~/banyu_bags/<run> --name rute1
    ```
 
    Default: jendela arm terakhir, dari input stick pertama sampai terakhir + 1 s. `--window N`,
@@ -347,7 +347,7 @@ dan posisi start yang berbeda tetap membuat hasilnya bergeser.
 3. **Putar ulang:**
 
    ```bash
-   ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --no-rc \
+   ./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --real --no-rc \
      --profile replay --replay-track rute1
    ```
 
@@ -357,8 +357,8 @@ dan posisi start yang berbeda tetap membuat hasilnya bergeser.
    lebih pendek), panjangkan kaki itu di track tanpa rekam ulang:
 
    ```bash
-   python3 src/BANYU_ROBOTX/tools/scripts/por_track_stretch.py rute1 --list
-   python3 src/BANYU_ROBOTX/tools/scripts/por_track_stretch.py rute1 --hold 18:1.5 --name rute1_long
+   python3 src/BANYU_ROBOTX/tools/scripts/por/por_track_stretch.py rute1 --list
+   python3 src/BANYU_ROBOTX/tools/scripts/por/por_track_stretch.py rute1 --hold 18:1.5 --name rute1_long
    ```
 
    `--hold T:S` menahan stick (dan heading/kedalaman rekaman) pada waktu track `T` selama `S`
@@ -387,10 +387,10 @@ dan posisi start yang berbeda tetap membuat hasilnya bergeser.
 (`/sim/ground_truth/odom`).
 
 ```bash
-./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --profile safe --record     # teach (QGC joystick)
-python3 src/BANYU_ROBOTX/tools/scripts/por_teach_extract.py ~/banyu_bags/<teach run> --name sim1
-./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --profile replay --replay-track sim1 --record
-python3 src/BANYU_ROBOTX/tools/scripts/por_path_compare.py ~/banyu_bags/<replay run>
+./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --sim --profile safe --record     # teach (QGC joystick)
+python3 src/BANYU_ROBOTX/tools/scripts/por/por_teach_extract.py ~/banyu_bags/<teach run> --name sim1
+./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --sim --profile replay --replay-track sim1 --record
+python3 src/BANYU_ROBOTX/tools/scripts/por/por_path_compare.py ~/banyu_bags/<replay run>
 ```
 
 `por_path_compare.py` menemukan track dan bag teach sendiri, menyejajarkan kedua run pada waktu

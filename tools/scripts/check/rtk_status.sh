@@ -7,7 +7,7 @@ GPS_REPO="${BANYU_GPS_REPO:-$HOME/RTK-GPS-GNSS}"
 PYTHON="${BANYU_GPS_PYTHON:-$HOME/venv-ardupilot/bin/python3}"
 
 if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-  echo "Usage: tools/scripts/debug/rtk_status.sh [seconds=10]"; exit 0
+  echo "Usage: tools/scripts/check/rtk_status.sh [seconds=10]"; exit 0
 fi
 
 echo "== rtk-rover service (RTCM corrections from the base station)"
@@ -16,7 +16,7 @@ if systemctl list-unit-files rtk-rover.service > /dev/null 2>&1 && systemctl cat
   grep -o "tcpcli://[^ ]*" /etc/systemd/system/rtk-rover.service | sed 's/^/base:  /'
   journalctl -u rtk-rover -n 5 --no-pager 2>/dev/null | tail -n 5
 else
-  echo "not installed (run tools/scripts/debug/rtk_setup.sh); no RTK corrections, plain GPS only"
+  echo "not installed (run tools/scripts/setup/rtk_setup.sh); no RTK corrections, plain GPS only"
 fi
 
 echo; echo "== receiver ($GPS_PORT)"

@@ -14,7 +14,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+REPO_DIR="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 WS_DIR="$(cd "${REPO_DIR}/../.." && pwd)"   # <ws>/src/BANYU_ROBOTX -> <ws>
 CONFIG_DIR="${REPO_DIR}/banyu_bringup/config"
 
@@ -41,7 +41,7 @@ EXTRA_ARGS=()
 
 print_usage() {
   cat << 'EOF'
-Usage: ./tools/scripts/launch_por.sh [TARGET] [OPTIONS]
+Usage: ./tools/scripts/por/launch_por.sh [TARGET] [OPTIONS]
 
 Unified launcher for BANYU AUV Proof-of-Readiness (POR) missions.
 Supports Gazebo Harmonic simulation and physical vehicle deployment.
@@ -79,7 +79,7 @@ Strategy Profile Presets (--profile <name>):
   fastest               : por_params_timed_fastest.yaml      (diamond, back up through gate)
   replay, teach         : por_params_replay.yaml             (fly a recorded manual drive, see below)
   Thrusters 2+3 dead: generate a profile from pool measurements with
-    tools/scripts/dead_thruster_por.py (docs/por/tuning.md section 6) and pass its path.
+    tools/scripts/por/dead_thruster_por.py (docs/por/tuning.md section 6) and pass its path.
   Any other file by path (relative to banyu_bringup/config/ or absolute).
   --real requires --profile.
   Guide: docs/por/README.md
@@ -96,13 +96,13 @@ General Options:
 Teach & replay:
   Drive the course by hand (QGC joystick or TX16S, ALT_HOLD) during any recorded launch,
   cut the drive into a track, then fly it with a replay profile:
-    python3 tools/scripts/por_teach_extract.py ~/banyu_bags/<run> --name <track>
-    ./tools/scripts/launch_por.sh --real --profile replay --replay-track <track>
+    python3 tools/scripts/por/por_teach_extract.py ~/banyu_bags/<run> --name <track>
+    ./tools/scripts/por/launch_por.sh --real --profile replay --replay-track <track>
 
 Examples:
   # Launch Gazebo simulation with GUI and fastest diamond strategy, MAVROS in a second terminal:
-  ./tools/scripts/launch_por.sh --sim --profile fastest
-  ./tools/scripts/launch_mavros.sh --sim
+  ./tools/scripts/por/launch_por.sh --sim --profile fastest
+  ./tools/scripts/run/launch_mavros.sh --sim
 
   # Real AUV (three terminals; only the last one is restarted to change profile):
   ./run_mavproxy.sh
@@ -110,16 +110,16 @@ Examples:
   ./launch_por.sh --real --no-rc --profile safe
 
   # Launch Gazebo simulation headless for CI / rapid verification:
-  ./tools/scripts/launch_por.sh --sim --headless --profile safe
+  ./tools/scripts/por/launch_por.sh --sim --headless --profile safe
 
   # Launch real AUV with TX16S transmitter and the safe box:
-  ./tools/scripts/launch_por.sh --real --profile safe
+  ./tools/scripts/por/launch_por.sh --real --profile safe
 
   # Same profile, no transmitter (ESP32 trigger instead of SB):
-  ./tools/scripts/launch_por.sh --real --no-rc --profile safe
+  ./tools/scripts/por/launch_por.sh --real --no-rc --profile safe
 
   # Replay the newest recorded manual drive without a transmitter:
-  ./tools/scripts/launch_por.sh --real --no-rc --profile replay
+  ./tools/scripts/por/launch_por.sh --real --no-rc --profile replay
 EOF
 }
 
@@ -270,7 +270,7 @@ if grep -Eq '^[[:space:]]*use_replay:[[:space:]]*true' "$PROFILE_PATH"; then
   esac
   if [ -z "$REPLAY_TRACK_PATH" ] || [ ! -f "$REPLAY_TRACK_PATH" ]; then
     echo "Error: replay track '${REPLAY_TRACK:-latest}' not found in $REPLAY_DIR." >&2
-    echo "  Make one with tools/scripts/por_teach_extract.py <bag run folder>." >&2
+    echo "  Make one with tools/scripts/por/por_teach_extract.py <bag run folder>." >&2
     [ "$DRY_RUN" = true ] || exit 1
     REPLAY_TRACK_PATH="${REPLAY_TRACK:-latest}"
   fi
@@ -399,7 +399,7 @@ if [ "$TARGET" = "sim" ]; then
   echo "  5. Teardown: killall -9 ardusub mavproxy; Ctrl+C in the launch_mavros.sh terminal"
   if [ "$RECORD" = true ]; then
     echo "  Recording to ${BAG_ROOT}/<date>_${BANYU_BAG_LABEL}/ (stop with Ctrl+C to close the bag)."
-    echo "  Compare a replay with its teach run: tools/scripts/por_path_compare.py <teach run> <replay run>"
+    echo "  Compare a replay with its teach run: tools/scripts/por/por_path_compare.py <teach run> <replay run>"
   fi
 
 else
@@ -428,7 +428,7 @@ else
     echo "MAVProxy Process  : RUNNING (127.0.0.1:14551)"
   else
     echo "Warning: MAVProxy does not appear to be running."
-    echo "  Run first: ./src/BANYU_ROBOTX/tools/scripts/run_mavproxy.sh"
+    echo "  Run first: ./src/BANYU_ROBOTX/tools/scripts/run/run_mavproxy.sh"
   fi
 
   # MAVROS runs on its own (launch_mavros.sh); the stack never starts it.

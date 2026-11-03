@@ -1,6 +1,6 @@
 #!/bin/bash
 # Vendored from https://github.com/jausyan/RobotX/blob/main/script/fix_rtk_rover.sh (teammate script, unmodified below).
-# Run it through tools/scripts/debug/rtk_setup.sh, which installs str2str (rtklib) first.
+# Run it through tools/scripts/setup/rtk_setup.sh, which installs str2str (rtklib) first.
 # ============================================================
 #  fix_rtk_rover.sh — RTK Rover Auto-Setup Script
 #  Sets up str2str as a persistent systemd service

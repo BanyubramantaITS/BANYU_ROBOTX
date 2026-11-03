@@ -163,7 +163,7 @@ def ubx(cls, mid, payload=b""):
 def test_gps(args):
     print("gps (u-blox, /dev/gps_rtk)")
     if subprocess.run(["systemctl", "cat", "rtk-rover.service"], capture_output=True).returncode != 0:
-        report("rtk-rover service", False, "not installed (debug/rtk_setup.sh)")
+        report("rtk-rover service", False, "not installed (setup/rtk_setup.sh)")
     else:
         rover = subprocess.run(["systemctl", "is-active", "rtk-rover.service"],
                                capture_output=True, text=True).stdout.strip()

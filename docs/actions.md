@@ -119,7 +119,7 @@ pauses (sticks neutral) while the vehicle is far off the recorded depth.
 Result: `elapsed_s`, `paused_s`, `final_depth_m`, `final_heading_error_rad`. Feedback includes
 `track_time_s`, `duration_s`, `paused`, `target_depth_m`.
 
-Tracks are cut from a bag with `tools/scripts/por_teach_extract.py`.
+Tracks are cut from a bag with `tools/scripts/por/por_teach_extract.py`.
 
 ### AcquireGate
 

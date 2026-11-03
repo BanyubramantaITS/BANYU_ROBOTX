@@ -65,14 +65,14 @@ colcon build --symlink-install
 ## Running Simulation
 
 Launch the unified simulation stack (Gazebo Harmonic + SITL + Autonomy). MAVROS is started
-separately, in another terminal: `./src/BANYU_ROBOTX/tools/scripts/launch_mavros.sh --sim`
+separately, in another terminal: `./src/BANYU_ROBOTX/tools/scripts/run/launch_mavros.sh --sim`
 (robot: without `--sim`, after `run_mavproxy.sh`).
 
-- **Proof of Readiness (POR)**: use `tools/scripts/launch_por.sh` (profile selection, sim and
+- **Proof of Readiness (POR)**: use `tools/scripts/por/launch_por.sh` (profile selection, sim and
   real AUV, safety checks). Guide: [`docs/por/README.md`](docs/por/README.md), tuning:
   [`docs/por/tuning.md`](docs/por/tuning.md).
   ```sh
-  env -u TMUX ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --profile safe
+  env -u TMUX ./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --sim --profile safe
   ```
 
 - **Task 2 (Pipeline Inspection & Ring Repair)**:

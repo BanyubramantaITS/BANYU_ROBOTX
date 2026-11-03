@@ -14,7 +14,7 @@ from launch_ros.actions import SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
 
 
-# ArduSub SITL only. MAVROS is not started by any launch file: run tools/scripts/launch_mavros.sh.
+# ArduSub SITL only. MAVROS is not started by any launch file: run tools/scripts/run/launch_mavros.sh.
 def generate_launch_description():
     use_sim_arg = DeclareLaunchArgument(
         name="use_sim",

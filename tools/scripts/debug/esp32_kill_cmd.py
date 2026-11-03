@@ -10,8 +10,8 @@ The board has no relay: thrusters are cut by its physical kill input, during whi
 its0/its1 and reports its2. It reports its state every 500 ms; this script prints the reports.
 
 Usage:
-  python3 tools/scripts/esp32_kill_cmd.py auto --hold      # stays running, Ctrl+C to leave
-  python3 tools/scripts/esp32_kill_cmd.py kill             # one shot
+  python3 tools/scripts/debug/esp32_kill_cmd.py auto --hold      # stays running, Ctrl+C to leave
+  python3 tools/scripts/debug/esp32_kill_cmd.py kill             # one shot
 Run it only when banyu_teleop / esp32_trigger_node are NOT running (both would own the port).
 """
 import argparse

@@ -108,7 +108,7 @@ banyu_mission:
       # return (bt/por_hybrid_mission.xml); timed return_to_gate is the fallback.
       use_vision_return: false
       # Teach & replay (bt/por_replay_mission.xml, takes precedence over the flags above): fly
-      # a manual drive cut from a bag by tools/scripts/por_teach_extract.py, then the timed
+      # a manual drive cut from a bag by tools/scripts/por/por_teach_extract.py, then the timed
       # surface leg. The track comes from the replay_track launch argument (default: newest).
       use_replay: true
       use_sensors: true   # false = pure timer (not re-verified in ALT_HOLD)

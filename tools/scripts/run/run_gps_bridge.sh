@@ -18,7 +18,7 @@ DRY_RUN=false
 
 print_usage() {
   cat << 'USAGE'
-Usage: ./tools/scripts/run_gps_bridge.sh [OPTIONS]
+Usage: ./tools/scripts/run/run_gps_bridge.sh [OPTIONS]
 
 Options:
   --gps-port PATH     u-blox serial port (default /dev/gps_rtk, udev rule tools/udev/99-banyu.rules).

@@ -155,7 +155,7 @@ def generate_launch_description():
         }.items(),
     )
 
-    # ArduSub SITL only; MAVROS runs on its own (tools/scripts/launch_mavros.sh --sim).
+    # ArduSub SITL only; MAVROS runs on its own (tools/scripts/run/launch_mavros.sh --sim).
     sitl_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(_banyu_bringup_share, "launch", "sitl.launch.py")

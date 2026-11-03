@@ -96,7 +96,7 @@ ros2 launch banyu_bringup sub_bringup.launch.py mode:=por
 
 ---
 
-MAVROS is not started by any launch file: run `tools/scripts/launch_mavros.sh --sim` (or without
+MAVROS is not started by any launch file: run `tools/scripts/run/launch_mavros.sh --sim` (or without
 `--sim` on the robot) in another terminal.
 
 ## ⚙️ Launch Arguments

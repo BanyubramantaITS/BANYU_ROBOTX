@@ -12,7 +12,7 @@ import argparse
 import os
 import sys
 
-DEFAULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..",
+DEFAULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..",
                         "banyu_bringup", "config", "banyu_defaults.parm")
 
 # Not in banyu_defaults.parm, but the stack depends on them.

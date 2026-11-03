@@ -27,7 +27,7 @@ proc gps_bridge "gps_to_pixhawk.py" "run_gps_bridge.sh; needed for Task 2"
 if systemctl cat rtk-rover.service > /dev/null 2>&1; then
   [ "$(systemctl is-active rtk-rover.service)" = active ] && ok rtk-rover "active" || bad rtk-rover "$(systemctl is-active rtk-rover.service)"
 else
-  bad rtk-rover "not installed (debug/rtk_setup.sh)"
+  bad rtk-rover "not installed (setup/rtk_setup.sh)"
 fi
 
 if [ -e /dev/esp32_kill ] && ! fuser /dev/esp32_kill > /dev/null 2>&1; then

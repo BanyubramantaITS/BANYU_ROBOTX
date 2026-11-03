@@ -6,9 +6,9 @@ in the same time. --hold T:S keeps the sticks (and the recorded heading and dept
 track time T going for S more seconds and shifts everything after it. Pick T in the
 steady part of the leg (see --list); holding a sample with yaw stick adds rotation.
 
-    python3 tools/scripts/por_track_stretch.py full2 --list
-    python3 tools/scripts/por_track_stretch.py full2 --hold 18:1.5 --name full2_long
-    python3 tools/scripts/por_track_stretch.py full2 --hold 18:1.5 --hold 60:0.8
+    python3 tools/scripts/por/por_track_stretch.py full2 --list
+    python3 tools/scripts/por/por_track_stretch.py full2 --hold 18:1.5 --name full2_long
+    python3 tools/scripts/por/por_track_stretch.py full2 --hold 18:1.5 --hold 60:0.8
 
 Tracks are looked up in $BANYU_REPLAY_DIR (default ~/banyu_replays); the original is
 kept unless --name is the same track and --force is given.

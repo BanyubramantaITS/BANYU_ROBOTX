@@ -33,7 +33,7 @@ WP_YAW_BEHAVIOR 0
 #   50% -> 1300 1700   60% -> 1260 1740   70% -> 1220 1780
 # Electrical power falls faster than the PWM percentage; raise only after
 # measuring board current. QGC Motor Test writes raw PWM and bypasses this cap.
-# tools/scripts/check_thrust_limit.py verifies the Pixhawk against these lines.
+# tools/scripts/check/check_thrust_limit.py verifies the Pixhawk against these lines.
 MOT_PWM_MIN 1300
 MOT_PWM_MAX 1700
 

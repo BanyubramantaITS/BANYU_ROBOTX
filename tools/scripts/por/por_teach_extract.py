@@ -5,9 +5,9 @@ Teach: launch the stack as usual (it records a bag), arm, drive the course with 
 QGC joystick (or TX16S) in ALT_HOLD, disarm. The bag holds what the Pixhawk applied:
 /mavros/rc/in (the joystick shows up there as RC overrides), heading and depth.
 
-    python3 tools/scripts/por_teach_extract.py ~/banyu_bags/20261027_160000_por_x
-    python3 tools/scripts/por_teach_extract.py <run> --list        # show armed windows
-    python3 tools/scripts/por_teach_extract.py <run> --window 2 --name gate_loop
+    python3 tools/scripts/por/por_teach_extract.py ~/banyu_bags/20261027_160000_por_x
+    python3 tools/scripts/por/por_teach_extract.py <run> --list        # show armed windows
+    python3 tools/scripts/por/por_teach_extract.py <run> --window 2 --name gate_loop
 
 The track is cut from the first to the last stick input of the chosen armed window
 (default: the last one) and written to $BANYU_REPLAY_DIR (default ~/banyu_replays).
@@ -353,12 +353,12 @@ def main():
     duration = rows[-1][0]
     rate = (len(rows) - 1) / duration if duration > 0 else 0.0
     with open(out, "w") as f:
-        f.write("# BANYU POR replay track (tools/scripts/por_teach_extract.py)\n")
+        f.write("# BANYU POR replay track (tools/scripts/por/por_teach_extract.py)\n")
         f.write(f"# created: {datetime.now().isoformat(timespec='seconds')}\n")
         f.write(f"# source: {path}\n")
         f.write(f"# cut: {start:.2f} - {end:.2f} s from bag start, window {index or 'manual'}, "
                 f"modes {', '.join(modes) or 'unknown'}\n")
-        # Bag timestamp of track time 0, for tools/scripts/por_path_compare.py
+        # Bag timestamp of track time 0, for tools/scripts/por/por_path_compare.py
         f.write(f"# start_ns: {bag_first_ns + round((start + shift) * 1e9)}\n")
         f.write(f"# sticks: {stick_source}; heading from {heading_name}; depth from {TOPIC_DEPTH}\n")
         f.write(",".join(COLUMNS) + "\n")

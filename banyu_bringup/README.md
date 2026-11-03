@@ -10,7 +10,7 @@ This package contains launch files and bringup configurations for running the **
 
 Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL (`sitl.launch.py`), and the mission stack.
 
-> **No launch file starts MAVROS.** Run it on its own with `tools/scripts/launch_mavros.sh`
+> **No launch file starts MAVROS.** Run it on its own with `tools/scripts/run/launch_mavros.sh`
 > (`--sim` for sim time) and keep it running while the stack is relaunched.
 
 #### Usage Commands
@@ -39,7 +39,7 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL (`sit
 
 - **Real Hardware Bringup Mode (onboard BlueROV2 / Mini-PC)**:
   ```bash
-  ./tools/scripts/launch_mavros.sh          # separate terminal, after run_mavproxy.sh
+  ./tools/scripts/run/launch_mavros.sh          # separate terminal, after run_mavproxy.sh
   ros2 launch banyu_bringup sub_bringup.launch.py mode:=por
   ```
   *(Launches `banyu_teleop` safety switches, `usb_cam` cameras, and the mission stack)*
@@ -84,7 +84,7 @@ Each run goes to `~/banyu_bags/<YYYYmmdd_HHMMSS>_<mode>/` (override with `BANYU_
 - `run_info.txt`: start/stop time, host, git commit and recorder settings.
 - `params/`: a copy of the parameter YAML (profile) the run used.
 
-`tools/scripts/launch_por.sh --real` records by default and names the folder after the
+`tools/scripts/por/launch_por.sh --real` records by default and names the folder after the
 profile (e.g. `20261026_133006_por_timed_safe`). It shows the bag location and free disk
 in its banner, and takes `--no-record` and `--no-record-images`.
 
