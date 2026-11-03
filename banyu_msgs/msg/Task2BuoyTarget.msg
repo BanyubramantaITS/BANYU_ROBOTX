@@ -1,6 +1,6 @@
 # /banyu/task2/buoy_target — validated Task 2 active buoy from the USV PipelineBuoys feed.
-# Published only once the active (GREEN) buoy is known; the mission keeps its configured
-# target until then.
+# Published only once the active (GREEN) buoy is known; the Task 2 mission stands by on the
+# surface until then (no fallback to its configured target).
 std_msgs/Header header
 string course_id
 # PipelineBuoys.seq of the source observation

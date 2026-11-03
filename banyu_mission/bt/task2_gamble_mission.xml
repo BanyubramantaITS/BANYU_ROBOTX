@@ -12,6 +12,8 @@
       <Sequence name="mission_phases">
         <RequireMissionStarted />
         <RequireVehicleReady />
+        <!-- No fallback to the configured coordinates: stand by on the surface until the USV's active buoy arrives. -->
+        <WaitForBuoyTarget />
         <ForceSuccess>
           <Sequence name="surface_transit">
             <Timeout msec="180000">

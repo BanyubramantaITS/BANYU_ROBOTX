@@ -31,10 +31,11 @@ bool finite(double value)
   return std::isfinite(value);
 }
 
-class WaitSurveyComplete : public BT::StatefulActionNode
+// Polls a check every tick: RUNNING until it reports SUCCESS or FAILURE.
+class WaitUntil : public BT::StatefulActionNode
 {
 public:
-  WaitSurveyComplete(
+  WaitUntil(
     const std::string & name, const BT::NodeConfig & config,
     std::function<BT::NodeStatus()> check)
   : StatefulActionNode(name, config), check_(std::move(check)) {}
@@ -98,13 +99,14 @@ void registerMissionNodes(
   std::function<BT::NodeStatus()> on_surface_success,
   std::function<BT::NodeStatus()> on_lock_buoy_target,
   std::function<BT::NodeStatus()> on_give_up_survey,
-  std::function<BT::NodeStatus()> on_shift_buoy_target)
+  std::function<BT::NodeStatus()> on_shift_buoy_target,
+  std::function<BT::NodeStatus()> on_wait_buoy_target)
 {
   registerConditionNodes(factory, state);
   registerActionNodes(factory, node, state, std::move(on_abort));
   if (!on_survey_complete) {on_survey_complete = []() {return BT::NodeStatus::FAILURE;};}
   if (!on_surface_success) {on_surface_success = []() {return BT::NodeStatus::FAILURE;};}
-  factory.registerNodeType<WaitSurveyComplete>("WaitSurveyComplete", on_survey_complete);
+  factory.registerNodeType<WaitUntil>("WaitSurveyComplete", on_survey_complete);
   factory.registerSimpleAction("ConfirmSurfaceAction",
     [on_surface_success](BT::TreeNode &) {return on_surface_success();});
   if (!on_lock_buoy_target) {on_lock_buoy_target = []() {return BT::NodeStatus::SUCCESS;};}
@@ -116,6 +118,8 @@ void registerMissionNodes(
   if (!on_shift_buoy_target) {on_shift_buoy_target = []() {return BT::NodeStatus::SUCCESS;};}
   factory.registerSimpleAction("ShiftBuoyTarget",
     [on_shift_buoy_target](BT::TreeNode &) {return on_shift_buoy_target();});
+  if (!on_wait_buoy_target) {on_wait_buoy_target = []() {return BT::NodeStatus::SUCCESS;};}
+  factory.registerNodeType<WaitUntil>("WaitForBuoyTarget", on_wait_buoy_target);
 }
 
 BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
@@ -792,7 +796,7 @@ void BanyuMission::initialize()
         RCLCPP_INFO(
           get_logger(), "Buoy target locked at %.7f, %.7f (%s)",
           blackboard_->get<double>("target_latitude"), blackboard_->get<double>("target_longitude"),
-          buoy_target_ ? "USV PipelineBuoys" : "configured");
+          buoy_target_ ? "USV PipelineBuoys" : "no USV target");
       }
       return BT::NodeStatus::SUCCESS;
     },
@@ -823,6 +827,15 @@ void BanyuMission::initialize()
       blackboard_->set("target_longitude", new_lon);
       RCLCPP_WARN(get_logger(), "Second dive %.1f m along the buoy line: %.7f, %.7f", d, new_lat, new_lon);
       return BT::NodeStatus::SUCCESS;
+    },
+    // No fallback to the configured buoy coordinates: stand by on the surface until the USV's active buoy arrives.
+    [this]() {
+      std::lock_guard<std::recursive_mutex> lock(control_mutex_);
+      if (buoy_target_) {return BT::NodeStatus::SUCCESS;}
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 5000,
+        "Standing by on the surface: waiting for the active buoy from the USV (PipelineBuoys); abort to stop");
+      return BT::NodeStatus::RUNNING;
   });
   auto blackboard = BT::Blackboard::create();
   blackboard_ = blackboard;

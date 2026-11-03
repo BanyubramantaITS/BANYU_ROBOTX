@@ -161,6 +161,7 @@ The source of truth for mission execution is:
 
   <BehaviorTree ID="SurfaceTransitToStart">
     <Sequence>
+      <WaitForBuoyTarget />
       <NavigateSurfaceGps target_latitude="{target_latitude}" target_longitude="{target_longitude}"
         start_latitude="{start_latitude}" start_longitude="{start_longitude}"
         tolerance="{gps_tolerance}" />

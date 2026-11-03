@@ -300,6 +300,8 @@ print('%.2f %.2f %.3f' % (d * math.cos(b), d * math.sin(b), r.uniform(-math.pi, 
   echo "  3. Prepare autonomy: ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger \"{}\""
   echo "  4. The run does NOT start from /banyu/mission/start. It starts only when the GCS sends"
   echo "     CMD_RUN_START on /system/mission/command."
+  echo "     After the start the UUV stands by on the surface until the USV's PipelineBuoys gives the active"
+  echo "     buoy (no fallback to the YAML coordinates); abort to stop."
   echo "  5. UUV side runs on ROS_DOMAIN_ID 40 (the GCS side uses its own domain)."
   echo "  6. Teardown: killall -9 ardusub mavproxy mavros_node"
 else
@@ -332,6 +334,8 @@ else
   echo "  2. Prepare autonomy: ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger \"{}\""
   echo "  3. The run does NOT start from /banyu/mission/start. It starts only when the GCS sends"
   echo "     CMD_RUN_START on /system/mission/command."
+  echo "  4. After the start the UUV stands by on the surface until the USV's PipelineBuoys gives the active"
+  echo "     buoy (no fallback to the YAML coordinates). Not coming? Abort:"
   echo "  Software Abort: ros2 service call /banyu/mission/abort std_srvs/srv/Trigger \"{}\""
 fi
 
