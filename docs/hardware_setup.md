@@ -164,7 +164,9 @@ unwired input as emergency): expected.
 
 ## 7. Scripts (`tools/scripts/`)
 
-Grouped by function; the full index is [`tools/scripts/README.md`](../tools/scripts/README.md).
+Grouped by function; the full index, and where the Task 2 branch's scripts go when it is merged, is
+[`tools/scripts/README.md`](../tools/scripts/README.md). Every script answers `--help` without doing
+anything; `setup/` scripts change the system as soon as they run.
 Stop the mission stack before `check/` and `debug/`: a serial port can only have one owner, and a
 camera only one stream.
 

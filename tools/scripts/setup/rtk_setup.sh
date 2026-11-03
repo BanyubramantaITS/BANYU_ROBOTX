@@ -3,6 +3,11 @@
 # runs the teammate script fix_rtk_rover.sh, which installs the rtk-rover systemd service
 # (RTCM from the base station tcpcli://<base>:2002 into the u-blox, restarted on failure, on boot).
 set -e
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+  sed -n '2,4p' "$0" | sed 's/^# \{0,1\}//'
+  echo "Usage: tools/scripts/setup/rtk_setup.sh   (installs rtklib and rtk-rover.service; prompts for the base IP)"
+  exit 0
+fi
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
 if ! command -v str2str > /dev/null; then

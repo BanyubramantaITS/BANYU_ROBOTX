@@ -6,6 +6,11 @@
 #   3. downloads Hailo Model Zoo YOLO HEFs (COCO) into ~/yolo_models for testing
 # Test afterwards: tools/scripts/check/yolo_test.sh
 set -e
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+  sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'
+  echo "Env: BANYU_YOLO_VENV, BANYU_YOLO_MODELS, BANYU_HAILO_WHEEL_DIR"
+  exit 0
+fi
 
 VENV="${BANYU_YOLO_VENV:-$HOME/venv-yolo}"
 MODELS="${BANYU_YOLO_MODELS:-$HOME/yolo_models}"

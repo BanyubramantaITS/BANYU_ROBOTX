@@ -15,6 +15,22 @@ Hardware context: [`docs/hardware_setup.md`](../../docs/hardware_setup.md).
 Bring-up order on the robot: `run/run_mavproxy.sh` → `run/run_gps_bridge.sh` →
 `run/launch_mavros.sh` → `check/check_devices.sh` → mission launch script.
 
-New scripts go in the folder that matches their function (a Task 2 operator launcher such as
-`launch_task2.sh` belongs in `run/`). The workspace-root symlinks (`run_mavproxy.sh`,
+Scripts in `setup/` change the system as soon as they run (packages, services, venvs); read them
+first. Every script answers `--help` without doing anything, except the vendored teammate script
+`setup/fix_rtk_rover.sh` (no help; run it only through `setup/rtk_setup.sh`).
+
+New scripts go in the folder that matches their function.
+
+**Merging the Task 2 branch** (`feat/task2-core-disruptive-sim` still has the old flat layout):
+after the merge, move its scripts into the folders and apply the same path fix (`SCRIPT_DIR/../..`
+→ `SCRIPT_DIR/../../..` for anything that finds the repo or the config):
+
+| Script on the Task 2 branch | Goes to |
+|---|---|
+| `launch_task2.sh` | `run/` (also: check `/dev/esp32_kill`, `/dev/gps_rtk`, `/dev/bottom_camera`, and that `run/run_gps_bridge.sh` is running) |
+| `task2_sim_e2e.sh`, `task2_sim_batch.sh`, `task2_sim_cleanup.sh`, `gps_loss_mode_experiment.py` | new `sim/` (simulation runs and experiments) |
+| `task2_score_run.py` | `check/` |
+
+Files that exist on both branches (`run_mavproxy.sh`, `check_*.py`, `esp32_kill_cmd.py`, the POR
+tools, ...) follow the rename automatically when git detects it; check `git status` after the merge. The workspace-root symlinks (`run_mavproxy.sh`,
 `launch_mavros.sh`, `launch_por.sh`) point into these folders.

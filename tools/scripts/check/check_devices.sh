@@ -1,6 +1,10 @@
 #!/bin/bash
 # One-screen check of the AUV hardware before a run: udev devices, who holds them, and the
 # background services (MAVProxy, MAVROS, GPS bridge, RTK corrections).
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+  echo "Usage: check_devices.sh   (read-only: devices, their users, services, last kill-switch report)"
+  exit 0
+fi
 ok() { printf '  %-16s OK   %s\n' "$1" "$2"; }
 bad() { printf '  %-16s FAIL %s\n' "$1" "$2"; }
 

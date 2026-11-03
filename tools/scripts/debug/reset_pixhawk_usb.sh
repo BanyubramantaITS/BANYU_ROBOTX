@@ -2,6 +2,11 @@
     # Reset Pixhawk USB device (Vendor: 1209, Product: 5741)
     set -e
 
+    if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+      echo "Usage: sudo reset_pixhawk_usb.sh   (unbinds and rebinds the Pixhawk 1209:5741 USB device)"
+      exit 0
+    fi
+
     VENDOR="1209"
     PRODUCT="5741"
 
