@@ -12,6 +12,7 @@ order, and the debug scripts.
 | ESP32 kill-switch indicator (Espressif USB JTAG/serial) | `303a:1001` | `/dev/esp32_kill` | `banyu_teleop` (or `esp32_trigger_node` with `--no-rc`) |
 | u-blox RTK GNSS receiver | `1546:01a9` | `/dev/gps_rtk` | `run_gps_bridge.sh` (reads), `rtk-rover` service (writes RTCM) |
 | Front camera "H264 USB Camera" | `32e4:9422` | `/dev/front_camera` | `front_camera` usb_cam node; Task 2 YOLO collision avoidance (planned) |
+| Hailo-8 AI accelerator (PCIe) | – | `/dev/hailo0` | YOLO inference (section 8) |
 | Bottom camera "2M WebCam" (Horus B) | `2ce3:3894` | `/dev/bottom_camera` | `bottom_camera` usb_cam node (Task 2) |
 
 All configs use these names, so the `ttyACM*` / `video*` order after a replug does not matter.
@@ -182,5 +183,56 @@ camera only one stream.
 | `debug/esp32_kill_cmd.py`, `debug/mock_esp32.py` | Lower level ESP32 tool; PTY mock of the indicator board (`k` toggles the physical kill) |
 | `debug/reset_pixhawk_usb.sh` | Re-enumerate a hung Pixhawk USB link |
 | `setup/rtk_setup.sh` | One-time RTK rover setup (rtklib + teammate script `setup/fix_rtk_rover.sh` → `rtk-rover.service`) |
+| `setup/yolo_setup.sh` | One-time YOLO setup for the Hailo-8 (section 8) |
+| `check/yolo_test.sh [--hef f] [--labels f] [--rotation deg] [--save f.jpg]` | YOLO on the Hailo-8 against the live front camera: detections, FPS, annotated frame |
 
 View a camera from the laptop on the same `ROS_DOMAIN_ID`: `ros2 run rqt_image_view rqt_image_view`.
+
+## 8. YOLO on the Hailo-8
+
+The Pi has a **Hailo-8** AI accelerator (26 TOPS, PCIe, `/dev/hailo0`). YOLO runs on it, not on the
+Pi CPU. State on 2026-11-03:
+
+| Part | Version / place |
+|---|---|
+| HailoRT runtime + `hailortcli`, `hailort.service` | 4.24.0 (apt `hailort`) |
+| PCIe driver (DKMS) and chip firmware | 4.24.0 (apt `hailort-pcie-driver`); all three must be the same version |
+| Python | `~/venv-yolo`: `--system-site-packages` (so `rclpy`, `cv_bridge`, system numpy 1.26 and OpenCV 4.6 work) + `hailort` 4.24.0 wheel, numpy kept < 2 |
+| Test models | `~/yolo_models/`: `yolov8s`, `yolov11n`, `yolov11s`, `yolo26n` `.hef` (Hailo Model Zoo v2.18, COCO) |
+
+`~/venv-ardupilot` also has the HailoRT wheel, but with numpy 2, which breaks `cv_bridge`: use
+`~/venv-yolo` for anything YOLO + ROS. `setup/yolo_setup.sh` rebuilds all of this (it needs the
+runtime/driver debs installed and the wheel in `~/Downloads`).
+
+Measured 2026-11-03 (640x640 input; throughput from `hailortcli run`, latency from
+`check/yolo_test.sh` on the live, rotated front camera, ~17-18 FPS end to end = camera limit):
+
+| Model | Hailo-8 throughput | Latency per frame | Output | Works with `yolo_test.sh` |
+|---|---|---|---|---|
+| YOLOv8s | ~377 FPS | 10.4 ms | on-chip NMS | yes |
+| YOLOv11n | ~100 FPS | – | on-chip NMS | yes |
+| YOLOv11s | ~49 FPS | 20.9 ms | on-chip NMS | yes |
+| YOLO26n | ~93 FPS | – | raw heads (boxes + class scores at strides 8/16/32) | no: needs CPU decoding (NMS-free, so only threshold + top-k) |
+
+All of them are fast enough for a ~20 fps camera. YOLOv11 runs in several contexts on the Hailo-8,
+which is why it is slower than YOLOv8s here; pick the architecture for the team model with that in
+mind. CPU and USB budget are not a concern for YOLO.
+
+**Team model (in training) → HEF.** The Hailo-8 runs only `.hef` files compiled by the Hailo
+Dataflow Compiler (DFC). The DFC runs on an x86_64 Ubuntu machine (or Hailo's Docker image), not on
+the Pi:
+
+1. Train with Ultralytics as usual (`best.pt`); keep the input 640x640.
+2. Export: `yolo export model=best.pt format=onnx imgsz=640 opset=11`.
+3. Compile with the Hailo Model Zoo flow for the same architecture, e.g.
+   `hailomz compile yolov8s --ckpt best.onnx --hw-arch hailo8 --calib-path calib/ --classes <N>`.
+   Use the Model Zoo / DFC release that matches HailoRT 4.24 (Model Zoo v2.18 and the DFC version in
+   its release notes), or the HEF may not load. `calib/` = a few hundred front-camera frames from the
+   bags, **rotated the same way as at inference**.
+4. Copy the `.hef` and a labels file (one class per line) to `~/yolo_models/` and check it:
+   `check/yolo_test.sh --hef ~/yolo_models/team.hef --labels ~/yolo_models/team.txt --save /tmp/y.jpg`.
+
+The input is RGB, letterboxed with grey 114; the HEF output is per class
+`[ymin, xmin, ymax, xmax, score]` normalised to the letterboxed input (`check/yolo_test.py` shows
+the decoding). The YOLO ROS node does not exist yet; build it on the same pattern (rotate →
+letterbox → infer → decode) and give it a `rotation` parameter.
