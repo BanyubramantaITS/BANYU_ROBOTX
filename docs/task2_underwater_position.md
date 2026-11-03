@@ -62,6 +62,7 @@ Jadi hasil sim Task 2 saat ini **tidak** membuktikan Task 2 bisa jalan di robot.
   (`/dev/gps_rtk`, `docs/udev_rules.md`) dan menulis `GPS_INPUT` **langsung ke port serial USB
   Pixhawk**. Port yang sama dipegang `tools/scripts/run_mavproxy.sh` (`/dev/pixhawk`). Dua program
   yang menulis ke satu port serial bisa saling memotong frame MAVLink.
-- Sebelum Task 2 di robot: jalankan bridge GPS lewat MAVProxy (misalnya keluaran UDP tambahan dari
-  `run_mavproxy.sh`, atau plugin `gps_input` MAVROS) alih-alih membuka port Pixhawk kedua kalinya,
-  dan dokumentasikan langkah menjalankannya di sini.
+- Sudah diselesaikan: `run_mavproxy.sh` membuka `--out=udpin:127.0.0.1:14553`, dan
+  `tools/scripts/run_gps_bridge.sh` menjalankan `gps_to_pixhawk.py --pixhawk-port
+  udpout:127.0.0.1:14553` (plus `--no-anti-drift`, model dinamis `sea`), jadi `GPS_INPUT` lewat
+  MAVProxy dan port Pixhawk hanya dibuka sekali. Urutan: `run_mavproxy.sh` → `run_gps_bridge.sh`.

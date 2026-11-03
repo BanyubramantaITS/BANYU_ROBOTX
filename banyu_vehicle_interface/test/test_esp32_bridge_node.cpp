@@ -154,3 +154,35 @@ TEST_F(Esp32BridgeNodeTest, PTYPortOpenAndShutdownCleanly)
   auto node = std::make_shared<banyu_vehicle_interface::Esp32BridgeNode>(options);
   EXPECT_TRUE(node->isPortOpen());
 }
+
+TEST_F(Esp32BridgeNodeTest, ParsesIndicatorReports)
+{
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", "/dev/nonexistent_dummy_port"},
+    {"heartbeat_rate_hz", 1.0}
+  });
+
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32BridgeNode>(options);
+  std::vector<uint8_t> received;
+  auto sub = node->create_subscription<std_msgs::msg::UInt8>(
+    "/banyu/hardware/kill_switch", rclcpp::QoS(10),
+    [&received](const std_msgs::msg::UInt8::SharedPtr msg) {
+      received.push_back(msg->data);
+    });
+
+  // Board its0/its1/its2 = manual/auto/emergency -> operational_mode 1/2/0.
+  const std::string chunk = "its0\r\nits1\r\nits2\r\nits3\r\n";
+  node->processIncomingBytes(chunk.c_str(), chunk.length());
+
+  auto start = std::chrono::steady_clock::now();
+  while (received.size() < 3 &&
+    (std::chrono::steady_clock::now() - start) < std::chrono::milliseconds(500))
+  {
+    rclcpp::spin_some(node);
+  }
+  ASSERT_EQ(received.size(), 3U);
+  EXPECT_EQ(received[0], 1);
+  EXPECT_EQ(received[1], 2);
+  EXPECT_EQ(received[2], 0);
+}

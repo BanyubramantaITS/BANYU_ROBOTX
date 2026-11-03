@@ -97,28 +97,10 @@ Physical AUV hardware bringup (cameras, teleop safety, mission; MAVROS from `lau
 ros2 launch banyu_bringup sub_bringup.launch.py mode:=por
 ```
 
-## Hardware Setup: USB udev Rules
+## Hardware Setup
 
-To ensure persistent device nodes on the companion computer across reconnects and reboots:
-
-1. Create a udev rules file at `/etc/udev/rules.d/99-banyu.rules`:
-   ```udev
-   # Pixhawk 1 (Vendor: 1209, Product: 5741)
-   SUBSYSTEM=="tty", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="5741", SYMLINK+="pixhawk", MODE="0666", GROUP="dialout"
-
-   # u-blox GNSS RTK Receiver (Vendor: 1546, Product: 01a9)
-   SUBSYSTEM=="tty", ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", SYMLINK+="gps_rtk", MODE="0666", GROUP="dialout"
-   ```
-
-2. Reload and apply the rules:
-   ```sh
-   sudo udevadm control --reload-rules
-   sudo udevadm trigger
-   ```
-
-3. Verify device symlinks:
-   ```sh
-   ls -l /dev/pixhawk /dev/gps_rtk
-   ```
+Devices, udev names, kill switch protocol, RTK GPS chain, bring-up order and debug scripts:
+[`docs/hardware_setup.md`](docs/hardware_setup.md). Install the udev rules with
+[`docs/udev_rules.md`](docs/udev_rules.md).
 
 

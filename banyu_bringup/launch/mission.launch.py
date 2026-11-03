@@ -83,7 +83,7 @@ def generate_launch_description():
     enable_esp32_bridge_arg = DeclareLaunchArgument(
         name="enable_esp32_bridge",
         default_value="False",
-        description="Whether to launch esp32_bridge_node (False when banyu_teleop owns /dev/ttyUSB0)",
+        description="Whether to launch esp32_bridge_node (False when banyu_teleop owns /dev/esp32_kill)",
         choices=["True", "False"],
     )
 

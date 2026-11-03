@@ -1,9 +1,11 @@
 # Hardware configuration for the physical BANYU AUV (usb_cam USB cameras & sensor overrides)
 
-# Logitech C270 (POR). usb_cam needs the real /dev/videoX, not a /dev/v4l/by-id symlink.
+# Device paths are udev symlinks (tools/udev/99-banyu.rules); usb_cam 0.8 opens them fine.
+
+# Front camera "H264 USB Camera" (32e4:9422, POR). MJPEG 640x480 at up to 30 fps.
 front_camera:
   ros__parameters:
-    video_device: "/dev/video0"
+    video_device: "/dev/front_camera"
     pixel_format: "mjpeg2rgb"
     image_width: 640
     image_height: 480
@@ -20,7 +22,7 @@ front_camera:
 # See docs/horus_camera.md.
 bottom_camera:
   ros__parameters:
-    video_device: "/dev/video2"
+    video_device: "/dev/bottom_camera"
     pixel_format: "mjpeg2rgb"
     image_width: 1920
     image_height: 1080
@@ -54,10 +56,10 @@ ring_tracker:
 
 esp32_bridge_node:
   ros__parameters:
-    port: "/dev/ttyUSB0"
+    port: "/dev/esp32_kill"
     baud: 115200
 
 esp32_trigger_node:
   ros__parameters:
-    port: "/dev/ttyUSB0"
+    port: "/dev/esp32_kill"
     baud: 115200

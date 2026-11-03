@@ -16,7 +16,7 @@ banyu_teleop:
     mode_channel: 7
 
     # Kill switch & Unified Arm (SB = CH6 = index 5):
-    # ESP32 serial byte = operational_mode (issue #15): '0' kill, '1' manual, '2' autonomous.
+    # Published operational_mode (issue #15): 0 kill, 1 manual, 2 autonomous.
     # 900 (Up)   = autonomous(2), arms Pixhawk if not armed, locks out gimbals & flight mode changes.
     # 1500 (Mid) = manual(1), automatically arms Pixhawk, allows gimbals & SC flight mode changes.
     # 2000 (Down)= kill/disarmed(0), disarms both ESP32 kill switch and Pixhawk.
@@ -29,9 +29,17 @@ banyu_teleop:
     # Deadband for detecting manual gimbal stick input around neutral (1500 PWM).
     gimbal_deadband: 50.0
 
-    # ESP32 kill switch serial link.
-    serial_port: "/dev/ttyUSB0"
+    # ESP32 kill-switch indicator (indikator_banyu.ino): lines its0 manual / its1 auto /
+    # its2 emergency, mapped from operational_mode and resent every indicator_resend_period_s.
+    serial_port: "/dev/esp32_kill"   # udev symlink, tools/udev/99-banyu.rules
     serial_baud: 115200
+    # The board reports its2 while its physical kill input is active: teleop then disarms and holds
+    # kill until SB Down. Set false only for land tests with the kill input unwired.
+    use_hardware_kill: true
+    kill_report_timeout_s: 1.5     # no report for this long -> error log (kill not monitored)
+    kill_report_grace_s: 0.3       # ignore reports this soon after a mode change
+    indicator_resend_period_s: 1.0
+    kill_switch_board_topic: "/banyu/hardware/kill_switch_board"
 
     # Mock ESP32 Auto/Mission Mode (land testing)
     enable_mock_auto: false   # land test only: SB Up spins all thrusters; never true for a mission

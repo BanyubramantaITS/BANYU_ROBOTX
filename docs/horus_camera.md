@@ -1,6 +1,6 @@
 # Horus B Camera Guide (2M WebCam)
 
-This document provides setup instructions, driver requirements, hardware constraints, and troubleshooting tips for operating the **Horus B Camera** (`2M WebCam`) on the BANYU ROV platform with ROS 2 Jazzy. The Horus B is the **bottom camera** (Task 2); the front camera (POR) is a Logitech C270.
+This document provides setup instructions, driver requirements, hardware constraints, and troubleshooting tips for operating the **Horus B Camera** (`2M WebCam`) on the BANYU ROV platform with ROS 2 Jazzy. The Horus B is the **bottom camera** (Task 2); the front camera (POR) is an "H264 USB Camera" (`32e4:9422`). Both are set up in [`hardware_setup.md`](hardware_setup.md).
 
 `sub_bringup.launch.py` already runs both cameras with `usb_cam`; their settings are in `banyu_bringup/config/hardware_params.yaml` (Horus: `mjpeg2rgb`, 1920x1080, 15 fps). The standalone commands below are for bench testing.
 
@@ -44,7 +44,7 @@ To run the Horus camera standalone and publish directly to `/bottom_camera/image
 
 ```bash
 ros2 run usb_cam usb_cam_node_exe --ros-args \
-  -p video_device:="$(realpath /dev/v4l/by-id/usb-2M_WebCam_2M_WebCam-video-index0)" \
+  -p video_device:=/dev/bottom_camera \
   -p pixel_format:="mjpeg2rgb" \
   -p image_width:=1920 \
   -p image_height:=1080 \
@@ -52,14 +52,14 @@ ros2 run usb_cam usb_cam_node_exe --ros-args \
   -r image_raw:=/bottom_camera/image_raw
 ```
 
-*(Note: `$(realpath ...)` resolves the symlink to `/dev/videoX`, which `usb_cam` requires).*
+*(The udev symlink works directly with usb_cam 0.8.)*
 
 ### B. Reducing CPU Usage
 Decompressing 1080p MJPEG at 30 FPS on smaller companion computers (e.g., Raspberry Pi or Jetson) can consume significant CPU. You can drop the capture framerate to **15.0 FPS** (or 10.0 FPS) without losing optical clarity:
 
 ```bash
 ros2 run usb_cam usb_cam_node_exe --ros-args \
-  -p video_device:="$(realpath /dev/v4l/by-id/usb-2M_WebCam_2M_WebCam-video-index0)" \
+  -p video_device:=/dev/bottom_camera \
   -p pixel_format:="mjpeg2rgb" \
   -p image_width:=1920 \
   -p image_height:=1080 \
@@ -71,23 +71,9 @@ ros2 run usb_cam usb_cam_node_exe --ros-args \
 
 ## 4. Persistent Device Naming (`udev` Rule)
 
-To prevent the camera index from shifting (e.g., from `/dev/video2` to `/dev/video4`) across reboots or re-plugs:
-
-Add the following rule to `/etc/udev/rules.d/99-banyu.rules`:
-
-```udev
-# Horus B / 2M WebCam video stream (Vendor: 2ce3, Product: 3894)
-SUBSYSTEM=="video4linux", ATTRS{idVendor}=="2ce3", ATTRS{idProduct}=="3894", ATTR{index}=="0", SYMLINK+="horus_camera", MODE="0666", GROUP="video"
-```
-
-Reload rules:
-```bash
-sudo udevadm control --reload-rules && sudo udevadm trigger
-```
-
-You can now use `video_device:="/dev/horus_camera"` directly.
-
----
+The camera is `/dev/bottom_camera` (rule in `tools/udev/99-banyu.rules`, see `udev_rules.md`).
+usb_cam 0.8 opens the symlink directly, so `hardware_params.yaml` uses it as `video_device`.
+Standalone run: `tools/scripts/debug/bottom_camera.sh` (or `--snapshot frame.jpg`).
 
 ## 5. Verification & Visualization
 
@@ -110,6 +96,6 @@ You can now use `video_device:="/dev/horus_camera"` directly.
 | **`Couldn't parse remap rule ... Expected lexeme type (19)`** | Used `--remap video_device:=...` instead of `-p` | `video_device` is a parameter. Use `-p video_device:="..."`. |
 | **`Device or resource busy (16)`** | Another app (GNOME Snapshot, Cheese, browser, rqt) is holding `/dev/videoX` | Close any other camera apps or kill the conflicting PID. |
 | **Blank / Solid green image in rqt** | `YUYV` raw format chosen at 1080p over USB 2.0 (packets dropped, buffer all `0x00`) | Switch to `pixel_format:="mjpeg2rgb"` using `usb_cam`. |
-| **`Device specified is not available ... /dev/../../video2`** | `usb_cam` cannot parse relative symlink paths from `/dev/v4l/by-id/` | Wrap the path in `$(realpath ...)` or use `/dev/videoX` / `/dev/horus_camera`. |
+| **`Device specified is not available ... /dev/../../video2`** | `usb_cam` cannot parse relative symlink paths from `/dev/v4l/by-id/` | usb_cam prefixes the link target with `/dev/`, so `../../videoX` breaks; use the udev name `/dev/bottom_camera` (target `videoX`, works). |
 | **Image visible in `rqt` but `ros2 topic list` doesn't show it** | Network IP changed (DHCP renewal or Wi-Fi reconnect) while nodes were running | Add `export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` to `~/.bashrc` and restart the nodes. |
 | **`ros2 topic hz` reports not published yet** | Topic remapping mismatch (e.g. checking `/image_raw` when remapped to `/bottom_camera/image_raw`) | Ensure you query the remapped topic name `/bottom_camera/image_raw`. |

@@ -410,10 +410,18 @@ else
     echo "Warning: Neither /dev/pixhawk nor /dev/ttyACM0 detected." >&2
   fi
 
-  if [ -e "/dev/ttyUSB0" ]; then
-    echo "ESP32 Relay Port  : OK (/dev/ttyUSB0)"
+  # Device names come from tools/udev/99-banyu.rules (docs/udev_rules.md).
+  if [ -e "/dev/esp32_kill" ]; then
+    echo "ESP32 Kill Switch : OK (/dev/esp32_kill -> $(readlink -f /dev/esp32_kill))"
   else
-    echo "Warning: ESP32 port /dev/ttyUSB0 not found." >&2
+    echo "Warning: ESP32 kill switch /dev/esp32_kill not found (udev rule installed?)." >&2
+  fi
+  if [ "$ENABLE_CAMERAS" = true ]; then
+    if [ -e "/dev/front_camera" ]; then
+      echo "Front Camera      : OK (/dev/front_camera -> $(readlink -f /dev/front_camera))"
+    else
+      echo "Warning: front camera /dev/front_camera not found (udev rule installed?)." >&2
+    fi
   fi
 
   if pgrep -f "mavproxy.py" > /dev/null; then
@@ -458,9 +466,10 @@ else
     )
     echo "Operator Instructions (TX16S Active):"
     echo "  1. Switch SB DOWN (Disarmed / Kill) before entering water."
-    echo "  2. In water: Switch SB UP (Autonomous mode, ESP32 relay ON, arms Pixhawk)."
+    echo "  2. In water: Switch SB UP (Autonomous mode, ESP32 AUTO LED, arms Pixhawk)."
     echo "  3. Start mission: ros2 service call /banyu/mission/start std_srvs/srv/Trigger \"{}\""
     echo "  Takeover: Switch SB MID (Manual mode, auto-armed). Emergency: Switch SB DOWN (Kill & Disarm)."
+    echo "  Physical kill switch: teleop disarms and holds kill; switch SB DOWN to acknowledge before re-arming."
   else
     LAUNCH_CMD+=(
       enable_teleop:=False
@@ -468,10 +477,11 @@ else
       bypass_rc:=True
     )
     echo "Operator Instructions (No-RC Mode):"
-    echo "  1. ESP32 relay is handled by esp32_trigger_node (/dev/ttyUSB0)."
-    echo "  2. Power ON relay (autonomous): ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String \"{data: '2'}\""
+    echo "  1. ESP32 kill switch is handled by esp32_trigger_node (/dev/esp32_kill)."
+    echo "  2. Autonomous mode (AUTO LED): ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String \"{data: '2'}\""
     echo "  3. In water: start mission: ros2 service call /banyu/mission/start std_srvs/srv/Trigger \"{}\""
-    echo "  Emergency Kill (relay off, mission stops, Pixhawk disarms):"
+    echo "  Physical kill switch: publishes kill (mission stops); send '0' to acknowledge before '2' again."
+    echo "  Software kill (EMERGENCY LED, mission stops, Pixhawk disarms):"
     echo "    ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String \"{data: '0'}\""
     echo "  Software Abort: ros2 service call /banyu/mission/abort std_srvs/srv/Trigger \"{}\""
   fi

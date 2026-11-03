@@ -1,6 +1,8 @@
 #!/bin/bash
 set -x
-# For forwarding PIXHAWK to GroundControl via IP and local UDP ports for MAVROS (14551) and nogps_odom_beacon (14552)
+# For forwarding PIXHAWK to GroundControl via IP and local UDP ports for MAVROS (14551) and nogps_odom_beacon (14552).
+# 14553 is where run_gps_bridge.sh sends GPS_INPUT (MAVProxy forwards it to the Pixhawk, GPS1_TYPE 14),
+# so the bridge never opens the Pixhawk serial port a second time.
 # 192.168.0.155 is outside minipc device (laptopnya jalu)
 MASTER_DEV="${1:-/dev/pixhawk}"
 if [ ! -e "$MASTER_DEV" ] && [ -e "/dev/ttyACM0" ]; then
@@ -18,5 +20,6 @@ mavproxy.py --master="${MASTER_DEV}" \
   --out=udp:127.0.0.1:14550 \
   --out=udp:127.0.0.1:14551 \
   --out=udp:127.0.0.1:14552 \
+  --out=udpin:127.0.0.1:14553 \
   --streamrate=10 \
   --daemon

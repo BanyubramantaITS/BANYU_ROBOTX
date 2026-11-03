@@ -43,6 +43,8 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL (`sit
   ros2 launch banyu_bringup sub_bringup.launch.py mode:=por
   ```
   *(Launches `banyu_teleop` safety switches, `usb_cam` cameras, and the mission stack)*
+  Devices (udev names), kill switch protocol, RTK GPS bridge and debug scripts:
+  [`docs/hardware_setup.md`](../docs/hardware_setup.md).
 
 
 ---
