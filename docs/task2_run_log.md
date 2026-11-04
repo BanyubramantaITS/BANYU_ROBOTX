@@ -781,3 +781,15 @@ seeds 1 5 9, then buoy-dive Core 2 1 5 9 on the same code (to compare the two di
 Disruptive buoy-dive re-runs, baro step 4, step 5 incl. which dive point the real run uses, step 6 verdict and sim results).
 User's uncommitted robot edits (FRAME_CONFIG 1 for the robot, MOT_PWM 1100-1900, POR script/docs) left untouched.
 - **Resumed (go), 2026-11-05.** Midpoint Disruptive node 2 (seed 1): PASS 500. Node 3 (seed 5): **FAIL 200** (order right, no repair): after backing up, the forward `AcquirePipeline` with the heading prior timed out 3 times (the bent sim pipe runs ~45 deg off the buoy line where it was met, so the pipe heading never matched the prior) although the vehicle passed over it and saw three rings; survey failed, best-effort report. **H47:** that forward acquire uses no heading prior (the vehicle still faces the end buoy after backing up). Mission tree 33/33. Re-run queued (Disruptive seed 5, Core seeds 5 and 2).
+- Midpoint Disruptive node 4 (seed 9): PASS 500. **Midpoint totals:** Core 4/4 (450), Advanced 4/4 (475), Disruptive 3/4 (500; node 3
+  failed before H47, re-run not done yet).
+- **Buoy-dive Core baseline on the current code (standoff 1.5 m, recording gate):** nodes 1, 2 PASS 450; **nodes 3, 4 FAIL 300**
+  (repair right, order wrong: seed 5 reported GREEN, RED, GREEN, GREEN; seed 9 RED, GREEN, GREEN, GREEN). Not analysed yet. Suspects:
+  the recording gate (on only after the dive/acquire, so a node near the dive point is missed and the order shifts) or the 1.5 m
+  standoff changing where the pipe is met. First thing to look at on resume (rings.jsonl and sim.log in the scratch run dirs b8_core).
+
+### Paused by the user (2026-11-05, later)
+
+All sims, queues and waiters stopped. **To resume:** (1) analyse the buoy-dive Core order failures (seeds 5, 9); (2) H47 re-runs
+(midpoint Disruptive seed 5, midpoint Core seeds 5 and 2); (3) then the rest (Advanced/Disruptive buoy-dive re-runs, baro step 4,
+step 5 incl. which dive point the real run uses, step 6 verdict and sim results). User's uncommitted robot edits untouched.
