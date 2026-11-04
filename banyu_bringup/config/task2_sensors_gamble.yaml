@@ -23,5 +23,6 @@ calibrated_depth_node:
     depth_source: "gps_surface"
 uuv_comm_node:
   ros__parameters:
+    autonomy_mode: "GUIDED,STABILIZE"
     survey:
       gamble_order: true

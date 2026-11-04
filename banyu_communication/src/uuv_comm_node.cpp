@@ -34,6 +34,13 @@ UuvCommNode::UuvCommNode(const rclcpp::NodeOptions & options)
 : Node("uuv_comm_node", options)
 {
   heartbeat_rate_hz_ = declare_parameter<double>("heartbeat_rate_hz", 2.0);
+  {
+    std::stringstream modes(declare_parameter<std::string>("autonomy_mode", "GUIDED,ALT_HOLD"));
+    for (std::string mode; std::getline(modes, mode, ',');) {
+      if (!mode.empty()) {autonomy_modes_.push_back(mode);}
+    }
+    if (autonomy_modes_.empty()) {throw std::invalid_argument("autonomy_mode must name at least one FCU mode");}
+  }
   lifecycle_timeout_s_ = declare_parameter<double>("timing.lifecycle_timeout_s", 2.0);
   const auto lifecycle_topic = declare_parameter<std::string>(
     "topics.run_lifecycle", "/banyu/mission/run_lifecycle");
@@ -168,12 +175,10 @@ UuvCommNode::~UuvCommNode()
 uint8_t UuvCommNode::robotStateLocked() const
 {
   using rx_msgs::msg::RobotState;
-  const auto current_time = std::chrono::steady_clock::now();
+  const auto current_time = now();
   const bool telemetry_fresh = state_received_ && vehicle_status_received_ &&
-    std::chrono::duration<double>(current_time - last_state_received_).count() <=
-    lifecycle_timeout_s_ &&
-    std::chrono::duration<double>(current_time - last_status_received_).count() <=
-    lifecycle_timeout_s_;
+    (current_time - last_state_time_).seconds() <= lifecycle_timeout_s_ &&
+    (current_time - last_status_time_).seconds() <= lifecycle_timeout_s_;
   // MAV_STATE 6-8 (emergency, poweroff, termination) mean the vehicle cannot operate. CRITICAL (5)
   // is a failsafe the vehicle can still navigate in; ArduSub reports it without a pilot joystick.
   if (!telemetry_fresh || !state_.connected || !state_.armed || state_.system_status >= 6 ||
@@ -188,7 +193,11 @@ uint8_t UuvCommNode::robotStateLocked() const
   if (!vehicle_status_.rc_fresh) {
     return RobotState::STATE_KILLED;
   }
-  if (state_.mode == "GUIDED" && vehicle_status_.mode == "GUIDED" &&
+  const auto autonomous = [this](const std::string & mode) {
+      return std::find(autonomy_modes_.begin(), autonomy_modes_.end(), mode) != autonomy_modes_.end();
+    };
+  // AUTO in every mode of the run: GUIDED on the surface and the underwater mode (ALT_HOLD, or STABILIZE).
+  if (autonomous(state_.mode) && state_.mode == vehicle_status_.mode &&
     lifecycleFreshLocked() && lifecycle_.autonomous_ready)
   {
     return RobotState::STATE_AUTO;
@@ -219,19 +228,22 @@ void UuvCommNode::publishHeartbeat()
       (heartbeat_time - last_gps_time_).seconds() <= 3.0 &&
       gps_.status.status >= sensor_msgs::msg::NavSatStatus::STATUS_FIX &&
       validPosition(gps_.latitude, gps_.longitude);
-    heartbeat.position = anchor_;
-    heartbeat.altitude_hae_m = static_cast<float>(anchor_altitude_hae_m_);
     if (gps_valid) {
-      heartbeat.position.latitude = gps_.latitude;
-      heartbeat.position.longitude = gps_.longitude;
-      if (std::isfinite(gps_.altitude)) {
-        heartbeat.altitude_hae_m = static_cast<float>(gps_.altitude);
+      last_fix_.latitude = gps_.latitude;
+      last_fix_.longitude = gps_.longitude;
+      if (!has_last_fix_ || std::isfinite(gps_.altitude)) {
+        last_fix_altitude_hae_m_ = std::isfinite(gps_.altitude) ? gps_.altitude : anchor_altitude_hae_m_;
       }
+      has_last_fix_ = true;
     }
+    heartbeat.position = has_last_fix_ ? last_fix_ : anchor_;
+    heartbeat.altitude_hae_m = static_cast<float>(has_last_fix_ ? last_fix_altitude_hae_m_ : anchor_altitude_hae_m_);
     heartbeat.spd_mps = (heartbeat_time - last_velocity_time_).seconds() > 3.0 ?
       0.0F : static_cast<float>(speed_mps_);
     const bool pose_fresh = (heartbeat_time - last_pose_time_).seconds() <= 3.0;
-    if (pose_fresh && std::isfinite(pose_.pose.position.z)) {
+    if (water_depth_valid_ && (heartbeat_time - last_water_depth_time_).seconds() <= 3.0) {
+      heartbeat.depth_m = static_cast<float>(std::max(0.0, water_depth_m_));
+    } else if (pose_fresh && std::isfinite(pose_.pose.position.z)) {
       heartbeat.depth_m = static_cast<float>(std::max(0.0, -pose_.pose.position.z));
     }
     const auto & q = pose_.pose.orientation;
@@ -323,7 +335,7 @@ void UuvCommNode::stateCallback(const mavros_msgs::msg::State::SharedPtr msg)
   std::lock_guard<std::mutex> lock(mutex_);
   state_ = *msg;
   state_received_ = true;
-  last_state_received_ = std::chrono::steady_clock::now();
+  last_state_time_ = now();
 }
 
 void UuvCommNode::gpsCallback(const sensor_msgs::msg::NavSatFix::SharedPtr msg)
@@ -367,7 +379,7 @@ void UuvCommNode::vehicleStatusCallback(const banyu_msgs::msg::VehicleStatus::Sh
   std::lock_guard<std::mutex> lock(mutex_);
   vehicle_status_ = *msg;
   vehicle_status_received_ = true;
-  last_status_received_ = std::chrono::steady_clock::now();
+  last_status_time_ = now();
 }
 
 void UuvCommNode::lifecycleCallback(const banyu_msgs::msg::RunLifecycle::SharedPtr msg)
@@ -460,6 +472,11 @@ void UuvCommNode::depthCallback(const banyu_msgs::msg::WaterDepth::SharedPtr msg
     return;
   }
   std::lock_guard<std::mutex> lock(mutex_);
+  if (msg->valid && msg->calibrated && std::isfinite(msg->depth_m)) {
+    water_depth_m_ = msg->depth_m;
+    water_depth_valid_ = true;
+    last_water_depth_time_ = now();
+  }
   using Lifecycle = banyu_msgs::msg::RunLifecycle;
   if (!lifecycleFreshLocked() || (lifecycle_.phase != Lifecycle::SURVEY_COMPLETE &&
     lifecycle_.phase != Lifecycle::SURFACED)) {return;}

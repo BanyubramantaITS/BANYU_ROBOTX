@@ -465,23 +465,34 @@ TEST_F(UuvCommNodeTest, HeartbeatUsesTelemetryAndFallsBackForInvalidGps)
   EXPECT_NEAR(heartbeat.roll_deg, 30.0F, 1e-4);
   EXPECT_NEAR(heartbeat.pitch_deg, -20.0F, 1e-4);
 
+  // No fix (under water) or an invalid fix: the last valid fix stays the position.
   gps.status.status = sensor_msgs::msg::NavSatStatus::STATUS_NO_FIX;
-  ASSERT_TRUE(spinUntil([&]() {
-      gps_pub->publish(gps);
-      return heartbeats_.back().position.latitude == 33.0;
-    }));
-  EXPECT_DOUBLE_EQ(heartbeats_.back().position.longitude, -118.0);
-  EXPECT_FLOAT_EQ(heartbeats_.back().altitude_hae_m, 4.0F);
+  gps.latitude = 35.0;
+  for (int i = 0; i < 5; ++i) {
+    gps_pub->publish(gps);
+    spinFor(30ms);
+  }
+  EXPECT_DOUBLE_EQ(heartbeats_.back().position.latitude, 34.0);
+  EXPECT_DOUBLE_EQ(heartbeats_.back().position.longitude, -119.0);
+  EXPECT_FLOAT_EQ(heartbeats_.back().altitude_hae_m, 12.0F);
   gps.status.status = sensor_msgs::msg::NavSatStatus::STATUS_FIX;
   gps.latitude = std::numeric_limits<double>::quiet_NaN();
   for (int i = 0; i < 5; ++i) {
     gps_pub->publish(gps);
     spinFor(30ms);
   }
-  EXPECT_DOUBLE_EQ(heartbeats_.back().position.latitude, 33.0);
+  EXPECT_DOUBLE_EQ(heartbeats_.back().position.latitude, 34.0);
 }
 
-TEST_F(UuvCommNodeTest, HeartbeatFallsBackToAnchorWhenGpsIsStaleAndRecovers)
+TEST_F(UuvCommNodeTest, HeartbeatUsesTheAnchorOnlyBeforeAnyFix)
+{
+  ASSERT_TRUE(spinUntil([this]() {return !heartbeats_.empty();}));
+  EXPECT_DOUBLE_EQ(heartbeats_.back().position.latitude, 33.0);
+  EXPECT_DOUBLE_EQ(heartbeats_.back().position.longitude, -118.0);
+  EXPECT_FLOAT_EQ(heartbeats_.back().altitude_hae_m, 4.0F);
+}
+
+TEST_F(UuvCommNodeTest, HeartbeatKeepsTheLastFixWhenGpsIsStaleAndRecovers)
 {
   auto gps_pub = publisher<sensor_msgs::msg::NavSatFix>(
     "/mavros/global_position/global", rclcpp::SensorDataQoS());
@@ -497,21 +508,18 @@ TEST_F(UuvCommNodeTest, HeartbeatFallsBackToAnchorWhenGpsIsStaleAndRecovers)
       return heartbeats_.back().position.latitude == 34.0;
     }));
 
-  spinFor(2500ms);
-  EXPECT_DOUBLE_EQ(heartbeats_.back().position.latitude, 34.0);
-  ASSERT_TRUE(spinUntil([this]() {
-      return heartbeats_.back().position.latitude == 33.0;
-    }, 1500ms));
+  spinFor(4000ms);   // the fix is stale (> 3 s): the last one stays
   EXPECT_GT((rclcpp::Time(heartbeats_.back().header.stamp) - last_publish_time).seconds(), 3.0);
-  EXPECT_DOUBLE_EQ(heartbeats_.back().position.longitude, -118.0);
-  EXPECT_FLOAT_EQ(heartbeats_.back().altitude_hae_m, 4.0F);
-
-  ASSERT_TRUE(spinUntil([&]() {
-      gps_pub->publish(gps);
-      return heartbeats_.back().position.latitude == 34.0;
-    }));
+  EXPECT_DOUBLE_EQ(heartbeats_.back().position.latitude, 34.0);
   EXPECT_DOUBLE_EQ(heartbeats_.back().position.longitude, -119.0);
   EXPECT_FLOAT_EQ(heartbeats_.back().altitude_hae_m, 12.0F);
+
+  gps.latitude = 34.5;
+  ASSERT_TRUE(spinUntil([&]() {
+      gps_pub->publish(gps);
+      return heartbeats_.back().position.latitude == 34.5;
+    }));
+  EXPECT_DOUBLE_EQ(heartbeats_.back().position.longitude, -119.0);
 }
 
 TEST_F(UuvCommNodeTest, HeartbeatConvertsEnuYawToCompassCardinalHeadings)
@@ -696,4 +704,45 @@ TEST_F(UuvCommNodeTest, RejectsInvalidLifecycleConfiguration)
 TEST_F(UuvCommNodeTest, NullMessagePointersHandledSafelyWithoutCrash)
 {
   EXPECT_NO_THROW(callCallbacksWithNull());
+}
+
+TEST_F(UuvCommNodeTest, AutoHeartbeatHoldsInTheUnderwaterModeOfTheRun)
+{
+  // Task 2 flies GUIDED on the surface and ALT_HOLD under water: the heartbeat stays AUTO through both.
+  auto state_pub = publisher<mavros_msgs::msg::State>("/mavros/state");
+  auto status_pub = publisher<banyu_msgs::msg::VehicleStatus>("/banyu/vehicle_status");
+  mavros_msgs::msg::State state;
+  state.connected = true;
+  state.armed = true;
+  state.mode = "ALT_HOLD";
+  state.system_status = 4;
+  banyu_msgs::msg::VehicleStatus status;
+  status.armed = true;
+  status.fcu_connected = true;
+  status.fcu_status_fresh = true;
+  status.rc_fresh = true;
+  status.mode = "ALT_HOLD";
+  state_pub->publish(state);
+  status_pub->publish(status);
+  publishLifecycle(lifecycle(banyu_msgs::msg::RunLifecycle::READY, 0, 0));
+  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_AUTO;}));
+  state.mode = "STABILIZE";   // not a mode of this run
+  status.mode = "STABILIZE";
+  state_pub->publish(state);
+  status_pub->publish(status);
+  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_MANUAL;}));
+}
+
+TEST_F(UuvCommNodeTest, HeartbeatDepthIsTheCalibratedWaterDepth)
+{
+  auto depth_pub = publisher<banyu_msgs::msg::WaterDepth>("/banyu/vehicle/water_depth", rclcpp::QoS(5).reliable());
+  banyu_msgs::msg::WaterDepth depth;
+  depth.valid = true;
+  depth.calibrated = true;
+  depth.depth_m = 3.25;
+  ASSERT_TRUE(spinUntil([&]() {
+      depth.header.stamp = peer_->now();
+      depth_pub->publish(depth);
+      return heartbeats_.back().depth_m == 3.25F;
+    }));
 }

@@ -86,8 +86,19 @@ private:
   bool vehicle_status_received_{false};
   bool state_received_{false};
   bool lifecycle_received_{false};
-  std::chrono::steady_clock::time_point last_state_received_;
-  std::chrono::steady_clock::time_point last_status_received_;
+  // FCU state and vehicle status are published on the ROS clock (sim time in the sim): their freshness is judged on it.
+  rclcpp::Time last_state_time_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time last_status_time_{0, 0, RCL_ROS_TIME};
+  // Modes in which the run is autonomous (mission autonomy_mode: surface mode, then the underwater mode).
+  std::vector<std::string> autonomy_modes_;
+  // Calibrated water depth (Bar30, or the GPS surface proof) for the heartbeat; the EKF pose has no depth under water.
+  // Last valid GPS fix: the heartbeat position while the fix is stale (always under water); the anchor only before any fix.
+  bool has_last_fix_{false};
+  rx_msgs::msg::LatLng last_fix_;
+  double last_fix_altitude_hae_m_{0.0};
+  double water_depth_m_{0.0};
+  bool water_depth_valid_{false};
+  rclcpp::Time last_water_depth_time_{0, 0, RCL_ROS_TIME};
   std::chrono::steady_clock::time_point last_lifecycle_received_;
   banyu_msgs::msg::RunLifecycle lifecycle_;
   std::set<std::string> retired_authorities_;
