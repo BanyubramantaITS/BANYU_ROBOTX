@@ -653,3 +653,20 @@ So the only decision that read pinger data is `SearchPipeline`.
 - **User decisions (2026-11-04):** (1) standoff point for the surface goal (the buoys must never be the goal); (2) try a midpoint dive:
   navigate to the middle of the start and end buoys, head to the end buoy, dive, search. Plan: two legs (follow to the end buoy's end,
   then turn around and follow back to the start end when fewer than four rings were recorded), opt-in `--dive-point midpoint`.
+- **H44 (user request): standoff point and midpoint dive** (built and unit-tested; sim runs queued):
+  - `mission.buoy_standoff_m` 1.5: the surface goal is at least this far inside the start buoy along the buoy line (it was the buoy
+    itself with `sensors:=full`). The reported buoy position is unchanged. Residual risk, not handled: a straight transit that passes
+    close to the other buoy (no keep-out detour; ArduSub's fence only logs).
+  - `dive_point:=midpoint` (`launch_task2.sh --dive-point midpoint`, overlay `task2_dive_midpoint.yaml`): `Task2BuoyTarget` now carries
+    the other buoy (`other_valid`, `other_latitude/longitude`); the goal is midway between the buoys, heading to the end buoy. BT
+    `SurveyPipeline`: leg 1 (traverse steps until `PipelineLegEnded`: the pipe out of view `leg_end_lost_s` 6 s in total since the
+    last new ring), then, unless the pipe end is already confirmed, a 180 deg `TimedMove` on the IMU yaw, reacquire (3 tries) and the
+    normal traverse back (ends by the four-ring rule H42b). In this mode `pipeline_end_node require_rings_complete` (the sim fixture's
+    end at the end-buoy side cannot end the survey before the four rings) and `ring_tracker require_monotonic_order` false (leg 2 meets
+    the rest of the rings the other way; the progress is absolute).
+  - Tests: mission tree 33/33 (new: leg end counts out-of-view time since the last new ring), run lifecycle 24/25 (new: standoff goal
+    1.5 m inside the buoy; midpoint goal; the target plumbing tests run with standoff 0; `NavigationExecutionFailureClearsTask` is the
+    known pre-existing failure), pipeline buoys 13/13, ring tracker 25/25, pipeline end 7/7.
+  - The full-profile Core passes above (seeds 2, 5) were before the standoff (dive at the buoy); later runs dive 1.5 m inside it.
+- `b3c` Disruptive seed 2: **not counted** (start sent before execution was holding; sim then wedged). Harness: the e2e also waits
+  for `/banyu/execution/readiness holding: true` before the run start.
