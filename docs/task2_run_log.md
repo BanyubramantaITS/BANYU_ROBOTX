@@ -770,3 +770,13 @@ node 1 PASS 450 (others not yet run). **To resume:** H46 midpoint Core seeds 1 5
   jump 2035 s) happened around seed 9; it pauses the sim and the stack together, and the score is Gazebo ground truth.
   Compared with the turn-around design (H44: 3/4, the RED near the start buoy failed), the back-up design passes all four nodes.
 - **Midpoint dive (H46) Advanced: 4 of 4 PASS 475** (seeds 2 1 5 9 = nodes 1-4; repair, order and circle right), random spawn, hydrophone off. With the sim-time light controller and H43 the circle is read on every node.
+- **Midpoint dive (H46) Disruptive seed 2 (node 1): PASS 500** (order, repair, tin and circle right). Seed 1 was running when the
+  user paused (not counted).
+
+### Paused by the user (2026-11-05)
+
+All sims, queues and waiters stopped (by PID, cleanup script); nothing running. Midpoint back-up design results (hydrophone off,
+random spawn): Core 4/4 PASS 450, Advanced 4/4 PASS 475, Disruptive 1/1 PASS 500 (node 1). **To resume:** midpoint Disruptive
+seeds 1 5 9, then buoy-dive Core 2 1 5 9 on the same code (to compare the two dive points), then the remaining items (Advanced /
+Disruptive buoy-dive re-runs, baro step 4, step 5 incl. which dive point the real run uses, step 6 verdict and sim results).
+User's uncommitted robot edits (FRAME_CONFIG 1 for the robot, MOT_PWM 1100-1900, POR script/docs) left untouched.
