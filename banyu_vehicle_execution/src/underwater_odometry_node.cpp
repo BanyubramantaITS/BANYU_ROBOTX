@@ -95,9 +95,13 @@ public:
         last_setpoint_ = now();
         has_setpoint_ = true;
       });
-    pinger_sub_ = create_subscription<banyu_msgs::msg::PingerObservation>(
-      pinger_topic, 10, std::bind(
-        &UnderwaterOdometryNode::handlePinger, this, std::placeholders::_1));
+    // No hydrophone on the competition vehicle: bearing corrections only when opted in.
+    use_hydrophone_ = declare_parameter<bool>("use_hydrophone", false);
+    if (use_hydrophone_) {
+      pinger_sub_ = create_subscription<banyu_msgs::msg::PingerObservation>(
+        pinger_topic, 10, std::bind(
+          &UnderwaterOdometryNode::handlePinger, this, std::placeholders::_1));
+    }
 
     last_tick_ = now();
     timer_ = create_wall_timer(
@@ -166,8 +170,10 @@ private:
         surface_fix_.latitude, surface_fix_.longitude, lat, lon, pinger_x_, pinger_y_);
     }
     RCLCPP_INFO(
-      get_logger(), "Dive started: origin latched, pinger %s",
-      has_pinger_xy_ ? "position known (bearing updates on)" : "unknown (dead reckoning only)");
+      get_logger(), "Dive started: origin latched, %s",
+      !use_hydrophone_ ? "no hydrophone (dead reckoning only)" :
+      has_pinger_xy_ ? "pinger position known (bearing updates on)" :
+      "pinger unknown (dead reckoning only)");
   }
 
   void publish(const rclcpp::Time & stamp)
@@ -213,7 +219,7 @@ private:
   double pinger_lat_{std::nan("")}, pinger_lon_{std::nan("")};
 
   bool diving_{false}, depth_valid_{false}, yaw_valid_{false}, has_fix_{false};
-  bool has_buoy_{false}, has_setpoint_{false}, has_pinger_xy_{false};
+  bool has_buoy_{false}, has_setpoint_{false}, has_pinger_xy_{false}, use_hydrophone_{false};
   double depth_m_{0.0}, yaw_{0.0}, cmd_vx_{0.0}, cmd_vy_{0.0};
   double buoy_lat_{0.0}, buoy_lon_{0.0}, pinger_x_{0.0}, pinger_y_{0.0};
   geometry_msgs::msg::Quaternion orientation_;

@@ -97,6 +97,13 @@ def generate_launch_description():
         choices=["full", "minimal", "gamble"],
     )
 
+    use_hydrophone_arg = DeclareLaunchArgument(
+        name="use_hydrophone",
+        default_value="False",
+        description="Task 2: opt in to the hydrophone (pinger_localization, pinger homing). The competition vehicle has none.",
+        choices=["True", "False"],
+    )
+
     fcu_url_arg = DeclareLaunchArgument(
         name="fcu_url",
         default_value="udp://127.0.0.1:14551@",
@@ -322,6 +329,7 @@ def generate_launch_description():
             "debug": LaunchConfiguration("debug"),
             "tier": LaunchConfiguration("tier"),
             "sensors": LaunchConfiguration("sensors"),
+            "use_hydrophone": LaunchConfiguration("use_hydrophone"),
             "gamble_red": LaunchConfiguration("gamble_red"),
             "enable_esp32_trigger": LaunchConfiguration("enable_esp32_trigger"),
             "enable_esp32_bridge": LaunchConfiguration("enable_esp32_bridge"),
@@ -336,6 +344,7 @@ def generate_launch_description():
             mode_arg,
             tier_arg,
             sensors_arg,
+            use_hydrophone_arg,
             gamble_red_arg,
             fcu_url_arg,
             use_dvl_arg,

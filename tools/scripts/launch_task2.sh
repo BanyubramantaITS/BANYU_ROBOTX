@@ -35,6 +35,7 @@ SPAWN_SEED=""
 SPAWN_XYZ=""
 SENSORS="full"
 GAMBLE_RED="2,3"
+USE_HYDROPHONE=false
 PIPE_DEPTH=""
 SCENARIO_ARGS=()
 EXTRA_ARGS=()
@@ -93,6 +94,9 @@ Both targets:
                         surface proven by a GPS fix; no depth sensor is used for any decision)
                         | gamble (Pixhawk and surface GPS only: go to the start buoy, short timed dive and bobbing, surface,
                         report the buoy with a RANDOM light order; no camera, no pipe, no repair).
+  --hydrophone          Opt in to the hydrophone (use_hydrophone:=True): pinger_localization, the sim
+                        HydrophoneArray plugin and pinger homing in SearchPipeline. Default OFF: the
+                        competition UUV has no hydrophone, and no decision reads pinger data.
   --gamble-red <list>   --sensors gamble: where the RED goes, 1 = node closest to the active buoy, 4 = farthest.
                         "2,3" (default) = 2 or 3 at random; "3" = always 3; "1,2,3,4" = any.
   --use-gps             (Default) GPS available (use_gps:=True); Task 2 needs the surface
@@ -167,6 +171,7 @@ while [[ $# -gt 0 ]]; do
     --sensors)
       [ $# -ge 2 ] || { echo "Error: --sensors needs a value (full|minimal)." >&2; exit 1; }
       SENSORS="$2"; shift 2 ;;
+    --hydrophone) USE_HYDROPHONE=true; shift ;;
     --gps-gate) GPS_GATE=true; GPS_GATE_OPTS_SET=true; shift ;;
     --no-gps-gate) GPS_GATE=false; shift ;;
     --gps-loss-depth)
@@ -231,6 +236,10 @@ echo "Target Platform   : $([ "$TARGET" = "sim" ] && echo "Gazebo Simulation (SI
 echo "use_gps           : $(TF $USE_GPS)"
 echo "Tier              : $([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && echo core || echo "$TIER")"
 echo "Sensors           : $SENSORS$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")$([ "$SENSORS" = gamble ] && echo " (GPS to the buoy, timed dive and bobbing, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
+echo "Hydrophone        : $([ "$USE_HYDROPHONE" = true ] && echo "ON (opt-in; pinger data used by SearchPipeline)" || echo "OFF (none fitted; start buoy from the USV PipelineBuoys only)")"
+if [ "$TARGET" = real ] && [ "$USE_HYDROPHONE" = true ]; then
+  echo "Warning: --hydrophone on --real: the competition UUV has no hydrophone; nothing will publish pings." >&2
+fi
 if [ "$TARGET" = "sim" ]; then
   [ -n "$PIPE_DEPTH" ] && echo "Pipe depth        : light nodes at ${PIPE_DEPTH} m"
   [ ${#SCENARIO_ARGS[@]} -gt 0 ] && echo "Scenario          : ${SCENARIO_ARGS[*]}"
@@ -269,6 +278,7 @@ if [ "$TARGET" = "sim" ]; then
     mode:=task2
     tier:="$TIER"
     sensors:="$SENSORS"
+    use_hydrophone:="$(TF $USE_HYDROPHONE)"
     gamble_red:="$GAMBLE_RED"
     headless:="$(TF $HEADLESS)"
     use_gps:="$(TF $USE_GPS)"
@@ -302,6 +312,7 @@ print('%.2f %.2f %.3f' % (d * math.cos(b), d * math.sin(b), r.uniform(-math.pi, 
   echo "     CMD_RUN_START on /system/mission/command."
   echo "     After the start the UUV stands by on the surface until the USV's PipelineBuoys gives the active"
   echo "     buoy (no fallback to the YAML coordinates); abort to stop."
+  echo "     Hydrophone $([ "$USE_HYDROPHONE" = true ] && echo ON || echo "OFF: /banyu/pinger/observation has no publisher")."
   echo "  5. UUV side runs on ROS_DOMAIN_ID 40 (the GCS side uses its own domain)."
   echo "  6. Teardown: killall -9 ardusub mavproxy mavros_node"
 else
@@ -323,6 +334,7 @@ else
     mode:=task2
     tier:="$([ "$TIER_SET" = true ] && echo "$TIER" || echo core)"
     sensors:="$SENSORS"
+    use_hydrophone:="$(TF $USE_HYDROPHONE)"
     gamble_red:="$GAMBLE_RED"
     use_gps:="$(TF $USE_GPS)"
   )
@@ -336,6 +348,7 @@ else
   echo "     CMD_RUN_START on /system/mission/command."
   echo "  4. After the start the UUV stands by on the surface until the USV's PipelineBuoys gives the active"
   echo "     buoy (no fallback to the YAML coordinates). Not coming? Abort:"
+  echo "     There is no hydrophone: the active buoy comes only from PipelineBuoys (GREEN indicator)."
   echo "  Software Abort: ros2 service call /banyu/mission/abort std_srvs/srv/Trigger \"{}\""
 fi
 

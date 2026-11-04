@@ -17,12 +17,13 @@ SearchPipelineServer::SearchPipelineServer(
   double retrace_speed,
   double pinger_timeout_s,
   double pinger_kp,
-  double pinger_forward_speed)
+  double pinger_forward_speed,
+  bool use_pinger)
 : TypedActionServer(node, action_name, coordinator),
   default_sweep_rate_(default_sweep_rate), min_confidence_(min_confidence),
   retrace_distance_m_(std::max(0.0, retrace_distance_m)), retrace_speed_(std::abs(retrace_speed)),
   pinger_timeout_s_(std::max(0.0, pinger_timeout_s)), pinger_kp_(pinger_kp),
-  pinger_forward_speed_(pinger_forward_speed)
+  pinger_forward_speed_(pinger_forward_speed), use_pinger_(use_pinger)
 {
 }
 
@@ -49,7 +50,7 @@ MotionIntent SearchPipelineServer::tick(
   const double sweep_rate = (goal->sweep_rate_rad_s != 0.0) ?
     goal->sweep_rate_rad_s : default_sweep_rate_;
 
-  const bool pinger_fresh = telemetry.pinger_obs_valid &&
+  const bool pinger_fresh = use_pinger_ && telemetry.pinger_obs_valid &&
     telemetry.pinger_obs_stamp.nanoseconds() > 0 &&
     (now - telemetry.pinger_obs_stamp).seconds() >= 0.0 &&
     (now - telemetry.pinger_obs_stamp).seconds() <= pinger_timeout_s_;

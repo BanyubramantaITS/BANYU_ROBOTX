@@ -1,6 +1,7 @@
 <?xml version="1.0"?>
 <robot name="bluerov2_heavy" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:arg name="probe" default="true" />
+  <xacro:arg name="hydrophone" default="false" />
   <xacro:include filename="$(find bluerov2_gz)/models/bluerov2_heavy/model.xacro" />
 
   <!-- Task 2: 4 Hydrophone frames for pinger localization TDOA -->
@@ -111,7 +112,9 @@
     </joint>
   </xacro:if>
 
-  <!-- HydrophoneArray plugin: listens to pinger_green, publishes azimuth-only (plane-wave) TDOA arrivals -->
+  <!-- HydrophoneArray plugin: listens to pinger_green, publishes azimuth-only (plane-wave) TDOA arrivals.
+       Opt-in (use_hydrophone): the competition vehicle has no hydrophone. -->
+  <xacro:if value="$(arg hydrophone)">
   <gazebo>
     <plugin filename="BanyuHydrophoneArray" name="banyu::HydrophoneArray">
       <pinger_model>pinger_green</pinger_model>
@@ -127,4 +130,5 @@
       <topic>/banyu/pinger/arrivals</topic>
     </plugin>
   </gazebo>
+  </xacro:if>
 </robot>

@@ -160,6 +160,7 @@ private:
   rclcpp::Subscription<banyu_msgs::msg::Detection>::SharedPtr detection_sub_;
   rclcpp::Subscription<banyu_guidance::msg::VelocityIntent>::SharedPtr guidance_intent_sub_;
   rclcpp::Subscription<banyu_msgs::msg::PingerObservation>::SharedPtr pinger_obs_sub_;
+  bool use_hydrophone_{false};
   rclcpp::Subscription<banyu_msgs::msg::RunLifecycle>::SharedPtr run_lifecycle_sub_;
 
   rclcpp::Publisher<mavros_msgs::msg::PositionTarget>::SharedPtr preview_target_pub_;

@@ -24,7 +24,8 @@ public:
     double retrace_speed = 0.2,
     double pinger_timeout_s = 3.0,
     double pinger_kp = 0.8,
-    double pinger_forward_speed = 0.25);
+    double pinger_forward_speed = 0.25,
+    bool use_pinger = false);
 
   MotionIntent tick(
     const VehicleTelemetry & telemetry, const rclcpp::Time & now,
@@ -42,6 +43,8 @@ private:
   double pinger_timeout_s_{3.0};
   double pinger_kp_{0.8};
   double pinger_forward_speed_{0.25};
+  // Off on the competition vehicle (no hydrophone): retrace + sweep only.
+  bool use_pinger_{false};
   bool retrace_started_{false};
   bool retrace_done_{false};
   double retrace_origin_x_{0.0};

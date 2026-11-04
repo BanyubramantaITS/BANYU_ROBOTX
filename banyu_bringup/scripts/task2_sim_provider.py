@@ -97,6 +97,8 @@ class Task2SimProvider(Node):
         super().__init__("task2_sim_provider", *args, **kwargs)
 
         # These are ENU map coordinates for the configured Task 2 buoy.
+        # Ground-truth buoy bearing as a fake hydrophone heading: off unless use_hydrophone opts in.
+        self.declare_parameter("publish_hydrophone_heading", False)
         self.declare_parameter("buoy_x", 51.381)
         self.declare_parameter("buoy_y", 13.8475)
         self.declare_parameter("start_buoy_map_x", 43.95)
@@ -254,9 +256,11 @@ class Task2SimProvider(Node):
         self.route_pub = self.create_publisher(
             Path, "/banyu/debug/task2/route", 10
         )
-        self.heading_pub = self.create_publisher(
-            HydrophoneHeading, "/banyu/hydrophone/relative_heading", 10
-        )
+        self.heading_pub = None
+        if self.get_parameter("publish_hydrophone_heading").value:
+            self.heading_pub = self.create_publisher(
+                HydrophoneHeading, "/banyu/hydrophone/relative_heading", 10
+            )
         self.ring_state_pub = self.create_publisher(
             PipelineRingState, "/banyu/debug/task2/ring_state", 10
         )
@@ -459,6 +463,8 @@ class Task2SimProvider(Node):
     def _on_vehicle_pose(self, msg):
         self._latest_vehicle_pose = msg
         self._vehicle_pose_received = self.get_clock().now()
+        if self.heading_pub is None:
+            return
 
         vehicle_yaw = yaw_from_quaternion(msg.pose.orientation)
         target_bearing = math.atan2(

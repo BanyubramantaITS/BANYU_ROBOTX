@@ -212,6 +212,9 @@ def generate_launch_description():
     ir_led_arg = DeclareLaunchArgument(
         name="ir_led", default_value="off", choices=["on", "off"],
         description="Scenario: 'on' adds the camera's LED ring as a spot light along the bottom camera.")
+    use_hydrophone_arg = DeclareLaunchArgument(
+        name="use_hydrophone", default_value="False", choices=["True", "False"],
+        description="Add the sim HydrophoneArray plugin and its bridge (the competition vehicle has no hydrophone).")
     light_fault_arg = DeclareLaunchArgument(
         name="light_fault", default_value="",
         description="Scenario: a functional node fault '<node>:thermistor|mag|hot' (blinks RED or goes dark).")
@@ -250,7 +253,9 @@ def generate_launch_description():
     def launch_course(context):
         tier_val = LaunchConfiguration("tier").perform(context)
         probe = "false" if tier_val == "core" else "true"
-        bluerov2_heavy_xml = xacro.process(_bluerov2_heavy_file, mappings={"probe": probe})
+        hydrophone = "true" if LaunchConfiguration("use_hydrophone").perform(context) == "True" else "false"
+        bluerov2_heavy_xml = xacro.process(
+            _bluerov2_heavy_file, mappings={"probe": probe, "hydrophone": hydrophone})
         if LaunchConfiguration("camera_model").perform(context) == "fisheye":
             bluerov2_heavy_xml = distort_bottom_camera(bluerov2_heavy_xml)
         camera_width = LaunchConfiguration("camera_width").perform(context)
@@ -417,7 +422,8 @@ def generate_launch_description():
         name="hydrophone_bridge",
         arguments=["/banyu/pinger/arrivals@ros_gz_interfaces/msg/Float32Array[gz.msgs.Float_V"],
         output="screen",
-        condition=IfCondition(LaunchConfiguration("use_sim")),
+        condition=IfCondition(
+            AndSubstitution(LaunchConfiguration("use_sim"), LaunchConfiguration("use_hydrophone"))),
     )
 
     return LaunchDescription(
@@ -436,6 +442,7 @@ def generate_launch_description():
             light_fault_arg,
             camera_model_arg,
             ir_led_arg,
+            use_hydrophone_arg,
             camera_width_arg,
             spawn_x_arg,
             spawn_y_arg,

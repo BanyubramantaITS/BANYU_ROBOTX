@@ -161,9 +161,13 @@ void VehicleExecutionNode::initSubscribers()
 
   const auto pinger_obs_topic = declare_parameter<std::string>(
     "topics.pinger_obs", "/banyu/pinger/observation");
-  pinger_obs_sub_ = create_subscription<banyu_msgs::msg::PingerObservation>(
-    pinger_obs_topic, rclcpp::SensorDataQoS(),
-    std::bind(&VehicleExecutionNode::handlePingerObs, this, std::placeholders::_1));
+  // The competition vehicle has no hydrophone: pinger data is read only when opted in.
+  use_hydrophone_ = declare_parameter<bool>("control.use_hydrophone", false);
+  if (use_hydrophone_) {
+    pinger_obs_sub_ = create_subscription<banyu_msgs::msg::PingerObservation>(
+      pinger_obs_topic, rclcpp::SensorDataQoS(),
+      std::bind(&VehicleExecutionNode::handlePingerObs, this, std::placeholders::_1));
+  }
 
   run_lifecycle_sub_ = create_subscription<banyu_msgs::msg::RunLifecycle>(
     lifecycle_topic, rclcpp::QoS(1).reliable().transient_local(),
@@ -272,7 +276,7 @@ void VehicleExecutionNode::initActionServers()
     declare_parameter<double>("control.search_pinger_forward_speed", 0.25);
   auto search_server = std::make_shared<SearchPipelineServer>(
     this, search_action, this, 0.2, 0.3, search_retrace_distance_m, search_retrace_speed,
-    search_pinger_timeout_s, search_pinger_kp, search_pinger_forward_speed);
+    search_pinger_timeout_s, search_pinger_kp, search_pinger_forward_speed, use_hydrophone_);
   auto follow_server = std::make_shared<FollowPipelineServer>(
     this, follow_action, this);
   auto center_server = std::make_shared<CenterOnRingServer>(

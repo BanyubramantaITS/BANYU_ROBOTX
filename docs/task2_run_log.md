@@ -521,3 +521,42 @@ the stop.
 - **Results:** 3 of 3 runs complete with RED random in 1-4, depth about 2 m, 50 points each (the guess missed).
 - **`--gamble-red` (user request):** RED positions, default `2,3`. First test ignored `--gamble-red 4` (the value in `task2_params.yaml` won over the launch dict; removed from the file). After the fix `--gamble-red 4` reported GREEN, GREEN, GREEN, RED. Handbook read: one node RED, no distribution stated, so the 2 or 3 choice is a guess.
 
+
+## No hydrophone (goal: the competition UUV has none, 2026-11-04)
+
+Goal: `task2_no_hydrophone_goal_prompt.txt`. Every earlier Task 2 sim result (H1-H38, the gamble runs) ran with the sim hydrophone
+on: `pinger_localization` was launched in every Task 2 profile and the `HydrophoneArray` plugin fed it. Those results are marked
+"hydrophone on" from here.
+
+### Step 1: hydrophone audit (producers and consumers)
+
+| Item | Role | Reads pinger data for a decision? |
+|---|---|---|
+| `banyu_simulation` `HydrophoneArray.cc` + `acoustic_shadow.hpp` (in `bluerov2_task2/model.xacro`) | sim producer: TDOA arrivals of `pinger_green` on gz `/banyu/pinger/arrivals` | producer |
+| `robotx_pinger` model, `pinger_green` / `pinger_red` in `main_world.world`; pinger visuals on `robobuoy` and `task2_start_buoy` | sim source / visuals | no |
+| `gazebo_main.launch.py` `hydrophone_bridge` | gz -> ROS `/banyu/pinger/arrivals` | producer |
+| `banyu_detection/pinger_localization` (+ `acoustics.cpp`) | arrivals -> `/banyu/pinger/observation` (`PingerObservation`, bearing only) | producer |
+| `vehicle_execution_node` `handlePingerObs` -> telemetry `pinger_obs_*` | consumer | **yes**: `SearchPipeline` (`search_pinger_*`) homes on a fresh bearing instead of retrace + sweep |
+| `underwater_odometry_node` (`topics.pinger`) | consumer: bearing corrections of the dive dead reckoning | no decision: its `/banyu/dive/odometry` and `/banyu/dive/path` have no subscriber (diagnostic only) |
+| `task2_sim_provider.py` `HydrophoneHeading` on `/banyu/hydrophone/relative_heading` | sim fake heading from ground truth | no subscriber anywhere |
+| `bt/pipeline_survey_tree.xml` `TransitToPinger`, `PingerForwardAtLeast` | design draft | no: not loaded by `banyu_mission` (only `banyu_mission.xml`, `task2_gamble_mission.xml`) and the nodes are not registered |
+| `ActiveBuoyFix.pinger_confirmed` (`pipeline_buoys.cpp`, `survey_evidence_node.cpp` set it false; `SurveyLedger` accepts GREEN or pinger) | evidence field | no: nothing sets it true; the start buoy is the USV `PipelineBuoys` (GREEN confirmed) |
+| `Course.pinger_freq_hz` (`uuv_comm_node`, `survey_evidence` `default_pinger_freq_hz`, `pipeline_buoys_node`, mock GCS) | report field from the course message | not a sensor: kept |
+| `bluerov2_gz` `hydrophone_link` | passive frame | no |
+| `/down_sonar/scan` bridge | (not a hydrophone) bridged, no subscriber | no |
+
+So the only decision that read pinger data is `SearchPipeline`.
+
+### Step 2: hydrophone off (H40)
+
+- **Decision:** one launch argument `use_hydrophone` (default `False` in `mission.launch.py`, `main_launch.launch.py`,
+  `sub_bringup.launch.py`, `gazebo_main.launch.py`; `launch_task2.sh --hydrophone`, sim and real, a warning on `--real`).
+  Off: `pinger_localization` is not started, the `HydrophoneArray` plugin is left out of the model (xacro arg `hydrophone`), the
+  bridge is not started, `vehicle_execution_node control.use_hydrophone: false` (no pinger subscription, `SearchPipeline`
+  `use_pinger` false: retrace + sweep only), `underwater_odometry_node use_hydrophone: false`, sim provider
+  `publish_hydrophone_heading: false`. On: `config/task2_hydrophone_on.yaml` (overlay, like the tier files, because a launch dict does
+  not win over the params file). The code is kept.
+- Tests: two new `vehicle_execution` tests with a fresh pinger dead ahead: off -> pinger never in telemetry and the search retraces
+  (vx -0.2, never forward); on -> homes forward at 0.25. Suite 63/63. Xacro: plugin present only with `hydrophone:=true`.
+  Sim provider tests 10/10. `launch_task2.sh --dry-run` for `--sim`, `--sim --hydrophone`, `--real`, `--real --hydrophone`.
+- `pipeline_survey_tree.xml` gets a header note: not loaded, needs a hydrophone.

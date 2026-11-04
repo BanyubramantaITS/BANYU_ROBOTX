@@ -1922,3 +1922,66 @@ TEST_F(VehicleExecutionNodeTest, TimedMoveCompletesWhenBaroDepthReached)
   EXPECT_NE(wrapped.result->reason.find("Target depth reached"), std::string::npos);
   EXPECT_LT(wrapped.result->elapsed_s, 4.0);
 }
+
+namespace
+{
+// Runs SearchPipeline for a while with a fresh pinger dead ahead; returns the min and max ENU x
+// velocity (vehicle heading east) that the search commanded.
+std::pair<double, double> searchWithPingerAhead(bool use_hydrophone, bool * pinger_seen)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("control.use_hydrophone", use_hydrophone);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  double min_vx = 0.0;
+  double max_vx = 0.0;
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&](const mavros_msgs::msg::PositionTarget::SharedPtr msg) {
+      min_vx = std::min(min_vx, static_cast<double>(msg->velocity.x));
+      max_vx = std::max(max_vx, static_cast<double>(msg->velocity.x));
+    });
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto pinger_pub = node->create_publisher<banyu_msgs::msg::PingerObservation>(
+    "/banyu/pinger/observation", rclcpp::SensorDataQoS());
+  using Action = banyu_msgs::action::SearchPipeline;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/search_pipeline");
+  EXPECT_TRUE(client->wait_for_action_server(1s));
+  Action::Goal goal;
+  goal.search_span_rad = 10.0;
+  goal.sweep_rate_rad_s = 0.2;
+  auto send_future = client->async_send_goal(goal);
+  EXPECT_TRUE(waitForFuture(node, send_future));
+  for (int i = 0; i < 40; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    banyu_msgs::msg::PingerObservation obs;
+    obs.header.stamp = node->now();
+    obs.forward = 1.0F;
+    obs.bearing = 0.0F;
+    pinger_pub->publish(obs);
+    spinFor(node, 2);
+  }
+  *pinger_seen = node->telemetry().pinger_obs_valid;
+  return {min_vx, max_vx};
+}
+}  // namespace
+
+TEST_F(VehicleExecutionNodeTest, SearchPipelineWithoutHydrophoneIgnoresPingerAndRetraces)
+{
+  bool pinger_seen = true;
+  const auto [min_vx, max_vx] = searchWithPingerAhead(false, &pinger_seen);
+  EXPECT_FALSE(pinger_seen);
+  // Retrace backward along the entry heading (east), never the pinger's forward homing.
+  EXPECT_NEAR(min_vx, -0.2, 1e-3);
+  EXPECT_LE(max_vx, 1e-6);
+}
+
+TEST_F(VehicleExecutionNodeTest, SearchPipelineHomesOnPingerOnlyWhenOptedIn)
+{
+  bool pinger_seen = false;
+  const auto [min_vx, max_vx] = searchWithPingerAhead(true, &pinger_seen);
+  EXPECT_TRUE(pinger_seen);
+  EXPECT_NEAR(max_vx, 0.25, 1e-3);
+  EXPECT_GE(min_vx, -1e-6);
+}

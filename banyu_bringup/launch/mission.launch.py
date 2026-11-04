@@ -71,6 +71,14 @@ def generate_launch_description():
         choices=["full", "minimal", "gamble"],
     )
 
+    use_hydrophone_arg = DeclareLaunchArgument(
+        name="use_hydrophone",
+        default_value="False",
+        description="Task 2: opt in to the hydrophone (pinger_localization and pinger homing). The competition "
+        "vehicle has none; with False no node reads pinger data.",
+        choices=["True", "False"],
+    )
+
     scenario_args = [
         DeclareLaunchArgument(name=n, default_value="0.0", description="Simulation scenario, see main_launch.launch.py")
         for n in ("pipe_dx", "pipe_dy", "pipe_dyaw_deg", "buoy_error_x", "buoy_error_y")
@@ -141,6 +149,11 @@ def generate_launch_description():
         "'", banyu_bringup_share, "/config/task2_site_' + '", LaunchConfiguration("site"), "' + '.yaml' if '",
         LaunchConfiguration("site"), "' and '", LaunchConfiguration("use_sim"), "'.lower() == 'true' else '",
         banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"), "' + '.yaml'"])
+    # Hydrophone opt-in overlay (a no-op re-load of the sensors overlay when off).
+    task2_hydrophone_file = PythonExpression([
+        "'", banyu_bringup_share, "/config/task2_hydrophone_on.yaml' if '", LaunchConfiguration("use_hydrophone"),
+        "'.lower() == 'true' else '", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"),
+        "' + '.yaml'"])
     por_params = LaunchConfiguration("por_params_file")
     hardware_params = LaunchConfiguration("hardware_params_file")
 
@@ -252,6 +265,7 @@ def generate_launch_description():
         name="task2_sim_provider",
         parameters=[
             task2_params,
+            task2_hydrophone_file,
             {
                 f"scenario_{n}": ParameterValue(
                     PythonExpression(["'", LaunchConfiguration(n), "' or '0.0'"]), value_type=float)
@@ -342,7 +356,7 @@ def generate_launch_description():
         package="banyu_vehicle_execution",
         executable="vehicle_execution_node",
         name="vehicle_execution_node",
-        parameters=[task2_params, task2_sensors_file],
+        parameters=[task2_params, task2_sensors_file, task2_hydrophone_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -369,7 +383,7 @@ def generate_launch_description():
         package="banyu_vehicle_execution",
         executable="underwater_odometry_node",
         name="underwater_odometry_node",
-        parameters=[task2_params],
+        parameters=[task2_params, task2_hydrophone_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -398,7 +412,8 @@ def generate_launch_description():
         name="pinger_localization",
         parameters=[task2_params],
         output="screen",
-        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+        condition=IfCondition(AndSubstitution(
+            EqualsSubstitution(mode, "task2"), EqualsSubstitution(LaunchConfiguration("use_hydrophone"), "True"))),
     )
 
     active_params = PythonExpression([
@@ -446,6 +461,7 @@ def generate_launch_description():
             debug_arg,
             tier_arg,
             sensors_arg,
+            use_hydrophone_arg,
             task2_params_arg,
             por_params_arg,
             hardware_params_arg,

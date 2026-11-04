@@ -155,6 +155,14 @@ def generate_launch_description():
         )
     ]
 
+    use_hydrophone_arg = DeclareLaunchArgument(
+        name="use_hydrophone",
+        default_value="False",
+        description="Task 2: opt in to the hydrophone (pinger_localization, sim HydrophoneArray plugin, pinger homing "
+        "in SearchPipeline). The competition vehicle has none.",
+        choices=["True", "False"],
+    )
+
     use_dvl_arg = DeclareLaunchArgument(
         name="use_dvl",
         default_value="False",
@@ -255,6 +263,7 @@ def generate_launch_description():
             "camera_model": PythonExpression(["'", LaunchConfiguration("camera_model"), "' or 'pinhole'"]),
             "ir_led": PythonExpression(["'", LaunchConfiguration("ir_led"), "' or 'off'"]),
             "camera_width": LaunchConfiguration("camera_width"),
+            "use_hydrophone": LaunchConfiguration("use_hydrophone"),
             "spawn_x": task2_spawn_x,
             "spawn_y": task2_spawn_y,
             "spawn_z": task2_spawn_z,
@@ -289,6 +298,7 @@ def generate_launch_description():
             "debug": LaunchConfiguration("debug"),
             "tier": LaunchConfiguration("tier"),
             "sensors": LaunchConfiguration("sensors"),
+            "use_hydrophone": LaunchConfiguration("use_hydrophone"),
             "gamble_red": LaunchConfiguration("gamble_red"),
             "site": LaunchConfiguration("site"),
             "pipe_dx": LaunchConfiguration("pipe_dx"),
@@ -381,6 +391,7 @@ def generate_launch_description():
             gps_loss_depth_arg,
             gps_reacquire_delay_arg,
             use_dvl_arg,
+            use_hydrophone_arg,
             headless_arg,
             task2_params_arg,
             por_params_arg,

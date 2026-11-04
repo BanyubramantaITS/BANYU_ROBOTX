@@ -66,6 +66,7 @@ banyu_mission:
 
 task2_sim_provider:
   ros__parameters:
+    publish_hydrophone_heading: false   # opt in with use_hydrophone:=True
     ring_colors: ["green", "green", "green", "red"]
     publish_rate: 5.0
     pipeline_standoff_m: 1.0
@@ -317,6 +318,9 @@ vehicle_execution_node:
       ring_lost_grace_s: 1.0
       search_retrace_distance_m: 1.5
       search_retrace_speed: 0.2
+      # No hydrophone on the competition vehicle: SearchPipeline retraces and sweeps only.
+      # use_hydrophone:=True (task2_hydrophone_on.yaml) enables the pinger homing below.
+      use_hydrophone: false
       search_pinger_timeout_s: 3.0
       search_pinger_kp: 0.8
       search_pinger_forward_speed: 0.25
@@ -487,6 +491,7 @@ underwater_odometry_node:
     max_poses: 5000
     frame_id: "dive_origin"
     child_frame_id: "base_link"
+    use_hydrophone: false   # pinger bearing corrections, opt in with use_hydrophone:=True
     # Achieved/commanded speed, calibrate in the water; the rest are 1-sigma estimates.
     velocity_gain: 1.0
     speed_error_fraction: 0.1
