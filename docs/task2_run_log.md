@@ -560,3 +560,30 @@ So the only decision that read pinger data is `SearchPipeline`.
   (vx -0.2, never forward); on -> homes forward at 0.25. Suite 63/63. Xacro: plugin present only with `hydrophone:=true`.
   Sim provider tests 10/10. `launch_task2.sh --dry-run` for `--sim`, `--sim --hydrophone`, `--real`, `--real --hydrophone`.
 - `pipeline_survey_tree.xml` gets a header note: not loaded, needs a hydrophone.
+- Process: `systemd-inhibit` cannot run here (no system D-Bus socket, also outside the sandbox), so the batches run
+  without it; the 30 s watcher flags a wall-clock jump (a suspend) instead. A first `ArduPilot controller has reset` at SITL boot is
+  normal; only a second one in a run is flagged.
+
+### Step 3: no-hydrophone baseline (full profile, random spawn)
+
+- **Core seed 2 (node 1): FAIL 275** (no survey). Pinger topic absent (checked in the run). The repair worked (Gazebo
+  TASK_COMPLETED_GREEN, although `HoldProbeOnRing` reported "Ring lost during the approach"), four rings recorded by 242 s
+  (RED, GREEN, GREEN, GREEN), then the vehicle sat at Gazebo x -1.78 to -1.85 (pipe end -2.27) for 500 s: Follow ->
+  lost -> Search (retrace + sweep) -> Acquire -> Follow, and the traverse never ended. The only end signal is the sim
+  fixture's ground-truth window (EKF progress >= length - 0.5 m, x <= -1.77): the vehicle stopped just short of it. The
+  traverse timeout, the surfacing and the second dive used up the 900 s, so nothing was reported. SearchPipeline found the
+  pipe in 0.15 s each time; the pinger was not what was missing.
+- **Finding (real vehicle):** nothing publishes pipe end candidates on the robot (`/banyu/pipeline/end_candidate_state` comes only
+  from `task2_sim_provider.py`), so a real traverse could only end by its timeout. **H42** (worktree, built after the batch):
+  `ring_tracker_node` publishes `/banyu/pipeline/rings_complete` (four records, no RED waiting for its repair; run-tagged, latched)
+  and `pipeline_end_node` ends the traverse when that holds and the pipe has been out of view for `rings_complete_lost_s` 3 s. The
+  handbook has exactly four nodes, so nothing is left to survey after the fourth. Test: lost before the fourth ring or the fourth
+  ring with the pipe in view -> no end; four rings + 3 s out of view -> end.
+- Prepared in the same worktree while the batch runs (no builds during a sim): **H39** `sensors:=baro` (overlay
+  `task2_sensors_baro.yaml`: ALT_HOLD with the Bar30, `camera_descent.with_depth` = the dive stops when the pipe is in view and fails
+  past `max_depth_m` measured by the Bar30, camera heave standoff with `ki` 0, `dive_offset_m` 1.5, ring order dead-reckoned along the
+  buoy line), `launch_task2.sh --sensors baro`; **H41** (seed 24): with four records, a fifth distinct ring merges the two records
+  closest in progress if nearer than `min_node_spacing_m` 1.0 (sim node spacing 1.28-1.55 m; seed 24's duplicate pair 0.82 m), the
+  RED one keeps its slot, the freed slot takes the new ring and both are republished (node ids stay stable for `survey_evidence`);
+  `launch_task2.sh --real` refuses an RC override channel that is also a teleop switch channel (as `launch_por.sh`, tested with a
+  temporary teleop file with SB on CH2); `docs/task2_hardware_checklist.md` draft.
