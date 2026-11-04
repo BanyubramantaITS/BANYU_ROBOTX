@@ -11,6 +11,7 @@
 #include <sstream>
 #include <stdexcept>
 #include "rx_msgs/msg/rx_task.hpp"
+#include "std_msgs/msg/bool.hpp"
 #include "rx_msgs/msg/vehicle_type.hpp"
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
@@ -121,6 +122,25 @@ void registerMissionNodes(
     [on_shift_buoy_target](BT::TreeNode &) {return on_shift_buoy_target();});
   if (!on_wait_buoy_target) {on_wait_buoy_target = []() {return BT::NodeStatus::SUCCESS;};}
   factory.registerNodeType<WaitUntil>("WaitForBuoyTarget", on_wait_buoy_target);
+  // Ring recording on or off for the ring tracker (off while diving and backing up to the pipe's start).
+  if (!node->has_parameter("topics.ring_recording")) {
+    node->declare_parameter<std::string>("topics.ring_recording", "/banyu/mission/ring_recording");
+  }
+  auto recording_pub = node->create_publisher<std_msgs::msg::Bool>(
+    node->get_parameter("topics.ring_recording").as_string(), rclcpp::QoS(1).reliable().transient_local());
+  factory.registerSimpleAction("SetRingRecording",
+    [recording_pub, node](BT::TreeNode & tree_node) {
+      std_msgs::msg::Bool msg;
+      msg.data = tree_node.getInput<bool>("enable").value_or(true);
+      recording_pub->publish(msg);
+      RCLCPP_INFO(node->get_logger(), "Ring recording %s", msg.data ? "on" : "off");
+      return BT::NodeStatus::SUCCESS;
+    }, {BT::InputPort<bool>("enable")});
+  factory.registerSimpleAction("StartSurveyLeg",
+    [state](BT::TreeNode &) {
+      state->startSurveyLeg();
+      return BT::NodeStatus::SUCCESS;
+    });
 }
 
 BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)

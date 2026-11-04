@@ -16,6 +16,7 @@
 #include <banyu_msgs/srv/reset_task2.hpp>
 #include <banyu_msgs/msg/task2_buoy_target.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <mavros_msgs/msg/position_target.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -103,6 +104,10 @@ private:
   std::deque<std::pair<double, double>> pipe_heights_;   // (stamp s, height m)
   double pipeHeight(double t) const;
   rclcpp::Subscription<banyu_msgs::msg::PipelineObservation>::SharedPtr pipe_sub_;
+  // The mission switches ring recording off while diving and backing up to the pipe's start (rings seen then are placed
+  // badly or out of order); on for the survey pass. On until the mission says otherwise.
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr recording_sub_;
+  bool recording_{true};
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr fix_sub_;
   rclcpp::Subscription<mavros_msgs::msg::PositionTarget>::SharedPtr command_sub_;
   rclcpp::Subscription<banyu_msgs::msg::Task2BuoyTarget>::SharedPtr buoy_sub_;

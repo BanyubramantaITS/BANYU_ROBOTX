@@ -8,6 +8,8 @@
       </Sequence>
       <Sequence name="mission_phases">
         <SubTree ID="MissionPreflight" _autoremap="true" />
+        <!-- No ring is recorded until the survey pass (SurveyPipeline). -->
+        <SetRingRecording enable="false" />
         <SubTree ID="SurfaceTransitToStart" _autoremap="true" />
         <!-- Always report: a pipe that is not found or a traverse that is lost still surfaces and sends the Core survey of
              what was seen (the heartbeat and start-buoy points are kept). -->
@@ -36,6 +38,7 @@
               </RetryUntilSuccessful>
             </Timeout>
             <AlignHeading target_heading="{heading}" tolerance="{heading_tolerance}" />
+            <SetRingRecording enable="false" />
             <SubTree ID="DiveAndAcquirePipeline" _autoremap="true" />
             <SubTree ID="SurveyPipeline" _autoremap="true" />
           </Sequence>
@@ -98,48 +101,42 @@
     </Sequence>
   </BehaviorTree>
 
-  <!-- One dive near the start buoy: a single traverse. A dive midway between the buoys (mission.dive_point midpoint):
-       leg 1 toward the end buoy until that end of the pipe, then turn around and traverse back to the start end (the ring
-       order is the progress along the buoy line, whichever way it is met). -->
+  <!-- One dive near the start buoy: a single traverse. A dive midway between the buoys (mission.dive_point midpoint), facing
+       the end buoy: back up along the pipe (stern toward the start buoy) to the pipe's start, then the normal survey forward
+       over the whole pipe. Rings are recorded only in the forward survey (not while diving or backing up). -->
   <BehaviorTree ID="SurveyPipeline">
     <Fallback>
       <Sequence>
         <ScriptCondition code="two_legs == false" />
+        <SetRingRecording enable="true" />
         <SubTree ID="TraversePipeline" _autoremap="true" />
       </Sequence>
-      <Sequence name="two_legs_from_the_midpoint">
+      <Sequence name="back_up_to_the_start_then_survey">
         <ScriptCondition code="two_legs == true" />
+        <StartSurveyLeg />
+        <!-- The start end: the pipe out of view leg_end_lost_s in total (no search here: a lost pipe is the end). -->
         <ForceSuccess>
           <Timeout msec="{traverse_timeout_ms}">
             <KeepRunningUntilFailure>
               <WhileDoElse>
-                <Sequence>
-                  <PipelineActive />
-                  <Inverter>
-                    <PipelineLegEnded lost_s="{leg_end_lost_s}" />
-                  </Inverter>
-                </Sequence>
-                <SubTree ID="TraverseStep" _autoremap="true" />
+                <Inverter>
+                  <PipelineLegEnded lost_s="{leg_end_lost_s}" />
+                </Inverter>
+                <FollowPipeline enable="true" reverse="true" />
                 <AlwaysFailure />
               </WhileDoElse>
             </KeepRunningUntilFailure>
           </Timeout>
         </ForceSuccess>
-        <Fallback>
-          <PipelineEnded />
-          <Sequence name="turn_around_and_traverse_back">
-            <!-- 180 deg on the IMU yaw (no position needed under water), depth held by ALT_HOLD. -->
-            <ForceSuccess>
-              <TimedMove name="turn_around" segment_name="turn_around" duration_s="30.0" speed_x_mps="0.0"
-                speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="0.3" use_baro_depth="false" target_depth_m="0.0"
-                depth_kp="0.0" max_depth_speed_mps="0.0" use_imu_yaw_cap="true" target_yaw_delta_rad="3.14159" />
-            </ForceSuccess>
-            <RetryUntilSuccessful num_attempts="3">
-              <SubTree ID="ReacquirePipeline" _autoremap="true" />
-            </RetryUntilSuccessful>
-            <SubTree ID="TraversePipeline" _autoremap="true" />
-          </Sequence>
-        </Fallback>
+        <SetRingRecording enable="true" />
+        <!-- The pipe's start is just ahead: align to the buoy line and surge forward onto it. -->
+        <RetryUntilSuccessful num_attempts="3">
+          <Timeout msec="{acquire_timeout_ms}">
+            <AcquirePipeline camera_name="{camera_name}" use_heading_prior="true"
+              heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}" />
+          </Timeout>
+        </RetryUntilSuccessful>
+        <SubTree ID="TraversePipeline" _autoremap="true" />
       </Sequence>
     </Fallback>
   </BehaviorTree>

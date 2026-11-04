@@ -61,6 +61,16 @@ RingTrackerNode::RingTrackerNode(const rclcpp::NodeOptions & options)
         while (pipe_heights_.size() > 9) {pipe_heights_.pop_front();}
       });
   }
+  recording_sub_ = create_subscription<std_msgs::msg::Bool>(
+    declare_parameter<std::string>("recording_topic", "/banyu/mission/ring_recording"),
+    rclcpp::QoS(1).reliable().transient_local(),
+    [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+      std::lock_guard<std::mutex> lock(adapter_mutex_);
+      if (msg->data != recording_) {
+        RCLCPP_INFO(get_logger(), "Ring recording %s", msg->data ? "on" : "off");
+      }
+      recording_ = msg->data;
+    });
   observation_sub_ = create_subscription<banyu_msgs::msg::PipelineRingObservation>(
     observation_topic_, rclcpp::SensorDataQoS(),
     std::bind(&RingTrackerNode::observationCallback, this, std::placeholders::_1));
@@ -241,7 +251,7 @@ void RingTrackerNode::observationCallback(
   }
 
   std::lock_guard<std::mutex> lock(adapter_mutex_);
-  if (!run_context_.acceptsStamp(rclcpp::Time(msg->header.stamp).nanoseconds(),
+  if (!recording_ || !run_context_.acceptsStamp(rclcpp::Time(msg->header.stamp).nanoseconds(),
     require_run_context_))
   {
     return;

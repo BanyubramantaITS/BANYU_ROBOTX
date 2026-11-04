@@ -100,7 +100,7 @@ def generate_launch_description():
     dive_point_arg = DeclareLaunchArgument(
         name="dive_point",
         default_value="buoy",
-        description="Task 2 dive point: 'buoy' (inside the start buoy) or 'midpoint' (midway between the buoys, two legs).",
+        description="Task 2 dive point: 'buoy' (inside the start buoy) or 'midpoint' (midway between the buoys, back up to the pipe's start, survey forward).",
         choices=["buoy", "midpoint"],
     )
 

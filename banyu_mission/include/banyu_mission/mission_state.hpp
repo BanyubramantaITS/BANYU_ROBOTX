@@ -94,6 +94,8 @@ public:
   // A survey leg has reached a pipe end: the pipe was out of view this long in total since the last new ring (at an end
   // the search keeps finding the last stretch again, so one long loss never comes).
   bool legEnded(double lost_s) const;
+  // A new survey leg starts: the out-of-view time counts from now.
+  void startSurveyLeg();
   bool redPending() const;
   uint32_t pendingRedIndex() const;
   bool acknowledgeRed(uint32_t index);

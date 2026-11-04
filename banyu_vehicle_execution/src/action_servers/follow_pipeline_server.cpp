@@ -54,7 +54,9 @@ MotionIntent FollowPipelineServer::tick(
   active_handle_->publish_feedback(feedback);
 
   if (tracking && telemetry.pose_valid) {
-    const double surge = telemetry.guidance_surge_mps;
+    // Backwards: the same lateral and yaw corrections hold the pipe under the camera.
+    const double surge = active_handle_->get_goal()->reverse ?
+      -std::abs(telemetry.guidance_surge_mps) : telemetry.guidance_surge_mps;
     const double sway = telemetry.guidance_sway_mps;
     const double yaw_rate =
       telemetry.guidance_yaw_control_active ? telemetry.guidance_yaw_rate_rad_s : 0.0;

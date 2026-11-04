@@ -481,6 +481,12 @@ bool MissionState::ringsComplete() const
   return rings_complete_;
 }
 
+void MissionState::startSurveyLeg()
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  lost_since_new_ring_s_ = 0.0;
+}
+
 bool MissionState::legEnded(double lost_s) const
 {
   std::lock_guard<std::mutex> lock(mutex_);

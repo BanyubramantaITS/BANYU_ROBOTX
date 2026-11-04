@@ -2040,3 +2040,41 @@ TEST_F(VehicleExecutionNodeTest, BaroCameraDescentSinksUntilThePipeAndStopsAtThe
   EXPECT_EQ(wrapped.code, rclcpp_action::ResultCode::ABORTED);
   EXPECT_NE(wrapped.result->reason.find("maximum depth"), std::string::npos);
 }
+
+TEST_F(VehicleExecutionNodeTest, FollowPipelineReverseBacksUpAlongThePipe)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  double min_vx = 0.0;
+  double max_vx = 0.0;
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&](const mavros_msgs::msg::PositionTarget::SharedPtr msg) {
+      min_vx = std::min(min_vx, static_cast<double>(msg->velocity.x));
+      max_vx = std::max(max_vx, static_cast<double>(msg->velocity.x));
+    });
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto guidance_pub = node->create_publisher<banyu_guidance::msg::VelocityIntent>(
+    "/banyu/guidance/velocity_intent", 10);
+  using Action = banyu_msgs::action::FollowPipeline;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/follow_pipeline");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  Action::Goal goal;
+  goal.enable = true;
+  goal.reverse = true;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  for (int i = 0; i < 40; ++i) {
+    publishPose(node, pose_pub, 0.0);   // facing east
+    banyu_guidance::msg::VelocityIntent intent;
+    intent.header.stamp = node->now();
+    intent.status = banyu_guidance::msg::VelocityIntent::TRACKING;
+    intent.surge_mps = 0.4F;
+    guidance_pub->publish(intent);
+    spinFor(node, 2);
+  }
+  EXPECT_NEAR(min_vx, -0.4, 1e-3);   // backing up (west)
+  EXPECT_LE(max_vx, 1e-6);
+}

@@ -83,7 +83,7 @@ def generate_launch_description():
         name="dive_point",
         default_value="buoy",
         description="Task 2 dive point: 'buoy' (inside the start buoy, one traverse) or 'midpoint' (midway between the "
-        "buoys, heading to the end buoy, then turn around: two legs).",
+        "buoys facing the end buoy, back up to the pipe's start, then survey forward).",
         choices=["buoy", "midpoint"],
     )
 

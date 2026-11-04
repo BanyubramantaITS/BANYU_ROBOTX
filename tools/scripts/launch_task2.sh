@@ -104,8 +104,8 @@ Both targets:
                         overlay) is also a banyu_teleop switch channel (SB/SC). Unsafe: the switch then reads the
                         override.
   --dive-point <p>      buoy (default: dive inside the start buoy, at least mission.buoy_standoff_m from it; one traverse)
-                        | midpoint (navigate midway between the start and end buoys, dive heading to the end buoy,
-                        traverse to that end, turn around and traverse back; needs both buoys from the USV).
+                        | midpoint (navigate midway between the start and end buoys, dive facing the end buoy, back up
+                        along the pipe to its start, then survey forward; needs both buoys from the USV).
   --hydrophone          Opt in to the hydrophone (use_hydrophone:=True): pinger_localization, the sim
                         HydrophoneArray plugin and pinger homing in SearchPipeline. Default OFF: the
                         competition UUV has no hydrophone, and no decision reads pinger data.
@@ -286,7 +286,7 @@ echo "Target Platform   : $([ "$TARGET" = "sim" ] && echo "Gazebo Simulation (SI
 echo "use_gps           : $(TF $USE_GPS)"
 echo "Tier              : $([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && echo core || echo "$TIER")"
 echo "Sensors           : $SENSORS$([ "$SENSORS" = baro ] && echo " (Bar30 + ALT_HOLD; dive stops by camera at the pipe, order dead-reckoned)")$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")$([ "$SENSORS" = gamble ] && echo " (GPS to the buoy, timed dive and bobbing, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
-echo "Dive point        : $([ "$DIVE_POINT" = midpoint ] && echo "midpoint (midway between the buoys, two legs)" || echo "buoy (inside the start buoy, standoff from it)")"
+echo "Dive point        : $([ "$DIVE_POINT" = midpoint ] && echo "midpoint (midway between the buoys, back up to the pipe's start, survey forward)" || echo "buoy (inside the start buoy, standoff from it)")"
 echo "Hydrophone        : $([ "$USE_HYDROPHONE" = true ] && echo "ON (opt-in; pinger data used by SearchPipeline)" || echo "OFF (none fitted; start buoy from the USV PipelineBuoys only)")"
 if [ "$TARGET" = real ] && [ "$USE_HYDROPHONE" = true ]; then
   echo "Warning: --hydrophone on --real: the competition UUV has no hydrophone; nothing will publish pings." >&2
