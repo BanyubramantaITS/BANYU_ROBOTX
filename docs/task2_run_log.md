@@ -670,3 +670,4 @@ So the only decision that read pinger data is `SearchPipeline`.
   - The full-profile Core passes above (seeds 2, 5) were before the standoff (dive at the buoy); later runs dive 1.5 m inside it.
 - `b3c` Disruptive seed 2: **not counted** (start sent before execution was holding; sim then wedged). Harness: the e2e also waits
   for `/banyu/execution/readiness holding: true` before the run start.
+- `b3c` Disruptive seed 1 (node 2): **PASS 500** (order GREEN, RED, GREEN, GREEN; tin and circle right) - the first tier 4 run on the sim-time light controller and H41b-H43.
