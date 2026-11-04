@@ -45,9 +45,30 @@ for ATTEMPT in 1 2 3; do
     C1=$(timeout 5 ros2 topic echo --once /clock 2>/dev/null | grep -m1 'sec:' | tr -dc 0-9); sleep 4
     C2=$(timeout 5 ros2 topic echo --once /clock 2>/dev/null | grep -m1 'sec:' | tr -dc 0-9)
     RESETS=$(grep -c "controller has reset" "$OUT/sim.log")
-    if [ "${RESETS:-0}" -le 1 ] && [ -n "$C1" ] && [ -n "$C2" ] && [ "$C2" -gt "$C1" ]; then break; fi
+    if [ "${RESETS:-0}" -le 1 ] && [ -n "$C1" ] && [ -n "$C2" ] && [ "$C2" -gt "$C1" ]; then
+      timeout 60 ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger '{}' > "$OUT/prepare.out" 2>&1
+      echo "prepared $(date +%T)" >> "$OUT/progress.txt"
+      # The run start needs the mission's autonomous_ready (up to 60 s) and vehicle execution holding position (the EKF
+      # takes the GPS about 70 s after boot; up to 120 s). A sim that never holds (the controller-reset burst when the EKF
+      # takes the GPS) is relaunched.
+      for _ in $(seq 1 30); do
+        timeout 3 ros2 topic echo --once /banyu/mission/run_lifecycle 2>/dev/null | grep -q "autonomous_ready: true" && break
+        sleep 2
+      done
+      HELD=0
+      for _ in $(seq 1 40); do
+        if timeout 3 ros2 topic echo --once /banyu/execution/readiness 2>/dev/null | grep -q "holding: true"; then
+          HELD=1; break
+        fi
+        sleep 3
+      done
+      [ "$HELD" = 1 ] && break
+      RESETS=$(grep -c "controller has reset" "$OUT/sim.log")
+      echo "attempt $ATTEMPT: execution never held position (controller resets ${RESETS})" >> "$OUT/progress.txt"
+    else
+      echo "attempt $ATTEMPT: sim wedged (controller resets ${RESETS}, clock ${C1} -> ${C2})" >> "$OUT/progress.txt"
+    fi
     UP=0
-    echo "attempt $ATTEMPT: sim wedged (controller resets ${RESETS}, clock ${C1} -> ${C2})" >> "$OUT/progress.txt"
   else
     echo "attempt $ATTEMPT: sim did not come up" >> "$OUT/progress.txt"
   fi
@@ -56,22 +77,9 @@ done
 echo "up=$UP" >> "$OUT/progress.txt"
 if [ "$UP" = 1 ]; then
   python3 "${REPO_DIR}/tools/sos_integration/ring_recorder.py" "$OUT/rings.jsonl" "$TIMEOUT" > /dev/null 2>&1 &
-  timeout 60 ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger '{}' > "$OUT/prepare.out" 2>&1
-  echo "prepared $(date +%T)" >> "$OUT/progress.txt"
   # Hydrophone check: without --hydrophone nothing may publish pinger observations.
   ros2 topic info /banyu/pinger/observation > "$OUT/pinger_topic.txt" 2>&1
   echo "pinger $(grep -h 'Publisher count' "$OUT/pinger_topic.txt" || echo 'topic absent')" >> "$OUT/progress.txt"
-  # The GCS sends the run start once; a start before the mission reports autonomous_ready is rejected and the run never
-  # begins. Wait (up to 60 s) for the readiness the mission publishes.
-  for _ in $(seq 1 30); do
-    timeout 3 ros2 topic echo --once /banyu/mission/run_lifecycle 2>/dev/null | grep -q "autonomous_ready: true" && break
-    sleep 2
-  done
-  # The start also needs vehicle execution holding position (the EKF takes the GPS about 70 s after boot): up to 120 s.
-  for _ in $(seq 1 40); do
-    timeout 3 ros2 topic echo --once /banyu/execution/readiness 2>/dev/null | grep -q "holding: true" && break
-    sleep 3
-  done
   echo "ready $(date +%T)" >> "$OUT/progress.txt"
   sleep 3
   timeout "$TIMEOUT" python3 "${REPO_DIR}/tools/sos_integration/mock_gcs.py" --send run-start --serve --start-retry-s 30 \
