@@ -587,3 +587,12 @@ So the only decision that read pinger data is `SearchPipeline`.
   RED one keeps its slot, the freed slot takes the new ring and both are republished (node ids stay stable for `survey_evidence`);
   `launch_task2.sh --real` refuses an RC override channel that is also a teleop switch channel (as `launch_por.sh`, tested with a
   temporary teleop file with SB on CH2); `docs/task2_hardware_checklist.md` draft.
+- Core seeds 2 and 1 on the hydrophone-off code both failed the same way (seed 1: the vehicle again sat at Gazebo x -1.8, the
+  traverse failed, then the second dive): **the lost pinger is the cause in the sim** (with it, SearchPipeline homed differently and
+  the old runs reached the fixture's end window; without it, retrace + sweep put the vehicle back on the same last stretch every time).
+  The batch was stopped (by PID; the cleanup script); H39, H41, H42 merged (fast-forward), `install/` rebuilt, tests:
+  vehicle_execution 64/64 (new: baro camera descent sinks at the descent rate and stops at the Bar30 floor), ring tracker 25/25 (3 new),
+  pipeline_end_node 7/7 (1 new), adapter, reset, QoS, survey evidence pass. Baseline restarted on this code (`b3b_*`).
+- `b3b` Core seed 2: **not counted** (sim fault): three `ArduPilot controller has reset` at 65 s, the run start was rejected
+  (`NOT_READY ... holding 0`: the execution readiness went stale), the mission never started; stopped by PID, re-run queued.
+  Process: my watcher script had an arithmetic bug (grep -c with `|| echo 0`) and exited; fixed and re-armed.
