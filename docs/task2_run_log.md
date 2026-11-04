@@ -763,3 +763,4 @@ Midpoint dive results so far: turn-around design (H44): nodes 2, 3, 4 PASS 450, 
 node 1 PASS 450 (others not yet run). **To resume:** H46 midpoint Core seeds 1 5 9, then buoy-dive Core 2 1 5 9 on the same code
 (recording gate, standoff), then Advanced/Disruptive re-runs, then baro step 4, step 5 (baro vs full for `--real`, checklist), step 6
 (verdict, sim results). RoboCommand audit: done (fixes built and confirmed in the sim); open: whether the UUV declares Task 4.
+- **Resumed (user: go).** Working tree has uncommitted user edits (not mine, left untouched): `banyu_defaults.parm` now full thruster range MOT_PWM 1100-1900 (was 1300-1700) and FRAME_CONFIG moved to `sim_only.parm` (sim stays Heavy), plus POR script/doc edits. SITL loads these, so the runs from here use the full PWM range. Midpoint H46 Core seeds 1 5 9 (nodes 2-4) queued.
