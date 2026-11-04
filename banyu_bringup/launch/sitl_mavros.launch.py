@@ -146,7 +146,9 @@ def generate_launch_description():
         "--out=udp:0.0.0.0:14550",
         "--out=udp:127.0.0.1:14551",
         "--out=udp:127.0.0.1:14552",
-        "--mavproxy-args=--streamrate=10",
+        # 25 Hz of sim time: on a slow machine (0.34x real time on an iGPU) 10 Hz gave poses up to 0.6 s of wall time
+        # apart, past vehicle execution's 0.5 s pose freshness for the position hold, and the readiness latched off.
+        "--mavproxy-args=--streamrate=25",
         "-w",
         "--add-param-file=" + _banyu_defaults_file,
         "--add-param-file=" + _sim_only_file,
