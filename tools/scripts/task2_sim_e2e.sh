@@ -39,9 +39,11 @@ for ATTEMPT in 1 2 3; do
     if timeout 5 ros2 topic echo --once /banyu/vehicle/water_depth 2>/dev/null | grep -q 'valid: true'; then UP=1; break; fi
   done
   if [ "$UP" = 1 ]; then
-    # EKF and datum settle (the EKF takes the GPS about 60-70 s after boot). A burst of ArduPilot controller resets there
-    # wedges the sim (the clock stops, the vehicle never holds and every run start is NOT_READY): relaunch instead.
-    sleep 75
+    # EKF and datum settle: wait for the EKF to take the GPS (about 70 s of sim time after boot, 200 s of wall time when the
+    # sim runs at 0.34x), then 15 s. A burst of ArduPilot controller resets there wedges the sim (the vehicle never holds
+    # and every run start is NOT_READY): relaunch instead.
+    for _ in $(seq 1 60); do grep -q "is using GPS" "$OUT/sim.log" && break; sleep 5; done
+    sleep 15
     C1=$(timeout 5 ros2 topic echo --once /clock 2>/dev/null | grep -m1 'sec:' | tr -dc 0-9); sleep 4
     C2=$(timeout 5 ros2 topic echo --once /clock 2>/dev/null | grep -m1 'sec:' | tr -dc 0-9)
     RESETS=$(grep -c "controller has reset" "$OUT/sim.log")
