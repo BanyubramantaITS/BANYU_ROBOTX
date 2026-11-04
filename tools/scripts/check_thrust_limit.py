@@ -4,8 +4,8 @@ Verify the Pixhawk thruster output cap before a real-vehicle run.
 
 Reads MOT_PWM_MIN, MOT_PWM_MAX and MOT_PWM_TYPE from the autopilot through a MAVProxy
 output (default udpin:127.0.0.1:14552, the nogps_odom_beacon port, free before launch) and
-compares them with the cap in banyu_bringup/config/banyu_defaults.parm. The ESC power board
-cannot supply full thruster current, so a wider range on the Pixhawk is refused.
+compares them with the range in banyu_bringup/config/banyu_defaults.parm. A wider range on
+the Pixhawk, or a MOT_PWM_TYPE that ignores it, is refused.
 
 Exit codes: 0 cap in place, 1 cap missing or wider than the parm, 2 no answer from the Pixhawk.
 Stdlib only (no pymavlink). Self-check: `./check_thrust_limit.py --self-check`

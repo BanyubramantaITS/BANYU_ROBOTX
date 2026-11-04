@@ -91,8 +91,8 @@ General Options:
                         channel (SB/SC). Unsafe: the switch then reads the override.
   --allow-uncapped-thrust
                         Launch on the robot even if the Pixhawk MOT_PWM_MIN/MAX thruster cap
-                        (banyu_defaults.parm) cannot be confirmed. Unsafe: the ESC power
-                        board cannot supply full thruster current.
+                        (banyu_defaults.parm) cannot be confirmed. Unsafe: thruster output
+                        is then unverified.
   -h, --help            Show this help message.
 
 Examples:
@@ -366,8 +366,7 @@ else
     echo "  Run first: ./src/BANYU_ROBOTX/tools/scripts/run_mavproxy.sh"
   fi
 
-  # The ESC power board cannot supply full thruster current: the Pixhawk must carry the
-  # MOT_PWM_MIN/MAX cap from banyu_defaults.parm. Read over MAVProxy's 14552 output, which
+  # The Pixhawk must carry the MOT_PWM_MIN/MAX range from banyu_defaults.parm. Read over MAVProxy's 14552 output, which
   # is free until nogps_odom_beacon starts.
   if THRUST_CHECK="$(python3 -I "${SCRIPT_DIR}/check_thrust_limit.py" 2>&1)"; then
     echo "Thruster Cap      : ${THRUST_CHECK#check_thrust_limit: }"

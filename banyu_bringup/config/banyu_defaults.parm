@@ -2,8 +2,9 @@
 # sitl_mavros.launch.py; on the robot load it once in QGroundControl (docs/por/README.md).
 # Sim-only tuning lives in sim_only.parm and must never be loaded onto the robot. The VISO_* and EK3_SRC2_* lines
 # are what nogps_odom_beacon needs on the robot; the DVL notes below apply to the sim only.
-# BlueROV2 Heavy frame (vectored 6DOF: 8 thrusters).
-FRAME_CONFIG 2
+# FRAME_CONFIG is not set here: the robot is a standard BlueROV2 (FRAME_CONFIG 1, vectored,
+# 6 thrusters, checked by check_pixhawk_params.py) while the sim still models the Heavy
+# (FRAME_CONFIG 2, set in sim_only.parm).
 
 # RC channel map, same as the robot's Pixhawk and TX16S: right stick forward CH2 / lateral CH1,
 # left stick throttle CH3 / yaw CH4; pitch and roll unmapped (0 = neutral dummy channel).
@@ -25,17 +26,14 @@ WP_SPD_DN 1.5
 # vector on GUIDED entry, which slews yaw toward 0 deg NED (North = +90 deg ENU).
 WP_YAW_BEHAVIOR 0
 
-# Thruster output cap: the ESC power board cannot supply full thruster current.
-# AP_Motors6DOF::calc_thrust_to_pwm maps every motor's thrust (-1..1) to
-# 1500 +/- (PWM_MAX-1500 | 1500-PWM_MIN), so this range caps all motors in every
-# mode: RC MANUAL, ALT_HOLD RC override (POR) and GUIDED velocity (Task 2).
-# Full range is 1100..1900 (+/-400 us). Keep the range symmetric around 1500:
-#   50% -> 1300 1700   60% -> 1260 1740   70% -> 1220 1780
-# Electrical power falls faster than the PWM percentage; raise only after
-# measuring board current. QGC Motor Test writes raw PWM and bypasses this cap.
+# Thruster output range: full 1100..1900 (+/-400 us); the power board supplies full
+# thruster current. AP_Motors6DOF::calc_thrust_to_pwm maps every motor's thrust (-1..1) to
+# 1500 +/- (PWM_MAX-1500 | 1500-PWM_MIN), so narrowing this range caps all motors in every
+# mode: RC MANUAL, ALT_HOLD RC override (POR) and GUIDED velocity (Task 2). If a cap is
+# needed again, keep it symmetric around 1500: 50% -> 1300 1700, 70% -> 1220 1780.
 # tools/scripts/check_thrust_limit.py verifies the Pixhawk against these lines.
-MOT_PWM_MIN 1300
-MOT_PWM_MAX 1700
+MOT_PWM_MIN 1100
+MOT_PWM_MAX 1900
 
 # Manual/teleop speeds (cm/s).
 PILOT_SPEED 200

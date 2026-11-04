@@ -4,6 +4,10 @@
 # Stream rates are not set here: this ArduPilot names them MAVx_* (not SRx_*), and
 # MAVProxy's --streamrate=10 (sim_vehicle.py, run_mavproxy.sh) already sets them.
 
+# The sim models the BlueROV2 Heavy (bluerov2_heavy model, sim_vehicle -f vectored_6dof);
+# the robot is a standard 6-thruster BlueROV2 (FRAME_CONFIG 1).
+FRAME_CONFIG 2
+
 # Attitude rate gains the sim was tuned with (vectored 6DOF JSON model).
 ATC_RAT_RLL_P 0.6
 ATC_RAT_RLL_I 0.15

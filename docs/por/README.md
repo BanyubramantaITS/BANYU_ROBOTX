@@ -132,7 +132,7 @@ Catatan sim:
    ```bash
    python3 src/BANYU_ROBOTX/tools/scripts/check_pixhawk_params.py <dump>.params
    ```
-   Skrip ini membandingkan dump dengan `banyu_defaults.parm`, frame, fungsi motor SERVO1–8, dan
+   Skrip ini membandingkan dump dengan `banyu_defaults.parm`, frame (`FRAME_CONFIG 1`, BlueROV2 standar 6 thruster), fungsi motor SERVO1–6, dan
    mendeteksi Bar30. Harus berakhir dengan `OK`. Yang penting untuk robot:
    - `RCMAP_FORWARD 2`, `RCMAP_LATERAL 1`, `RCMAP_THROTTLE 3`, `RCMAP_YAW 4`,
      `RCMAP_PITCH 0`, `RCMAP_ROLL 0` (§4.2).
@@ -142,14 +142,13 @@ Catatan sim:
      sumber heading begitu `ekf_source_switch` pindah ke source set 2.
    - `FS_EKF_ACTION 0`, `FS_GCS_ENABLE 0`.
    - `MAV_GCS_SYSID 255` (sysid MAVROS), lihat §4.2.
-   - **Batas daya thruster** `MOT_PWM_MIN 1300`, `MOT_PWM_MAX 1700` (50% dari 1100..1900):
-     board power ESC tidak kuat menyuplai arus penuh thruster. Batas ini berlaku untuk semua
-     mode (MANUAL dari TX16S, ALT_HOLD + RC override POR, GUIDED Task 2) karena dipotong di
-     mixer ArduSub. 60% = `1260 1740`, 70% = `1220 1780`; naikkan hanya setelah arus board
-     diukur. `MOT_PWM_TYPE` harus 0 (DShot/8/9 membuat ArduSub mengabaikan batas ini).
-     **QGC Motor Test tidak dibatasi** (PWM mentah): jangan geser slider melewati batas.
+   - **Rentang daya thruster** `MOT_PWM_MIN 1100`, `MOT_PWM_MAX 1900` (penuh): power board
+     baru kuat menyuplai arus penuh thruster. Kalau perlu dibatasi lagi, persempit simetris di
+     sekitar 1500 (50% = `1300 1700`, 70% = `1220 1780`); batas berlaku di semua mode karena
+     dipotong di mixer ArduSub. `MOT_PWM_TYPE` harus 0 (DShot/8/9 membuat ArduSub mengabaikan
+     rentang ini).
      `launch_por.sh --real` membaca nilai ini dari Pixhawk (`tools/scripts/check_thrust_limit.py`,
-     lewat MAVProxy port 14552) dan menolak jalan kalau batasnya tidak terpasang. Untuk Task 2
+     lewat MAVProxy port 14552) dan menolak jalan kalau rentangnya lebih lebar dari parm. Untuk Task 2
      atau teleop tanpa `launch_por.sh`, jalankan skrip itu manual setelah `run_mavproxy.sh`.
    - Cek juga `FS_EKF_THRESH` dan `ARMING_CHECK` (tidak diatur file ini).
 2. **Device** di mini-PC:

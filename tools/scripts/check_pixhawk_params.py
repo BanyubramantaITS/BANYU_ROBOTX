@@ -2,7 +2,7 @@
 """Compare a Pixhawk parameter dump with what the BANYU stack expects.
 
 Checks every value in banyu_bringup/config/banyu_defaults.parm, plus hardware facts the
-stack relies on (vectored frame, motors on SERVO1-8, Bar30 detected). Takes the file that
+stack relies on (standard BlueROV2 vectored frame, motors on SERVO1-6, Bar30 detected). Takes the file that
 QGroundControl saves (Parameters -> Tools -> Save to file) or a plain "NAME VALUE" list.
 
 usage: check_pixhawk_params.py DUMP.params [--defaults banyu_defaults.parm]
@@ -17,8 +17,8 @@ DEFAULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..",
 
 # Not in banyu_defaults.parm, but the stack depends on them.
 HARDWARE = {
-    "FRAME_CONFIG": (2, "vectored 6DOF (BlueROV2 Heavy layout)"),
-    **{f"SERVO{i}_FUNCTION": (32 + i, f"motor {i}") for i in range(1, 9)},
+    "FRAME_CONFIG": (1, "vectored (standard BlueROV2, 6 thrusters)"),
+    **{f"SERVO{i}_FUNCTION": (32 + i, f"motor {i}") for i in range(1, 7)},
 }
 
 
