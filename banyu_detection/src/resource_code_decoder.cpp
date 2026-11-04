@@ -124,7 +124,10 @@ ResourceCodeResult ResourceCodeDecoder::decode() const
     flashes.erase(
       std::remove_if(
         flashes.begin(), flashes.end(),
-        [repair_end, frame](const Flash & f) {return f.first < repair_end - frame;}),
+        [this, repair_end, frame](const Flash & f) {
+          return f.first < repair_end - frame ||
+          (config_.max_code_after_repair_s > 0.0 && f.first > repair_end + config_.max_code_after_repair_s);
+        }),
       flashes.end());
   }
 

@@ -535,5 +535,8 @@ resource_code_decoder:
     merge_gap_s: 0.25       # dropout shorter than this does not split a flash
     min_cycles: 2           # cycles that must agree before the code counts as read
     require_repair_verified: true   # no code until RED then steady GREEN was seen (a neighbouring node may flicker green)
+    # Only flashes within this long after the post-repair steady green count (the code lasts 30 s); later ones are a
+    # neighbouring node's lid after a drift (Advanced seed 5 read node 2's steady GREEN). 0 = no limit.
+    max_code_after_repair_s: 35.0
     max_window_s: 240.0     # must cover the whole repair: two steps of mission.repair_step_timeout_s plus the code hold
     publish_period_s: 1.0

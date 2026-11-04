@@ -281,3 +281,23 @@ TEST(ResourceCodeDecoder, AdvancedBlueFlashWithGreenInTheDarkHalfIsBlue)
   EXPECT_TRUE(r.complete);
   EXPECT_EQ(r.circle, kBlue);
 }
+
+TEST(ResourceCodeDecoder, FlashesLongAfterTheRepairAreNotTheCode)
+{
+  // Advanced seed 5: the flash was missed (the vehicle drifted off the lid), and 90 s later the camera saw the
+  // neighbouring node's steady lid flicker GREEN in and out of view. That is not the code.
+  ResourceCodeConfig cfg;
+  cfg.code_length = 1;
+  ResourceCodeDecoder d(cfg);
+  double t = 1.0;
+  for (int i = 0; i < 90; ++i, t += 1.0 / 30.0) {d.add(t, kRed);}         // the damaged ring, 3 s
+  for (int i = 0; i < 150; ++i, t += 1.0 / 30.0) {d.add(t, kGreen);}      // steady green 5 s: repaired
+  for (int i = 0; i < 30 * 90; ++i, t += 1.0 / 30.0) {d.add(t, 0);}       // 90 s of nothing
+  for (int cycle = 0; cycle < 6; ++cycle) {
+    for (int i = 0; i < 30; ++i, t += 1.0 / 30.0) {d.add(t, kGreen);}
+    for (int i = 0; i < 30; ++i, t += 1.0 / 30.0) {d.add(t, 0);}
+  }
+  const auto r = d.decode();
+  EXPECT_TRUE(r.repair_verified);
+  EXPECT_FALSE(r.complete);
+}

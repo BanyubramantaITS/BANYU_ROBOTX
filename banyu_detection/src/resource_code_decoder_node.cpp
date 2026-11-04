@@ -31,6 +31,8 @@ ResourceCodeDecoderNode::ResourceCodeDecoderNode(const rclcpp::NodeOptions & opt
   min_confidence_ = declare_parameter<double>("min_confidence", 0.85);
   config_.require_repair_verified =
     declare_parameter<bool>("require_repair_verified", config_.require_repair_verified);
+  config_.max_code_after_repair_s =
+    declare_parameter<double>("max_code_after_repair_s", config_.max_code_after_repair_s);
   max_window_s_ = declare_parameter<double>("max_window_s", max_window_s_);
   const double publish_period_s = declare_parameter<double>("publish_period_s", 1.0);
   decoder_ = ResourceCodeDecoder(config_);

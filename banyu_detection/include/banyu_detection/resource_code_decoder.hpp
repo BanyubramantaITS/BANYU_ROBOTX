@@ -28,6 +28,9 @@ struct ResourceCodeConfig
   double long_gap_s {1.6};        // dark time between two cycles (nominally 2 s)
   double merge_gap_s {0.25};      // a dropout this short inside one colour does not split the run
   bool require_repair_verified {true};   // no code before RED then steady GREEN was seen (the repair)
+  // The code is shown for 30 s after the post-repair green: later flashes are not it (a vehicle that drifted to the
+  // next node reads that node's steady lid). 0 = no limit.
+  double max_code_after_repair_s {35.0};
   int min_cycles {2};             // matching cycles needed before the code is called complete
 };
 
