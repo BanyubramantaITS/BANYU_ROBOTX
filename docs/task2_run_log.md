@@ -769,3 +769,4 @@ node 1 PASS 450 (others not yet run). **To resume:** H46 midpoint Core seeds 1 5
   the forward survey, one launch each, the last three with the user's full thruster range (MOT_PWM 1100-1900). A suspend (wall clock
   jump 2035 s) happened around seed 9; it pauses the sim and the stack together, and the score is Gazebo ground truth.
   Compared with the turn-around design (H44: 3/4, the RED near the start buoy failed), the back-up design passes all four nodes.
+- **Midpoint dive (H46) Advanced: 4 of 4 PASS 475** (seeds 2 1 5 9 = nodes 1-4; repair, order and circle right), random spawn, hydrophone off. With the sim-time light controller and H43 the circle is read on every node.
