@@ -742,3 +742,15 @@ any fix (the two old anchor tests changed to the last-fix rule). Built at the ne
   `fastdds shm clean` in `task2_sim_cleanup.sh` (about 630 stale Fast DDS shared-memory files had piled up from killed runs).
   The 0.5 s hold rule itself is unchanged.
 - **Midpoint dive Core seed 2 (node 1): FAIL 50** (m3, on the old stream rate): during the descent at Gazebo x 0.82 (z -10.6 to -11.7, 2.8 m above the rings) the tracker made three records in 6 s (progress 1.75, 2.57, 3.37), then 4.68: four records, so the four-ring rule ended the survey in leg 1 and leg 2 never reached node 1 (the RED). The same class as Core seed 9 (duplicates seen during the descent). **H45:** no new ring record while the camera is more than `max_record_height_m` 2.2 m above the pipe (from its width; following height ~1 m; unknown height records as before). Ring tracker 26/26 (new test). Midpoint so far: nodes 2, 3, 4 PASS 450; node 1 FAIL (H45) -> re-run.
+- Midpoint seed 2 again (m4, H45): FAIL 50, the same (records at 1.74 and 2.56 during the descent at z -10.6: the camera height
+  was not measured yet, so H45 did not apply). Then the machine suspended (wall clock jump 6118 s); the queue was stopped.
+- **User clarification (midpoint design):** face the end buoy at the midpoint so that, once the pipe is found, the AUV backs up
+  (stern toward the start buoy) to the pipe's start and then moves forward. **H46 (replaces the two-leg turn-around of H44):**
+  `FollowPipeline.reverse` (surge negated, same lateral/yaw corrections; test: facing east, guidance +0.4 -> ENU vx -0.4);
+  BT `SurveyPipeline` midpoint branch: `StartSurveyLeg`, follow in reverse until `PipelineLegEnded` (pipe out of view 6 s in
+  total; no search while backing up: a lost pipe is the start end), then `AcquirePipeline` with the heading prior (surges forward
+  onto the start), then the normal forward `TraversePipeline` with the repair. **Ring recording gate:** `SetRingRecording`
+  (mission -> `/banyu/mission/ring_recording`, latched) off from the run start through the dive (and the backing up), on for the
+  survey pass, in both dive modes (the descent duplicates of Core seed 9 and midpoint seed 2). The forward-only survey keeps the
+  monotonic ring order (the H44 relaxation is removed). Tests: mission tree 33/33, run lifecycle 24/25 (known), vehicle execution
+  65/65, ring tracker 26/26, uuv_comm 20/20.
