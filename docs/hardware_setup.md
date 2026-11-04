@@ -187,6 +187,7 @@ camera only one stream.
 | `setup/rtk_setup.sh` | One-time RTK rover setup (rtklib + teammate script `setup/fix_rtk_rover.sh` → `rtk-rover.service`) |
 | `setup/yolo_setup.sh` | One-time YOLO setup for the Hailo-8 (section 8) |
 | `check/yolo_test.sh [--hef f] [--labels f] [--rotation deg] [--save f.jpg]` | YOLO on the Hailo-8 against the live front camera: detections, FPS, annotated frame |
+| `move/dive.sh`, `forward.sh`, `backward.sh`, `sway.sh`, `yaw.sh`, `waypoint.sh`, `where.sh` | Movement tests in the water (arms the vehicle; teleop and mission stack stopped): [`movement_tests.md`](movement_tests.md) |
 
 View a camera from the laptop on the same `ROS_DOMAIN_ID`: `ros2 run rqt_image_view rqt_image_view`.
 
