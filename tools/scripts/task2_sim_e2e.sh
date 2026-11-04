@@ -48,6 +48,9 @@ if [ "$UP" = 1 ]; then
   python3 "${REPO_DIR}/tools/sos_integration/ring_recorder.py" "$OUT/rings.jsonl" "$TIMEOUT" > /dev/null 2>&1 &
   ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger '{}' > "$OUT/prepare.out" 2>&1
   echo "prepared $(date +%T)" >> "$OUT/progress.txt"
+  # Hydrophone check: without --hydrophone nothing may publish pinger observations.
+  ros2 topic info /banyu/pinger/observation > "$OUT/pinger_topic.txt" 2>&1
+  echo "pinger $(grep -h 'Publisher count' "$OUT/pinger_topic.txt" || echo 'topic absent')" >> "$OUT/progress.txt"
   # The GCS sends the run start once; a start before the mission reports autonomous_ready is rejected and the run never
   # begins. Wait (up to 60 s) for the readiness the mission publishes.
   for _ in $(seq 1 30); do
