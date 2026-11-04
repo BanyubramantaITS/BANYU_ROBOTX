@@ -596,3 +596,11 @@ So the only decision that read pinger data is `SearchPipeline`.
 - `b3b` Core seed 2: **not counted** (sim fault): three `ArduPilot controller has reset` at 65 s, the run start was rejected
   (`NOT_READY ... holding 0`: the execution readiness went stale), the mission never started; stopped by PID, re-run queued.
   Process: my watcher script had an arithmetic bug (grep -c with `|| echo 0`) and exited; fixed and re-armed.
+- `b3b` Core seed 1: **not counted**: my cleanup call (after stopping seed 2) ran its delayed SIGKILL while the batch was already
+  starting seed 1 and killed it. Process fix: `stop_run.sh` (scratch) pauses the batch (SIGSTOP), stops the run by PID, cleans,
+  resumes. The e2e `prepare_autonomy` call now has a 60 s timeout (it hung on the dead sim).
+- `b3b` Core seed 5 (node 3): repair right (`HoldProbeOnRing` SUCCESS), four rings GREEN, GREEN, RED, GREEN recorded by 205 s,
+  `/banyu/pipeline/rings_complete` true (checked on the topic), but **H42 did not end the traverse**: at the end the vehicle looped at
+  Gazebo x -1.8 for 350 s, re-associating the last node every 9 s; each loss lasted < 3 s because the retrace finds the last stretch
+  again within a second. Stopped (code change needed). **H42b:** the 3 s is the total time the pipe is out of view since the fourth
+  ring (frame gaps capped at 1 s), not one continuous loss. Test updated to that intermittent pattern; 7/7.
