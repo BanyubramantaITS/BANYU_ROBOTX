@@ -165,6 +165,7 @@ ring_tracker:
     pose_topic: "/mavros/local_position/pose"
     state_topic: "/banyu/pipeline/ring_state"
     accepted_ring_topic: "/banyu/pipeline/accepted_ring"
+    rings_complete_topic: "/banyu/pipeline/rings_complete"   # four rings, none waiting for a repair (pipeline_end_node)
     repair_service: "/banyu/pipeline/acknowledge_ring_repair"
     # Same physical node if within this distance. The camera model moves the progress estimate of one ring by up to
     # 0.7 m between views in the sim, and the sim ring spacing is 1.4 m, so 0.8 keeps one node in one record.
@@ -383,6 +384,10 @@ vehicle_execution_node:
 pipeline_end_node:
   ros__parameters:
     require_run_context: true
+    # The real vehicle's only end signal (the end candidates are the sim fixture's ground truth): four rings recorded
+    # (none waiting for a repair, ring_tracker rings_complete_topic) and the pipe out of view this long. 0 = off.
+    rings_complete_lost_s: 3.0
+    rings_complete_topic: "/banyu/pipeline/rings_complete"
     reset_service: "/banyu/pipeline/reset_end"
     candidate_state_topic: "/banyu/pipeline/end_candidate_state"
     end_state_topic: "/banyu/pipeline/end_state"

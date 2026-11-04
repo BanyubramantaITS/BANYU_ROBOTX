@@ -32,6 +32,7 @@ private:
   void observationCallback(const banyu_msgs::msg::PipelineObservation::SharedPtr msg);
   void candidateCallback(const std_msgs::msg::Bool::SharedPtr msg);
   void candidateStateCallback(const banyu_msgs::msg::PipelineEndCandidate::SharedPtr msg);
+  void ringsCompleteCallback(const banyu_msgs::msg::PipelineEndCandidate::SharedPtr msg);
   void resetCallback(
     const std::shared_ptr<ResetTask2::Request> request,
     std::shared_ptr<ResetTask2::Response> response);
@@ -43,6 +44,10 @@ private:
   std::string end_state_topic_;
   std::string candidate_state_topic_;
   std::string reset_service_;
+  std::string rings_complete_topic_;
+  // > 0: four rings recorded (none waiting for a repair) and the pipe out of view this long ends the traverse.
+  // The only end signal on the real vehicle (the end candidates come from the sim fixture).
+  double rings_complete_lost_s_{3.0};
   bool require_run_context_{false};
   bool publish_confirmed_only_{true};
   bool default_candidate_{false};
@@ -54,10 +59,15 @@ private:
   bool candidate_active_{false};
   bool candidate_received_{false};
   rclcpp::Time candidate_stamp_{0, 0, RCL_ROS_TIME};
+  bool rings_complete_{false};
+  bool pipe_lost_{false};
+  rclcpp::Time lost_since_{0, 0, RCL_ROS_TIME};
+  bool ended_by_rings_{false};
 
   rclcpp::Subscription<banyu_msgs::msg::PipelineObservation>::SharedPtr observation_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr candidate_sub_;
   rclcpp::Subscription<banyu_msgs::msg::PipelineEndCandidate>::SharedPtr candidate_state_sub_;
+  rclcpp::Subscription<banyu_msgs::msg::PipelineEndCandidate>::SharedPtr rings_complete_sub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr end_pub_;
   rclcpp::Publisher<banyu_msgs::msg::PipelineEndState>::SharedPtr end_state_pub_;
   rclcpp::Service<ResetTask2>::SharedPtr reset_service_server_;

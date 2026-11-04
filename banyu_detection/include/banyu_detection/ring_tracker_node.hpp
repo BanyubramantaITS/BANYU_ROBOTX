@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include <banyu_msgs/msg/pipeline_end_candidate.hpp>
 #include <banyu_msgs/msg/pipeline_observation.hpp>
 #include <banyu_msgs/msg/pipeline_ring_observation.hpp>
 #include <banyu_msgs/msg/pipeline_ring_state.hpp>
@@ -49,6 +50,9 @@ private:
   void poseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
   void observationCallback(
     const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg);
+  // Four rings recorded and no RED waiting for its repair: nothing is left to survey (pipeline_end_node ends the
+  // traverse once the pipe is also out of view).
+  void publishRingsComplete();
   void acknowledgeCallback(
     const std::shared_ptr<AcknowledgeRingRepair::Request> request,
     std::shared_ptr<AcknowledgeRingRepair::Response> response);
@@ -65,6 +69,7 @@ private:
   std::string pose_topic_;
   std::string state_topic_;
   std::string accepted_ring_topic_;
+  std::string rings_complete_topic_;
   std::string repair_service_;
   std::string reset_service_;
   bool require_run_context_{false};
@@ -106,6 +111,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
   rclcpp::Publisher<banyu_msgs::msg::PipelineRingState>::SharedPtr state_pub_;
   rclcpp::Publisher<banyu_msgs::msg::Task2RingRecord>::SharedPtr accepted_ring_pub_;
+  rclcpp::Publisher<banyu_msgs::msg::PipelineEndCandidate>::SharedPtr rings_complete_pub_;
   rclcpp::Service<AcknowledgeRingRepair>::SharedPtr repair_service_server_;
   rclcpp::Service<ResetTask2>::SharedPtr reset_service_server_;
 };

@@ -17,6 +17,8 @@ RingTrackerNode::RingTrackerNode(const rclcpp::NodeOptions & options)
   state_pub_ = create_publisher<banyu_msgs::msg::PipelineRingState>(state_topic_, ringStateQoS());
   accepted_ring_pub_ = create_publisher<banyu_msgs::msg::Task2RingRecord>(
     accepted_ring_topic_, acceptedRingQoS());
+  rings_complete_pub_ = create_publisher<banyu_msgs::msg::PipelineEndCandidate>(
+    rings_complete_topic_, rclcpp::QoS(1).reliable().transient_local());
   pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
     pose_topic_, rclcpp::SensorDataQoS(),
     std::bind(&RingTrackerNode::poseCallback, this, std::placeholders::_1));
@@ -83,6 +85,8 @@ void RingTrackerNode::declareParameters()
     "state_topic", "/banyu/pipeline/ring_state");
   accepted_ring_topic_ = declare_parameter<std::string>(
     "accepted_ring_topic", "/banyu/pipeline/accepted_ring");
+  rings_complete_topic_ = declare_parameter<std::string>(
+    "rings_complete_topic", "/banyu/pipeline/rings_complete");
   repair_service_ = declare_parameter<std::string>(
     "repair_service", "/banyu/pipeline/acknowledge_ring_repair");
   reset_service_ = declare_parameter<std::string>(
@@ -275,6 +279,18 @@ void RingTrackerNode::observationCallback(
     accepted_ring_pub_->publish(update.merged_record);
   }
   accepted_ring_pub_->publish(update.record);
+  publishRingsComplete();
+}
+
+void RingTrackerNode::publishRingsComplete()
+{
+  const auto & snapshot = adapter_.tracker().snapshot();
+  banyu_msgs::msg::PipelineEndCandidate msg;
+  msg.header.stamp = now();
+  msg.run_id = run_context_.runId();
+  msg.epoch = run_context_.epoch();
+  msg.candidate = snapshot.records.size() >= 4 && !snapshot.red_pending;
+  rings_complete_pub_->publish(msg);
 }
 
 void RingTrackerNode::resetCallback(
@@ -300,6 +316,7 @@ void RingTrackerNode::resetCallback(
   empty_state.epoch = request->epoch;
   empty_state.color = banyu_msgs::msg::PipelineRingObservation::COLOR_UNKNOWN;
   state_pub_->publish(empty_state);
+  publishRingsComplete();
 }
 
 void RingTrackerNode::acknowledgeCallback(
@@ -320,6 +337,7 @@ void RingTrackerNode::acknowledgeCallback(
   response->success = result.success;
   response->reason = result.reason;
   response->accepted_ring_index = result.accepted_ring_index;
+  publishRingsComplete();
 }
 
 }  // namespace banyu_detection
