@@ -59,7 +59,7 @@ if [ "$UP" = 1 ]; then
   done
   echo "ready $(date +%T)" >> "$OUT/progress.txt"
   sleep 3
-  timeout "$TIMEOUT" python3 "${REPO_DIR}/tools/sos_integration/mock_gcs.py" --send run-start --serve \
+  timeout "$TIMEOUT" python3 "${REPO_DIR}/tools/sos_integration/mock_gcs.py" --send run-start --serve --start-retry-s 30 \
     --timeout "$TIMEOUT" --log "$OUT/mock_gcs.jsonl" "${GCS_ARGS[@]}" > "$OUT/mock_gcs.out" 2>&1 &
   GCS_PID=$!
   # Core ends shortly after the survey report, Advanced and Disruptive after the resource request, once the ring

@@ -225,6 +225,9 @@ def main():
     ap.add_argument('--min-subs', type=int, default=2,
                     help='readers of /system/mission/command to wait for before the first send')
     ap.add_argument('--timeout', type=float, default=900.0)
+    ap.add_argument('--start-retry-s', type=float, default=0.0,
+                    help='> 0 (sim harness): resend run-start with the next seq if the UUV heartbeat still shows no Task 2 '
+                    'tasking this long after the last one (at most 3 times); a lost first start then does not end the run')
     ap.add_argument('--log', default=None, help='JSONL log file')
     ap.add_argument('--expect-tin')
     ap.add_argument('--expect-circle')
@@ -244,6 +247,8 @@ def main():
             end = time.time() + args.delay_s
             while time.time() < end:
                 rclpy.spin_once(node, timeout_sec=0.1)
+        start_sent = time.time() if 'run-start' in args.send else None
+        start_retries = 0
         if args.serve:
             need_survey = args.expect_segments is not None
             need_delivery = bool(args.expect_circle or args.expect_tin)
@@ -254,6 +259,15 @@ def main():
                 if args.course and time.time() > next_course:
                     node.publish_course()
                     next_course = time.time() + 1.0
+                if node.uuv_hb_state is not None and node.uuv_hb_state[1] == RxTask.TASK_INFRA_SURVEY_REPAIR:
+                    start_sent = None
+                if (start_sent and args.start_retry_s > 0.0 and start_retries < 3 and
+                        time.time() - start_sent > args.start_retry_s and
+                        (node.uuv_hb_state is None or node.uuv_hb_state[1] != RxTask.TASK_INFRA_SURVEY_REPAIR)):
+                    start_retries += 1
+                    node.log('run_start_retry', attempt=start_retries)
+                    node.send('run-start')
+                    start_sent = time.time()
                 if (not need_survey or node.survey) and (not need_delivery or node.uav_echoes):
                     if need_survey or need_delivery:
                         break
