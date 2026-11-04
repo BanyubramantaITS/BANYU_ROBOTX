@@ -674,3 +674,32 @@ So the only decision that read pinger data is `SearchPipeline`.
 - `b3c` Disruptive seed 5: **not counted** (the controller-reset burst when the EKF took the GPS; execution never held, four starts NOT_READY; the GPS gate did not act then). Harness: prepare_autonomy and the hold wait are now part of each launch attempt; an attempt that never holds is relaunched (3 tries). Re-run queued.
 - `b3c` Disruptive seed 9 (node 4): **FAIL 450** (order and repair right, Gazebo TASK_COMPLETED_GREEN; no code). After the contact the lid left the camera (`HoldProbeOnRing` 'Ring lost during the approach') and no ring was in view for the whole decode hold: the station-keeping limit (H13-H17), not the pinger.
 - `b3d` Core seed 1: **not counted** (run start NOT_READY: holding went false after the e2e's check, when the EKF took the GPS ~200 s wall after boot at 0.34x). Harness: the e2e now waits for the log event 'is using GPS' (not a fixed wall delay) before the health and hold checks. Re-run queued.
+
+### Paused by the user (2026-11-04 ~15:20)
+
+All sim processes, batches and queues were stopped (by PID and `task2_sim_cleanup.sh`; no ardusub, gz or mavros left).
+The `b3d` Core seed 9 run in progress was stopped and is not counted. Nothing pushed.
+
+**Results so far, hydrophone off (full profile, random spawn, Gazebo ground truth):**
+
+| Tier | Node 1 (seed 2) | Node 2 (seed 1) | Node 3 (seed 5) | Node 4 (seed 9) |
+|---|---|---|---|---|
+| Core | PASS 450 (before the standoff) | not counted x3 (harness/sim wedge) | PASS 450 | FAIL 300 (before H41b) |
+| Advanced | not counted (wedge) | FAIL 450* | FAIL 450* (GREEN) | FAIL 450* |
+| Disruptive | not counted (wedge) | PASS 500 | not counted (wedge) | FAIL 450 (lid lost after contact) |
+
+\* before the light-controller sim-clock fix: the flashes were 0.33 s of sim time; these Advanced runs do not count for the tier.
+
+**Code state (all committed on `feat/task2-core-disruptive-sim`, built, unit-tested):** hydrophone opt-in (H40); H39 `sensors:=baro`;
+H41/H41b duplicate-ring merge with superseded records; H42/H42b four-ring pipe end; H43 decoder window after the repair; sim light
+controller on the sim clock; H44 surface standoff 1.5 m and `--dive-point midpoint` (two legs); `launch_task2.sh --real` RC channel
+overlap refusal; `docs/task2_hardware_checklist.md` (draft). Harness: e2e waits for the EKF GPS event, health check, prepare and hold
+inside the launch attempts, 1200 s timeout, mock GCS start retry.
+
+**To resume (in this order):** re-run Core seeds 1 and 9, Advanced 2 1 5 9, Disruptive 2 and 5 (full profile, random spawn); then
+`--dive-point midpoint` Core 2 1 5 9; then step 4 in `--sensors baro` (pipe depth 3/8/13, seed 24, `--pipe-move 0 0.9 0`, tier and
+colour seeds, scenarios, 5/5); then step 5 (baro as the `--real` default if it beats full, dry runs, checklist final) and step 6
+(verdict, sim results). Known limits: the sim runs at 0.34x on the AMD iGPU (the RTX 5050 is not on the PCI bus); the
+controller-reset burst when the EKF takes the GPS wedges about one launch in three (the e2e relaunches); station keeping over
+the node during the flash code (H13-H17) still loses the lid in some runs. Scratch tools (not committed, scratchpad): `queue.sh`,
+`watchq.sh`, `stop_run.sh` (pause the batch with SIGSTOP, stop the run by PID, clean, resume).
