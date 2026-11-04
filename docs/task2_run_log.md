@@ -610,3 +610,17 @@ So the only decision that read pinger data is `SearchPipeline`.
   line, no rejection; heartbeat task stayed 1) and the UUV sat at the surface. Harness fix: `mock_gcs --start-retry-s 30` (used by
   the e2e) resends run-start with the next seq if the UUV heartbeat shows no Task 2 tasking 30 s later (at most 3 times). The
   mission's run identity rules are unchanged (duplicates in one window are still ignored). Stopped with `stop_run.sh`; re-run queued.
+- `b3c` Core seed 5 (node 3): **PASS 450**. Core seed 9 (node 4): **FAIL 300**: order GREEN, RED, GREEN, GREEN. H41 merged a
+  duplicate pair (progress 0.0 and 0.88, both seen during the descent from x 3.44) and kept the RED at 4.64, but it reused slot 1:
+  the survey ledger keeps each node id's first sighting (`originals_`, first-pass identity), so slot 1 kept progress 0.88 and was
+  upgraded to RED ("first seen GREEN, later RED"), and the RED was reported second. Without H41 the RED would not have been recorded
+  at all (the seed 24 failure). **H41b:** never reuse a node id: the merged-away record is republished with a new
+  `Task2RingRecord.superseded` flag and the new ring gets a new id (4); the tracker, `rings_complete`, the ledger (counts, originals,
+  best effort) skip superseded records. Tests: tracker 25/25 (updated), ledger core 26/26 (new: a superseded duplicate is dropped and
+  the RED at the far end is reported last), reporting 15/15, integration 6/6.
+- `b3c` Advanced seed 2: **not counted** (sim fault): a burst of three controller resets right when the EKF takes the GPS (~70 s
+  after boot) wedged the sim (log stops, the vehicle never holds); four run starts (with the new retry) all `NOT_READY ... holding 0`.
+  The same burst is in every run that never started (b3b Core 2, b3c Core 1); passing runs have no reset there. Harness fix: the e2e
+  waits 75 s after boot, then counts the attempt as up only with <= 1 controller reset and `/clock` advancing; else it relaunches
+  (part of the 3 tries).
+- Re-runs queued on H41b: Core seeds 1 and 9, Advanced seed 2; then step 4 (baro: pipe depth 3, 8, 13; seed 24; 0.9 m lateral).
