@@ -671,3 +671,4 @@ So the only decision that read pinger data is `SearchPipeline`.
 - `b3c` Disruptive seed 2: **not counted** (start sent before execution was holding; sim then wedged). Harness: the e2e also waits
   for `/banyu/execution/readiness holding: true` before the run start.
 - `b3c` Disruptive seed 1 (node 2): **PASS 500** (order GREEN, RED, GREEN, GREEN; tin and circle right) - the first tier 4 run on the sim-time light controller and H41b-H43.
+- `b3c` Disruptive seed 5: **not counted** (the controller-reset burst when the EKF took the GPS; execution never held, four starts NOT_READY; the GPS gate did not act then). Harness: prepare_autonomy and the hold wait are now part of each launch attempt; an attempt that never holds is relaunched (3 tries). Re-run queued.
