@@ -604,3 +604,9 @@ So the only decision that read pinger data is `SearchPipeline`.
   Gazebo x -1.8 for 350 s, re-associating the last node every 9 s; each loss lasted < 3 s because the retrace finds the last stretch
   again within a second. Stopped (code change needed). **H42b:** the 3 s is the total time the pipe is out of view since the fourth
   ring (frame gaps capped at 1 s), not one continuous loss. Test updated to that intermittent pattern; 7/7.
+- `b3c` (H42b) Core seed 2 (node 1): **PASS 450** (order RED, GREEN, GREEN, GREEN; the traverse ended by "four rings recorded and
+  the pipe out of view for 3.0 s since"; pinger topic absent).
+- `b3c` Core seed 1: **not counted** (harness): the mock GCS sent the run start once, the mission never logged it (no GCS command
+  line, no rejection; heartbeat task stayed 1) and the UUV sat at the surface. Harness fix: `mock_gcs --start-retry-s 30` (used by
+  the e2e) resends run-start with the next seq if the UUV heartbeat shows no Task 2 tasking 30 s later (at most 3 times). The
+  mission's run identity rules are unchanged (duplicates in one window are still ignored). Stopped with `stop_run.sh`; re-run queued.
