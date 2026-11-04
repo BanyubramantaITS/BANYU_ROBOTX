@@ -634,3 +634,15 @@ So the only decision that read pinger data is `SearchPipeline`.
   avoidance. Also found: with `sensors:=full` the surface goal IS the active buoy (`dive_offset_m` 0, `gps_tolerance_m` 1.0).
   Proposed (not built yet): a standoff goal and a keep-out detour around both PipelineBuoys positions in `NavigateSurfaceGps`, slow
   inside 5 m; the front camera (YOLO) only as a close-range stop; do not pass under the buoys (anchor line, pinger cable).
+- `b3c` Advanced seed 5 (node 3): **FAIL 450**, circle reported **GREEN** (the sim's BLUE): the vehicle drifted 1.26 m back to node 2
+  after the 0.6 m back-off and, 90+ s later, the decoder counted node 2's steady lid flickering in and out of view as GREEN flashes.
+  Seed 9 (node 4): **FAIL 450**, no circle, although the lit BLUE lid was in view.
+- **Cause of the missing codes (a sim fixture bug, not the vehicle):** `robotx_light_controller.py` timed the flashes with
+  `time.time()` (wall clock), while the camera, detector and decoder run on sim time. The sim runs at about 0.32x real time now
+  (ring observations 0.1 s apart in sim time, 0.31 s in wall time; `mavros_node` uses ~180% CPU), so a 1 s flash lasted 0.33 s of
+  sim time, below the decoder's `min_on_s` 0.5, and every flash was dropped (seed 9: lit BLUE and dark alternate every sample). The
+  earlier passes ran at a higher real-time factor. **Fix:** the controller follows the gz `/clock` for every timing decision (wall
+  time only before the first clock message and for its status throttle). **H43:** the decoder counts only flashes within
+  `max_code_after_repair_s` 35 s after the post-repair steady green (the code lasts 30 s), so a neighbouring node seen later can
+  never become the code (seed 5); decoder tests 15/15 (new: flashes 90 s after the repair are not a code).
+- Advanced seeds 1, 5, 9 (and 2) are re-run on this code; the Advanced results above are not counted for the tier.
