@@ -754,3 +754,4 @@ any fix (the two old anchor tests changed to the last-fix rule). Built at the ne
   survey pass, in both dive modes (the descent duplicates of Core seed 9 and midpoint seed 2). The forward-only survey keeps the
   monotonic ring order (the H44 relaxation is removed). Tests: mission tree 33/33, run lifecycle 24/25 (known), vehicle execution
   65/65, ring tracker 26/26, uuv_comm 20/20.
+- **H46 midpoint (back-up design) Core seed 2 (node 1): PASS 450** - the case the turn-around design failed. Flow as designed: recording off through the dive, acquire at the midpoint, follow in reverse past the pipe's start (Gazebo x 3.52, pipe start 2.3), leg end, recording on, forward acquire, survey: exactly one record per node in order (0.21 RED, 1.96, 3.24, 4.69), repair TASK_COMPLETED_GREEN.
