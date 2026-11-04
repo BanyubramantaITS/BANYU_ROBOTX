@@ -46,7 +46,7 @@ echo "up=$UP" >> "$OUT/progress.txt"
 if [ "$UP" = 1 ]; then
   sleep 45   # EKF and datum settle
   python3 "${REPO_DIR}/tools/sos_integration/ring_recorder.py" "$OUT/rings.jsonl" "$TIMEOUT" > /dev/null 2>&1 &
-  ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger '{}' > "$OUT/prepare.out" 2>&1
+  timeout 60 ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger '{}' > "$OUT/prepare.out" 2>&1
   echo "prepared $(date +%T)" >> "$OUT/progress.txt"
   # Hydrophone check: without --hydrophone nothing may publish pinger observations.
   ros2 topic info /banyu/pinger/observation > "$OUT/pinger_topic.txt" 2>&1

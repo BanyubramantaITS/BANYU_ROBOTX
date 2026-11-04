@@ -337,7 +337,7 @@ TEST_F(PipelineEndNodeTest, CandidateStateSupportsSimTimeWithoutClockMismatchExc
 TEST_F(PipelineEndNodeTest, FourRingsAndThePipeOutOfViewEndTheTraverse)
 {
   // The real vehicle has no end detector: with four rings recorded (none waiting for a repair), losing the pipe for
-  // rings_complete_lost_s ends the traverse. Losing it before that, or four rings with the pipe in view, does not.
+  // rings_complete_lost_s in total ends the traverse. Losing it before that, or four rings with the pipe in view, does not.
   rclcpp::NodeOptions options;
   options.append_parameter_override("rings_complete_lost_s", 3.0);
   options.append_parameter_override("observation_topic", "/test_rings/obs");
@@ -372,10 +372,15 @@ TEST_F(PipelineEndNodeTest, FourRingsAndThePipeOutOfViewEndTheTraverse)
   complete(true);
   for (double t = 14.5; t <= 18.0; t += 0.5) {observe(t, banyu_msgs::msg::PipelineObservation::TRACKED);}
   EXPECT_FALSE(ended);
-  observe(18.5, banyu_msgs::msg::PipelineObservation::NO_PIPE);
-  observe(20.0, banyu_msgs::msg::PipelineObservation::NO_PIPE);
+  // At the end the search finds the last stretch again within a second each time: the losses add up.
+  const auto lost = banyu_msgs::msg::PipelineObservation::NO_PIPE;
+  const auto tracked = banyu_msgs::msg::PipelineObservation::TRACKED;
+  observe(18.5, lost); observe(19.0, lost); observe(19.5, lost);   // 1.5 s
+  observe(20.0, tracked); observe(22.0, tracked);
+  observe(22.5, lost); observe(23.0, lost);                        // 2.5 s
   EXPECT_FALSE(ended);
-  observe(21.6, banyu_msgs::msg::PipelineObservation::NO_PIPE);
+  observe(23.5, tracked);
+  observe(24.0, lost); observe(24.5, lost);                        // 3.5 s
   EXPECT_TRUE(ended);
 }
 

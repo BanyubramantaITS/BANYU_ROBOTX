@@ -45,8 +45,9 @@ private:
   std::string candidate_state_topic_;
   std::string reset_service_;
   std::string rings_complete_topic_;
-  // > 0: four rings recorded (none waiting for a repair) and the pipe out of view this long ends the traverse.
-  // The only end signal on the real vehicle (the end candidates come from the sim fixture).
+  // > 0: four rings recorded (none waiting for a repair) and the pipe out of view this long in total since then ends the
+  // traverse. The only end signal on the real vehicle (the end candidates come from the sim fixture). In total, not in one
+  // go: at the end the search finds the pipe's last stretch again within a second, every time.
   double rings_complete_lost_s_{3.0};
   bool require_run_context_{false};
   bool publish_confirmed_only_{true};
@@ -60,8 +61,9 @@ private:
   bool candidate_received_{false};
   rclcpp::Time candidate_stamp_{0, 0, RCL_ROS_TIME};
   bool rings_complete_{false};
-  bool pipe_lost_{false};
-  rclcpp::Time lost_since_{0, 0, RCL_ROS_TIME};
+  bool has_last_stamp_{false};
+  rclcpp::Time last_stamp_{0, 0, RCL_ROS_TIME};
+  double lost_after_rings_s_{0.0};
   bool ended_by_rings_{false};
 
   rclcpp::Subscription<banyu_msgs::msg::PipelineObservation>::SharedPtr observation_sub_;

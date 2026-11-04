@@ -79,7 +79,8 @@ void PipelineEndNode::reset()
   candidate_active_ = false;
   candidate_received_ = false;
   rings_complete_ = false;
-  pipe_lost_ = false;
+  has_last_stamp_ = false;
+  lost_after_rings_s_ = 0.0;
   ended_by_rings_ = false;
 }
 
@@ -98,7 +99,8 @@ void PipelineEndNode::resetCallback(
   candidate_active_ = false;
   candidate_received_ = false;
   rings_complete_ = false;
-  pipe_lost_ = false;
+  has_last_stamp_ = false;
+  lost_after_rings_s_ = 0.0;
   ended_by_rings_ = false;
   publishEnd(false);
 }
@@ -190,18 +192,18 @@ void PipelineEndNode::observationCallback(
 
   const auto update = adapter_.update(*msg, is_candidate);
   const rclcpp::Time stamp(msg->header.stamp, get_clock()->get_clock_type());
-  if (msg->status == banyu_msgs::msg::PipelineObservation::TRACKED) {
-    pipe_lost_ = false;
-  } else if (!pipe_lost_) {
-    pipe_lost_ = true;
-    lost_since_ = stamp;
+  if (has_last_stamp_ && rings_complete_ && msg->status != banyu_msgs::msg::PipelineObservation::TRACKED) {
+    // Frame gaps longer than 1 s count as 1 s.
+    lost_after_rings_s_ += std::clamp((stamp - last_stamp_).seconds(), 0.0, 1.0);
   }
-  if (!ended_by_rings_ && rings_complete_ && pipe_lost_ && rings_complete_lost_s_ > 0.0 &&
-    (stamp - lost_since_).seconds() >= rings_complete_lost_s_)
+  last_stamp_ = stamp;
+  has_last_stamp_ = true;
+  if (!ended_by_rings_ && rings_complete_ && rings_complete_lost_s_ > 0.0 &&
+    lost_after_rings_s_ >= rings_complete_lost_s_)
   {
     ended_by_rings_ = true;
-    RCLCPP_INFO(get_logger(), "Pipeline end: four rings recorded and the pipe out of view for %.1f s",
-      rings_complete_lost_s_);
+    RCLCPP_INFO(get_logger(), "Pipeline end: four rings recorded and the pipe out of view for %.1f s since",
+      lost_after_rings_s_);
   }
   if (update.confirmed || ended_by_rings_) {
     publishEnd(true);
