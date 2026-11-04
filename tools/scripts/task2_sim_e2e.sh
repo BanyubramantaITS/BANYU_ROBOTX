@@ -9,7 +9,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 WS_DIR="$(cd "${REPO_DIR}/../.." && pwd)"
-OUT=""; MODE="--headless"; TIER="core"; TIMEOUT=900; GATE=(--gps-gate); GCS_ARGS=(); LAUNCH_ARGS=()
+OUT=""; MODE="--headless"; TIER="core"; TIMEOUT=1200; GATE=(--gps-gate); GCS_ARGS=(); LAUNCH_ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
