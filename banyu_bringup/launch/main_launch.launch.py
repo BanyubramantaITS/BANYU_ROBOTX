@@ -124,9 +124,9 @@ def generate_launch_description():
     sensors_arg = DeclareLaunchArgument(
         name="sensors",
         default_value="full",
-        description="Task 2 sensor set: 'full' (Bar30 depth) or 'minimal' (bottom camera, Pixhawk IMU/compass, "
+        description="Task 2 sensor set: 'full' (Bar30 depth), 'baro' (Bar30 + ALT_HOLD, dive stopped by camera, order dead-reckoned) or 'minimal' (bottom camera, Pixhawk IMU/compass, "
         "surface GPS; STABILIZE under water, heave from the camera).",
-        choices=["full", "minimal", "gamble"],
+        choices=["full", "baro", "minimal", "gamble"],
     )
     pipe_depth_arg = DeclareLaunchArgument(
         name="pipe_depth",

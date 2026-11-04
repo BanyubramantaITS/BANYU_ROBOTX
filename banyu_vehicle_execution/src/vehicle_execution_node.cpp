@@ -312,10 +312,16 @@ void VehicleExecutionNode::initActionServers()
     const double rate = declare_parameter<double>("camera_descent.rate_mps", 0.15);
     // The time limit: max_time_s if set (the commanded rate is not the real sink rate in STABILIZE), else max_depth_m / rate.
     const double max_time = declare_parameter<double>("camera_descent.max_time_s", 0.0);
+    const double max_depth = declare_parameter<double>("camera_descent.max_depth_m", 15.0);
     dive_server->setCameraDescent(
       rate, declare_parameter<double>("camera_descent.lock_s", 1.0),
-      max_time > 0.0 ? max_time : declare_parameter<double>("camera_descent.max_depth_m", 15.0) / rate,
+      max_time > 0.0 ? max_time : max_depth / rate,
       declare_parameter<double>("camera_descent.surge_mps", 0.0));
+    // sensors:=baro: the Bar30 holds depth (ALT_HOLD) but the pipe depth is unknown, so the dive also stops by camera.
+    const bool with_depth = declare_parameter<bool>("camera_descent.with_depth", false);
+    if (use_pressure_depth_ && with_depth) {
+      dive_server->setCameraDescentWithDepth(max_depth);
+    }
   }
   camera_heave_servers_ = {acquire_server->name(), search_server->name(), follow_server->name(),
     center_server->name()};

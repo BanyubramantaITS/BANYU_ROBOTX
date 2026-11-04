@@ -1985,3 +1985,58 @@ TEST_F(VehicleExecutionNodeTest, SearchPipelineHomesOnPingerOnlyWhenOptedIn)
   EXPECT_NEAR(max_vx, 0.25, 1e-3);
   EXPECT_GE(min_vx, -1e-6);
 }
+
+TEST_F(VehicleExecutionNodeTest, BaroCameraDescentSinksUntilThePipeAndStopsAtTheMaximumDepth)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("camera_descent.with_depth", true);
+  options.append_parameter_override("camera_descent.rate_mps", 0.15);
+  options.append_parameter_override("camera_descent.max_depth_m", 4.0);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  double min_vz = 0.0;
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&min_vz](const mavros_msgs::msg::PositionTarget::SharedPtr msg) {
+      min_vz = std::min(min_vz, static_cast<double>(msg->velocity.z));
+    });
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto depth_pub = node->create_publisher<std_msgs::msg::Float64>(
+    "/mavros/global_position/rel_alt", rclcpp::SensorDataQoS());
+  using Action = banyu_msgs::action::DiveToDepth;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/dive_to_depth");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  Action::Goal goal;
+  goal.target_depth_m = 12.5;
+  goal.depth_tolerance_m = 0.3;
+  goal.heading_tolerance_rad = 0.2;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  std_msgs::msg::Float64 depth;
+  depth.data = -1.0;
+  for (int i = 0; i < 20; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    depth_pub->publish(depth);
+    spinFor(node, 2);
+  }
+  // The camera descent rate, not the depth P-loop toward 12.5 m.
+  EXPECT_NEAR(min_vz, -0.15, 1e-3);
+  EXPECT_TRUE(result_future.wait_for(0ms) != std::future_status::ready);
+  depth.data = -4.2;
+  const auto until = std::chrono::steady_clock::now() + 1500ms;
+  while (result_future.wait_for(0ms) != std::future_status::ready &&
+    std::chrono::steady_clock::now() < until)
+  {
+    publishPose(node, pose_pub, 0.0);
+    depth_pub->publish(depth);
+    spinFor(node, 1);
+  }
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  const auto wrapped = result_future.get();
+  EXPECT_EQ(wrapped.code, rclcpp_action::ResultCode::ABORTED);
+  EXPECT_NE(wrapped.result->reason.find("maximum depth"), std::string::npos);
+}

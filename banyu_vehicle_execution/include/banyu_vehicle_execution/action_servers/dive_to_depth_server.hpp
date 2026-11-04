@@ -26,6 +26,9 @@ public:
   // or a lit light for `lock_s`; fail after `max_time_s` (the dive's depth limit at that rate).
   // surge_mps: creep forward along the target heading while sinking (the dive point, the start buoy, is beyond the pipe's end).
   void setCameraDescent(double rate_mps, double lock_s, double max_time_s, double surge_mps = 0.0);
+  // With a depth sensor (sensors:=baro): the camera descent also ends the dive, and the measured depth is a floor:
+  // past `max_depth_m` with nothing in view the dive fails.
+  void setCameraDescentWithDepth(double max_depth_m);
 
   void onGoalStarted() override;
   MotionIntent tick(
@@ -47,6 +50,8 @@ private:
   double camera_lock_s_{1.0};
   double camera_max_time_s_{100.0};
   double camera_surge_mps_{0.0};
+  bool camera_with_depth_{false};
+  double camera_max_depth_m_{15.0};
   double elapsed_s_{0.0};
   double locked_s_{0.0};
 };

@@ -1,0 +1,27 @@
+# Task 2 sensor overlay for sensors:=baro: bottom camera + Pixhawk (IMU, compass) + RTK GPS at the surface + Bar30.
+# ALT_HOLD holds the depth under water (as sensors:=full), but the pipe depth is unknown, so the dive stops by camera
+# (pipe in view with a range from its width; the Bar30 is only the floor), the height over the pipe is the pipe-width
+# standoff (in ALT_HOLD the heave stick is a climb rate), and the ring order is dead-reckoned along the buoy line
+# (the real Pixhawk has no position under water). mission.launch.py loads it after the params and tier files.
+banyu_mission:
+  ros__parameters:
+    mission:
+      # The start buoy is 1.5-2.5 m beyond the pipe's end: dive 1.5 m inside the buoys (the shortest gap).
+      dive_offset_m: 1.5
+vehicle_execution_node:
+  ros__parameters:
+    camera_heave:
+      enabled: true
+      # ALT_HOLD: no buoyancy trim to learn (the depth hold does it).
+      ki: 0.0
+    camera_descent:
+      with_depth: true
+      rate_mps: 0.15
+      max_depth_m: 15.0
+calibrated_depth_node:
+  ros__parameters:
+    depth_source: "pressure"
+ring_tracker:
+  ros__parameters:
+    pose_source: "dead_reckoning"
+    progress_axis: "buoy_line"

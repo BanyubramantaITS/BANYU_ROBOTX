@@ -36,6 +36,7 @@ SPAWN_XYZ=""
 SENSORS="full"
 GAMBLE_RED="2,3"
 USE_HYDROPHONE=false
+ALLOW_CHANNEL_OVERLAP=false
 PIPE_DEPTH=""
 SCENARIO_ARGS=()
 EXTRA_ARGS=()
@@ -89,11 +90,18 @@ Simulation Options (--sim only):
 
 Both targets:
   --tier <t>            (see above) On --real the default is core, like sub_bringup.launch.py.
-  --sensors <s>         full (default: Bar30 depth, ALT_HOLD under water) | minimal (bottom camera, Pixhawk
+  --sensors <s>         full (default: Bar30 depth, ALT_HOLD under water, dive to the fixed inspection depth)
+                        | baro (Bar30 + ALT_HOLD, but the dive stops by camera at the pipe, pipe-width standoff,
+                        dive point 1.5 m inside the start buoy, ring order dead-reckoned along the buoy line)
+                        | minimal (bottom camera, Pixhawk
                         IMU/compass and RTK GPS at the surface only: STABILIZE under water, heave from the camera,
                         surface proven by a GPS fix; no depth sensor is used for any decision)
                         | gamble (Pixhawk and surface GPS only: go to the start buoy, short timed dive and bobbing, surface,
                         report the buoy with a RANDOM light order; no camera, no pipe, no repair).
+  --allow-channel-overlap
+                        --real: launch even if an rc_override channel of task2_params.yaml (or the sensors
+                        overlay) is also a banyu_teleop switch channel (SB/SC). Unsafe: the switch then reads the
+                        override.
   --hydrophone          Opt in to the hydrophone (use_hydrophone:=True): pinger_localization, the sim
                         HydrophoneArray plugin and pinger homing in SearchPipeline. Default OFF: the
                         competition UUV has no hydrophone, and no decision reads pinger data.
@@ -111,6 +119,7 @@ Examples:
   ./tools/scripts/launch_task2.sh --sim
   ./tools/scripts/launch_task2.sh --sim --headless --tier disruptive --gps-gate --gps-loss-depth 0.2
   ./tools/scripts/launch_task2.sh --sim --sensors minimal --pipe-depth 8
+  ./tools/scripts/launch_task2.sh --sim --sensors baro --pipe-depth 3 --hydrophone
   ./tools/scripts/launch_task2.sh --real --dry-run
 EOF
 }
@@ -169,9 +178,10 @@ while [[ $# -gt 0 ]]; do
       [ $# -ge 2 ] || { echo "Error: --gamble-red needs positions, e.g. 2,3 or 3." >&2; exit 1; }
       GAMBLE_RED="$2"; shift 2 ;;
     --sensors)
-      [ $# -ge 2 ] || { echo "Error: --sensors needs a value (full|minimal)." >&2; exit 1; }
+      [ $# -ge 2 ] || { echo "Error: --sensors needs a value (full|baro|minimal|gamble)." >&2; exit 1; }
       SENSORS="$2"; shift 2 ;;
     --hydrophone) USE_HYDROPHONE=true; shift ;;
+    --allow-channel-overlap) ALLOW_CHANNEL_OVERLAP=true; shift ;;
     --gps-gate) GPS_GATE=true; GPS_GATE_OPTS_SET=true; shift ;;
     --no-gps-gate) GPS_GATE=false; shift ;;
     --gps-loss-depth)
@@ -194,8 +204,8 @@ case "$TIER" in
   *) echo "Error: --tier must be core, advanced or disruptive (got '$TIER')." >&2; exit 1 ;;
 esac
 case "$SENSORS" in
-  full|minimal|gamble) ;;
-  *) echo "Error: --sensors must be full, minimal or gamble (got '$SENSORS')." >&2; exit 1 ;;
+  full|baro|minimal|gamble) ;;
+  *) echo "Error: --sensors must be full, baro, minimal or gamble (got '$SENSORS')." >&2; exit 1 ;;
 esac
 if ! [[ "$GAMBLE_RED" =~ ^[1-4](,[1-4])*$ ]]; then
   echo "Error: --gamble-red must be positions 1-4, e.g. 2,3 or 3 (got '$GAMBLE_RED')." >&2; exit 1
@@ -212,6 +222,35 @@ if [ "$TARGET" = "real" ]; then
     echo "Error: --gps-gate / --gps-loss-depth / --gps-reacquire-delay / --light-seed / --spawn* / --pipe-* / scenario options are simulation only" >&2
     echo "  (the GPS gate is a sim shim); they are refused with --real. Use --sim." >&2
     exit 1
+  fi
+  # /mavros/rc/in reports RC override values, so a teleop switch on an override channel reads the autonomy sticks
+  # instead of the switch (neutral 1500 = SB Mid = MANUAL), as in launch_por.sh.
+  OVERLAP="$(python3 - "${REPO_DIR}/banyu_bringup/config/task2_params.yaml" \
+    "${REPO_DIR}/banyu_bringup/config/task2_sensors_${SENSORS}.yaml" \
+    "${REPO_DIR}/banyu_teleop/config/teleop_rcin.yaml" << 'PYCHECK'
+import sys
+import yaml
+rc = {}
+for path in sys.argv[1:3]:
+    doc = yaml.safe_load(open(path)) or {}
+    rc.update(doc.get("vehicle_execution_node", {}).get("ros__parameters", {}).get("rc_override", {}) or {})
+teleop = yaml.safe_load(open(sys.argv[3]))["banyu_teleop"]["ros__parameters"]
+switches = {"SB (kill/arm)": teleop.get("kill_channel", 5) + 1,
+            "SC (flight mode)": teleop.get("mode_channel", 7) + 1}
+for name, ch in switches.items():
+    for key in ("channel_forward", "channel_lateral", "channel_throttle", "channel_yaw"):
+        if rc.get(key) == ch:
+            print(f"{name} is on CH{ch}, the same channel as rc_override.{key}")
+PYCHECK
+)"
+  if [ -n "$OVERLAP" ]; then
+    echo "DANGER: RC channel overlap between task2_params.yaml and banyu_teleop:" >&2
+    echo "$OVERLAP" | sed 's/^/  /' >&2
+    if [ "$ALLOW_CHANNEL_OVERLAP" = false ]; then
+      echo "  Refusing to launch. Fix RCMAP / teleop_rcin.yaml, or pass --allow-channel-overlap." >&2
+      exit 1
+    fi
+    echo "  --allow-channel-overlap given: launching anyway." >&2
   fi
 fi
 
@@ -235,7 +274,7 @@ echo "Active Git Branch : $CURRENT_BRANCH"
 echo "Target Platform   : $([ "$TARGET" = "sim" ] && echo "Gazebo Simulation (SITL)" || echo "Real AUV Physical Hardware")"
 echo "use_gps           : $(TF $USE_GPS)"
 echo "Tier              : $([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && echo core || echo "$TIER")"
-echo "Sensors           : $SENSORS$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")$([ "$SENSORS" = gamble ] && echo " (GPS to the buoy, timed dive and bobbing, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
+echo "Sensors           : $SENSORS$([ "$SENSORS" = baro ] && echo " (Bar30 + ALT_HOLD; dive stops by camera at the pipe, order dead-reckoned)")$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")$([ "$SENSORS" = gamble ] && echo " (GPS to the buoy, timed dive and bobbing, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
 echo "Hydrophone        : $([ "$USE_HYDROPHONE" = true ] && echo "ON (opt-in; pinger data used by SearchPipeline)" || echo "OFF (none fitted; start buoy from the USV PipelineBuoys only)")"
 if [ "$TARGET" = real ] && [ "$USE_HYDROPHONE" = true ]; then
   echo "Warning: --hydrophone on --real: the competition UUV has no hydrophone; nothing will publish pings." >&2

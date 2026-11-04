@@ -66,9 +66,9 @@ def generate_launch_description():
     sensors_arg = DeclareLaunchArgument(
         name="sensors",
         default_value="full",
-        description="Task 2 sensor set: 'full' (Bar30 depth, ALT_HOLD under water) or 'minimal' (bottom camera, "
+        description="Task 2 sensor set: 'full' (Bar30 depth, ALT_HOLD under water), 'baro' (Bar30 + ALT_HOLD, dive stopped by camera, order dead-reckoned) or 'minimal' (bottom camera, "
         "Pixhawk IMU/compass and surface GPS only: STABILIZE under water, heave from the camera).",
-        choices=["full", "minimal", "gamble"],
+        choices=["full", "baro", "minimal", "gamble"],
     )
 
     use_hydrophone_arg = DeclareLaunchArgument(

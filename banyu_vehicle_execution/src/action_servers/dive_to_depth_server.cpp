@@ -36,6 +36,15 @@ void DiveToDepthServer::setCameraDescent(double rate_mps, double lock_s, double 
   camera_max_time_s_ = max_time_s;
 }
 
+void DiveToDepthServer::setCameraDescentWithDepth(double max_depth_m)
+{
+  if (!(max_depth_m > 0.0)) {
+    throw std::invalid_argument("camera descent maximum depth must be positive");
+  }
+  camera_with_depth_ = true;
+  camera_max_depth_m_ = max_depth_m;
+}
+
 void DiveToDepthServer::onGoalStarted()
 {
   elapsed_s_ = 0.0;
@@ -64,10 +73,12 @@ MotionIntent DiveToDepthServer::cameraDescentTick(
   const bool heading_valid = telemetry.pose_valid || telemetry.imu_valid;
   const double yaw = telemetry.pose_valid ? telemetry.yaw : telemetry.imu_yaw;
   const double heading_err = heading_valid ? normalizeAngle(goal.target_heading_rad - yaw) : 0.0;
+  const bool measured = !telemetry.depth_free && telemetry.depth_valid;
+  const double depth = measured ? telemetry.depth_m : telemetry.heave_odom_m;
 
   auto feedback = std::make_shared<Feedback>();
   feedback->stamp = now;
-  feedback->current_depth_m = telemetry.heave_odom_m;
+  feedback->current_depth_m = depth;
   feedback->current_heading_rad = yaw;
   feedback->depth_error_m = std::numeric_limits<double>::quiet_NaN();
   feedback->heading_error_rad = heading_err;
@@ -77,7 +88,7 @@ MotionIntent DiveToDepthServer::cameraDescentTick(
     auto result = std::make_shared<Result>();
     result->success = true;
     result->reason = pipe ? "Pipe in view of the bottom camera" : "Light in view of the bottom camera";
-    result->final_depth_m = telemetry.heave_odom_m;
+    result->final_depth_m = depth;
     result->final_heading_rad = yaw;
     active_handle_->succeed(result);
     coordinator_->completeGoal(GoalHandle{active_identity_});
@@ -85,11 +96,13 @@ MotionIntent DiveToDepthServer::cameraDescentTick(
     active_identity_ = {};
     return zeroIntent();
   }
-  if (elapsed_s_ >= camera_max_time_s_) {
+  const bool too_deep = measured && camera_with_depth_ && !pipe && depth >= camera_max_depth_m_;
+  if (elapsed_s_ >= camera_max_time_s_ || too_deep) {
     auto result = std::make_shared<Result>();
     result->success = false;
-    result->reason = "Descent time limit reached with nothing in view of the bottom camera";
-    result->final_depth_m = telemetry.heave_odom_m;
+    result->reason = too_deep ? "Descent reached the maximum depth with nothing in view of the bottom camera" :
+      "Descent time limit reached with nothing in view of the bottom camera";
+    result->final_depth_m = depth;
     result->final_heading_rad = yaw;
     abortActiveWithResult(result);
     return zeroIntent();
@@ -115,6 +128,10 @@ MotionIntent DiveToDepthServer::tick(
   const auto goal = active_handle_->get_goal();
   if (telemetry.depth_free) {
     return cameraDescentTick(telemetry, now, dt, *goal);
+  }
+  if (camera_with_depth_) {
+    // Wait for a depth sample: it is the floor of the descent.
+    return telemetry.depth_valid ? cameraDescentTick(telemetry, now, dt, *goal) : zeroIntent();
   }
   if (!telemetry.depth_valid || !telemetry.pose_valid) {
     return zeroIntent();
