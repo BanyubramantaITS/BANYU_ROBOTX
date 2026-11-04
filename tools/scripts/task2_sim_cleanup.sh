@@ -19,4 +19,7 @@ sleep 12
 sig -9
 pkill -x ardusub 2>/dev/null
 pkill -x gz 2>/dev/null
+# Killed DDS processes leave Fast DDS shared-memory segments behind (hundreds after a day of runs); remove the ones with no
+# live owner, so the next run's discovery and delivery start clean.
+command -v fastdds > /dev/null 2>&1 && timeout 60 fastdds shm clean > /dev/null 2>&1
 exit 0
