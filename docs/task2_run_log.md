@@ -624,3 +624,13 @@ So the only decision that read pinger data is `SearchPipeline`.
   waits 75 s after boot, then counts the attempt as up only with <= 1 controller reset and `/clock` advancing; else it relaunches
   (part of the 3 tries).
 - Re-runs queued on H41b: Core seeds 1 and 9, Advanced seed 2; then step 4 (baro: pipe depth 3, 8, 13; seed 24; 0.9 m lateral).
+- `b3c` Advanced seed 1 (node 2): **FAIL 450** (Core points kept: repair verified, order right; the circle was not read). Gazebo
+  ground truth: during the decode hold the vehicle drifted from 0.5 m to 1.26 m off node 2 (toward node 1, about 0.94 m above the
+  node) and the camera saw the lit BLUE lid in only 15 frames; `DecodeResourceCode` timed out and the best-effort/Core report went
+  out. The same station-keeping limit as H13-H17 (no reference along the pipe while the lid is dark); the hold reads no pinger data,
+  so not a no-hydrophone regression.
+- **User question (surface collision with the buoys):** checked the ArduSub source: `fence.cpp` only logs a breach (the response is
+  commented out) and `AC_Avoid` is used only by the loiter controller, not by GUIDED velocity setpoints, so a geofence gives no
+  avoidance. Also found: with `sensors:=full` the surface goal IS the active buoy (`dive_offset_m` 0, `gps_tolerance_m` 1.0).
+  Proposed (not built yet): a standoff goal and a keep-out detour around both PipelineBuoys positions in `NavigateSurfaceGps`, slow
+  inside 5 m; the front camera (YOLO) only as a close-range stop; do not pass under the buoys (anchor line, pinger cable).
