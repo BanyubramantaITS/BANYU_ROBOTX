@@ -703,3 +703,8 @@ colour seeds, scenarios, 5/5); then step 5 (baro as the `--real` default if it b
 controller-reset burst when the EKF takes the GPS wedges about one launch in three (the e2e relaunches); station keeping over
 the node during the flash code (H13-H17) still loses the lid in some runs. Scratch tools (not committed, scratchpad): `queue.sh`,
 `watchq.sh`, `stop_run.sh` (pause the batch with SIGSTOP, stop the run by PID, clean, resume).
+- **Next session, first item (user request):** audit everything that goes to RoboCommand through the GCS: heartbeat (2 Hz, every field,
+  `state` and `current_task` transitions), `/system/mission/status`, `PipelineSurvey`, `ResourceDelivery`, command handling, QoS,
+  against `RobotX-SoS-communication-ITSN/README.md`. Already seen (not yet verified or changed): `uuv_comm_node`
+  `robotStateLocked()` reports `STATE_AUTO` only when the FCU mode is `GUIDED`, so under water in ALT_HOLD (the Task 2 underwater
+  mode) the heartbeat probably reports `STATE_MANUAL` during an autonomous run.
