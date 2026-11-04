@@ -33,6 +33,9 @@ struct RingTrackerConfig
   uint64_t maximum_sequence_gap{1};
   bool reject_duplicate_red{true};
   double node_association_distance_m{0.8};
+  // With four records, a fifth distinct ring merges the two records closest in progress, only if they are closer
+  // than this (one node recorded twice); otherwise the fifth ring is ignored. 0 disables the merge.
+  double min_node_spacing_m{1.0};
   // Bottom camera geometry for estimating where a ring is along the pipe; disabled when
   // camera_height_m is 0 (ring position then equals vehicle position).
   double camera_height_m{0.0};
@@ -68,6 +71,9 @@ struct RingTrackerUpdate
   std::size_t consecutive_frames{0};
   std::size_t record_index{0};
   banyu_msgs::msg::Task2RingRecord record;
+  // Set when two records were merged to free a slot for this one: the surviving record, to publish first.
+  bool merged{false};
+  banyu_msgs::msg::Task2RingRecord merged_record;
 };
 
 struct RingTrackerSnapshot
@@ -139,6 +145,8 @@ private:
   void clearEntry();
   RingTrackerUpdate ignoredUpdate() const;
   RingTrackerUpdate accept(const RingTrackerInput & input);
+  // Merges the two records closest in progress into one (RED wins) and returns the freed slot; false if they lack progress.
+  bool mergeClosestRecords(std::size_t & survivor, std::size_t & freed);
 
   RingTrackerConfig config_;
   RingTrackerSnapshot snapshot_;

@@ -116,6 +116,7 @@ void RingTrackerNode::declareParameters()
   config.camera_half_vfov_rad = declare_parameter<double>("camera_half_vfov_rad", 0.0);
   config.node_association_distance_m = declare_parameter<double>(
     "node_association_distance_m", 0.8);
+  config.min_node_spacing_m = declare_parameter<double>("min_node_spacing_m", 1.0);
   adapter_ = RingTrackerAdapter(config);
 
   pipe_height_enabled_ = declare_parameter<bool>("pipe_height.enabled", true);
@@ -267,6 +268,12 @@ void RingTrackerNode::observationCallback(
   }
   auto state = adapter_.tracker().snapshot().last_state;
   state_pub_->publish(state);
+  if (update.merged) {
+    RCLCPP_WARN(get_logger(), "Five distinct rings for four nodes: merged record %u into %u, slot %u reused",
+      static_cast<unsigned>(update.record_index), update.merged_record.node_id,
+      static_cast<unsigned>(update.record_index));
+    accepted_ring_pub_->publish(update.merged_record);
+  }
   accepted_ring_pub_->publish(update.record);
 }
 

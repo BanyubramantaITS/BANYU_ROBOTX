@@ -601,3 +601,70 @@ TEST(RingTracker, MeasuredCameraHeightPlacesRingsWhenTheVehicleIsLowerThanTheCon
   EXPECT_NEAR(tracker.records()[0].pipeline_progress_m, 1.0, 0.1);
   EXPECT_NEAR(tracker.records()[1].pipeline_progress_m, 1.85, 0.1);
 }
+
+TEST(RingTracker, FifthRingMergesADuplicateRecordSoTheRedNodeIsKept) {
+  // Disruptive seed 24: one node recorded twice (0.03 and 0.85) filled the four slots before the RED node.
+  banyu_detection::RingTracker tracker(trackerConfig(1, 1, 1));
+  const auto green = banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN;
+  const auto red = banyu_msgs::msg::PipelineRingObservation::COLOR_RED;
+  uint64_t seq = 1;
+  auto meet = [&](uint8_t color, double progress) {
+      auto u = update(tracker, seq++, color, true, progress);
+      update(tracker, seq++, color, false, progress);
+      update(tracker, seq++, color, false, progress);
+      return u;
+    };
+  for (double p : {0.03, 0.85, 2.05, 3.19}) {
+    EXPECT_TRUE(meet(green, p).accepted);
+  }
+  const auto u = meet(red, 4.4);
+  ASSERT_TRUE(u.accepted);
+  EXPECT_TRUE(u.merged);
+  EXPECT_EQ(u.merged_record.node_id, 0U);
+  EXPECT_EQ(u.record.node_id, 1U);
+  EXPECT_TRUE(u.record.ordering_verified);
+  ASSERT_EQ(tracker.records().size(), 4U);
+  EXPECT_EQ(tracker.records()[1].color, red);
+  EXPECT_NEAR(tracker.records()[1].pipeline_progress_m, 4.4, 1e-9);
+  EXPECT_TRUE(tracker.redPending());
+}
+
+TEST(RingTracker, MergedPairKeepsTheRedRecordInItsSlot) {
+  banyu_detection::RingTracker tracker(trackerConfig(1, 1, 1));
+  const auto green = banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN;
+  const auto red = banyu_msgs::msg::PipelineRingObservation::COLOR_RED;
+  uint64_t seq = 1;
+  auto meet = [&](uint8_t color, double progress) {
+      auto u = update(tracker, seq++, color, true, progress);
+      update(tracker, seq++, color, false, progress);
+      update(tracker, seq++, color, false, progress);
+      return u;
+    };
+  meet(green, 0.0);
+  meet(green, 1.5);
+  meet(red, 2.4);     // 0.9 m from the GREEN at 1.5: the same node, now RED
+  meet(green, 3.9);
+  const auto u = meet(green, 5.3);
+  ASSERT_TRUE(u.merged);
+  EXPECT_EQ(u.merged_record.node_id, 2U);
+  EXPECT_EQ(u.merged_record.color, red);
+  EXPECT_EQ(u.record.node_id, 1U);
+  EXPECT_EQ(tracker.records()[2].color, red);
+}
+
+TEST(RingTracker, FifthRingIsIgnoredWhenNoRecordsAreCloserThanTheNodeSpacing) {
+  banyu_detection::RingTracker tracker(trackerConfig(1, 1, 1));
+  const auto green = banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN;
+  uint64_t seq = 1;
+  auto meet = [&](double progress) {
+      auto u = update(tracker, seq++, green, true, progress);
+      update(tracker, seq++, green, false, progress);
+      update(tracker, seq++, green, false, progress);
+      return u;
+    };
+  for (double p : {0.0, 1.3, 2.6, 3.9}) {
+    meet(p);
+  }
+  EXPECT_FALSE(meet(5.2).accepted);
+  EXPECT_EQ(tracker.records().size(), 4U);
+}

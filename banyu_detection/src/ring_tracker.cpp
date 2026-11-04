@@ -374,15 +374,20 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
     return result;
   }
 
-  if (snapshot_.records.size() >= 4) {
+  // The pipe has four nodes: a fifth distinct sighting means two records are one node (seen from far, or from beside
+  // the line). Merge the closest pair and reuse the freed slot, so a later node (the RED one in seed 24) is not lost.
+  std::size_t slot = snapshot_.records.size();
+  std::size_t survivor = 0;
+  if (snapshot_.records.size() >= 4 && (!valid_progress || !mergeClosestRecords(survivor, slot))) {
     clearEntry();
     return ignoredUpdate();
   }
+  const bool merged = slot < snapshot_.records.size();
 
   banyu_msgs::msg::Task2RingRecord record;
   record.run_id = input.run_id;
   record.epoch = input.epoch;
-  record.node_id = static_cast<uint32_t>(snapshot_.records.size());
+  record.node_id = static_cast<uint32_t>(slot);
   record.frame_sequence = observation.frame_sequence;
   record.color = observation.color;
   record.confidence = observation.confidence;
@@ -406,14 +411,18 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
     record.ordering_verified = false;
   }
 
-  snapshot_.records.push_back(record);
+  if (merged) {
+    snapshot_.records[slot] = record;
+  } else {
+    snapshot_.records.push_back(record);
+  }
   snapshot_.phase = RingTrackerPhase::TRACKING;
   snapshot_.active_color = observation.color;
   snapshot_.consecutive_frames = 1;
   snapshot_.invisible_frames = 0;
   snapshot_.has_last_state = true;
   snapshot_.last_state.header = observation.header;
-  snapshot_.last_state.index = static_cast<uint32_t>(snapshot_.records.size() - 1);
+  snapshot_.last_state.index = static_cast<uint32_t>(slot);
   snapshot_.last_state.color = observation.color;
   snapshot_.last_state.confidence = observation.confidence;
   snapshot_.last_state.run_id = record.run_id;
@@ -434,9 +443,46 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
   result.phase = snapshot_.phase;
   result.accepted = true;
   result.consecutive_frames = snapshot_.consecutive_frames;
-  result.record_index = snapshot_.records.size() - 1;
+  result.record_index = slot;
   result.record = record;
+  result.merged = merged;
+  if (merged) {
+    result.merged_record = snapshot_.records[survivor];
+  }
   return result;
+}
+
+bool RingTracker::mergeClosestRecords(std::size_t & survivor, std::size_t & freed)
+{
+  auto & recs = snapshot_.records;
+  std::vector<std::size_t> order(recs.size());
+  for (std::size_t i = 0; i < order.size(); ++i) {
+    if (!recs[i].physical_identity_verified) {return false;}
+    order[i] = i;
+  }
+  if (order.size() < 2 || !(config_.min_node_spacing_m > 0.0)) {return false;}
+  std::sort(order.begin(), order.end(), [&recs](std::size_t a, std::size_t b) {
+      return recs[a].pipeline_progress_m < recs[b].pipeline_progress_m;
+    });
+  std::size_t best = 0;
+  for (std::size_t i = 1; i + 1 < order.size(); ++i) {
+    if (recs[order[i + 1]].pipeline_progress_m - recs[order[i]].pipeline_progress_m <
+      recs[order[best + 1]].pipeline_progress_m - recs[order[best]].pipeline_progress_m)
+    {
+      best = i;
+    }
+  }
+  if (recs[order[best + 1]].pipeline_progress_m - recs[order[best]].pipeline_progress_m >= config_.min_node_spacing_m) {
+    return false;
+  }
+  const std::size_t a = std::min(order[best], order[best + 1]);
+  const std::size_t b = std::max(order[best], order[best + 1]);
+  constexpr auto kRed = banyu_msgs::msg::PipelineRingObservation::COLOR_RED;
+  // The RED record keeps its slot (a repair may refer to it); otherwise the one seen first.
+  survivor = (recs[b].color == kRed && recs[a].color != kRed) ? b : a;
+  freed = survivor == a ? b : a;
+  if (recs[freed].color == kRed) {recs[survivor].color = kRed;}
+  return true;
 }
 
 RingTrackerUpdate RingTracker::update(
