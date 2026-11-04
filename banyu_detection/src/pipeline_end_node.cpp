@@ -49,6 +49,7 @@ void PipelineEndNode::declareParameters()
   rings_complete_topic_ = declare_parameter<std::string>(
     "rings_complete_topic", "/banyu/pipeline/rings_complete");
   rings_complete_lost_s_ = declare_parameter<double>("rings_complete_lost_s", 3.0);
+  require_rings_complete_ = declare_parameter<bool>("require_rings_complete", false);
   require_run_context_ = declare_parameter<bool>("require_run_context", false);
   publish_confirmed_only_ = declare_parameter<bool>(
     "publish_confirmed_only", true);
@@ -205,7 +206,7 @@ void PipelineEndNode::observationCallback(
     RCLCPP_INFO(get_logger(), "Pipeline end: four rings recorded and the pipe out of view for %.1f s since",
       lost_after_rings_s_);
   }
-  if (update.confirmed || ended_by_rings_) {
+  if ((update.confirmed && (!require_rings_complete_ || rings_complete_)) || ended_by_rings_) {
     publishEnd(true);
   } else if (!publish_confirmed_only_) {
     publishEnd(false);

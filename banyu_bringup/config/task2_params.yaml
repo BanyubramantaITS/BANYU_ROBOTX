@@ -32,6 +32,13 @@ banyu_mission:
       retry_dive_offset_m: 3.0
       # Dive point this far from the start buoy toward the other one (0 = at the buoy). The reported buoy position is unchanged.
       dive_offset_m: 0.0
+      # The surface goal is never a buoy (ArduSub's fence only logs, it does not avoid): at least this far inside the start buoy.
+      buoy_standoff_m: 1.5
+      # buoy: dive near the start buoy, one traverse. midpoint: dive midway between the buoys (heading to the end buoy), traverse
+      # to that end, turn around and traverse back (launch argument dive_point:=, task2_dive_midpoint.yaml).
+      dive_point: "buoy"
+      # Two legs: leg 1 ends when the pipe was out of view this long in total since the last new ring (its end of the pipe).
+      leg_end_lost_s: 6.0
       task2_tier: 2   # launch argument tier:= overrides this (core 2, advanced 3, disruptive 4)
       surface_depth_m: 0.0
       surface_tolerance_m: 0.5
@@ -173,6 +180,7 @@ ring_tracker:
     # Four records and a fifth distinct ring: merge the two closest records if nearer than this (one node recorded twice,
     # seen from far or beside the line; seed 24). Sim node spacing 1.28-1.55 m. 0 = never merge (the fifth is ignored).
     min_node_spacing_m: 1.0
+    require_monotonic_order: true   # false for the two-leg survey (task2_dive_midpoint.yaml)
     # Nearest pose can be half a pose period away (MAVROS pose ~5-10 Hz vs 30 Hz camera).
     pose_timestamp_tolerance_s: 0.12
     # Tolerate a few dropped camera frames (best-effort transport) before treating it as a gap.
@@ -387,6 +395,7 @@ pipeline_end_node:
     # The real vehicle's only end signal (the end candidates are the sim fixture's ground truth): four rings recorded
     # (none waiting for a repair, ring_tracker rings_complete_topic) and the pipe out of view this long. 0 = off.
     rings_complete_lost_s: 3.0
+    require_rings_complete: false   # true for the two-leg survey (task2_dive_midpoint.yaml)
     rings_complete_topic: "/banyu/pipeline/rings_complete"
     reset_service: "/banyu/pipeline/reset_end"
     candidate_state_topic: "/banyu/pipeline/end_candidate_state"

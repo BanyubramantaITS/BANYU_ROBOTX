@@ -84,6 +84,9 @@ TEST(PipelineBuoysTracker, ActiveBTargetPointsTowardBuoyA)
   EXPECT_DOUBLE_EQ(target->longitude, -118.393272);
   ASSERT_TRUE(target->heading_valid);
   EXPECT_NEAR(std::abs(target->heading_enu_rad), kPi, 1e-3);   // west
+  // The other buoy (A) is carried for the midpoint dive.
+  ASSERT_TRUE(target->other_valid);
+  EXPECT_DOUBLE_EQ(target->other_longitude, -118.393392);
 }
 
 TEST(PipelineBuoysTracker, RejectsWrongCourseSourceAndInvalidContent)
@@ -151,6 +154,7 @@ TEST(PipelineBuoysTracker, OneBuoyOrUnknownActiveGivesNoTarget)
   const auto target = value.target(stamp(1));
   ASSERT_TRUE(target.has_value());
   EXPECT_FALSE(target->heading_valid);   // no pipe direction from a single buoy
+  EXPECT_FALSE(target->other_valid);
 }
 
 TEST(PipelineBuoysTracker, ZeroUncertaintyUsesConfiguredDefault)

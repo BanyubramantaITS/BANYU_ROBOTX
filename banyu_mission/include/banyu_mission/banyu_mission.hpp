@@ -120,6 +120,10 @@ private:
   double retry_dive_offset_m_{3.0};
   // Dive this far from the start buoy toward the other one (the pipe starts 1.5-2.5 m inside the buoys). The reported buoy is unchanged.
   double dive_offset_m_{0.0};
+  // The surface goal is never a buoy: at least this far from the start buoy along the buoy line.
+  double buoy_standoff_m_{1.5};
+  // "buoy": dive near the start buoy; "midpoint": dive midway between the buoys, then survey in two legs.
+  std::string dive_point_{"buoy"};
   void shiftTargetAlongHeading(double distance_m);
   bool explicit_heading_{false};
   BT::Blackboard::Ptr blackboard_;

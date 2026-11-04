@@ -36,6 +36,9 @@ struct RingTrackerConfig
   // With four records, a fifth distinct ring merges the two records closest in progress, only if they are closer
   // than this (one node recorded twice); otherwise the fifth ring is ignored. 0 disables the merge.
   double min_node_spacing_m{1.0};
+  // Each new ring must continue the direction set by the first two (ordering_verified). Off for a two-leg survey from
+  // the midpoint: the second leg meets the rest of the rings the other way; the progress is absolute along the buoy line.
+  bool require_monotonic_order{true};
   // Bottom camera geometry for estimating where a ring is along the pipe; disabled when
   // camera_height_m is 0 (ring position then equals vehicle position).
   double camera_height_m{0.0};

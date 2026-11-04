@@ -49,6 +49,7 @@ add_library(banyu_mission_core
   src/condition/require_gps_available_condition.cpp
   src/condition/require_mission_started_condition.cpp
   src/condition/require_vehicle_ready_condition.cpp
+  src/condition/survey_leg_conditions.cpp
   src/banyu_mission.cpp)
 target_compile_features(banyu_mission_core PUBLIC cxx_std_17)
 target_include_directories(banyu_mission_core PUBLIC

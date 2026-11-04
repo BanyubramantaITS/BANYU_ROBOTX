@@ -155,6 +155,13 @@ def generate_launch_description():
         )
     ]
 
+    dive_point_arg = DeclareLaunchArgument(
+        name="dive_point",
+        default_value="buoy",
+        description="Task 2 dive point: 'buoy' (inside the start buoy) or 'midpoint' (midway between the buoys, two legs).",
+        choices=["buoy", "midpoint"],
+    )
+
     use_hydrophone_arg = DeclareLaunchArgument(
         name="use_hydrophone",
         default_value="False",
@@ -299,6 +306,7 @@ def generate_launch_description():
             "tier": LaunchConfiguration("tier"),
             "sensors": LaunchConfiguration("sensors"),
             "use_hydrophone": LaunchConfiguration("use_hydrophone"),
+            "dive_point": LaunchConfiguration("dive_point"),
             "gamble_red": LaunchConfiguration("gamble_red"),
             "site": LaunchConfiguration("site"),
             "pipe_dx": LaunchConfiguration("pipe_dx"),
@@ -392,6 +400,7 @@ def generate_launch_description():
             gps_reacquire_delay_arg,
             use_dvl_arg,
             use_hydrophone_arg,
+            dive_point_arg,
             headless_arg,
             task2_params_arg,
             por_params_arg,

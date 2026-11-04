@@ -14,7 +14,7 @@
         <Fallback name="survey_or_report_what_was_seen">
           <Sequence>
             <SubTree ID="DiveAndAcquirePipeline" _autoremap="true" />
-            <SubTree ID="TraversePipeline" _autoremap="true" />
+            <SubTree ID="SurveyPipeline" _autoremap="true" />
           </Sequence>
           <!-- Second try: surface, move retry_dive_offset_m along the buoy line toward the other buoy (the pipe lies
                between them), dive again. The ring order is by progress along the buoy line, from whichever point. -->
@@ -37,7 +37,7 @@
             </Timeout>
             <AlignHeading target_heading="{heading}" tolerance="{heading_tolerance}" />
             <SubTree ID="DiveAndAcquirePipeline" _autoremap="true" />
-            <SubTree ID="TraversePipeline" _autoremap="true" />
+            <SubTree ID="SurveyPipeline" _autoremap="true" />
           </Sequence>
           <AlwaysSuccess />
         </Fallback>
@@ -98,6 +98,76 @@
     </Sequence>
   </BehaviorTree>
 
+  <!-- One dive near the start buoy: a single traverse. A dive midway between the buoys (mission.dive_point midpoint):
+       leg 1 toward the end buoy until that end of the pipe, then turn around and traverse back to the start end (the ring
+       order is the progress along the buoy line, whichever way it is met). -->
+  <BehaviorTree ID="SurveyPipeline">
+    <Fallback>
+      <Sequence>
+        <ScriptCondition code="two_legs == false" />
+        <SubTree ID="TraversePipeline" _autoremap="true" />
+      </Sequence>
+      <Sequence name="two_legs_from_the_midpoint">
+        <ScriptCondition code="two_legs == true" />
+        <ForceSuccess>
+          <Timeout msec="{traverse_timeout_ms}">
+            <KeepRunningUntilFailure>
+              <WhileDoElse>
+                <Sequence>
+                  <PipelineActive />
+                  <Inverter>
+                    <PipelineLegEnded lost_s="{leg_end_lost_s}" />
+                  </Inverter>
+                </Sequence>
+                <SubTree ID="TraverseStep" _autoremap="true" />
+                <AlwaysFailure />
+              </WhileDoElse>
+            </KeepRunningUntilFailure>
+          </Timeout>
+        </ForceSuccess>
+        <Fallback>
+          <PipelineEnded />
+          <Sequence name="turn_around_and_traverse_back">
+            <!-- 180 deg on the IMU yaw (no position needed under water), depth held by ALT_HOLD. -->
+            <ForceSuccess>
+              <TimedMove name="turn_around" segment_name="turn_around" duration_s="30.0" speed_x_mps="0.0"
+                speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="0.3" use_baro_depth="false" target_depth_m="0.0"
+                depth_kp="0.0" max_depth_speed_mps="0.0" use_imu_yaw_cap="true" target_yaw_delta_rad="3.14159" />
+            </ForceSuccess>
+            <RetryUntilSuccessful num_attempts="3">
+              <SubTree ID="ReacquirePipeline" _autoremap="true" />
+            </RetryUntilSuccessful>
+            <SubTree ID="TraversePipeline" _autoremap="true" />
+          </Sequence>
+        </Fallback>
+      </Sequence>
+    </Fallback>
+  </BehaviorTree>
+
+  <!-- One step of a traverse: repair a pending red ring, reacquire a lost pipe, or follow. -->
+  <BehaviorTree ID="TraverseStep">
+    <ReactiveFallback name="traverse_reactive">
+      <Sequence name="repair_red_ring">
+        <RedRingPending />
+        <SubTree ID="RepairRedRing" _autoremap="true" />
+        <AcknowledgeRedRing />
+      </Sequence>
+      <Sequence name="reacquire_lost_pipeline">
+        <PipelineLost />
+        <!-- A failed reacquire waits before the next try: ticking FollowPipeline and SearchPipeline every 50 ms makes
+             them displace each other before the goal arbiter's zero barrier lets either start (livelock). -->
+        <Fallback>
+          <SubTree ID="ReacquirePipeline" _autoremap="true" />
+          <Sequence>
+            <Sleep msec="2000" />
+            <AlwaysFailure />
+          </Sequence>
+        </Fallback>
+      </Sequence>
+      <FollowPipeline enable="true" />
+    </ReactiveFallback>
+  </BehaviorTree>
+
   <!-- Repeats repair/reacquire/follow until the pipeline ends; a failed pass or the overall
        traverse timeout ends the traversal and the trailing PipelineEnded reports a failure. -->
   <BehaviorTree ID="TraversePipeline">
@@ -107,26 +177,7 @@
           <KeepRunningUntilFailure>
             <WhileDoElse>
               <PipelineActive />
-              <ReactiveFallback name="traverse_reactive">
-                <Sequence name="repair_red_ring">
-                  <RedRingPending />
-                  <SubTree ID="RepairRedRing" _autoremap="true" />
-                  <AcknowledgeRedRing />
-                </Sequence>
-                <Sequence name="reacquire_lost_pipeline">
-                  <PipelineLost />
-                  <!-- A failed reacquire waits before the next try: ticking FollowPipeline and SearchPipeline every 50 ms makes
-                       them displace each other before the goal arbiter's zero barrier lets either start (livelock). -->
-                  <Fallback>
-                    <SubTree ID="ReacquirePipeline" _autoremap="true" />
-                    <Sequence>
-                      <Sleep msec="2000" />
-                      <AlwaysFailure />
-                    </Sequence>
-                  </Fallback>
-                </Sequence>
-                <FollowPipeline enable="true" />
-              </ReactiveFallback>
+              <SubTree ID="TraverseStep" _autoremap="true" />
               <AlwaysFailure />
             </WhileDoElse>
           </KeepRunningUntilFailure>

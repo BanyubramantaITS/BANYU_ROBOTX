@@ -121,6 +121,7 @@ void RingTrackerNode::declareParameters()
   config.node_association_distance_m = declare_parameter<double>(
     "node_association_distance_m", 0.8);
   config.min_node_spacing_m = declare_parameter<double>("min_node_spacing_m", 1.0);
+  config.require_monotonic_order = declare_parameter<bool>("require_monotonic_order", true);
   adapter_ = RingTrackerAdapter(config);
 
   pipe_height_enabled_ = declare_parameter<bool>("pipe_height.enabled", true);

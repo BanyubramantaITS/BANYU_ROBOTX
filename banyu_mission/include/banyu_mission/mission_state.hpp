@@ -10,6 +10,7 @@
 #include "banyu_msgs/msg/pipeline_observation.hpp"
 #include "banyu_msgs/msg/pipeline_ring_observation.hpp"
 #include "banyu_msgs/msg/pipeline_ring_state.hpp"
+#include "banyu_msgs/msg/pipeline_end_candidate.hpp"
 #include "banyu_msgs/msg/pipeline_end_state.hpp"
 #include "banyu_msgs/msg/vehicle_status.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -88,6 +89,11 @@ public:
   bool gpsRequired() const;
   bool pipelineLost() const;
   bool pipelineEnded() const;
+  // Four rings recorded and none waiting for a repair (ring tracker /banyu/pipeline/rings_complete).
+  bool ringsComplete() const;
+  // A survey leg has reached a pipe end: the pipe was out of view this long in total since the last new ring (at an end
+  // the search keeps finding the last stretch again, so one long loss never comes).
+  bool legEnded(double lost_s) const;
   bool redPending() const;
   uint32_t pendingRedIndex() const;
   bool acknowledgeRed(uint32_t index);
@@ -106,6 +112,7 @@ private:
   void ringStateCallback(const banyu_msgs::msg::PipelineRingState::SharedPtr msg);
   void endCallback(const std_msgs::msg::Bool::SharedPtr msg);
   void endStateCallback(const banyu_msgs::msg::PipelineEndState::SharedPtr msg);
+  void ringsCompleteCallback(const banyu_msgs::msg::PipelineEndCandidate::SharedPtr msg);
 
   mutable std::mutex mutex_;
   rclcpp::Node * node_;
@@ -127,6 +134,11 @@ private:
   bool pipeline_ended_ {false};
   bool pipeline_seen_ {false};
   bool pipeline_tracked_ {false};
+  bool rings_complete_ {false};
+  bool has_pipeline_stamp_ {false};
+  rclcpp::Time last_pipeline_stamp_{0, 0, RCL_ROS_TIME};
+  double lost_since_new_ring_s_ {0.0};
+  int64_t max_ring_index_ {-1};
   bool red_pending_ {false};
   uint32_t red_record_index_ {0};
   bool red_repaired_ {false};

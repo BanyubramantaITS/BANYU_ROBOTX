@@ -97,6 +97,13 @@ def generate_launch_description():
         choices=["full", "baro", "minimal", "gamble"],
     )
 
+    dive_point_arg = DeclareLaunchArgument(
+        name="dive_point",
+        default_value="buoy",
+        description="Task 2 dive point: 'buoy' (inside the start buoy) or 'midpoint' (midway between the buoys, two legs).",
+        choices=["buoy", "midpoint"],
+    )
+
     use_hydrophone_arg = DeclareLaunchArgument(
         name="use_hydrophone",
         default_value="False",
@@ -330,6 +337,7 @@ def generate_launch_description():
             "tier": LaunchConfiguration("tier"),
             "sensors": LaunchConfiguration("sensors"),
             "use_hydrophone": LaunchConfiguration("use_hydrophone"),
+            "dive_point": LaunchConfiguration("dive_point"),
             "gamble_red": LaunchConfiguration("gamble_red"),
             "enable_esp32_trigger": LaunchConfiguration("enable_esp32_trigger"),
             "enable_esp32_bridge": LaunchConfiguration("enable_esp32_bridge"),
@@ -345,6 +353,7 @@ def generate_launch_description():
             tier_arg,
             sensors_arg,
             use_hydrophone_arg,
+            dive_point_arg,
             gamble_red_arg,
             fcu_url_arg,
             use_dvl_arg,

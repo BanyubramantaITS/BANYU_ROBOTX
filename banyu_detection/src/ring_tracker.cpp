@@ -409,7 +409,8 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
     } else {
       const double delta = calculated_progress - last_record_path_distance_;
       if (traverse_direction_ == 0 && delta != 0.0) {traverse_direction_ = delta > 0.0 ? 1 : -1;}
-      record.ordering_verified = traverse_direction_ != 0 && delta * traverse_direction_ > 0.0;
+      record.ordering_verified = !config_.require_monotonic_order ||
+        (traverse_direction_ != 0 && delta * traverse_direction_ > 0.0);
     }
     last_record_path_distance_ = calculated_progress;
     has_last_record_path_distance_ = true;

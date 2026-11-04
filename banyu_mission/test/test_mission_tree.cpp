@@ -239,6 +239,40 @@ TEST_F(MissionTest, RingAcknowledgementMustMatchPendingRecord)
   EXPECT_FALSE(state->redPending());
 }
 
+TEST_F(MissionTest, SurveyLegEndsAfterThePipeIsOutOfViewLongEnoughSinceTheLastNewRing)
+{
+  auto node = std::make_shared<rclcpp::Node>("mission_state_leg_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get());
+  auto pipe_pub = node->create_publisher<banyu_msgs::msg::PipelineObservation>(
+    "/banyu/pipeline/observation", rclcpp::SensorDataQoS());
+  auto ring_pub = node->create_publisher<banyu_msgs::msg::PipelineRingState>(
+    "/banyu/pipeline/ring_state", rclcpp::QoS(5));
+  spinFor(node);
+  auto observe = [&](double t, bool tracked) {
+      banyu_msgs::msg::PipelineObservation obs;
+      obs.header.stamp = rclcpp::Time(static_cast<int64_t>(t * 1e9), RCL_ROS_TIME);
+      obs.status = tracked ? banyu_msgs::msg::PipelineObservation::TRACKED :
+        banyu_msgs::msg::PipelineObservation::NO_PIPE;
+      pipe_pub->publish(obs);
+      spinFor(node, 3);
+    };
+  for (double t = 10.0; t <= 13.0; t += 0.5) {observe(t, false);}   // 3 s out of view
+  EXPECT_TRUE(state->legEnded(2.5));
+  EXPECT_FALSE(state->legEnded(6.0));
+  banyu_msgs::msg::PipelineRingState ring;
+  ring.index = 0;
+  ring.color = banyu_msgs::msg::PipelineRingState::COLOR_GREEN;
+  ring.confidence = 1.0F;
+  ring_pub->publish(ring);
+  spinFor(node);
+  EXPECT_FALSE(state->legEnded(2.5));   // a new ring starts the count again
+  ring_pub->publish(ring);              // the same ring again does not
+  spinFor(node);
+  for (double t = 13.5; t <= 17.0; t += 0.5) {observe(t, t < 15.0 || t > 16.0);}
+  EXPECT_FALSE(state->legEnded(2.5));   // 1.5 s out of view
+  EXPECT_TRUE(state->legEnded(0.9));
+}
+
 TEST_F(MissionTest, ActionResultSemanticFailureIsNotTransportSuccess)
 {
   struct Result {bool success{false};};
@@ -427,6 +461,8 @@ TEST_F(MissionTest, TreeInstantiatesWithSubtreeAutoremap)
   blackboard->set("depth_tolerance", 0.2);
   blackboard->set("camera_name", "front_camera");
   blackboard->set("heading_prior", 0.0);
+  blackboard->set("two_legs", false);
+  blackboard->set("leg_end_lost_s", 6.0);
   blackboard->set("acquire_timeout_ms", static_cast<unsigned>(15000));
   blackboard->set("search_span", 1.0);
   blackboard->set("sweep_rate", 0.2);

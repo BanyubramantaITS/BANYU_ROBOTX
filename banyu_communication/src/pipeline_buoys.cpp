@@ -132,6 +132,11 @@ std::optional<banyu_msgs::msg::Task2BuoyTarget> PipelineBuoysTracker::target(
   target.heading_valid = other != nullptr &&
     distanceM(active, *other) >= std::max(config_.minimum_buoy_separation_m, 1e-3);
   target.heading_enu_rad = target.heading_valid ? enuBearing(active, *other) : 0.0;
+  target.other_valid = target.heading_valid;
+  if (target.other_valid) {
+    target.other_latitude = other->latitude;
+    target.other_longitude = other->longitude;
+  }
   target.uncertainty_m = uncertainty();
   target.locked = locked_;
   return target;

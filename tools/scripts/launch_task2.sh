@@ -37,6 +37,7 @@ SENSORS="full"
 GAMBLE_RED="2,3"
 USE_HYDROPHONE=false
 ALLOW_CHANNEL_OVERLAP=false
+DIVE_POINT="buoy"
 PIPE_DEPTH=""
 SCENARIO_ARGS=()
 EXTRA_ARGS=()
@@ -102,6 +103,9 @@ Both targets:
                         --real: launch even if an rc_override channel of task2_params.yaml (or the sensors
                         overlay) is also a banyu_teleop switch channel (SB/SC). Unsafe: the switch then reads the
                         override.
+  --dive-point <p>      buoy (default: dive inside the start buoy, at least mission.buoy_standoff_m from it; one traverse)
+                        | midpoint (navigate midway between the start and end buoys, dive heading to the end buoy,
+                        traverse to that end, turn around and traverse back; needs both buoys from the USV).
   --hydrophone          Opt in to the hydrophone (use_hydrophone:=True): pinger_localization, the sim
                         HydrophoneArray plugin and pinger homing in SearchPipeline. Default OFF: the
                         competition UUV has no hydrophone, and no decision reads pinger data.
@@ -181,6 +185,9 @@ while [[ $# -gt 0 ]]; do
       [ $# -ge 2 ] || { echo "Error: --sensors needs a value (full|baro|minimal|gamble)." >&2; exit 1; }
       SENSORS="$2"; shift 2 ;;
     --hydrophone) USE_HYDROPHONE=true; shift ;;
+    --dive-point)
+      [ $# -ge 2 ] || { echo "Error: --dive-point needs a value (buoy|midpoint)." >&2; exit 1; }
+      DIVE_POINT="$2"; shift 2 ;;
     --allow-channel-overlap) ALLOW_CHANNEL_OVERLAP=true; shift ;;
     --gps-gate) GPS_GATE=true; GPS_GATE_OPTS_SET=true; shift ;;
     --no-gps-gate) GPS_GATE=false; shift ;;
@@ -206,6 +213,10 @@ esac
 case "$SENSORS" in
   full|baro|minimal|gamble) ;;
   *) echo "Error: --sensors must be full, baro, minimal or gamble (got '$SENSORS')." >&2; exit 1 ;;
+esac
+case "$DIVE_POINT" in
+  buoy|midpoint) ;;
+  *) echo "Error: --dive-point must be buoy or midpoint (got '$DIVE_POINT')." >&2; exit 1 ;;
 esac
 if ! [[ "$GAMBLE_RED" =~ ^[1-4](,[1-4])*$ ]]; then
   echo "Error: --gamble-red must be positions 1-4, e.g. 2,3 or 3 (got '$GAMBLE_RED')." >&2; exit 1
@@ -275,6 +286,7 @@ echo "Target Platform   : $([ "$TARGET" = "sim" ] && echo "Gazebo Simulation (SI
 echo "use_gps           : $(TF $USE_GPS)"
 echo "Tier              : $([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && echo core || echo "$TIER")"
 echo "Sensors           : $SENSORS$([ "$SENSORS" = baro ] && echo " (Bar30 + ALT_HOLD; dive stops by camera at the pipe, order dead-reckoned)")$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")$([ "$SENSORS" = gamble ] && echo " (GPS to the buoy, timed dive and bobbing, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
+echo "Dive point        : $([ "$DIVE_POINT" = midpoint ] && echo "midpoint (midway between the buoys, two legs)" || echo "buoy (inside the start buoy, standoff from it)")"
 echo "Hydrophone        : $([ "$USE_HYDROPHONE" = true ] && echo "ON (opt-in; pinger data used by SearchPipeline)" || echo "OFF (none fitted; start buoy from the USV PipelineBuoys only)")"
 if [ "$TARGET" = real ] && [ "$USE_HYDROPHONE" = true ]; then
   echo "Warning: --hydrophone on --real: the competition UUV has no hydrophone; nothing will publish pings." >&2
@@ -318,6 +330,7 @@ if [ "$TARGET" = "sim" ]; then
     tier:="$TIER"
     sensors:="$SENSORS"
     use_hydrophone:="$(TF $USE_HYDROPHONE)"
+    dive_point:="$DIVE_POINT"
     gamble_red:="$GAMBLE_RED"
     headless:="$(TF $HEADLESS)"
     use_gps:="$(TF $USE_GPS)"
@@ -374,6 +387,7 @@ else
     tier:="$([ "$TIER_SET" = true ] && echo "$TIER" || echo core)"
     sensors:="$SENSORS"
     use_hydrophone:="$(TF $USE_HYDROPHONE)"
+    dive_point:="$DIVE_POINT"
     gamble_red:="$GAMBLE_RED"
     use_gps:="$(TF $USE_GPS)"
   )

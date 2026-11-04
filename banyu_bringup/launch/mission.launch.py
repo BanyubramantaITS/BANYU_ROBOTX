@@ -79,6 +79,14 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    dive_point_arg = DeclareLaunchArgument(
+        name="dive_point",
+        default_value="buoy",
+        description="Task 2 dive point: 'buoy' (inside the start buoy, one traverse) or 'midpoint' (midway between the "
+        "buoys, heading to the end buoy, then turn around: two legs).",
+        choices=["buoy", "midpoint"],
+    )
+
     scenario_args = [
         DeclareLaunchArgument(name=n, default_value="0.0", description="Simulation scenario, see main_launch.launch.py")
         for n in ("pipe_dx", "pipe_dy", "pipe_dyaw_deg", "buoy_error_x", "buoy_error_y")
@@ -154,6 +162,11 @@ def generate_launch_description():
         "'", banyu_bringup_share, "/config/task2_hydrophone_on.yaml' if '", LaunchConfiguration("use_hydrophone"),
         "'.lower() == 'true' else '", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"),
         "' + '.yaml'"])
+    # Dive point overlay (a no-op re-load of the sensors overlay for dive_point:=buoy).
+    task2_dive_file = PythonExpression([
+        "'", banyu_bringup_share, "/config/task2_dive_midpoint.yaml' if '", LaunchConfiguration("dive_point"),
+        "' == 'midpoint' else '", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"),
+        "' + '.yaml'"])
     por_params = LaunchConfiguration("por_params_file")
     hardware_params = LaunchConfiguration("hardware_params_file")
 
@@ -201,6 +214,7 @@ def generate_launch_description():
             task2_tier_file,
             task2_sensors_file,
             task2_site_file,
+            task2_dive_file,
         ],
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -317,7 +331,7 @@ def generate_launch_description():
         package="banyu_detection",
         executable="ring_tracker_node",
         name="ring_tracker",
-        parameters=[task2_params, task2_hardware_override, task2_sensors_file],
+        parameters=[task2_params, task2_hardware_override, task2_sensors_file, task2_dive_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -365,7 +379,7 @@ def generate_launch_description():
         package="banyu_detection",
         executable="pipeline_end_node",
         name="pipeline_end_node",
-        parameters=[task2_params],
+        parameters=[task2_params, task2_dive_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -462,6 +476,7 @@ def generate_launch_description():
             tier_arg,
             sensors_arg,
             use_hydrophone_arg,
+            dive_point_arg,
             task2_params_arg,
             por_params_arg,
             hardware_params_arg,

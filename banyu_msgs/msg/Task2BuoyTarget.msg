@@ -13,6 +13,10 @@ float64 longitude
 # bearing from the active buoy toward the other buoy (pipe direction), ENU radians
 bool heading_valid
 float64 heading_enu_rad
+# the other (end) buoy, WGS-84 degrees; valid when the USV reported it (same rule as heading_valid)
+bool other_valid
+float64 other_latitude
+float64 other_longitude
 # horizontal position error, metres (default applied when the USV sent 0 = unknown)
 float64 uncertainty_m
 # true once the UUV has dived in the current run; later USV updates are ignored

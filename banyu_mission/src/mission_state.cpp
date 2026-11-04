@@ -56,6 +56,8 @@ MissionState::MissionState(rclcpp::Node * node, bool subscribe)
     "/banyu/pipeline/end");
   const auto end_state_topic = node_->declare_parameter<std::string>(
     "topics.pipeline_end_state", "/banyu/pipeline/end_state");
+  const auto rings_complete_topic = node_->declare_parameter<std::string>(
+    "topics.rings_complete", "/banyu/pipeline/rings_complete");
 
   subscriptions_.push_back(
     node_->create_subscription<banyu_msgs::msg::VehicleStatus>(
@@ -83,6 +85,10 @@ MissionState::MissionState(rclcpp::Node * node, bool subscribe)
     node_->create_subscription<banyu_msgs::msg::PipelineEndState>(
       end_state_topic, rclcpp::QoS(5).reliable().transient_local(),
       std::bind(&MissionState::endStateCallback, this, std::placeholders::_1)));
+  subscriptions_.push_back(
+    node_->create_subscription<banyu_msgs::msg::PipelineEndCandidate>(
+      rings_complete_topic, rclcpp::QoS(1).reliable().transient_local(),
+      std::bind(&MissionState::ringsCompleteCallback, this, std::placeholders::_1)));
 }
 
 void MissionState::configure(
@@ -185,6 +191,10 @@ bool MissionState::resetForStart()
   pipeline_ended_ = false;
   pipeline_seen_ = false;
   pipeline_tracked_ = false;
+  rings_complete_ = false;
+  has_pipeline_stamp_ = false;
+  lost_since_new_ring_s_ = 0.0;
+  max_ring_index_ = -1;
   red_pending_ = false;
   red_repaired_ = false;
   ring_visible_ = false;
@@ -449,6 +459,32 @@ void MissionState::pipelineCallback(const banyu_msgs::msg::PipelineObservation::
     pipeline_tracked_ = true;
     last_pipeline_ = node_->now();
   }
+  const rclcpp::Time stamp(msg->header.stamp, node_->get_clock()->get_clock_type());
+  if (has_pipeline_stamp_ && !tracked) {
+    // Frame gaps longer than 1 s count as 1 s.
+    lost_since_new_ring_s_ += std::clamp((stamp - last_pipeline_stamp_).seconds(), 0.0, 1.0);
+  }
+  last_pipeline_stamp_ = stamp;
+  has_pipeline_stamp_ = true;
+}
+
+void MissionState::ringsCompleteCallback(const banyu_msgs::msg::PipelineEndCandidate::SharedPtr msg)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (require_run_context_ && (msg->run_id != run_id_ || msg->epoch != epoch_ || !mission_started_)) {return;}
+  rings_complete_ = msg->candidate;
+}
+
+bool MissionState::ringsComplete() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return rings_complete_;
+}
+
+bool MissionState::legEnded(double lost_s) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return lost_s > 0.0 && lost_since_new_ring_s_ >= lost_s;
 }
 
 void MissionState::ringCallback(const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg)
@@ -467,6 +503,10 @@ void MissionState::ringStateCallback(const banyu_msgs::msg::PipelineRingState::S
   if (require_run_context_ && (msg->run_id != run_id_ || msg->epoch != epoch_ ||
     !mission_started_)) {return;}
   ring_color_ = msg->color;
+  if (static_cast<int64_t>(msg->index) > max_ring_index_) {
+    max_ring_index_ = msg->index;
+    lost_since_new_ring_s_ = 0.0;
+  }
   if (msg->color == banyu_msgs::msg::PipelineRingState::COLOR_RED && finite(msg->confidence) &&
     msg->confidence > 0.0F &&
     // The tracker re-emits an accepted ring's state; a repaired ring must not re-arm the repair.

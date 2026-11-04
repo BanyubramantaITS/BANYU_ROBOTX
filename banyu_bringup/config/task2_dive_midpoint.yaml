@@ -1,0 +1,14 @@
+# Task 2 dive point overlay for dive_point:=midpoint (launch_task2.sh --dive-point midpoint). The vehicle navigates to the
+# middle of the start and end buoys (the pipe is surely below; both buoys are far away), dives heading to the end buoy,
+# traverses to that end, turns around and traverses back to the start end. mission.launch.py loads it after the sensors
+# overlay; dive_point:=buoy loads nothing.
+banyu_mission:
+  ros__parameters:
+    mission:
+      dive_point: "midpoint"
+pipeline_end_node:
+  ros__parameters:
+    require_rings_complete: true
+ring_tracker:
+  ros__parameters:
+    require_monotonic_order: false

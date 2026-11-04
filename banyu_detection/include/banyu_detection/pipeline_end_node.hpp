@@ -49,6 +49,9 @@ private:
   // traverse. The only end signal on the real vehicle (the end candidates come from the sim fixture). In total, not in one
   // go: at the end the search finds the pipe's last stretch again within a second, every time.
   double rings_complete_lost_s_{3.0};
+  // The confirmed end candidate counts only once the four rings are complete (a two-leg survey from the midpoint
+  // passes one end of the pipe before it has seen every ring).
+  bool require_rings_complete_{false};
   bool require_run_context_{false};
   bool publish_confirmed_only_{true};
   bool default_candidate_{false};

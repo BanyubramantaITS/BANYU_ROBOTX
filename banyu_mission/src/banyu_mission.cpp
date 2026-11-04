@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <random>
 #include <sstream>
+#include <stdexcept>
 #include "rx_msgs/msg/rx_task.hpp"
 #include "rx_msgs/msg/vehicle_type.hpp"
 
@@ -602,8 +603,19 @@ void BanyuMission::applyBuoyTarget()
 {
   if (!blackboard_ || !buoy_target_) {return;}
   const auto & target = *buoy_target_;
-  blackboard_->set("target_latitude", target.latitude);
-  blackboard_->set("target_longitude", target.longitude);
+  const bool midpoint = dive_point_ == "midpoint" && target.other_valid && finite(target.other_latitude) &&
+    finite(target.other_longitude);
+  if (midpoint) {
+    // Midway between the buoys: the pipe is surely below, and both buoys are far away (no collision on the surface).
+    blackboard_->set("target_latitude", 0.5 * (target.latitude + target.other_latitude));
+    blackboard_->set("target_longitude", 0.5 * (target.longitude + target.other_longitude));
+  } else {
+    if (dive_point_ == "midpoint") {
+      RCLCPP_WARN(get_logger(), "Midpoint dive needs both buoys: the USV gave only the start buoy, diving near it");
+    }
+    blackboard_->set("target_latitude", target.latitude);
+    blackboard_->set("target_longitude", target.longitude);
+  }
   const bool use_heading = target.heading_valid && finite(target.heading_enu_rad) &&
     !explicit_heading_;
   if (use_heading) {
@@ -612,12 +624,13 @@ void BanyuMission::applyBuoyTarget()
     blackboard_->set("heading", heading);
     blackboard_->set("heading_prior", heading);
   }
-  shiftTargetAlongHeading(dive_offset_m_);
+  if (!midpoint) {shiftTargetAlongHeading(std::max(dive_offset_m_, buoy_standoff_m_));}
   const auto heading_text = use_heading ?
     std::to_string(target.heading_enu_rad) + " rad" : std::string("unchanged");
   RCLCPP_INFO(
-    get_logger(), "Task 2 target from USV PipelineBuoys seq=%u: %.7f, %.7f, heading %s",
-    target.source_seq, target.latitude, target.longitude, heading_text.c_str());
+    get_logger(), "Task 2 target from USV PipelineBuoys seq=%u: %.7f, %.7f, heading %s, dive point %s",
+    target.source_seq, target.latitude, target.longitude, heading_text.c_str(),
+    midpoint ? "midway between the buoys" : "inside the start buoy");
 }
 
 std::string BanyuMission::xmlPath()
@@ -715,6 +728,11 @@ void BanyuMission::initialize()
   const auto retries = declare_parameter<int>("mission.max_retries", 3);
   retry_dive_offset_m_ = declare_parameter<double>("mission.retry_dive_offset_m", 3.0);
   dive_offset_m_ = declare_parameter<double>("mission.dive_offset_m", 0.0);
+  buoy_standoff_m_ = std::max(0.0, declare_parameter<double>("mission.buoy_standoff_m", 1.5));
+  dive_point_ = declare_parameter<std::string>("mission.dive_point", "buoy");
+  if (dive_point_ != "buoy" && dive_point_ != "midpoint") {
+    throw std::invalid_argument("mission.dive_point must be buoy or midpoint");
+  }
   const auto crc = declare_parameter<int64_t>("mission.crc32", 0);
   const auto camera = declare_parameter<std::string>("mission.camera_name", "front_camera");
   const auto id = declare_parameter<std::string>("mission.id", "banyu-mission");
@@ -846,7 +864,9 @@ void BanyuMission::initialize()
   blackboard->set("start_longitude", start_longitude);
   blackboard->set("gps_tolerance", gps_tolerance);
   blackboard->set("heading", effective_heading);
-  shiftTargetAlongHeading(dive_offset_m_);
+  shiftTargetAlongHeading(std::max(dive_offset_m_, buoy_standoff_m_));
+  blackboard->set("two_legs", dive_point_ == "midpoint");
+  blackboard->set("leg_end_lost_s", declare_parameter<double>("mission.leg_end_lost_s", 6.0));
   blackboard->set("heading_tolerance", heading_tolerance);
   blackboard->set("inspection_depth", inspection_depth);
   blackboard->set("depth_tolerance", depth_tolerance);
