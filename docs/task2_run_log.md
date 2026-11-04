@@ -734,3 +734,10 @@ any fix (the two old anchor tests changed to the last-fix rule). Built at the ne
 - **Midpoint dive Core seed 1 (node 2): PASS 450** (random spawn, hydrophone off). Two legs as designed: dive midway between the buoys heading to the end buoy, leg 1 recorded rings at progress 2.7 and 4.38, `turn_around` (TimedMove, IMU yaw) SUCCESS, leg 2 recorded the RED at 1.3 and the GREEN at 0.0, traverse ended by the four-ring rule; order GREEN, RED, GREEN, GREEN right, Gazebo TASK_COMPLETED_GREEN.
 - **Midpoint dive Core seed 5 (node 3): PASS 450** (two legs, turn_around SUCCESS, four-ring end; order GREEN, GREEN, RED, GREEN right). The e2e relaunched twice on its own (start never took: wedge). **RoboCommand fix confirmed in the sim:** the UUV heartbeat (state, task) changed 3 times in the whole run (AUTO/NONE -> AUTO/TASK_INFRA_SURVEY_REPAIR through the dive and both legs -> KILLED/NONE after the run), against 592 flaps before the fix.
 - Midpoint dive Core seed 9 (node 4): **PASS 450** (order GREEN, GREEN, GREEN, RED). Seed 2 (node 1) re-run (m2): all three launch attempts failed before the run (twice execution never held, once the clock could not be read): not counted; queued again (m3).
+- **Root cause of the "never holds" starts (sim):** the vehicle-execution hold needs a pose received within 0.5 s of wall time;
+  SITL streamed the pose at 10 Hz of sim time, which at 0.34x is ~3 Hz of wall time with gaps up to 0.59 s (measured). One gap
+  before the start raises the safety fault, which clears `authority_handshake_` (readiness: "Mission lifecycle unavailable or
+  expired") and the hold stays off until the next prepare (a fail-safe that is right on the robot). The controller resets are a
+  symptom of the same starvation. Fixes: SITL `--streamrate=25` (sim only; `run_mavproxy.sh` for the robot is unchanged), and
+  `fastdds shm clean` in `task2_sim_cleanup.sh` (about 630 stale Fast DDS shared-memory files had piled up from killed runs).
+  The 0.5 s hold rule itself is unchanged.
