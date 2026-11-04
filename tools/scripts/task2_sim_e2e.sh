@@ -67,6 +67,11 @@ if [ "$UP" = 1 ]; then
     timeout 3 ros2 topic echo --once /banyu/mission/run_lifecycle 2>/dev/null | grep -q "autonomous_ready: true" && break
     sleep 2
   done
+  # The start also needs vehicle execution holding position (the EKF takes the GPS about 70 s after boot): up to 120 s.
+  for _ in $(seq 1 40); do
+    timeout 3 ros2 topic echo --once /banyu/execution/readiness 2>/dev/null | grep -q "holding: true" && break
+    sleep 3
+  done
   echo "ready $(date +%T)" >> "$OUT/progress.txt"
   sleep 3
   timeout "$TIMEOUT" python3 "${REPO_DIR}/tools/sos_integration/mock_gcs.py" --send run-start --serve --start-retry-s 30 \
