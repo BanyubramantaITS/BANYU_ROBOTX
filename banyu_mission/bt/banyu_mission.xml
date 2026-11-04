@@ -129,10 +129,11 @@
           </Timeout>
         </ForceSuccess>
         <SetRingRecording enable="true" />
-        <!-- The pipe's start is just ahead: align to the buoy line and surge forward onto it. -->
+        <!-- The pipe's start is just ahead (the vehicle still faces the end buoy): surge forward onto it, at whatever angle
+             the pipe runs (a bent pipe is off the buoy line, so no heading prior here). -->
         <RetryUntilSuccessful num_attempts="3">
           <Timeout msec="{acquire_timeout_ms}">
-            <AcquirePipeline camera_name="{camera_name}" use_heading_prior="true"
+            <AcquirePipeline camera_name="{camera_name}" use_heading_prior="false"
               heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}" />
           </Timeout>
         </RetryUntilSuccessful>
