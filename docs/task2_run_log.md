@@ -764,3 +764,8 @@ node 1 PASS 450 (others not yet run). **To resume:** H46 midpoint Core seeds 1 5
 (recording gate, standoff), then Advanced/Disruptive re-runs, then baro step 4, step 5 (baro vs full for `--real`, checklist), step 6
 (verdict, sim results). RoboCommand audit: done (fixes built and confirmed in the sim); open: whether the UUV declares Task 4.
 - **Resumed (user: go).** Working tree has uncommitted user edits (not mine, left untouched): `banyu_defaults.parm` now full thruster range MOT_PWM 1100-1900 (was 1300-1700) and FRAME_CONFIG moved to `sim_only.parm` (sim stays Heavy), plus POR script/doc edits. SITL loads these, so the runs from here use the full PWM range. Midpoint H46 Core seeds 1 5 9 (nodes 2-4) queued.
+- **Midpoint dive, back-up design (H46): 4 of 4 PASS 450** (Core, random spawn, hydrophone off, Gazebo ground truth): node 1 (seed 2,
+  earlier), node 2 (seed 1), node 3 (seed 5), node 4 (seed 9); each with recording off through the dive and the back-up and on for
+  the forward survey, one launch each, the last three with the user's full thruster range (MOT_PWM 1100-1900). A suspend (wall clock
+  jump 2035 s) happened around seed 9; it pauses the sim and the stack together, and the score is Gazebo ground truth.
+  Compared with the turn-around design (H44: 3/4, the RED near the start buoy failed), the back-up design passes all four nodes.
