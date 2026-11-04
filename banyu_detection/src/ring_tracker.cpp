@@ -59,7 +59,7 @@ bool RingTracker::hasRecordedColor(uint8_t color) const
   return std::any_of(
     snapshot_.records.begin(), snapshot_.records.end(),
     [color](const banyu_msgs::msg::Task2RingRecord & record) {
-      return record.color == color;
+      return !record.superseded && record.color == color;
     });
 }
 
@@ -288,6 +288,9 @@ int RingTracker::findAssociatedRecord(
 
   for (std::size_t i = 0; i < snapshot_.records.size(); ++i) {
     const auto & rec = snapshot_.records[i];
+    if (rec.superseded) {
+      continue;
+    }
     if (hasCenterline()) {
       const double delta_progress = std::abs(progress_m - rec.pipeline_progress_m);
       if (delta_progress <= config_.node_association_distance_m && delta_progress < min_dist) {
@@ -375,14 +378,19 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
   }
 
   // The pipe has four nodes: a fifth distinct sighting means two records are one node (seen from far, or from beside
-  // the line). Merge the closest pair and reuse the freed slot, so a later node (the RED one in seed 24) is not lost.
-  std::size_t slot = snapshot_.records.size();
+  // the line). Merge the closest pair (the other is superseded, its id never reused), so a later node (the RED one in
+  // seed 24) is not lost.
+  const std::size_t slot = snapshot_.records.size();
   std::size_t survivor = 0;
-  if (snapshot_.records.size() >= 4 && (!valid_progress || !mergeClosestRecords(survivor, slot))) {
-    clearEntry();
-    return ignoredUpdate();
+  std::size_t superseded = 0;
+  bool merged = false;
+  if (liveRecordCount() >= 4) {
+    if (!valid_progress || !mergeClosestRecords(survivor, superseded)) {
+      clearEntry();
+      return ignoredUpdate();
+    }
+    merged = true;
   }
-  const bool merged = slot < snapshot_.records.size();
 
   banyu_msgs::msg::Task2RingRecord record;
   record.run_id = input.run_id;
@@ -411,11 +419,7 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
     record.ordering_verified = false;
   }
 
-  if (merged) {
-    snapshot_.records[slot] = record;
-  } else {
-    snapshot_.records.push_back(record);
-  }
+  snapshot_.records.push_back(record);
   snapshot_.phase = RingTrackerPhase::TRACKING;
   snapshot_.active_color = observation.color;
   snapshot_.consecutive_frames = 1;
@@ -448,17 +452,26 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
   result.merged = merged;
   if (merged) {
     result.merged_record = snapshot_.records[survivor];
+    result.superseded_record = snapshot_.records[superseded];
   }
   return result;
+}
+
+std::size_t RingTracker::liveRecordCount() const
+{
+  return static_cast<std::size_t>(std::count_if(
+      snapshot_.records.begin(), snapshot_.records.end(),
+      [](const banyu_msgs::msg::Task2RingRecord & record) {return !record.superseded;}));
 }
 
 bool RingTracker::mergeClosestRecords(std::size_t & survivor, std::size_t & freed)
 {
   auto & recs = snapshot_.records;
-  std::vector<std::size_t> order(recs.size());
-  for (std::size_t i = 0; i < order.size(); ++i) {
+  std::vector<std::size_t> order;
+  for (std::size_t i = 0; i < recs.size(); ++i) {
+    if (recs[i].superseded) {continue;}
     if (!recs[i].physical_identity_verified) {return false;}
-    order[i] = i;
+    order.push_back(i);
   }
   if (order.size() < 2 || !(config_.min_node_spacing_m > 0.0)) {return false;}
   std::sort(order.begin(), order.end(), [&recs](std::size_t a, std::size_t b) {
@@ -482,6 +495,7 @@ bool RingTracker::mergeClosestRecords(std::size_t & survivor, std::size_t & free
   survivor = (recs[b].color == kRed && recs[a].color != kRed) ? b : a;
   freed = survivor == a ? b : a;
   if (recs[freed].color == kRed) {recs[survivor].color = kRed;}
+  recs[freed].superseded = true;
   return true;
 }
 

@@ -38,13 +38,23 @@ for ATTEMPT in 1 2 3; do
     sleep 6
     if timeout 5 ros2 topic echo --once /banyu/vehicle/water_depth 2>/dev/null | grep -q 'valid: true'; then UP=1; break; fi
   done
-  [ "$UP" = 1 ] && break
-  echo "attempt $ATTEMPT: sim did not come up" >> "$OUT/progress.txt"
+  if [ "$UP" = 1 ]; then
+    # EKF and datum settle (the EKF takes the GPS about 60-70 s after boot). A burst of ArduPilot controller resets there
+    # wedges the sim (the clock stops, the vehicle never holds and every run start is NOT_READY): relaunch instead.
+    sleep 75
+    C1=$(timeout 5 ros2 topic echo --once /clock 2>/dev/null | grep -m1 'sec:' | tr -dc 0-9); sleep 4
+    C2=$(timeout 5 ros2 topic echo --once /clock 2>/dev/null | grep -m1 'sec:' | tr -dc 0-9)
+    RESETS=$(grep -c "controller has reset" "$OUT/sim.log")
+    if [ "${RESETS:-0}" -le 1 ] && [ -n "$C1" ] && [ -n "$C2" ] && [ "$C2" -gt "$C1" ]; then break; fi
+    UP=0
+    echo "attempt $ATTEMPT: sim wedged (controller resets ${RESETS}, clock ${C1} -> ${C2})" >> "$OUT/progress.txt"
+  else
+    echo "attempt $ATTEMPT: sim did not come up" >> "$OUT/progress.txt"
+  fi
   "${SCRIPT_DIR}/task2_sim_cleanup.sh"; sleep 10
 done
 echo "up=$UP" >> "$OUT/progress.txt"
 if [ "$UP" = 1 ]; then
-  sleep 45   # EKF and datum settle
   python3 "${REPO_DIR}/tools/sos_integration/ring_recorder.py" "$OUT/rings.jsonl" "$TIMEOUT" > /dev/null 2>&1 &
   timeout 60 ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger '{}' > "$OUT/prepare.out" 2>&1
   echo "prepared $(date +%T)" >> "$OUT/progress.txt"

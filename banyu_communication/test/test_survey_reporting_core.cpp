@@ -575,3 +575,34 @@ TEST(SurveyLedger, GambleRedOnlyAtTheConfiguredPositions)
     }
   }
 }
+
+TEST(SurveyLedger, SupersededDuplicateRecordIsDroppedAndTheNewNodeKeepsTheOrder)
+{
+  // The ring tracker recorded one node twice (100 and 101), then merged 101 into 100 when the RED node (104) came.
+  SurveyLedger ledger(ledgerConfig());
+  initialize(ledger);
+  auto value = evidence();
+  value.traversal_complete = false;
+  const std::vector<double> first = {0.1, 1.0, 10.1, 20.1};
+  for (std::size_t i = 0; i < 4; ++i) {
+    value.rings[i].color = 2;
+    value.rings[i].pipeline_progress_m = first[i];
+  }
+  ledger.ingest(value, 11 * kSecond);
+
+  value.revision++;
+  value.traversal_complete = true;
+  value.rings[1].superseded = true;
+  auto red = value.rings[3];
+  red.node_id = 104;
+  red.frame_sequence = 5;
+  red.color = 1;
+  red.pipeline_progress_m = 30.1;
+  value.rings.push_back(red);
+  ASSERT_TRUE(ledger.ingest(value, 11 * kSecond).empty());
+  const auto report = ledger.build("merged");
+  EXPECT_EQ(report.original_conditions[0], 1u);
+  EXPECT_EQ(report.original_conditions[1], 1u);
+  EXPECT_EQ(report.original_conditions[2], 1u);
+  EXPECT_EQ(report.original_conditions[3], 2u);
+}

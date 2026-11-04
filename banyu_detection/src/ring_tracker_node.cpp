@@ -273,9 +273,9 @@ void RingTrackerNode::observationCallback(
   auto state = adapter_.tracker().snapshot().last_state;
   state_pub_->publish(state);
   if (update.merged) {
-    RCLCPP_WARN(get_logger(), "Five distinct rings for four nodes: merged record %u into %u, slot %u reused",
-      static_cast<unsigned>(update.record_index), update.merged_record.node_id,
-      static_cast<unsigned>(update.record_index));
+    RCLCPP_WARN(get_logger(), "Five distinct rings for four nodes: record %u merged into %u (one node recorded twice)",
+      update.superseded_record.node_id, update.merged_record.node_id);
+    accepted_ring_pub_->publish(update.superseded_record);
     accepted_ring_pub_->publish(update.merged_record);
   }
   accepted_ring_pub_->publish(update.record);
@@ -289,7 +289,7 @@ void RingTrackerNode::publishRingsComplete()
   msg.header.stamp = now();
   msg.run_id = run_context_.runId();
   msg.epoch = run_context_.epoch();
-  msg.candidate = snapshot.records.size() >= 4 && !snapshot.red_pending;
+  msg.candidate = adapter_.tracker().liveRecordCount() >= 4 && !snapshot.red_pending;
   rings_complete_pub_->publish(msg);
 }
 

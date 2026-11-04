@@ -71,9 +71,11 @@ struct RingTrackerUpdate
   std::size_t consecutive_frames{0};
   std::size_t record_index{0};
   banyu_msgs::msg::Task2RingRecord record;
-  // Set when two records were merged to free a slot for this one: the surviving record, to publish first.
+  // Set when two records were merged to make room for this one: the surviving record and the superseded one (both
+  // to publish before this record).
   bool merged{false};
   banyu_msgs::msg::Task2RingRecord merged_record;
+  banyu_msgs::msg::Task2RingRecord superseded_record;
 };
 
 struct RingTrackerSnapshot
@@ -119,6 +121,8 @@ public:
     return snapshot_.records;
   }
   bool redPending() const {return snapshot_.red_pending;}
+  // Records that are nodes (not superseded by a merge).
+  std::size_t liveRecordCount() const;
   bool repaired() const {return snapshot_.repaired;}
 
 private:
@@ -145,8 +149,9 @@ private:
   void clearEntry();
   RingTrackerUpdate ignoredUpdate() const;
   RingTrackerUpdate accept(const RingTrackerInput & input);
-  // Merges the two records closest in progress into one (RED wins) and returns the freed slot; false if they lack progress.
-  bool mergeClosestRecords(std::size_t & survivor, std::size_t & freed);
+  // Merges the two live records closest in progress into one (RED wins) and marks the other superseded; false if they
+  // lack progress or are not closer than min_node_spacing_m.
+  bool mergeClosestRecords(std::size_t & survivor, std::size_t & superseded);
 
   RingTrackerConfig config_;
   RingTrackerSnapshot snapshot_;

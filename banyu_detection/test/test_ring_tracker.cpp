@@ -621,11 +621,16 @@ TEST(RingTracker, FifthRingMergesADuplicateRecordSoTheRedNodeIsKept) {
   ASSERT_TRUE(u.accepted);
   EXPECT_TRUE(u.merged);
   EXPECT_EQ(u.merged_record.node_id, 0U);
-  EXPECT_EQ(u.record.node_id, 1U);
+  EXPECT_EQ(u.superseded_record.node_id, 1U);
+  EXPECT_TRUE(u.superseded_record.superseded);
+  // A new identity: the survey ledger keeps the first sighting of each node id.
+  EXPECT_EQ(u.record.node_id, 4U);
   EXPECT_TRUE(u.record.ordering_verified);
-  ASSERT_EQ(tracker.records().size(), 4U);
-  EXPECT_EQ(tracker.records()[1].color, red);
-  EXPECT_NEAR(tracker.records()[1].pipeline_progress_m, 4.4, 1e-9);
+  ASSERT_EQ(tracker.records().size(), 5U);
+  EXPECT_EQ(tracker.liveRecordCount(), 4U);
+  EXPECT_TRUE(tracker.records()[1].superseded);
+  EXPECT_EQ(tracker.records()[4].color, red);
+  EXPECT_NEAR(tracker.records()[4].pipeline_progress_m, 4.4, 1e-9);
   EXPECT_TRUE(tracker.redPending());
 }
 
@@ -648,8 +653,10 @@ TEST(RingTracker, MergedPairKeepsTheRedRecordInItsSlot) {
   ASSERT_TRUE(u.merged);
   EXPECT_EQ(u.merged_record.node_id, 2U);
   EXPECT_EQ(u.merged_record.color, red);
-  EXPECT_EQ(u.record.node_id, 1U);
+  EXPECT_EQ(u.superseded_record.node_id, 1U);
+  EXPECT_EQ(u.record.node_id, 4U);
   EXPECT_EQ(tracker.records()[2].color, red);
+  EXPECT_FALSE(tracker.records()[2].superseded);
 }
 
 TEST(RingTracker, FifthRingIsIgnoredWhenNoRecordsAreCloserThanTheNodeSpacing) {

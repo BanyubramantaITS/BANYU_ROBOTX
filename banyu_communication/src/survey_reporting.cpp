@@ -142,8 +142,11 @@ std::string SurveyLedger::ingest(
     value.low_progress_endpoint_id != evidence_.low_progress_endpoint_id ||
     value.high_progress_endpoint_id != evidence_.high_progress_endpoint_id))
   {return fail("ACTIVE_ENDPOINT_CHANGED_DURING_SURVEY");}
-  if (value.rings.size() > 4) {
-    return fail("SURVEY_INCOMPLETE observed=" + std::to_string(value.rings.size()) + " expected=4");
+  // Records the ring tracker merged into another one (one node recorded twice) are not nodes.
+  const auto live = static_cast<std::size_t>(std::count_if(value.rings.begin(), value.rings.end(),
+      [](const auto & ring) {return !ring.superseded;}));
+  if (live > 4) {
+    return fail("SURVEY_INCOMPLETE observed=" + std::to_string(live) + " expected=4");
   }
 
   std::vector<double> current_progress;
@@ -151,6 +154,11 @@ std::string SurveyLedger::ingest(
   std::string snapshot_failure;
 
   for (const auto & ring : value.rings) {
+    if (ring.superseded && ring.run_id == run_id_ && ring.epoch == epoch_) {
+      originals_.erase(ring.node_id);
+      identities.insert(ring.node_id);
+      continue;
+    }
     if (ring.run_id != run_id_ || ring.epoch != epoch_ || !identities.insert(ring.node_id).second) {
       if (snapshot_failure.empty()) {
         snapshot_failure = "NODE_IDENTITY_AMBIGUOUS";
@@ -242,8 +250,8 @@ std::string SurveyLedger::ingest(
     return fail(snapshot_failure);
   }
 
-  if (value.rings.size() != 4 || originals_.size() != 4) {
-    return fail("SURVEY_INCOMPLETE observed=" + std::to_string(value.rings.size()) + " expected=4");
+  if (live != 4 || originals_.size() != 4) {
+    return fail("SURVEY_INCOMPLETE observed=" + std::to_string(live) + " expected=4");
   }
   // A higher tier whose repair or flash code could not be confirmed reports as the Core survey only (the evidence
   // node then sends tier 2): the Core points do not depend on the code.
@@ -332,7 +340,9 @@ SurveyLedger::Report SurveyLedger::buildBestEffort(const std::string & report_id
   for (const auto & ring : originals_) {seen.push_back(ring.second);}
   if (seen.empty()) {
     for (const auto & ring : evidence_.rings) {
-      if ((ring.color == 1 || ring.color == 2) && std::isfinite(ring.pipeline_progress_m)) {seen.push_back(ring);}
+      if (!ring.superseded && (ring.color == 1 || ring.color == 2) && std::isfinite(ring.pipeline_progress_m)) {
+        seen.push_back(ring);
+      }
     }
   }
   const bool ascending = evidence_.active_buoy.endpoint_id == evidence_.low_progress_endpoint_id;
