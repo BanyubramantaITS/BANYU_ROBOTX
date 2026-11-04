@@ -730,3 +730,4 @@ the node during the flash code (H13-H17) still loses the lid in some runs. Scrat
 
 Tests written: AUTO in ALT_HOLD (and not in an unlisted mode), depth from the calibrated depth, last-fix position, anchor only before
 any fix (the two old anchor tests changed to the last-fix rule). Built at the next gap between runs.
+- Midpoint Core seed 2 (m1): **not counted** (sim wedged after arming: holding went false seconds after the e2e saw it true; four starts NOT_READY). Harness: the e2e now relaunches the whole run when the UUV heartbeat shows no Task 2 tasking 150 s after the start (at most twice; the wedged run's logs are kept in wedged_runN/). RoboCommand fixes built: uuv_comm_node tests 20/20.
