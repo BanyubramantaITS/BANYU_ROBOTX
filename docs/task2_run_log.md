@@ -708,3 +708,25 @@ the node during the flash code (H13-H17) still loses the lid in some runs. Scrat
   against `RobotX-SoS-communication-ITSN/README.md`. Already seen (not yet verified or changed): `uuv_comm_node`
   `robotStateLocked()` reports `STATE_AUTO` only when the FCU mode is `GUIDED`, so under water in ALT_HOLD (the Task 2 underwater
   mode) the heartbeat probably reports `STATE_MANUAL` during an autonomous run.
+
+## Resumed 2026-11-04 ~15:40: midpoint validation and the RoboCommand topic audit
+
+**RoboCommand audit (UUV side, against `RobotX-SoS-communication-ITSN/README.md`):**
+
+| Item | Finding | Action |
+|---|---|---|
+| Heartbeat topic, type, 2 Hz wall timer, `vehicle_type` UUV, default QoS | correct | none |
+| Heartbeat `state` | **wrong**: in one Disruptive run the state changed 592 times: KILLED/AUTO every 1-2 s on the surface, KILLED/MANUAL under water. (a) STATE_AUTO required the FCU mode GUIDED, but under water the run flies ALT_HOLD; (b) the FCU state and vehicle status freshness used the wall clock (2 s) while both are published on the ROS clock (1 Hz `/mavros/state`; at 0.34x sim speed 3 s of wall time) | AUTO in every mode of the run (`autonomy_mode` "GUIDED,ALT_HOLD"; "GUIDED,STABILIZE" in the minimal and gamble overlays); freshness on the ROS clock |
+| Heartbeat `depth_m` | from the EKF pose z: on the robot there is no position under water | calibrated water depth (Bar30 / GPS surface proof) when valid, else the pose |
+| Heartbeat `position` / `altitude_hae_m` with no fix | the configured anchor (the sim's Long Beach home in `task2_params.yaml`): on the robot every dive would report California | last valid fix; the anchor only before any fix |
+| Heartbeat `current_task` | TASK_INFRA_SURVEY_REPAIR during ACTIVE..SURFACED, TASK_NONE otherwise, never TASK_UNKNOWN | none |
+| `heading_deg`, `roll_deg`, `pitch_deg` | ENU yaw to compass heading, from the attitude | none |
+| `/system/mission/status` | same state/task as the heartbeat (inherits the fixes), sent on lifecycle changes | none |
+| `PipelineSurvey` | sent once from SURFACED, reliable + transient_local (a late GCS still gets it; compatible with its volatile reader), active buoy = the USV-verified buoy, 4 segments RED->DAMAGED(2), GREEN->INTACT(1) | none |
+| `ResourceDelivery` | task TASK_INFRA_SURVEY_REPAIR, Advanced tin COLOR_ANY, Disruptive tin 1-3 | none |
+| `/system/mission/command`, `/system/mission/course` | default QoS; run start target UUV or all; seqs kept | none |
+| `PipelineBuoys` | default QoS reader, course_id, TYPE_USV, newest seq | none |
+| Task 4 commands | the UUV acknowledges assistance / keep-out / all-clear but does not execute them (MissionStatus says unsupported) | open: decide with the team whether the UUV declares Task 4 (if TIER_NONE, acks may confuse the GCS) |
+
+Tests written: AUTO in ALT_HOLD (and not in an unlisted mode), depth from the calibrated depth, last-fix position, anchor only before
+any fix (the two old anchor tests changed to the last-fix rule). Built at the next gap between runs.
