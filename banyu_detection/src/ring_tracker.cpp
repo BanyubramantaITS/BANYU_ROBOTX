@@ -380,6 +380,10 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
   // The pipe has four nodes: a fifth distinct sighting means two records are one node (seen from far, or from beside
   // the line). Merge the closest pair (the other is superseded, its id never reused), so a later node (the RED one in
   // seed 24) is not lost.
+  if (config_.max_record_height_m > 0.0 && input.camera_height_m > config_.max_record_height_m) {
+    clearEntry();
+    return ignoredUpdate();
+  }
   const std::size_t slot = snapshot_.records.size();
   std::size_t survivor = 0;
   std::size_t superseded = 0;

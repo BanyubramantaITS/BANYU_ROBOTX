@@ -39,6 +39,9 @@ struct RingTrackerConfig
   // Each new ring must continue the direction set by the first two (ordering_verified). Off for a two-leg survey from
   // the midpoint: the second leg meets the rest of the rings the other way; the progress is absolute along the buoy line.
   bool require_monotonic_order{true};
+  // No new record while the camera is higher than this above the pipe (measured from the pipe's width): from the descent
+  // the same node lands at several progress values (midpoint seed 2: three records in 6 s from 2.8 m). 0 = no limit.
+  double max_record_height_m{2.2};
   // Bottom camera geometry for estimating where a ring is along the pipe; disabled when
   // camera_height_m is 0 (ring position then equals vehicle position).
   double camera_height_m{0.0};

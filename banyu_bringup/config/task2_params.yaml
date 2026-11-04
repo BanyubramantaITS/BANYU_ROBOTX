@@ -181,6 +181,9 @@ ring_tracker:
     # seen from far or beside the line; seed 24). Sim node spacing 1.28-1.55 m. 0 = never merge (the fifth is ignored).
     min_node_spacing_m: 1.0
     require_monotonic_order: true   # false for the two-leg survey (task2_dive_midpoint.yaml)
+    # No new ring record while the camera is higher than this above the pipe (from its width): rings seen from the descent are
+    # placed badly and one node becomes several records. The following height is about 1 m. 0 = no limit.
+    max_record_height_m: 2.2
     # Nearest pose can be half a pose period away (MAVROS pose ~5-10 Hz vs 30 Hz camera).
     pose_timestamp_tolerance_s: 0.12
     # Tolerate a few dropped camera frames (best-effort transport) before treating it as a gap.

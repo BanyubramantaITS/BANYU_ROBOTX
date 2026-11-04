@@ -675,3 +675,32 @@ TEST(RingTracker, FifthRingIsIgnoredWhenNoRecordsAreCloserThanTheNodeSpacing) {
   EXPECT_FALSE(meet(5.2).accepted);
   EXPECT_EQ(tracker.records().size(), 4U);
 }
+
+TEST(RingTracker, NoNewRecordWhileTheCameraIsHighAboveThePipe)
+{
+  // Midpoint seed 2: three records of one or two nodes in 6 s from 2.8 m above them during the descent.
+  banyu_detection::RingTracker tracker(trackerConfig(1, 1, 1));
+  const auto green = banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN;
+  uint64_t seq = 1;
+  auto meet = [&](double progress, double height) {
+      banyu_detection::RingTrackerInput input;
+      input.observation = ring(seq++, green);
+      input.has_path_distance = true;
+      input.path_distance_m = progress;
+      input.has_vehicle_pose = true;
+      input.vehicle_pose_map.header.frame_id = "map";
+      input.vehicle_pose_map.header.stamp = input.observation.header.stamp;
+      input.vehicle_pose_map.pose.position.x = progress;
+      input.vehicle_pose_map.pose.orientation.w = 1.0;
+      input.camera_height_m = height;
+      const auto u = tracker.update(input);
+      update(tracker, seq++, green, false, progress);
+      update(tracker, seq++, green, false, progress);
+      return u;
+    };
+  EXPECT_FALSE(meet(1.0, 2.8).accepted);
+  EXPECT_FALSE(meet(2.5, 2.4).accepted);
+  EXPECT_TRUE(meet(4.0, 1.1).accepted);
+  EXPECT_TRUE(meet(5.5, 0.0).accepted);   // height unknown: recorded as before
+  EXPECT_EQ(tracker.records().size(), 2U);
+}
