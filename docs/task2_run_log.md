@@ -646,3 +646,10 @@ So the only decision that read pinger data is `SearchPipeline`.
   `max_code_after_repair_s` 35 s after the post-repair steady green (the code lasts 30 s), so a neighbouring node seen later can
   never become the code (seed 5); decoder tests 15/15 (new: flashes 90 s after the repair are not a code).
 - Advanced seeds 1, 5, 9 (and 2) are re-run on this code; the Advanced results above are not counted for the tier.
+- **Why the sim is slow (0.34x real time):** `launch_task2.sh` reports "NVIDIA GPU: not detected": the PCI bus shows only the AMD
+  Cezanne iGPU (`amdgpu`), no NVIDIA device, no `/dev/nvidia*`, no `nvidia-smi` (also outside the sandbox). Gazebo renders the cameras
+  on the iGPU. Not fixable from here (laptop GPU mode / BIOS / driver); told the user. Consequence: wall-clock timeouts in the harness
+  are 3x shorter in sim time; the e2e run timeout is now 1200 s wall (the 20 min cap); the mission's own timeouts run on sim time.
+- **User decisions (2026-11-04):** (1) standoff point for the surface goal (the buoys must never be the goal); (2) try a midpoint dive:
+  navigate to the middle of the start and end buoys, head to the end buoy, dive, search. Plan: two legs (follow to the end buoy's end,
+  then turn around and follow back to the start end when fewer than four rings were recorded), opt-in `--dive-point midpoint`.
