@@ -755,3 +755,11 @@ any fix (the two old anchor tests changed to the last-fix rule). Built at the ne
   monotonic ring order (the H44 relaxation is removed). Tests: mission tree 33/33, run lifecycle 24/25 (known), vehicle execution
   65/65, ring tracker 26/26, uuv_comm 20/20.
 - **H46 midpoint (back-up design) Core seed 2 (node 1): PASS 450** - the case the turn-around design failed. Flow as designed: recording off through the dive, acquire at the midpoint, follow in reverse past the pipe's start (Gazebo x 3.52, pipe start 2.3), leg end, recording on, forward acquire, survey: exactly one record per node in order (0.21 RED, 1.96, 3.24, 4.69), repair TASK_COMPLETED_GREEN.
+
+### Paused by the user again (2026-11-04 evening)
+
+All sims and queues stopped (by PID, cleanup script). The midpoint H46 run of seed 1 in progress is not counted.
+Midpoint dive results so far: turn-around design (H44): nodes 2, 3, 4 PASS 450, node 1 FAIL; back-up design (H46, the user's):
+node 1 PASS 450 (others not yet run). **To resume:** H46 midpoint Core seeds 1 5 9, then buoy-dive Core 2 1 5 9 on the same code
+(recording gate, standoff), then Advanced/Disruptive re-runs, then baro step 4, step 5 (baro vs full for `--real`, checklist), step 6
+(verdict, sim results). RoboCommand audit: done (fixes built and confirmed in the sim); open: whether the UUV declares Task 4.
