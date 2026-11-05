@@ -820,3 +820,21 @@ workspace (scratch, with symlinks to bluerov2_gz, ardupilot_gazebo and the rx_ms
 
 The buoy dive on the same code: Core 4/4. Both dive points work in the sim; the midpoint keeps the vehicle far from both buoys
 on the surface and is surely above the pipe when it dives. Which one the real run uses is the user's call (open).
+
+### Keep-out around both buoys (user request, 2026-11-05)
+
+- **Built:** `NavigateSurfaceGps` goal carries keep-out points (the start and end buoys from `PipelineBuoys`) and a radius
+  (`mission.buoy_keep_out_m` 1.2 m, must be below the 1.5 m standoff; a circle that contains the goal is dropped). Each tick the
+  server steers to the goal when the straight line is clear, else to a point 1.5 x radius beside the first buoy in the way (on the
+  side the line already passes); inside a circle it moves straight out. Tests: kinematic runs (end buoy on the line; goal 1.5 m
+  inside the start buoy reached from beyond it; both buoys in the way) never come within the radius; the midpoint lifecycle test
+  checks both buoys and the radius are in the goal.
+- **Sim, spawns that put a buoy on the direct path** (Gazebo ground truth, 0.5 s track; buoys at x +-3.8):
+  midpoint from (-15, 0.2): end buoy passed at 1.31 m, PASS 450; midpoint from (15, 0.2): start buoy passed at 1.32 m, PASS 450;
+  buoy dive from (-15, 0): end buoy 1.32 m, but the AUV crept to 0.96 m of the start buoy during the 180 deg AlignHeading
+  after the transit (PASS 450); buoy dive from (15, 0.2): start buoy passed at 1.41 m, but FAIL 50 (stopped 0.8 m off the line with
+  the 1.0 m GPS tolerance) and, after **H49** (`gps_tolerance_m` 0.4), FAIL 50 again: overshoot and drift west during the descent
+  put the vehicle past nodes 1 and 2 (the dive point is right above node 1 in this layout) with recording off.
+- **H50:** AlignHeading holds the GPS position it started at while it turns (P 0.5, max 0.2 m/s; a zero velocity let it creep 0.4 m).
+  **H51:** the buoy dive also backs up along the pipe to its start before the forward survey (the user's midpoint flow for both
+  dive points; replaces H48). vehicle_execution 71/71 (new hold test), mission tree 33/33.
