@@ -7,6 +7,47 @@
 namespace banyu_vehicle_execution
 {
 
+std::pair<double, double> keepOutAim(
+  std::pair<double, double> goal, const std::vector<std::pair<double, double>> & obstacles, double radius)
+{
+  if (!(radius > 0.0)) {return goal;}
+  const double detour = 1.5 * radius;
+  for (const auto & [ox, oy] : obstacles) {
+    const double d = std::hypot(ox, oy);
+    if (d < radius && d > 1e-6) {return {ox - ox / d * detour, oy - oy / d * detour};}
+  }
+  auto aim = goal;
+  for (int pass = 0; pass < 3; ++pass) {
+    const double len = std::hypot(aim.first, aim.second);
+    if (len < 1e-6) {break;}
+    const double ux = aim.first / len;
+    const double uy = aim.second / len;
+    double best_t = 2.0;
+    const std::pair<double, double> * blocking = nullptr;
+    for (const auto & o : obstacles) {
+      const double t = (o.first * ux + o.second * uy) / len;
+      const double cx = t * aim.first - o.first;
+      const double cy = t * aim.second - o.second;
+      if (t > 0.0 && t < 1.0 && std::hypot(cx, cy) < radius && t < best_t) {
+        best_t = t;
+        blocking = &o;
+      }
+    }
+    if (!blocking) {break;}
+    // Pass on the side the line is already on (left when it runs straight through).
+    const double cx = best_t * aim.first - blocking->first;
+    const double cy = best_t * aim.second - blocking->second;
+    double nx = -uy;
+    double ny = ux;
+    if (std::hypot(cx, cy) > 1e-6 && cx * nx + cy * ny < 0.0) {
+      nx = -nx;
+      ny = -ny;
+    }
+    aim = {blocking->first + nx * detour, blocking->second + ny * detour};
+  }
+  return aim;
+}
+
 NavigateSurfaceGpsServer::NavigateSurfaceGpsServer(
   rclcpp::Node * node,
   const std::string & action_name,
@@ -75,7 +116,20 @@ MotionIntent NavigateSurfaceGpsServer::tick(
     return zeroIntent();
   }
 
-  const double bearing = std::atan2(dy, dx);
+  // Keep clear of the buoys on the way (a target inside a keep-out circle drops that circle).
+  std::vector<std::pair<double, double>> obstacles;
+  const std::size_t count = std::min(goal->keep_out_latitude_deg.size(), goal->keep_out_longitude_deg.size());
+  for (std::size_t i = 0; i < count; ++i) {
+    if (!std::isfinite(goal->keep_out_latitude_deg[i]) || !std::isfinite(goal->keep_out_longitude_deg[i])) {continue;}
+    double ox = 0.0;
+    double oy = 0.0;
+    latLonToEnuOffsets(
+      telemetry.latitude_deg, telemetry.longitude_deg,
+      goal->keep_out_latitude_deg[i], goal->keep_out_longitude_deg[i], ox, oy);
+    if (std::hypot(ox - dx, oy - dy) > goal->keep_out_radius_m) {obstacles.emplace_back(ox, oy);}
+  }
+  const auto [ax, ay] = keepOutAim({dx, dy}, obstacles, goal->keep_out_radius_m);
+  const double bearing = std::atan2(ay, ax);
   const double heading_err = normalizeAngle(bearing - telemetry.yaw);
   const double speed = std::clamp(nav_kp_ * distance, 0.0, nav_max_speed_);
   const double yaw_rate = std::clamp(yaw_kp_ * heading_err, -max_yaw_rate_, max_yaw_rate_);

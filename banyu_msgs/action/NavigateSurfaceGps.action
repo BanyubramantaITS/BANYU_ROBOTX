@@ -6,6 +6,10 @@ float64 target_longitude_deg
 float64 start_latitude_deg
 float64 start_longitude_deg
 float64 tolerance_m
+# Points to keep clear of on the way (the start and end buoys), WGS84 degrees, and the keep-out radius (m, 0 = none).
+float64[] keep_out_latitude_deg
+float64[] keep_out_longitude_deg
+float64 keep_out_radius_m
 ---
 bool success
 string reason

@@ -122,6 +122,8 @@ private:
   double dive_offset_m_{0.0};
   // The surface goal is never a buoy: at least this far from the start buoy along the buoy line.
   double buoy_standoff_m_{1.5};
+  // The surface transit keeps this far from both buoys (smaller than the standoff, so the goal stays outside).
+  double buoy_keep_out_m_{1.2};
   // "buoy": dive near the start buoy; "midpoint": dive midway between the buoys, then survey in two legs.
   std::string dive_point_{"buoy"};
   void shiftTargetAlongHeading(double distance_m);

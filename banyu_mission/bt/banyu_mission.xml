@@ -29,7 +29,9 @@
                 <Fallback>
                   <NavigateSurfaceGps target_latitude="{target_latitude}" target_longitude="{target_longitude}"
                     start_latitude="{start_latitude}" start_longitude="{start_longitude}"
-                    tolerance="{gps_tolerance}" />
+                    tolerance="{gps_tolerance}" keep_out_radius="{keep_out_radius}"
+                    start_buoy_latitude="{start_buoy_latitude}" start_buoy_longitude="{start_buoy_longitude}"
+                    end_buoy_latitude="{end_buoy_latitude}" end_buoy_longitude="{end_buoy_longitude}" />
                   <Sequence>
                     <Sleep msec="1000" />
                     <AlwaysFailure />
@@ -67,7 +69,9 @@
           <Fallback>
             <NavigateSurfaceGps target_latitude="{target_latitude}" target_longitude="{target_longitude}"
               start_latitude="{start_latitude}" start_longitude="{start_longitude}"
-              tolerance="{gps_tolerance}" />
+              tolerance="{gps_tolerance}" keep_out_radius="{keep_out_radius}"
+                    start_buoy_latitude="{start_buoy_latitude}" start_buoy_longitude="{start_buoy_longitude}"
+                    end_buoy_latitude="{end_buoy_latitude}" end_buoy_longitude="{end_buoy_longitude}" />
             <Sequence>
               <Sleep msec="1000" />
               <AlwaysFailure />

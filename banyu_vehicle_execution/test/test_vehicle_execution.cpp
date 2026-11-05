@@ -2078,3 +2078,73 @@ TEST_F(VehicleExecutionNodeTest, FollowPipelineReverseBacksUpAlongThePipe)
   EXPECT_NEAR(min_vx, -0.4, 1e-3);   // backing up (west)
   EXPECT_LE(max_vx, 1e-6);
 }
+
+namespace
+{
+// Drives a point at a fixed step toward keepOutAim until it reaches the goal; returns the closest approach to any
+// obstacle (world frame) and whether the goal was reached.
+std::pair<double, bool> driveAround(
+  std::pair<double, double> start, std::pair<double, double> goal,
+  const std::vector<std::pair<double, double>> & obstacles, double radius)
+{
+  double x = start.first;
+  double y = start.second;
+  double closest = 1e9;
+  for (int i = 0; i < 2000; ++i) {
+    if (std::hypot(goal.first - x, goal.second - y) < 0.2) {return {closest, true};}
+    std::vector<std::pair<double, double>> relative;
+    for (const auto & o : obstacles) {
+      relative.emplace_back(o.first - x, o.second - y);
+    }
+    const auto [ax, ay] = banyu_vehicle_execution::keepOutAim(
+      {goal.first - x, goal.second - y}, relative, radius);
+    const double len = std::hypot(ax, ay);
+    x += 0.05 * ax / len;
+    y += 0.05 * ay / len;
+    for (const auto & o : obstacles) {
+      closest = std::min(closest, std::hypot(o.first - x, o.second - y));
+    }
+  }
+  return {closest, false};
+}
+}  // namespace
+
+TEST(KeepOutAim, ClearLineGoesStraightToTheGoal)
+{
+  const auto [ax, ay] = banyu_vehicle_execution::keepOutAim({10.0, 0.0}, {{5.0, 3.0}}, 1.2);
+  EXPECT_DOUBLE_EQ(ax, 10.0);
+  EXPECT_DOUBLE_EQ(ay, 0.0);
+}
+
+TEST(KeepOutAim, EndBuoyOnTheLineIsPassedOutsideTheRadius)
+{
+  // The end buoy sits right on the way to the goal.
+  const auto [closest, reached] = driveAround({-10.0, 0.0}, {10.0, 0.0}, {{0.0, 0.0}}, 1.2);
+  EXPECT_TRUE(reached);
+  EXPECT_GE(closest, 1.2);
+}
+
+TEST(KeepOutAim, GoalJustInsideTheStartBuoyIsReachedFromTheFarSide)
+{
+  // The goal is 1.5 m inside the start buoy (the standoff) and the vehicle comes from beyond the buoy; the end buoy is
+  // 8 m further. The vehicle must go around the start buoy.
+  const std::vector<std::pair<double, double>> buoys = {{0.0, 0.0}, {9.5, 0.0}};
+  const auto [closest, reached] = driveAround({-12.0, 0.3}, {1.5, 0.0}, buoys, 1.2);
+  EXPECT_TRUE(reached);
+  EXPECT_GE(closest, 1.2);
+}
+
+TEST(KeepOutAim, BothBuoysInTheWayAreAvoided)
+{
+  const std::vector<std::pair<double, double>> buoys = {{-3.0, 0.1}, {3.0, -0.1}};
+  const auto [closest, reached] = driveAround({-12.0, 0.0}, {12.0, 0.0}, buoys, 1.2);
+  EXPECT_TRUE(reached);
+  EXPECT_GE(closest, 1.2);
+}
+
+TEST(KeepOutAim, InsideTheRadiusMovesStraightOut)
+{
+  const auto [ax, ay] = banyu_vehicle_execution::keepOutAim({10.0, 0.0}, {{0.5, 0.0}}, 1.2);
+  EXPECT_LT(ax, 0.0);   // away from the buoy just ahead
+  EXPECT_NEAR(ay, 0.0, 1e-9);
+}

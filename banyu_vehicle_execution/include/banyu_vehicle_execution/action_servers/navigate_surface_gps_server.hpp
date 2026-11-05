@@ -2,12 +2,20 @@
 #define BANYU_VEHICLE_EXECUTION__ACTION_SERVERS__NAVIGATE_SURFACE_GPS_SERVER_HPP_
 
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "banyu_msgs/action/navigate_surface_gps.hpp"
 #include "banyu_vehicle_execution/action_servers/typed_action_server.hpp"
 
 namespace banyu_vehicle_execution
 {
+
+// Where to steer, in ENU metres relative to the vehicle, to reach `goal` without passing within `radius` of any
+// obstacle: the goal itself when the straight line is clear, else a point beside the first obstacle in the way
+// (1.5 x radius from it, on the side the line already passes); straight away from an obstacle the vehicle is inside.
+std::pair<double, double> keepOutAim(
+  std::pair<double, double> goal, const std::vector<std::pair<double, double>> & obstacles, double radius);
 
 class NavigateSurfaceGpsServer final
   : public TypedActionServer<banyu_msgs::action::NavigateSurfaceGps>

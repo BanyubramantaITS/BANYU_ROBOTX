@@ -909,4 +909,9 @@ TEST_F(RunLifecycleMidpointTest, SurfaceGoalIsMidwayBetweenTheBuoys)
   const auto goal = navigation_handles_.at(0)->get_goal();
   EXPECT_NEAR(goal->target_latitude_deg, 1.0012, 1e-9);
   EXPECT_NEAR(goal->target_longitude_deg, 2.0014, 1e-9);
+  // Both buoys are keep-out points of the transit.
+  ASSERT_EQ(goal->keep_out_latitude_deg.size(), 2U);
+  EXPECT_NEAR(goal->keep_out_latitude_deg[0], 1.0011, 1e-9);
+  EXPECT_NEAR(goal->keep_out_longitude_deg[1], 2.0016, 1e-9);
+  EXPECT_NEAR(goal->keep_out_radius_m, 1.2, 1e-9);
 }

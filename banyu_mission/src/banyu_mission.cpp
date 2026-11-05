@@ -623,6 +623,12 @@ void BanyuMission::applyBuoyTarget()
 {
   if (!blackboard_ || !buoy_target_) {return;}
   const auto & target = *buoy_target_;
+  // Both buoys are kept clear of on the surface transit.
+  blackboard_->set("start_buoy_latitude", target.latitude);
+  blackboard_->set("start_buoy_longitude", target.longitude);
+  const bool other_known = target.other_valid && finite(target.other_latitude) && finite(target.other_longitude);
+  blackboard_->set("end_buoy_latitude", other_known ? target.other_latitude : std::nan(""));
+  blackboard_->set("end_buoy_longitude", other_known ? target.other_longitude : std::nan(""));
   const bool midpoint = dive_point_ == "midpoint" && target.other_valid && finite(target.other_latitude) &&
     finite(target.other_longitude);
   if (midpoint) {
@@ -749,6 +755,12 @@ void BanyuMission::initialize()
   retry_dive_offset_m_ = declare_parameter<double>("mission.retry_dive_offset_m", 3.0);
   dive_offset_m_ = declare_parameter<double>("mission.dive_offset_m", 0.0);
   buoy_standoff_m_ = std::max(0.0, declare_parameter<double>("mission.buoy_standoff_m", 1.5));
+  buoy_keep_out_m_ = std::max(0.0, declare_parameter<double>("mission.buoy_keep_out_m", 1.2));
+  if (buoy_keep_out_m_ > 0.0 && buoy_keep_out_m_ >= buoy_standoff_m_) {
+    // The start buoy's circle then contains the goal and the transit drops it (only the end buoy is avoided).
+    RCLCPP_WARN(get_logger(), "mission.buoy_keep_out_m (%.1f) is not smaller than mission.buoy_standoff_m (%.1f): "
+      "the start buoy is not kept clear of", buoy_keep_out_m_, buoy_standoff_m_);
+  }
   dive_point_ = declare_parameter<std::string>("mission.dive_point", "buoy");
   if (dive_point_ != "buoy" && dive_point_ != "midpoint") {
     throw std::invalid_argument("mission.dive_point must be buoy or midpoint");
@@ -886,6 +898,11 @@ void BanyuMission::initialize()
   blackboard->set("heading", effective_heading);
   shiftTargetAlongHeading(std::max(dive_offset_m_, buoy_standoff_m_));
   blackboard->set("two_legs", dive_point_ == "midpoint");
+  blackboard->set("keep_out_radius", buoy_keep_out_m_);
+  blackboard->set("start_buoy_latitude", std::nan(""));
+  blackboard->set("start_buoy_longitude", std::nan(""));
+  blackboard->set("end_buoy_latitude", std::nan(""));
+  blackboard->set("end_buoy_longitude", std::nan(""));
   blackboard->set("leg_end_lost_s", declare_parameter<double>("mission.leg_end_lost_s", 6.0));
   blackboard->set("heading_tolerance", heading_tolerance);
   blackboard->set("inspection_depth", inspection_depth);
