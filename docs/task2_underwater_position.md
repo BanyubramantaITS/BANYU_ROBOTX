@@ -56,13 +56,9 @@ Jadi hasil sim Task 2 saat ini **tidak** membuktikan Task 2 bisa jalan di robot.
 
 ## Catatan terkait: GPS permukaan di robot
 
-- Pixhawk robot memakai `GPS1_TYPE 14` (GPS lewat MAVLink `GPS_INPUT`), jadi Pixhawk hanya punya
-  GPS kalau ada program yang mengirimnya. Repo ini tidak punya program itu.
-- Pengirimnya ada di repo tim `BanyubramantaITS/RTK-GPS-GNSS` (`gps_to_pixhawk.py`): membaca u-blox
-  (`/dev/gps_rtk`, `docs/udev_rules.md`) dan menulis `GPS_INPUT` **langsung ke port serial USB
-  Pixhawk**. Port yang sama dipegang `tools/scripts/run/run_mavproxy.sh` (`/dev/pixhawk`). Dua program
-  yang menulis ke satu port serial bisa saling memotong frame MAVLink.
-- Sudah diselesaikan: `run_mavproxy.sh` membuka `--out=udpin:127.0.0.1:14553`, dan
-  `tools/scripts/run/run_gps_bridge.sh` menjalankan `gps_to_pixhawk.py --pixhawk-port
-  udpout:127.0.0.1:14553` (plus `--no-anti-drift`, model dinamis `sea`), jadi `GPS_INPUT` lewat
-  MAVProxy dan port Pixhawk hanya dibuka sekali. Urutan: `run_mavproxy.sh` → `run_gps_bridge.sh`.
+- Sejak 2026-11-05 Pixhawk robot memakai `GPS1_TYPE 1`: ZED-F9P disambung langsung ke `SERIAL3`
+  Pixhawk dan dibaca driver u-blox ArduPilot, jadi tidak perlu program pengirim di Pi.
+- Koreksi RTK masuk lewat USB F9P (`rtk-rover.service`, `str2str`); F9P menerima RTCM di port mana
+  pun. Parameter dan rantainya: `docs/hardware_setup.md` bagian 4.
+- `tools/scripts/run/run_gps_bridge.sh` (`gps_to_pixhawk.py`, `GPS_INPUT`) hanya cadangan untuk
+  `GPS1_TYPE 14`; jangan dijalankan bersama `GPS1_TYPE 1` (mengubah konfigurasi receiver).

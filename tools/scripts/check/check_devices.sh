@@ -1,6 +1,6 @@
 #!/bin/bash
 # One-screen check of the AUV hardware before a run: udev devices, who holds them, and the
-# background services (MAVProxy, MAVROS, GPS bridge, RTK corrections).
+# background services (MAVProxy, MAVROS, RTK corrections).
 if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
   echo "Usage: check_devices.sh   (read-only: devices, their users, services, last kill-switch report)"
   exit 0
@@ -24,10 +24,9 @@ done
 echo "Processes:"
 proc() { if pgrep -f "$2" > /dev/null; then ok "$1" "running"; else bad "$1" "not running ($3)"; fi; }
 proc mavproxy "mavproxy.py" "run_mavproxy.sh"
-if pgrep -f "mavproxy.py.*udpin:127.0.0.1:14553" > /dev/null || ! pgrep -f mavproxy.py > /dev/null; then :; else
-  bad "mavproxy:14553" "MAVProxy started without the GPS port; restart run_mavproxy.sh"; fi
 proc mavros "mavros_node" "launch_mavros.sh"
-proc gps_bridge "gps_to_pixhawk.py" "run_gps_bridge.sh; needed for Task 2"
+# The Pixhawk reads the F9P itself (GPS1_TYPE 1); the bridge would reconfigure the receiver
+pgrep -f "gps_to_pixhawk.py" > /dev/null && bad gps_bridge "running; stop run_gps_bridge.sh (GPS1_TYPE 1 ignores it)"
 if systemctl cat rtk-rover.service > /dev/null 2>&1; then
   [ "$(systemctl is-active rtk-rover.service)" = active ] && ok rtk-rover "active" || bad rtk-rover "$(systemctl is-active rtk-rover.service)"
 else

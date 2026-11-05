@@ -322,7 +322,7 @@ class Run:
             if not v.gps_ok(need):
                 problems.append(f"GPS needs {GPS_FIX[need]} or better (have "
                                 f"{GPS_FIX.get(v.gps['fix'], '?') if v.gps else 'nothing'}); "
-                                "run/run_gps_bridge.sh, rtk-rover, sky view"
+                                "rtk-rover, antenna sky view"
                                 + ("" if a.allow_no_rtk else ", or --allow-no-rtk"))
         if problems and a.test != "where":
             for p in problems:

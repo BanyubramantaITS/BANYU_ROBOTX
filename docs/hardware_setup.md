@@ -10,7 +10,7 @@ order, and the debug scripts.
 |---|---|---|---|
 | Pixhawk 1 (ArduSub) | `1209:5741` | `/dev/pixhawk` | `run_mavproxy.sh` (only process that opens it) |
 | ESP32 kill-switch indicator (Espressif USB JTAG/serial) | `303a:1001` | `/dev/esp32_kill` | `banyu_teleop` (or `esp32_trigger_node` with `--no-rc`) |
-| u-blox RTK GNSS receiver | `1546:01a9` | `/dev/gps_rtk` | `run_gps_bridge.sh` (reads), `rtk-rover` service (writes RTCM) |
+| u-blox RTK GNSS receiver | `1546:01a9` | `/dev/gps_rtk` | Pixhawk reads it over its own UART (`GPS1_TYPE 1`); USB: `rtk-rover` service (writes RTCM) |
 | Front camera "H264 USB Camera" | `32e4:9422` | `/dev/front_camera` | `front_camera` usb_cam node; Task 2 YOLO collision avoidance (planned) |
 | Hailo-8 AI accelerator (PCIe) | – | `/dev/hailo0` | YOLO inference (section 8) |
 | Bottom camera "2M WebCam" (Horus B) | `2ce3:3894` | `/dev/bottom_camera` | `bottom_camera` usb_cam node (Task 2) |
@@ -97,46 +97,46 @@ With `--no-rc`, `esp32_trigger_node` does the same: `'0'/'1'/'2'` commands are s
 Chain (Task 2 surface GPS leg):
 
 ```
-base station --RTCM, tcp :2002--> str2str (rtk-rover.service) --> /dev/gps_rtk (u-blox)
-/dev/gps_rtk --UBX NAV-PVT--> gps_to_pixhawk.py (run_gps_bridge.sh)
-   --GPS_INPUT, udp 127.0.0.1:14553--> MAVProxy (run_mavproxy.sh) --> Pixhawk (GPS1_TYPE 14)
-   --> MAVROS /mavros/global_position/raw/fix
+base station --RTCM, tcp :2002--> str2str (rtk-rover.service) --USB--> /dev/gps_rtk (ZED-F9P)
+ZED-F9P UART1 --wire, 230400--> Pixhawk SERIAL3 (GPS1_TYPE 1, ArduPilot u-blox driver)
+   --> MAVProxy --> MAVROS /mavros/global_position/raw/fix, /mavros/gpsstatus/gps1/raw
 ```
 
+- **Pixhawk GPS params** (checked by `check/check_pixhawk_params.py`): `GPS1_TYPE 1`,
+  `SERIAL3_PROTOCOL 5` at `SERIAL3_BAUD 230`, `GPS_AUTO_CONFIG 1` (ArduPilot configures the
+  receiver on each boot), `GPS_NAVFILTER 5` (sea dynamic model), `GPS_MIN_ELEV 10`, `GPS1_RATE_MS 200`
+  (5 Hz). The Pixhawk reports RTK float/fixed itself (fix type 5/6).
 - **RTK corrections:** the teammate script
   [`fix_rtk_rover.sh`](https://github.com/jausyan/RobotX/blob/main/script/fix_rtk_rover.sh)
-  (vendored in `tools/scripts/rtk/`) installs `rtk-rover.service`: `str2str -in
-  tcpcli://<base>:2002 -out serial://<u-blox>`, restarted on failure and started on boot. Run it once
+  (vendored in `tools/scripts/setup/`) installs `rtk-rover.service`: `str2str -in
+  tcpcli://<base>:2002 -out serial://<u-blox USB>`, restarted on failure and started on boot. The F9P
+  accepts RTCM on any port, so corrections go in over USB while the Pixhawk reads UART1. Run it once
   per computer, and again whenever the base IP changes, with `setup/rtk_setup.sh` (installs
-  `rtklib` first; prompts for the base IP, default `192.168.0.1:2002`). `rtklib` is installed on the
-  Pi; the service is not installed yet because no base station was reachable.
-- **GPS bridge:** `tools/scripts/run/run_gps_bridge.sh` runs `gps_to_pixhawk.py` from the team repo
-  `BanyubramantaITS/RTK-GPS-GNSS` (`~/RTK-GPS-GNSS`) with `--pixhawk-port udpout:127.0.0.1:14553`, so
-  only MAVProxy opens the Pixhawk serial port. It uses `--no-anti-drift` (the bridge's filter freezes
-  the position below 0.35 m/s / 1.6 m, which the AUV is during the whole GPS leg) and re-applies the
-  receiver config on each start (`sea` dynamic model, 10° elevation mask, 5 Hz).
-  Nothing is sent before the receiver has a fix.
-- The u-blox is read by the bridge and written by `str2str` at the same time; that is fine (one
-  reader, one writer). Do not start a second reader (e.g. `--check-gps-cfg`) while the bridge runs.
-- `gps_to_pixhawk.py --check-gps-cfg` prints the wrong byte for the elevation mask (it always shows
-  16°, the low byte of `fixedAltVar`); the dynamic model line is correct.
+  `rtklib` first; prompts for the base IP, default `192.168.0.1:2002`).
+- **Do not run `run/run_gps_bridge.sh`** with `GPS1_TYPE 1`: the Pixhawk ignores its `GPS_INPUT`,
+  and its receiver setup (`--optimize-gps`) fights ArduPilot's auto-config. It is kept only as a
+  fallback for a receiver on USB alone (`GPS1_TYPE 14`).
+- No satellites (`satellites_visible 0` on the Pixhawk and the receiver) means the antenna: sky
+  view, SMA cable. A cold start takes 1–2 min outdoors.
 
-Check: `check/rtk_status.sh` (service state, then fix type: 3 = 3D, 5 = RTK float, 6 = RTK fixed),
+Check: `check/gps_receiver.py` (live receiver view: satellites, signal C/N0, AGC, RTK state), or
+`check/rtk_status.sh` (service state, then fix type: 3 = 3D, 5 = RTK float, 6 = RTK fixed),
 or `ros2 topic echo /mavros/gpsstatus/gps1/raw --once` with MAVROS running.
 
 ## 5. Bring-up order on the robot
 
 ```bash
 cd ~/ros_ws
-./src/BANYU_ROBOTX/tools/scripts/run/run_mavproxy.sh          # 1. Pixhawk link (outs 14550/14551/14552, in 14553)
-./src/BANYU_ROBOTX/tools/scripts/run/run_gps_bridge.sh        # 2. GPS -> Pixhawk
-./src/BANYU_ROBOTX/tools/scripts/run/launch_mavros.sh         # 3. MAVROS, leave running
-./src/BANYU_ROBOTX/tools/scripts/check/check_devices.sh   # 4. everything green?
-./src/BANYU_ROBOTX/tools/scripts/check/test_hardware.sh   # 5. optional bench test (stack stopped)
-# 6. mission stack: launch_task2.sh --real (on the Task 2 branch; belongs in tools/scripts/run/)
+./src/BANYU_ROBOTX/tools/scripts/run/tmux_panes.sh            # 0. optional: tmux window, 2x4 panes
+./src/BANYU_ROBOTX/tools/scripts/run/run_mavproxy.sh          # 1. Pixhawk link (outs 14550/14551/14552)
+./src/BANYU_ROBOTX/tools/scripts/run/launch_mavros.sh         # 2. MAVROS, leave running
+./src/BANYU_ROBOTX/tools/scripts/check/check_devices.sh   # 3. everything green?
+./src/BANYU_ROBOTX/tools/scripts/check/test_hardware.sh   # 4. optional bench test (stack stopped)
+# 5. mission stack: launch_task2.sh --real (on the Task 2 branch; belongs in tools/scripts/run/)
 ```
 
-`rtk-rover.service` starts by itself on boot once installed.
+`rtk-rover.service` starts by itself on boot once installed. The Pixhawk reads the GPS itself
+(section 4); no bridge process is needed.
 
 ## 6. Bench test after wiring
 
@@ -149,15 +149,15 @@ One command checks everything that is wired, with a PASS/FAIL line per check:
 ```
 
 Stop the mission stack first (teleop owns the ESP32, usb_cam the cameras); keep `run_mavproxy.sh`
-(and `run_gps_bridge.sh` for the Pixhawk GPS check) running.
+running.
 
 | Test | Checks |
 |---|---|
 | `devices` | the five udev names exist; serial ports not held by another process (MAVProxy may hold the Pixhawk) |
 | `kill` | board reports; MANUAL / AUTO / EMERGENCY lamps follow `its0/its1/its2` (you confirm each lamp); you **press** the physical kill → board reports `its2` and ignores AUTO; you **release** it → board returns to AUTO |
 | `cameras` | one MJPEG frame from each camera into `/tmp/banyu_hw_test/` (look at them: orientation, focus) |
-| `gps` | `rtk-rover` service, then fix type, satellites, accuracy and RTK float/fixed from the receiver (needs sky view; skipped if `run_gps_bridge.sh` owns the receiver) |
-| `pixhawk` | heartbeat (mode, armed) through MAVProxy port 14552, the GPS fix the Pixhawk gets from the bridge, and the TX16S SB/SC positions live for 10 s (move SB through all three positions) |
+| `gps` | `rtk-rover` service, then fix type, satellites, accuracy and RTK float/fixed from the receiver over USB (needs sky view) |
+| `pixhawk` | heartbeat (mode, armed) through MAVProxy port 14552, the GPS fix the Pixhawk reads from the F9P, and the TX16S SB/SC positions live for 10 s (move SB through all three positions) |
 
 Until the kill switch is wired, `kill` fails at "physical kill released" (the board reads the
 unwired input as emergency): expected.
@@ -172,12 +172,14 @@ camera only one stream.
 
 | Script | What it does |
 |---|---|
-| `run/run_mavproxy.sh` | Pixhawk link: outs 14550 (QGC) / 14551 (MAVROS) / 14552, in 14553 (GPS) |
+| `run/run_mavproxy.sh` | Pixhawk link: outs 14550 (QGC) / 14551 (MAVROS) / 14552, in 14553 (fallback GPS bridge) |
 | `run/launch_mavros.sh` | MAVROS on its own, leave running |
-| `run/run_gps_bridge.sh` | u-blox → Pixhawk `GPS_INPUT` through MAVProxy |
+| `run/tmux_panes.sh [-r ROWS] [-c COLS]` | tmux window split into an even grid (default 2 rows x 4 columns), all in the current directory |
+| `run/run_gps_bridge.sh` | Fallback only (`GPS1_TYPE 14`): u-blox USB → Pixhawk `GPS_INPUT`; not used with the wired F9P |
 | `check/test_hardware.sh [tests] [--no-prompt]` | Bench test (section 6) |
-| `check/check_devices.sh` | udev devices and who holds them, MAVProxy (with the GPS port), MAVROS, GPS bridge, rtk-rover, last kill-switch report |
-| `check/rtk_status.sh [seconds]` | RTK corrections service and the receiver fix |
+| `check/check_devices.sh` | udev devices and who holds them, MAVProxy, MAVROS, rtk-rover, a stray GPS bridge, last kill-switch report |
+| `check/gps_receiver.py [--seconds N]` | Live F9P health over USB without the bridge: fix, RTK, satellites and C/N0 per constellation, antenna/AGC/jamming (read-only polls) |
+| `check/rtk_status.sh [seconds]` | RTK corrections service, the Pixhawk's GPS fix and the receiver fix over USB |
 | `check/check_pixhawk_params.py`, `check/check_thrust_limit.py` | Pixhawk parameters against `banyu_defaults.parm`, thruster PWM cap |
 | `debug/front_camera.sh [--fps N] [--snapshot f.jpg]` | Front camera alone, same usb_cam settings as the mission (or one JPEG, no ROS) |
 | `debug/bottom_camera.sh [--fps N] [--snapshot f.jpg]` | Bottom camera alone, same options (`debug/camera.sh` is the common script) |

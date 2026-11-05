@@ -8,7 +8,7 @@ Tests (default: all, in this order):
   cameras   one MJPEG frame from each camera
   gps       u-blox fix type, satellites, accuracy (needs sky view; RTK needs rtk-rover + base)
   pixhawk   MAVLink through MAVProxy (127.0.0.1:14552): heartbeat, GPS seen by the Pixhawk
-            (GPS_INPUT from run_gps_bridge.sh), live SB/SC switch positions from the TX16S
+            (F9P on SERIAL3, GPS1_TYPE 1), live SB/SC switch positions from the TX16S
 
 Stop the mission stack first (it owns the ports). Run through test_hardware.sh.
 """
@@ -169,7 +169,7 @@ def test_gps(args):
                                capture_output=True, text=True).stdout.strip()
         report("rtk-rover service", rover == "active", rover)
     if subprocess.run(["pgrep", "-f", "gps_to_pixhawk.py"], capture_output=True).returncode == 0:
-        print("  run_gps_bridge.sh owns the receiver; the pixhawk test shows the fix instead")
+        print("  run_gps_bridge.sh owns the receiver (stop it, GPS1_TYPE 1 ignores it); the pixhawk test shows the fix")
         return
     import serial
     ser = serial.Serial("/dev/gps_rtk", 115200, timeout=0.2)
@@ -229,7 +229,7 @@ def test_pixhawk(args):
         names = {0: "no GPS", 1: "no fix", 2: "2D", 3: "3D", 4: "DGPS", 5: "RTK float", 6: "RTK fixed"}
         report("pixhawk GPS", gps.fix_type >= 3,
                f"{names.get(gps.fix_type, gps.fix_type)}, {gps.satellites_visible} sats"
-               + ("" if gps.fix_type >= 3 else " (run_gps_bridge.sh running, sky view?)"))
+               + ("" if gps.fix_type >= 3 else " (antenna sky view and cable?)"))
 
     print("  TX16S switches for 10 s (move SB and SC):")
     sb_seen, end = set(), time.time() + 10

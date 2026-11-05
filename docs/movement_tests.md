@@ -21,7 +21,7 @@ Disarming makes the vehicle float up, so it must be positively buoyant.
 
 ## Before the first run
 
-1. On the Pi: `run/run_mavproxy.sh` (and `run/run_gps_bridge.sh` + `rtk-rover` for waypoints).
+1. On the Pi: `run/run_mavproxy.sh` (and `rtk-rover` for waypoints; the Pixhawk reads the GPS itself).
 2. **Stop `banyu_teleop` and the mission stack** (`sub_bringup.launch.py`, `launch_por.sh`): they
    drive the same sticks and arming. The scripts refuse to start while they run. MAVROS alone
    (`run/launch_mavros.sh`) is fine. With teleop stopped, **SB does not disarm**: the physical kill

@@ -1,9 +1,8 @@
 #!/bin/bash
-# RTK GPS health: rtk-rover (RTCM corrections) service, then the receiver's fix.
-# Fix types from the bridge: 3 = 3D, 4 = DGPS, 5 = RTK float, 6 = RTK fixed.
+# RTK GPS health: rtk-rover (RTCM corrections) service, the Pixhawk's GPS (GPS1_TYPE 1), then the
+# receiver's fix over USB. Fix types: 3 = 3D, 4 = DGPS, 5 = RTK float, 6 = RTK fixed.
 SECONDS_TO_WATCH="${1:-10}"
 GPS_PORT="${BANYU_GPS_PORT:-/dev/gps_rtk}"
-GPS_REPO="${BANYU_GPS_REPO:-$HOME/RTK-GPS-GNSS}"
 PYTHON="${BANYU_GPS_PYTHON:-$HOME/venv-ardupilot/bin/python3}"
 
 if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
@@ -23,14 +22,15 @@ echo; echo "== receiver ($GPS_PORT)"
 if [ ! -e "$GPS_PORT" ]; then
   echo "not found (u-blox plugged in? udev rule installed?)"; exit 1
 fi
+echo "Pixhawk view:"
+[ -f /opt/ros/jazzy/setup.bash ] && source /opt/ros/jazzy/setup.bash
+timeout 5 ros2 topic echo /mavros/gpsstatus/gps1/raw --once 2>/dev/null \
+  | grep -E "fix_type|satellites_visible|eph|h_acc" \
+  || echo "no /mavros/gpsstatus/gps1/raw (MAVROS running?)"
+echo
 if pgrep -f "gps_to_pixhawk.py" > /dev/null; then
-  # The bridge owns the UBX stream; a second reader would split it. Ask the Pixhawk instead.
-  echo "run_gps_bridge.sh is running; Pixhawk view:"
-  [ -f /opt/ros/jazzy/setup.bash ] && source /opt/ros/jazzy/setup.bash
-  timeout 5 ros2 topic echo /mavros/gpsstatus/gps1/raw --once 2>/dev/null \
-    | grep -E "fix_type|satellites_visible|eph|h_acc" \
-    || echo "no /mavros/gpsstatus/gps1/raw (MAVROS running?); bridge output is in its terminal"
+  # The bridge owns the UBX stream on USB; a second reader would split it.
+  echo "run_gps_bridge.sh is running (not needed with GPS1_TYPE 1; stop it); skipping the USB read"
 else
-  timeout "$SECONDS_TO_WATCH" "$PYTHON" "${GPS_REPO}/gps_to_pixhawk.py" --gps-port "$GPS_PORT" \
-    --gps-only --no-anti-drift --mode cli || true
+  "$PYTHON" "$(dirname "$0")/gps_receiver.py" --port "$GPS_PORT" --seconds "$SECONDS_TO_WATCH" || true
 fi

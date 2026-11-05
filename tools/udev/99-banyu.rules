@@ -4,7 +4,7 @@
 # Pixhawk 1 (ArduSub), MAVProxy master
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="5741", SYMLINK+="pixhawk", MODE="0666", GROUP="dialout", ENV{ID_MM_DEVICE_IGNORE}="1"
 
-# u-blox RTK GNSS receiver, read by gps_to_pixhawk.py (tools/scripts/run/run_gps_bridge.sh)
+# u-blox ZED-F9P USB port: RTCM in from rtk-rover (the Pixhawk reads the receiver over UART)
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", SYMLINK+="gps_rtk", MODE="0666", GROUP="dialout", ENV{ID_MM_DEVICE_IGNORE}="1"
 
 # ESP32 kill-switch indicator (native USB Serial/JTAG; generic Espressif ID, so keep only one ESP32 plugged in)
