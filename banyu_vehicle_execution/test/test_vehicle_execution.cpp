@@ -2148,3 +2148,42 @@ TEST(KeepOutAim, InsideTheRadiusMovesStraightOut)
   EXPECT_LT(ax, 0.0);   // away from the buoy just ahead
   EXPECT_NEAR(ay, 0.0, 1e-9);
 }
+
+TEST_F(VehicleExecutionNodeTest, AlignHeadingHoldsItsGpsPositionWhileTurning)
+{
+  // The 180 deg turn at the dive point let the vehicle creep 0.4 m toward the start buoy; it now steers back.
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  double min_vx = 0.0;
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&min_vx](const mavros_msgs::msg::PositionTarget::SharedPtr msg) {
+      min_vx = std::min(min_vx, static_cast<double>(msg->velocity.x));
+    });
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto gps_pub = node->create_publisher<sensor_msgs::msg::NavSatFix>(
+    "/mavros/global_position/raw/fix", rclcpp::SensorDataQoS());
+  auto publish_fix = [&](double longitude) {
+      sensor_msgs::msg::NavSatFix fix;
+      fix.header.stamp = node->now();
+      fix.status.status = sensor_msgs::msg::NavSatStatus::STATUS_FIX;
+      fix.latitude = 1.0;
+      fix.longitude = longitude;
+      gps_pub->publish(fix);
+    };
+  using Action = banyu_msgs::action::AlignHeading;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/align_heading");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  for (int i = 0; i < 5; ++i) {publishPose(node, pose_pub, 0.0); publish_fix(2.0); spinFor(node, 2);}
+  Action::Goal goal;
+  goal.target_heading_rad = M_PI;   // a full turn ahead
+  goal.tolerance_rad = 0.05;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  for (int i = 0; i < 10; ++i) {publishPose(node, pose_pub, 0.0); publish_fix(2.0); spinFor(node, 2);}
+  EXPECT_GT(min_vx, -1e-3);   // at the start point: no correction
+  for (int i = 0; i < 20; ++i) {publishPose(node, pose_pub, 0.0); publish_fix(2.0 + 4.5e-6); spinFor(node, 2);}
+  EXPECT_LT(min_vx, -0.1);    // drifted 0.5 m east: steers back west
+}

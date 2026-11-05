@@ -22,6 +22,11 @@ bool AlignHeadingServer::validateGoal(const Goal & goal, std::string & reason)
   return true;
 }
 
+void AlignHeadingServer::onGoalStarted()
+{
+  hold_captured_ = false;
+}
+
 MotionIntent AlignHeadingServer::tick(
   const VehicleTelemetry & telemetry, const rclcpp::Time & now,
   double /*dt*/)
@@ -60,7 +65,27 @@ MotionIntent AlignHeadingServer::tick(
   }
 
   const double yaw_rate = std::clamp(yaw_kp_ * heading_err, -max_yaw_rate_, max_yaw_rate_);
-  return MotionIntent::localEnu(0.0, 0.0, 0.0, yaw_rate);
+  double vx = 0.0;
+  double vy = 0.0;
+  if (telemetry.gps_valid) {
+    if (!hold_captured_) {
+      hold_latitude_deg_ = telemetry.latitude_deg;
+      hold_longitude_deg_ = telemetry.longitude_deg;
+      hold_captured_ = true;
+    }
+    double dx = 0.0;
+    double dy = 0.0;
+    latLonToEnuOffsets(telemetry.latitude_deg, telemetry.longitude_deg, hold_latitude_deg_, hold_longitude_deg_, dx, dy);
+    constexpr double kHoldKp = 0.5;
+    constexpr double kHoldMaxSpeed = 0.2;
+    const double speed = std::min(kHoldKp * std::hypot(dx, dy), kHoldMaxSpeed);
+    const double dist = std::hypot(dx, dy);
+    if (dist > 1e-6) {
+      vx = speed * dx / dist;
+      vy = speed * dy / dist;
+    }
+  }
+  return MotionIntent::localEnu(vx, vy, 0.0, yaw_rate);
 }
 
 }  // namespace banyu_vehicle_execution

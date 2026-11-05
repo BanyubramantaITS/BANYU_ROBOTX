@@ -92,15 +92,6 @@
       <SetFcuMode mode="{underwater_mode}" />
       <DiveToDepth target_depth="{inspection_depth}" target_heading="{heading}"
         depth_tolerance="{depth_tolerance}" heading_tolerance="{heading_tolerance}" />
-      <!-- Dive at the start buoy: record from here on (not during the descent: rings seen from high up become duplicates);
-           the acquire can travel over the first nodes. The midpoint dive records only from its forward pass. -->
-      <Fallback>
-        <Sequence>
-          <ScriptCondition code="two_legs == false" />
-          <SetRingRecording enable="true" />
-        </Sequence>
-        <AlwaysSuccess />
-      </Fallback>
       <!-- A pass can cross the pipe at an angle and miss it; fall back to a search sweep. -->
       <RetryUntilSuccessful num_attempts="3">
         <Fallback>
@@ -114,45 +105,37 @@
     </Sequence>
   </BehaviorTree>
 
-  <!-- One dive near the start buoy: a single traverse. A dive midway between the buoys (mission.dive_point midpoint), facing
-       the end buoy: back up along the pipe (stern toward the start buoy) to the pipe's start, then the normal survey forward
-       over the whole pipe. Rings are recorded only in the forward survey (not while diving or backing up). -->
+  <!-- After the dive (near the start buoy or midway between the buoys, facing the end buoy): back up along the pipe (stern
+       toward the start buoy) to the pipe's start, then the survey forward over the whole pipe. A dive that drifted past the
+       first nodes still records them. Rings are recorded only in the forward survey (not while diving or backing up). -->
   <BehaviorTree ID="SurveyPipeline">
-    <Fallback>
-      <Sequence>
-        <ScriptCondition code="two_legs == false" />
-        <SetRingRecording enable="true" />
-        <SubTree ID="TraversePipeline" _autoremap="true" />
-      </Sequence>
-      <Sequence name="back_up_to_the_start_then_survey">
-        <ScriptCondition code="two_legs == true" />
-        <StartSurveyLeg />
-        <!-- The start end: the pipe out of view leg_end_lost_s in total (no search here: a lost pipe is the end). -->
-        <ForceSuccess>
-          <Timeout msec="{traverse_timeout_ms}">
-            <KeepRunningUntilFailure>
-              <WhileDoElse>
-                <Inverter>
-                  <PipelineLegEnded lost_s="{leg_end_lost_s}" />
-                </Inverter>
-                <FollowPipeline enable="true" reverse="true" />
-                <AlwaysFailure />
-              </WhileDoElse>
-            </KeepRunningUntilFailure>
-          </Timeout>
-        </ForceSuccess>
-        <SetRingRecording enable="true" />
-        <!-- The pipe's start is just ahead (the vehicle still faces the end buoy): surge forward onto it, at whatever angle
-             the pipe runs (a bent pipe is off the buoy line, so no heading prior here). -->
-        <RetryUntilSuccessful num_attempts="3">
-          <Timeout msec="{acquire_timeout_ms}">
-            <AcquirePipeline camera_name="{camera_name}" use_heading_prior="false"
-              heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}" />
-          </Timeout>
-        </RetryUntilSuccessful>
-        <SubTree ID="TraversePipeline" _autoremap="true" />
-      </Sequence>
-    </Fallback>
+    <Sequence name="back_up_to_the_start_then_survey">
+      <StartSurveyLeg />
+      <!-- The start end: the pipe out of view leg_end_lost_s in total (no search here: a lost pipe is the end). -->
+      <ForceSuccess>
+        <Timeout msec="{traverse_timeout_ms}">
+          <KeepRunningUntilFailure>
+            <WhileDoElse>
+              <Inverter>
+                <PipelineLegEnded lost_s="{leg_end_lost_s}" />
+              </Inverter>
+              <FollowPipeline enable="true" reverse="true" />
+              <AlwaysFailure />
+            </WhileDoElse>
+          </KeepRunningUntilFailure>
+        </Timeout>
+      </ForceSuccess>
+      <SetRingRecording enable="true" />
+      <!-- The pipe's start is just ahead (the vehicle still faces the end buoy): surge forward onto it, at whatever angle
+           the pipe runs (a bent pipe is off the buoy line, so no heading prior here). -->
+      <RetryUntilSuccessful num_attempts="3">
+        <Timeout msec="{acquire_timeout_ms}">
+          <AcquirePipeline camera_name="{camera_name}" use_heading_prior="false"
+            heading_prior="{heading_prior}" heading_tolerance="{heading_tolerance}" />
+        </Timeout>
+      </RetryUntilSuccessful>
+      <SubTree ID="TraversePipeline" _autoremap="true" />
+    </Sequence>
   </BehaviorTree>
 
   <!-- One step of a traverse: repair a pending red ring, reacquire a lost pipe, or follow. -->

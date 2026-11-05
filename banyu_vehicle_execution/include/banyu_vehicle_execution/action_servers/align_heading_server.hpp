@@ -26,10 +26,15 @@ public:
 
 protected:
   bool validateGoal(const Goal & goal, std::string & reason) override;
+  void onGoalStarted() override;
 
 private:
   double yaw_kp_{1.0};
   double max_yaw_rate_{0.5};
+  // On the surface the turn holds the GPS position it started at (a zero velocity alone let the vehicle creep 0.4 m).
+  bool hold_captured_{false};
+  double hold_latitude_deg_{0.0};
+  double hold_longitude_deg_{0.0};
 };
 
 }  // namespace banyu_vehicle_execution
