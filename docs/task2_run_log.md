@@ -805,3 +805,4 @@ workspace (scratch, with symlinks to bluerov2_gz, ardupilot_gazebo and the rx_ms
   node 1; seed 9: to x -0.64, the far end, only node 4 recorded). Before the gate those rings were recorded during the acquire.
   **H48:** in the buoy dive, recording turns on right after `DiveToDepth` (the descent duplicates stay out; nodes passed during the
   acquire count); the midpoint dive still records only from its forward pass. Mission tree 33/33. Re-runs queued.
+- H48 confirmed: buoy-dive Core seed 5 (node 3) and seed 9 (node 4) **PASS 450** (both failed on the order before H48).
