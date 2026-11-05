@@ -806,3 +806,17 @@ workspace (scratch, with symlinks to bluerov2_gz, ardupilot_gazebo and the rx_ms
   **H48:** in the buoy dive, recording turns on right after `DiveToDepth` (the descent duplicates stay out; nodes passed during the
   acquire count); the midpoint dive still records only from its forward pass. Mission tree 33/33. Re-runs queued.
 - H48 confirmed: buoy-dive Core seed 5 (node 3) and seed 9 (node 4) **PASS 450** (both failed on the order before H48).
+- **Buoy-dive Core (H48, current code): 4 of 4 PASS 450** (seeds 5, 9, 2, 1 = nodes 3, 4, 1, 2).
+- **H47 confirmed:** midpoint Disruptive seed 5 (node 3) **PASS 500** (failed before H47); midpoint Core seeds 5 and 2 still
+  **PASS 450** (no regression).
+
+### Midpoint dive (user's design) - summary, hydrophone off, random spawn, Gazebo ground truth
+
+| Tier | Node 1 | Node 2 | Node 3 | Node 4 |
+|---|---|---|---|---|
+| Core (450) | PASS | PASS | PASS | PASS |
+| Advanced (475) | PASS | PASS | PASS | PASS |
+| Disruptive (500) | PASS | PASS | PASS (after H47) | PASS |
+
+The buoy dive on the same code: Core 4/4. Both dive points work in the sim; the midpoint keeps the vehicle far from both buoys
+on the surface and is surely above the pipe when it dives. Which one the real run uses is the user's call (open).
