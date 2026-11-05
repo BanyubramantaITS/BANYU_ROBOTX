@@ -88,6 +88,15 @@
       <SetFcuMode mode="{underwater_mode}" />
       <DiveToDepth target_depth="{inspection_depth}" target_heading="{heading}"
         depth_tolerance="{depth_tolerance}" heading_tolerance="{heading_tolerance}" />
+      <!-- Dive at the start buoy: record from here on (not during the descent: rings seen from high up become duplicates);
+           the acquire can travel over the first nodes. The midpoint dive records only from its forward pass. -->
+      <Fallback>
+        <Sequence>
+          <ScriptCondition code="two_legs == false" />
+          <SetRingRecording enable="true" />
+        </Sequence>
+        <AlwaysSuccess />
+      </Fallback>
       <!-- A pass can cross the pipe at an angle and miss it; fall back to a search sweep. -->
       <RetryUntilSuccessful num_attempts="3">
         <Fallback>

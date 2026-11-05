@@ -793,3 +793,15 @@ User's uncommitted robot edits (FRAME_CONFIG 1 for the robot, MOT_PWM 1100-1900,
 All sims, queues and waiters stopped. **To resume:** (1) analyse the buoy-dive Core order failures (seeds 5, 9); (2) H47 re-runs
 (midpoint Disruptive seed 5, midpoint Core seeds 5 and 2); (3) then the rest (Advanced/Disruptive buoy-dive re-runs, baro step 4,
 step 5 incl. which dive point the real run uses, step 6 verdict and sim results). User's uncommitted robot edits untouched.
+
+## Resumed 2026-11-05 (user: go), in a separate workspace
+
+The user's working tree is on `feat/competition-hardware` with uncommitted hardware work; its `install/` points into that tree.
+To leave both untouched, the Task 2 sims now run from a git worktree of `feat/task2-core-disruptive-sim` in a separate colcon
+workspace (scratch, with symlinks to bluerov2_gz, ardupilot_gazebo and the rx_msgs repo; own build/install, 13 packages built).
+
+- **Buoy-dive order failures (Core seeds 5, 9) analysed:** the recording gate kept rings off until `AcquirePipeline` succeeded; in
+  the buoy dive the acquire uses the heading prior and on the bent sim pipe travels far before confirming (seed 5: to x 1.2, past
+  node 1; seed 9: to x -0.64, the far end, only node 4 recorded). Before the gate those rings were recorded during the acquire.
+  **H48:** in the buoy dive, recording turns on right after `DiveToDepth` (the descent duplicates stay out; nodes passed during the
+  acquire count); the midpoint dive still records only from its forward pass. Mission tree 33/33. Re-runs queued.
