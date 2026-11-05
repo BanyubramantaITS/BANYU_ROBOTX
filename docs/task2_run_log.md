@@ -838,3 +838,11 @@ on the surface and is surely above the pipe when it dives. Which one the real ru
 - **H50:** AlignHeading holds the GPS position it started at while it turns (P 0.5, max 0.2 m/s; a zero velocity let it creep 0.4 m).
   **H51:** the buoy dive also backs up along the pipe to its start before the forward survey (the user's midpoint flow for both
   dive points; replaces H48). vehicle_execution 71/71 (new hold test), mission tree 33/33.
+- **Keep-out with H49-H51, all four blocked-path cases PASS 450** (closest approach on the surface, Gazebo truth, keep-out 1.2 m):
+
+| Dive point | Spawn (buoy in the way) | Start buoy | End buoy | Dive point reached | Result |
+|---|---|---|---|---|---|
+| buoy | (-15, 0) end buoy | 1.56 m | 1.30 m | (2.23, 0.14) | PASS 450 |
+| buoy | (15, 0.2) start buoy | 1.41 m | 5.84 m | (2.02, 0.40) | PASS 450 |
+| midpoint | (-15, 0.2) end buoy | 3.86 m | 1.31 m | (-0.06, 0.24) | PASS 450 |
+| midpoint | (15, 0.2) start buoy | 1.33 m | 3.81 m | (-0.01, 0.23) | PASS 450 |
