@@ -846,3 +846,5 @@ on the surface and is surely above the pipe when it dives. Which one the real ru
 | buoy | (15, 0.2) start buoy | 1.41 m | 5.84 m | (2.02, 0.40) | PASS 450 |
 | midpoint | (-15, 0.2) end buoy | 3.86 m | 1.31 m | (-0.06, 0.24) | PASS 450 |
 | midpoint | (15, 0.2) start buoy | 1.33 m | 3.81 m | (-0.01, 0.23) | PASS 450 |
+- **Buoy-dive Core, random spawn, with H51 (the back-up flow): 4 of 4 PASS 450** (seeds 2 1 5 9). The default flow change did
+  not regress the normal dive. `launch_task2.sh` help/banner, `task2_params.yaml` comments and AGENTS.md updated (dry runs checked).

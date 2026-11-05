@@ -37,10 +37,10 @@ banyu_mission:
       # The surface transit keeps at least this far from both buoys (a detour beside a buoy in the way); must be smaller
       # than buoy_standoff_m. Covers the buoy's own size and the vehicle's; not the USV's buoy position error.
       buoy_keep_out_m: 1.2
-      # buoy: dive near the start buoy, one traverse. midpoint: dive midway between the buoys facing the end buoy, back up along the
-      # pipe to its start, then survey forward (launch argument dive_point:=, task2_dive_midpoint.yaml).
+      # buoy: dive near the start buoy; midpoint: dive midway between the buoys (launch argument dive_point:=,
+      # task2_dive_midpoint.yaml). Both face the end buoy, back up along the pipe to its start, then survey forward.
       dive_point: "buoy"
-      # Midpoint: backing up ends at the pipe's start, when the pipe was out of view this long in total.
+      # Backing up ends at the pipe's start, when the pipe was out of view this long in total.
       leg_end_lost_s: 6.0
       task2_tier: 2   # launch argument tier:= overrides this (core 2, advanced 3, disruptive 4)
       surface_depth_m: 0.0
