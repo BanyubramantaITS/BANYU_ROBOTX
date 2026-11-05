@@ -117,6 +117,15 @@ PorMissionConfig PorMissionConfig::load(rclcpp::Node & node)
   config.use_vision = bool_param("use_vision", config.use_vision);
   config.use_vision_return = bool_param("use_vision_return", config.use_vision_return);
   config.use_vision_assist = bool_param("use_vision_assist", config.use_vision_assist);
+  config.use_replay = bool_param("use_replay", config.use_replay);
+  const std::string replay_param = "mission.replay_track";
+  config.replay_track = node.has_parameter(replay_param) ?
+    node.get_parameter(replay_param).as_string() :
+    node.declare_parameter<std::string>(replay_param, config.replay_track);
+  if (config.use_replay) {
+    config.replay = std::make_shared<const ReplayTrack>(
+      loadReplayTrack(resolveReplayTrackPath(config.replay_track)));
+  }
   config.assist_gate_align_max_s = parameter(
     "assist_gate_align_max_s", config.assist_gate_align_max_s);
   config.assist_gate_deadband = parameter("assist_gate_deadband", config.assist_gate_deadband);
@@ -324,6 +333,9 @@ void PorMissionConfig::validate() const
       throw std::invalid_argument("POR mission parameters must be finite and positive");
     }
   }
+  if (use_replay && !replay) {
+    throw std::invalid_argument("use_replay is set but no replay track is loaded");
+  }
   if (assist_marker_standoff_max_m < assist_marker_standoff_min_m) {
     throw std::invalid_argument("assist_marker_standoff_max_m must be >= the min");
   }
@@ -444,6 +456,8 @@ void PorMissionConfig::apply(const BT::Blackboard::Ptr & blackboard) const
   blackboard->set("use_vision", use_vision);
   blackboard->set("use_vision_return", use_vision_return);
   blackboard->set("use_vision_assist", use_vision_assist);
+  blackboard->set("use_replay", use_replay);
+  if (replay) {blackboard->set("replay_track", replay);}
   // BT Timeout decorators take whole milliseconds.
   blackboard->set(
     "assist_gate_align_max_ms", static_cast<unsigned>(std::lround(assist_gate_align_max_s * 1000.0)));

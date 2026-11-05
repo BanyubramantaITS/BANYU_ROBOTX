@@ -26,9 +26,9 @@ Only `--pipe-depth 8` (Bar30) started: the fixed 12.5 m dive is below the pipe (
 
 ## Tools
 
-- `tools/scripts/task2_sim_batch.sh --out <dir> --tier <t> --seeds "..." [--random-spawn] [--opts "<launch_task2.sh options>"]`
+- `tools/scripts/sim/task2_sim_batch.sh --out <dir> --tier <t> --seeds "..." [--random-spawn] [--opts "<launch_task2.sh options>"]`
   scores each run with `task2_score_run.py` (PASS/FAIL and points from Gazebo).
-- `tools/scripts/launch_task2.sh` options: `--sensors full|minimal`, `--pipe-depth`, `--pipe-move dx dy dyaw`, `--visibility`,
+- `tools/scripts/run/launch_task2.sh` options: `--sensors full|minimal`, `--pipe-depth`, `--pipe-move dx dy dyaw`, `--visibility`,
   `--current e n [gust]`, `--buoy-error x y`, `--fcu-faults compass=..,gps_offset=..,gps_drop=..`, `--light-fault n:kind`, `--fisheye`,
   `--ir-led`, `--camera-width`, `--site marina_bay`.
 - Raw logs (`sim.log`, `rings.jsonl`) stay out of the repo.

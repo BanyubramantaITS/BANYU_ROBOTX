@@ -1,6 +1,7 @@
 #ifndef BANYU_VEHICLE_EXECUTION__VEHICLE_EXECUTION_NODE_HPP_
 #define BANYU_VEHICLE_EXECUTION__VEHICLE_EXECUTION_NODE_HPP_
 
+#include <optional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -113,7 +114,11 @@ private:
   std::string output_mode_{"setpoint"};
   RcOverrideConfig rc_override_config_{};
   bool rc_override_neutral_sent_{false};
-  void publishRcOverride(const MotionIntent & intent, bool output_allowed);
+  // The sticks belong to the mission only while a goal runs and for idle_release_s after it;
+  // otherwise they are released so a pilot (QGC joystick, TX16S) is never fought.
+  double rc_override_idle_release_s_{2.0};
+  std::optional<SteadyTime> last_goal_time_;
+  void publishRcOverride(const MotionIntent & intent, bool output_allowed, bool own_sticks);
   bool status_ever_received_{false};
   bool require_run_authorization_{false};
   double run_lifecycle_timeout_s_{1.0};

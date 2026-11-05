@@ -3,7 +3,7 @@
 Sensors on the competition UUV: bottom camera (HORUS T10, fisheye), Pixhawk (IMU, compass), RTK GPS at the surface
 (u-blox F9P, `/dev/gps_rtk`, bridged to the Pixhawk as `GPS_INPUT`), Bar30 (ALT_HOLD depth hold). **No hydrophone, no DVL,
 no altimeter.** Everything below is to be done on the vehicle; none of it has been done yet. Sim results:
-`task2_feasibility_verdict.md`. Launch: `tools/scripts/launch_task2.sh --real` (profile: see section 7).
+`task2_feasibility_verdict.md`. Launch: `tools/scripts/run/launch_task2.sh --real` (profile: see section 7).
 
 Run the checks in this order. Each has a pass criterion; do not go to the next one before it passes. Record every check
 (`sub_bringup.launch.py` records by default, bags in `~/banyu_bags`).

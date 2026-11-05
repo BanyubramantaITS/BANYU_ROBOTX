@@ -1,7 +1,7 @@
 # Task 2 Core, Advanced, Disruptive: feasibility verdict (simulation)
 
 Branch `feat/task2-core-disruptive-sim`. Updated 2026-11-02 after the worst-case run (goal: minimal sensors, bad conditions). Every result
-is judged from Gazebo ground truth (`/robotx/pipeline/status`, `ring_recorder.py`) and scored by `tools/scripts/task2_score_run.py`.
+is judged from Gazebo ground truth (`/robotx/pipeline/status`, `ring_recorder.py`) and scored by `tools/scripts/check/task2_score_run.py`.
 Simulation only; nothing here is a hardware result. Hypotheses H1-H38 and every run: `task2_run_log.md`. Earlier verdict (H1-H23): git history.
 
 ## Verdict per sensor set

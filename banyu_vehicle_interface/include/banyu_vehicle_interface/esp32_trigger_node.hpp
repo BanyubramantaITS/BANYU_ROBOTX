@@ -24,6 +24,7 @@ public:
 
   bool isPortOpen() const;
   bool sendTrigger(const std::string & cmd);
+  bool isHardwareKillLatched() const {return hw_kill_latched_;}
   void processIncomingData();
 
   void handleTrigger(
@@ -50,8 +51,9 @@ private:
   void timerCallback();
   void recordCommandedMode(const std::string & cmd);
   void publishCommandedMode();
+  void handleBoardReport(const std::string & line);
 
-  std::string port_{"/dev/ttyUSB0"};
+  std::string port_{"/dev/esp32_kill"};
   int baud_{115200};
   double timer_period_s_{0.1};
   bool append_newline_{false};
@@ -67,10 +69,19 @@ private:
   std::string monitor_topic_name_{"/banyu/trigger/monitor"};
   std::string kill_switch_topic_name_{"/banyu/hardware/kill_switch"};
   bool publish_kill_switch_{true};
+  bool use_hardware_kill_{true};
+  double kill_report_grace_s_{0.3};
+  double resend_period_s_{1.0};
 
-  // Last '0'/'1'/'2' sent to the relay, republished as the operational mode.
+  // Last '0'/'1'/'2' commanded, republished as the operational mode (0 while a hardware kill
+  // reported by the board is latched; a '0' command acknowledges it).
   bool has_commanded_mode_{false};
   uint8_t commanded_mode_{0};
+  bool hw_kill_latched_{false};
+  bool hw_kill_pending_write_{false};
+  rclcpp::Clock steady_clock_{RCL_STEADY_TIME};
+  rclcpp::Time commanded_at_{0, 0, RCL_STEADY_TIME};
+  rclcpp::Time last_mode_write_{0, 0, RCL_STEADY_TIME};
 
   int serial_fd_{-1};
   mutable std::mutex serial_mutex_;

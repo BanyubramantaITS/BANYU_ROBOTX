@@ -2,8 +2,10 @@
 #define BANYU_MISSION__POR_MISSION_CONFIG_HPP_
 
 #include <memory>
+#include <string>
 
 #include "behaviortree_cpp/blackboard.h"
+#include "banyu_mission/replay_track.hpp"
 #include "rclcpp/rclcpp.hpp"
 
 namespace banyu_mission
@@ -82,6 +84,11 @@ struct PorMissionConfig
   double assist_marker_standoff_max_m {3.6};
   double assist_marker_deadband {0.08};
   double assist_align_hold_s {0.3};
+  // Teach & replay: fly a recorded manual drive, then surface (bt/por_replay_mission.xml).
+  // replay_track: "latest", a file name in replayTrackDirectory() or an absolute path.
+  bool use_replay {false};
+  std::string replay_track {"latest"};
+  std::shared_ptr<const ReplayTrack> replay;
   bool use_sensors {true};
   bool use_baro_depth {true};
   bool use_imu_yaw_cap {true};

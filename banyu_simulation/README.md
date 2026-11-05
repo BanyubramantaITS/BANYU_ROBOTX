@@ -6,8 +6,8 @@ This package provides the Gazebo simulation environment, 3D world models, and la
 
 ## 📦 Package Contents
 
-- **`worlds/main_world.world`**: Task 2 world (`mode:=task2`); loads `banyu::DvlMavlink` and `banyu::UnderwaterTurbidity`.
-- **`worlds/proof_of_readiness.world`**: POR world (`mode:=por`) featuring buoyancy physics, underwater environment settings, lighting, and the DVL system plugin.
+- **`worlds/main_world.world`**: Task 2 world (`mode:=task2`); loads `banyu::UnderwaterTurbidity`.
+- **`worlds/proof_of_readiness.world`**: POR world (`mode:=por`) featuring buoyancy physics, underwater environment settings and lighting.
 - **`worlds/pipeline_lights.sdf`**: RobotX 2026 Task 2 underwater pipeline world with 4 optical light nodes, magnetometer sensor plugin, and inspection camera.
 - **`models/Gate/`**: 3D underwater gate model (`model.xacro` & `model.sdf`) with PBR textures.
 - **`models/por_pool/`**: Proof of Readiness pool model (`model.xacro`).
@@ -37,46 +37,9 @@ This package provides the Gazebo simulation environment, 3D world models, and la
 
 `main_world.world` gets its Task 2 props from `banyu_robotx_models` (a `package.xml` dependency of this package), from the private repository `BanyubramantaITS/banyu-robotx-models` (clone it into `src/`, see the top-level README). Systems built here:
 
-- **`banyu::DvlMavlink`** (loaded by `main_world.world`, simulation only): DVL velocity → ArduSub SITL as `VISION_POSITION_DELTA`; see `banyu_bringup/README.md`.
 - **`banyu::HydrophoneArray`** (loaded by the `bluerov2_task2` model): pinger TDOA arrivals, azimuth only (far-field plane wave along the horizontal bearing; no range or elevation, matching the real array).
 - **`banyu::PipelineLights`** (built here; no world in this repo loads it directly): turns one listed light node RED and the rest GREEN. The seed comes from `<seed>`, or from `BANYU_LIGHT_SEED` (the launch arg `light_seed`) if that is set.
 - **`banyu::UnderwaterTurbidity`** (loaded by `main_world.world`): an Ogre2 post-process on the listed `<camera>` sensors. It applies range-based per-channel attenuation plus backscatter veil. Only the server-side sensor image gets it; the GUI view stays clear. The coefficients are placeholders, not measured venue water.
-
----
-
-## 🛁 DVL System Plugin
-
-> [!NOTE]
-> The DVL exists only in simulation. The team has no physical DVL, so it is
-> never used on the real AUV.
-
-`worlds/proof_of_readiness.world` declares `gz-sim-dvl-system`, which services
-the Water Linked A50 mounted on `bluerov2_heavy` (the sensor itself lives in the
-`bluerov2_gz` repo) and publishes `gz.msgs.DVLVelocityTracking` on `/dvl/velocity`.
-
-> [!IMPORTANT]
-> The DVL plugin **must** be declared at world level. Putting it inside a model
-> is silently ignored — no error, no topic. `gz-sim-sensors-system` is the
-> opposite case: it stays in the model and must **not** also appear here, or the
-> render thread crashes with `Scene already exists with name: scene`.
-
-Check the sensor is alive and has bottom lock:
-
-```bash
-gz topic -e -t /dvl/velocity -n 1
-```
-
-`target { type: DVL_TARGET_BOTTOM }` is bottom lock; `DVL_TARGET_WATER_MASS`
-means the beams are not reaching the pool floor. In the PoR pool the slant range
-sits around 0.57–1.80 m through the whole mission, well inside the sensor's
-0.05 m minimum.
-
-The DVL is only *used* below `dive_depth` — EKF3 runs on GPS at the surface and
-switches source sets on the way down. Note that SITL's synthetic GPS is derived
-from Gazebo ground truth and keeps streaming underwater, so it is the active
-source set, not GPS availability, that decides what the filter is really using.
-Both halves are documented in
-[`banyu_bringup/README.md`](../banyu_bringup/README.md#-navigation-sources-gps-on-the-surface-dvl-underwater).
 
 ---
 
@@ -128,10 +91,13 @@ ros2 launch banyu_bringup main_launch.launch.py mode:=por use_ardusub_sitl:=Fals
 Disables Gazebo Sim and SITL processes to run autonomy nodes connected to a physical ROV:
 
 ```bash
-ros2 launch banyu_bringup sub_bringup.launch.py mode:=por fcu_url:=udp://127.0.0.1:14551@
+ros2 launch banyu_bringup sub_bringup.launch.py mode:=por
 ```
 
 ---
+
+MAVROS is not started by any launch file: run `tools/scripts/run/launch_mavros.sh --sim` (or without
+`--sim` on the robot) in another terminal.
 
 ## ⚙️ Launch Arguments
 
@@ -141,7 +107,6 @@ ros2 launch banyu_bringup sub_bringup.launch.py mode:=por fcu_url:=udp://127.0.0
 | `use_sim` | `True` | Set to `True` for Gazebo + SITL simulation; set to `False` for real hardware deployment. |
 | `use_sim_time` | `True` | Enables ROS 2 simulation time (`/clock`). |
 | `use_ardusub_sitl` | `True` | Set to `True` for `sim_vehicle.py` (with UDP 14550 for QGC); `False` for bare `ardusub`. |
-| `fcu_url` | `udp://127.0.0.1:14551@` | MAVLink FCU endpoint URL (`udp://127.0.0.1:14551@` for SITL; the real AUV uses `sub_bringup.launch.py`, fed by `tools/scripts/run_mavproxy.sh`). |
 
 ---
 

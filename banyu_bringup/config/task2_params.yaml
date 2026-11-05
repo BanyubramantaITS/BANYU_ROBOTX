@@ -459,18 +459,18 @@ survey_evidence_node:
 
 esp32_bridge_node:
   ros__parameters:
-    port: "/dev/ttyUSB0"
+    port: "/dev/esp32_kill"
     baud: 115200
     heartbeat_rate_hz: 10.0
     serial_timeout_s: 0.5
 
 esp32_serial_node:
   ros__parameters:
-    port: "/dev/ttyUSB0"
+    port: "/dev/esp32_kill"
     baud: 115200
     timer_period_s: 0.1
     append_newline: false
-    default_trigger_cmd: "2"   # issue #15: 2 = autonomous
+    default_trigger_cmd: "2"   # issue #15: 2 = autonomous (sent to the board as its1)
     trigger_on_cmd: "2"
     trigger_off_cmd: "0"
     trigger_service: "/banyu/trigger/fire"
@@ -478,14 +478,17 @@ esp32_serial_node:
     command_service: "/banyu/trigger/command"
     command_topic: "/banyu/trigger/cmd"
     monitor_topic: "/banyu/trigger/monitor"
+    use_hardware_kill: true      # board its2 while 1/2 is commanded = physical kill
+    kill_report_grace_s: 0.3
+    resend_period_s: 1.0
 
 esp32_trigger_node:
   ros__parameters:
-    port: "/dev/ttyUSB0"
+    port: "/dev/esp32_kill"
     baud: 115200
     timer_period_s: 0.1
     append_newline: false
-    default_trigger_cmd: "2"   # issue #15: 2 = autonomous
+    default_trigger_cmd: "2"   # issue #15: 2 = autonomous (sent to the board as its1)
     trigger_on_cmd: "2"
     trigger_off_cmd: "0"
     trigger_service: "/banyu/trigger/fire"
@@ -493,6 +496,9 @@ esp32_trigger_node:
     command_service: "/banyu/trigger/command"
     command_topic: "/banyu/trigger/cmd"
     monitor_topic: "/banyu/trigger/monitor"
+    use_hardware_kill: true      # board its2 while 1/2 is commanded = physical kill
+    kill_report_grace_s: 0.3
+    resend_period_s: 1.0
 
 sim_rc_deadman_node:
   ros__parameters:
@@ -501,13 +507,6 @@ sim_rc_deadman_node:
     num_channels: 8
     channel_value: 1500
 
-# Not read at runtime: sitl_mavros.launch.py loads por_params.yaml for ekf_source_switch
-# and sets require_gps from the use_gps launch argument. Kept for reference only.
-ekf_source_switch:
-  ros__parameters:
-    dive_depth: 0.5
-    surface_depth: 0.2
-    require_gps: true
 underwater_odometry_node:
   ros__parameters:
     dive_depth_m: 0.5

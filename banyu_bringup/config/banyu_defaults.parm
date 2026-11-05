@@ -1,10 +1,9 @@
 # BANYU curated ArduSub parameters shared by SITL and the real Pixhawk. Loaded into SITL by
 # sitl_mavros.launch.py; on the robot load it once in QGroundControl (docs/por/README.md).
 # Sim-only tuning lives in sim_only.parm and must never be loaded onto the robot. The VISO_* and EK3_SRC2_* lines
-# are what nogps_odom_beacon needs on the robot; the DVL notes below apply to the sim only.
-# FRAME_CONFIG is not set here: the robot is a standard BlueROV2 (FRAME_CONFIG 1, vectored,
-# 6 thrusters, checked by check_pixhawk_params.py) while the sim still models the Heavy
-# (FRAME_CONFIG 2, set in sim_only.parm).
+# are what nogps_odom_beacon needs (GPS-denied runs, sim and robot alike).
+# BlueROV2 Heavy frame (vectored 6DOF: 8 thrusters).
+FRAME_CONFIG 2
 
 # RC channel map, same as the robot's Pixhawk and TX16S: right stick forward CH2 / lateral CH1,
 # left stick throttle CH3 / yaw CH4; pitch and roll unmapped (0 = neutral dummy channel).
@@ -26,14 +25,17 @@ WP_SPD_DN 1.5
 # vector on GUIDED entry, which slews yaw toward 0 deg NED (North = +90 deg ENU).
 WP_YAW_BEHAVIOR 0
 
-# Thruster output range: full 1100..1900 (+/-400 us); the power board supplies full
-# thruster current. AP_Motors6DOF::calc_thrust_to_pwm maps every motor's thrust (-1..1) to
-# 1500 +/- (PWM_MAX-1500 | 1500-PWM_MIN), so narrowing this range caps all motors in every
-# mode: RC MANUAL, ALT_HOLD RC override (POR) and GUIDED velocity (Task 2). If a cap is
-# needed again, keep it symmetric around 1500: 50% -> 1300 1700, 70% -> 1220 1780.
-# tools/scripts/check_thrust_limit.py verifies the Pixhawk against these lines.
-MOT_PWM_MIN 1100
-MOT_PWM_MAX 1900
+# Thruster output cap: the ESC power board cannot supply full thruster current.
+# AP_Motors6DOF::calc_thrust_to_pwm maps every motor's thrust (-1..1) to
+# 1500 +/- (PWM_MAX-1500 | 1500-PWM_MIN), so this range caps all motors in every
+# mode: RC MANUAL, ALT_HOLD RC override (POR) and GUIDED velocity (Task 2).
+# Full range is 1100..1900 (+/-400 us). Keep the range symmetric around 1500:
+#   50% -> 1300 1700   60% -> 1260 1740   70% -> 1220 1780
+# Electrical power falls faster than the PWM percentage; raise only after
+# measuring board current. QGC Motor Test writes raw PWM and bypasses this cap.
+# tools/scripts/check/check_thrust_limit.py verifies the Pixhawk against these lines.
+MOT_PWM_MIN 1300
+MOT_PWM_MAX 1700
 
 # Manual/teleop speeds (cm/s).
 PILOT_SPEED 200
@@ -52,84 +54,36 @@ FS_GCS_ENABLE 0
 # (mavros_config.yaml); any other value makes ArduSub ignore every POR stick command.
 MAV_GCS_SYSID 255
 
-# --- Navigation sources: GPS on the surface, DVL underwater ---
+# --- Navigation sources: GPS-denied (no GPS, no DVL) ---
 # Names/values verified against libraries/AP_VisualOdom/AP_VisualOdom.cpp and
-# libraries/AP_NavEKF/AP_NavEKF_Source.h. Overview: banyu_bringup/README.md.
+# libraries/AP_NavEKF/AP_NavEKF_Source.h.
 #
-# EKF3 carries three switchable source sets. We use two:
-#   SRC1 = surface: GPS position + velocity.
-#   SRC2 = dive:    DVL body-frame velocity, no absolute position.
-# ekf_source_switch.py flips between them on depth, via
-# MAV_CMD_SET_EKF_SOURCE_SET. Nothing in ArduPilot switches on depth by itself.
-#
-# Order matters: setOrigin() rejects a second origin (AP_NavEKF3_Control.cpp:698),
-# so a surface GPS fix anchors the EKF origin once, and the DVL then dead-reckons
-# from a georeferenced point rather than from nowhere.
-#
-# The only chain that bootstraps EKF3 aiding from a DVL alone is
-#   VISION_POSITION_DELTA -> writeBodyFrameOdom() -> readyToUseBodyOdm() -> AID_RELATIVE
-# VISION_SPEED_ESTIMATE / ODOMETRY-twist reach writeExtNavVelData(), which is in
-# neither AID_NONE exit branch (AP_NavEKF3_Control.cpp:284-299).
+# SRC1 is ArduPilot's shipped default (GPS position + velocity, baro height,
+# compass yaw), used when the vehicle has GPS (Task 2 surface leg).
+# SRC2 is the GPS-denied set: no horizontal position, baro depth, compass yaw.
+# nogps_odom_beacon.py selects SRC2 (MAV_CMD_SET_EKF_SOURCE_SET) and streams a
+# zero-delta VISION_POSITION_DELTA, which takes EKF3 to AID_RELATIVE via
+#   VISION_POSITION_DELTA -> writeBodyFrameOdom() -> readyToUseBodyOdm()
+# so /mavros/local_position/pose (depth + heading) is published without GPS.
 
 VISO_TYPE 1             # 1 = MAVLink (0:None 2:IntelT265 3:VOXL)
-
-# Lever arm to the sensor, in ArduPilot body frame (FRD: x fwd, y right, z DOWN).
-# From bluerov2_gz/models/bluerov2_heavy/model.xacro (dvl_x/dvl_y/dvl_z).
-# dvl_z is -0.10 there because Gazebo's model frame is z-UP; below the hull is
-# therefore +0.10 here. The DVL model's link origin is the beam-axis
-# intersection point, so these transfer with no arithmetic.
+# No physical sensor: the beacon's zero deltas describe the vehicle origin itself.
+# A lever arm here would turn every yaw into a fake translation.
 VISO_POS_X 0.0
 VISO_POS_Y 0.0
-VISO_POS_Z 0.10
-# 0 = Forward/none. NOT 25 (Down), even though the sensor faces down:
-# handle_vision_position_delta_msg() rotates BOTH angle_delta and position_delta
-# by this (AP_VisualOdom_Backend.cpp:48-52), and dvl_mavlink_bridge.py already
-# emits vehicle-frame FRD. Setting 25 here would rotate correct data into
-# nonsense. VISO_ORIENT describes an un-converted sensor's mounting; ours is
-# pre-converted.
+VISO_POS_Z 0.0
 VISO_ORIENT 0
-
-# Tuning knobs. DELAY_MS is the sensor-to-autopilot latency; the sim's DVL runs
-# at 10 Hz so 10 ms is a placeholder, not a measurement.
 VISO_DELAY_MS 10
 VISO_VEL_M_NSE 0.1
 
-# SRC1 (surface) is deliberately absent from this file: ArduPilot's shipped
-# defaults already ARE the surface configuration --
-#   EK3_SRC1_POSXY 3 (GPS)   EK3_SRC1_VELXY 3 (GPS)   EK3_SRC1_VELZ 3 (GPS)
-#   EK3_SRC1_POSZ  1 (BARO)  EK3_SRC1_YAW   1 (COMPASS)
-# (AP_NavEKF_Source.cpp:32-60). Do not re-add them as no-ops.
-
-# SRC2 (dive). Written out in full even where it matches the default: a source
-# set is read as a unit, and a half-specified nav config is how you get a
-# surprise at depth.
-#
+# SRC2, written out in full: a source set is read as a unit.
 # 6 = EXTNAV. readyToUseBodyOdm() returns false unless VELXY is EXTNAV or
-# WHEEL_ENCODER, so this line is what actually lets the DVL aid the filter.
+# WHEEL_ENCODER, so this is what lets the beacon's body odometry aid the filter.
 EK3_SRC2_VELXY 6
-# No horizontal position source. A DVL gives velocity, not absolute position;
-# GPS(3) here would make EKF3 wait at depth for a fix it cannot have.
-# 0 = NONE. Aiding then comes from readyToUseBodyOdm() -> AID_RELATIVE.
+# 0 = NONE: no absolute horizontal position (GPS(3) would wait for a fix forever).
 EK3_SRC2_POSXY 0
-# Depth from the barometer, which a sub genuinely has. (Default, restated.)
-EK3_SRC2_POSZ 1
-# Vertical velocity is derived from the baro, not from the DVL: the bridge sends
-# VISION_POSITION_DELTA, which reaches writeBodyFrameOdom(), not the ExtNav
-# velocity path EXTNAV(6) here would select. (Default, restated.)
+EK3_SRC2_POSZ 1         # baro depth
 EK3_SRC2_VELZ 0
-# Compass, NOT the SRC2 default of 0/NONE. With no yaw source EKF3 never
-# completes yaw alignment and aiding is blocked outright -- the DVL would look
-# dead at depth for a reason that has nothing to do with the DVL.
+# Compass, NOT the SRC2 default of 0/NONE: with no yaw source EKF3 never
+# completes yaw alignment and aiding is blocked outright.
 EK3_SRC2_YAW 1
-
-# --- Note on SITL's synthetic GPS ---
-# SITL synthesises a GPS from Gazebo ground truth (SITL.cpp:725 declares the
-# GPS1_ subgroup, SIM_GPS.cpp:42 the ENABLE member) and it does NOT cut out when
-# the vehicle submerges. It is left ENABLED (the default) so the surface half of
-# the architecture is testable at all; SIM_GPS1_ENABLE 0 was the right setting
-# only while SRC1 itself was the DVL.
-#
-# The catch: because sim GPS keeps streaming at depth, "EKF3 is healthy
-# underwater" proves nothing on its own. What proves it is the source SET being
-# SRC2, where POSXY is NONE -- so POS_HORIZ_ABS must go clear and POS_HORIZ_REL
-# set. Ground truth leaking in would keep POS_HORIZ_ABS set. See the README.

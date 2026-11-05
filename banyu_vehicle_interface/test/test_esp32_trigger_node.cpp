@@ -3,6 +3,7 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <cstring>
 #include <memory>
 #include <string>
 #include <thread>
@@ -88,22 +89,19 @@ TEST_F(Esp32TriggerNodeTest, SendTriggerWritesRawBytes)
   EXPECT_TRUE(node->sendTrigger("0"));
   char buf[16] = {0};
   ssize_t n = read(master_fd_, buf, sizeof(buf) - 1);
-  EXPECT_EQ(n, 1);
-  EXPECT_EQ(buf[0], '0');
+  EXPECT_EQ(std::string(buf, n > 0 ? n : 0), "its2\n");
 
   // Test sending '1'
   EXPECT_TRUE(node->sendTrigger("1"));
   memset(buf, 0, sizeof(buf));
   n = read(master_fd_, buf, sizeof(buf) - 1);
-  EXPECT_EQ(n, 1);
-  EXPECT_EQ(buf[0], '1');
+  EXPECT_EQ(std::string(buf, n > 0 ? n : 0), "its0\n");
 
   // Test sending '2'
   EXPECT_TRUE(node->sendTrigger("2"));
   memset(buf, 0, sizeof(buf));
   n = read(master_fd_, buf, sizeof(buf) - 1);
-  EXPECT_EQ(n, 1);
-  EXPECT_EQ(buf[0], '2');
+  EXPECT_EQ(std::string(buf, n > 0 ? n : 0), "its1\n");
 }
 
 TEST_F(Esp32TriggerNodeTest, ProcessIncomingDataParsesLines)
@@ -210,9 +208,10 @@ TEST_F(Esp32TriggerNodeTest, RapidSuccessionTriggers)
     EXPECT_TRUE(node->sendTrigger("2"));
   }
 
-  char buf[64] = {0};
+  // Mode commands go out as 5-byte "itsN\n" lines.
+  char buf[256] = {0};
   ssize_t total_read = 0;
-  while (total_read < 30) {
+  while (total_read < 150) {
     ssize_t n = read(master_fd_, buf + total_read, sizeof(buf) - total_read);
     if (n > 0) {
       total_read += n;
@@ -220,7 +219,7 @@ TEST_F(Esp32TriggerNodeTest, RapidSuccessionTriggers)
       break;
     }
   }
-  EXPECT_EQ(total_read, 30);
+  EXPECT_EQ(total_read, 150);
 }
 
 TEST_F(Esp32TriggerNodeTest, TriggerServiceExecution)
@@ -247,8 +246,7 @@ TEST_F(Esp32TriggerNodeTest, TriggerServiceExecution)
 
   char buf[16] = {0};
   ssize_t n = read(master_fd_, buf, sizeof(buf) - 1);
-  EXPECT_EQ(n, 1);
-  EXPECT_EQ(buf[0], '1');
+  EXPECT_EQ(std::string(buf, n > 0 ? n : 0), "its0\n");
 }
 
 TEST_F(Esp32TriggerNodeTest, SetTriggerServiceExecution)
@@ -276,8 +274,7 @@ TEST_F(Esp32TriggerNodeTest, SetTriggerServiceExecution)
   EXPECT_TRUE(res_on->success);
   char buf[16] = {0};
   ssize_t n = read(master_fd_, buf, sizeof(buf) - 1);
-  EXPECT_EQ(n, 1);
-  EXPECT_EQ(buf[0], '1');
+  EXPECT_EQ(std::string(buf, n > 0 ? n : 0), "its0\n");
 
   // Test SetTrigger(false) -> "0"
   auto req_off = std::make_shared<std_srvs::srv::SetBool::Request>();
@@ -288,8 +285,7 @@ TEST_F(Esp32TriggerNodeTest, SetTriggerServiceExecution)
   EXPECT_TRUE(res_off->success);
   memset(buf, 0, sizeof(buf));
   n = read(master_fd_, buf, sizeof(buf) - 1);
-  EXPECT_EQ(n, 1);
-  EXPECT_EQ(buf[0], '0');
+  EXPECT_EQ(std::string(buf, n > 0 ? n : 0), "its2\n");
 }
 
 TEST_F(Esp32TriggerNodeTest, CommandServiceExecution)
@@ -315,8 +311,7 @@ TEST_F(Esp32TriggerNodeTest, CommandServiceExecution)
   EXPECT_TRUE(res->success);
   char buf[16] = {0};
   ssize_t n = read(master_fd_, buf, sizeof(buf) - 1);
-  EXPECT_EQ(n, 1);
-  EXPECT_EQ(buf[0], '2');
+  EXPECT_EQ(std::string(buf, n > 0 ? n : 0), "its1\n");
 
   // Test empty command rejection
   req->command = "";
@@ -377,8 +372,7 @@ TEST_F(Esp32TriggerNodeTest, CommandTopicExecution)
 
   char buf[16] = {0};
   ssize_t n = read(master_fd_, buf, sizeof(buf) - 1);
-  EXPECT_EQ(n, 1);
-  EXPECT_EQ(buf[0], '0');
+  EXPECT_EQ(std::string(buf, n > 0 ? n : 0), "its2\n");
 
   // Null and empty message should be safely ignored
   node->handleCommandTopic(nullptr);
@@ -453,12 +447,13 @@ TEST_F(Esp32TriggerNodeTest, AppendNewlineOption)
   auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
   ASSERT_TRUE(node->isPortOpen());
 
-  EXPECT_TRUE(node->sendTrigger("1"));
+  // Raw (non-mode) commands get the newline; mode commands are already "itsN\n" lines.
+  EXPECT_TRUE(node->sendTrigger("H"));
 
   char buf[16] = {0};
   ssize_t n = read(master_fd_, buf, sizeof(buf) - 1);
   EXPECT_EQ(n, 2);
-  EXPECT_EQ(buf[0], '1');
+  EXPECT_EQ(buf[0], 'H');
   EXPECT_EQ(buf[1], '\n');
 }
 
@@ -526,4 +521,53 @@ TEST_F(Esp32TriggerNodeTest, ModeCommandsPublishKillSwitchEvenWhenWriteFails)
   node->sendTrigger("2");
   spin_for(300);
   EXPECT_EQ(received.back(), 2);
+}
+
+TEST_F(Esp32TriggerNodeTest, BoardEmergencyReportLatchesKill)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"kill_switch_topic", "/test/hw_kill_switch"},
+    {"kill_report_grace_s", 0.05}
+  });
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  ASSERT_TRUE(node->isPortOpen());
+
+  std::vector<uint8_t> received;
+  auto sub = node->create_subscription<std_msgs::msg::UInt8>(
+    "/test/hw_kill_switch", 10,
+    [&received](const std_msgs::msg::UInt8::SharedPtr msg) {received.push_back(msg->data);});
+  auto spin_for = [&](int ms) {
+      const auto start = std::chrono::steady_clock::now();
+      while ((std::chrono::steady_clock::now() - start) < std::chrono::milliseconds(ms)) {
+        rclcpp::spin_some(node);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+    };
+  auto board_says = [&](const char * report) {
+      ASSERT_GT(write(master_fd_, report, strlen(report)), 0);
+      spin_for(250);
+    };
+
+  EXPECT_TRUE(node->sendTrigger("2"));
+  spin_for(200);
+  board_says("its1\r\n");
+  EXPECT_FALSE(node->isHardwareKillLatched());
+  ASSERT_FALSE(received.empty());
+  EXPECT_EQ(received.back(), 2);
+
+  board_says("its2\r\n");
+  EXPECT_TRUE(node->isHardwareKillLatched());
+  EXPECT_EQ(received.back(), 0);
+
+  // Commanding auto again does not clear the latch; '0' acknowledges it.
+  node->sendTrigger("2");
+  spin_for(200);
+  EXPECT_EQ(received.back(), 0);
+  node->sendTrigger("0");
+  EXPECT_FALSE(node->isHardwareKillLatched());
 }

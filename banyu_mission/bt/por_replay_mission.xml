@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Teach & replay (mission.use_replay): fly a manually driven track recorded in a bag
+     (tools/scripts/por/por_teach_extract.py), then surface. The recorded sticks are replayed
+     open loop; depth and heading follow the recording on the Bar30 and IMU. -->
+<root BTCPP_format="4" main_tree_to_execute="Main">
+  <BehaviorTree ID="Main">
+    <ReactiveFallback name="por_replay_mission_root">
+      <Sequence name="interrupt_sequence">
+        <AutonomyInterrupted />
+        <HandleAbortOrTeleop />
+      </Sequence>
+      <Sequence name="por_replay_mission_phases">
+        <Sequence name="mission_preflight">
+          <RequireMissionStarted />
+          <ArmAndSetGuided />
+        </Sequence>
+        <ReplayTrack name="replay_track" track="{replay_track}"
+          depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}" />
+        <TimedMove name="surface" segment_name="surface"
+          duration_s="{timed_surface_duration_s}"
+          speed_x_mps="{timed_surface_speed_x_mps}" speed_y_mps="{timed_surface_speed_y_mps}"
+          speed_z_mps="{timed_surface_speed_z_mps}" yaw_rate_rad_s="{timed_surface_yaw_rate_rad_s}"
+          use_baro_depth="{use_baro_depth}" target_depth_m="{surface_depth_m}"
+          check_depth_reached="{use_sensors}" depth_tolerance_m="{surface_tolerance_m}"
+          depth_kp="{depth_kp}" max_depth_speed_mps="{max_depth_speed_mps}"
+          use_imu_yaw_cap="false" target_yaw_delta_rad="0.0"
+          enable_collision_guard="false" collision_distance_m="{collision_distance_m}" />
+      </Sequence>
+    </ReactiveFallback>
+  </BehaviorTree>
+</root>

@@ -664,7 +664,9 @@ std::string BanyuMission::xmlPath()
   std::string mission_mode = "task2";
   get_parameter("mission_mode", mission_mode);
   std::string por_tree = "por_timed_mission.xml";
-  if (por_use_vision_) {
+  if (por_use_replay_) {
+    por_tree = "por_replay_mission.xml";
+  } else if (por_use_vision_) {
     por_tree = "por_mission.xml";
   } else if (por_use_vision_assist_) {
     por_tree = "por_vision_assisted_mission.xml";
@@ -688,6 +690,13 @@ void BanyuMission::configurePorBlackboard(const BT::Blackboard::Ptr & blackboard
     por_use_vision_ = config.use_vision;
     por_use_vision_return_ = config.use_vision_return;
     por_use_vision_assist_ = config.use_vision_assist;
+    por_use_replay_ = config.use_replay;
+    if (config.replay) {
+      RCLCPP_INFO(
+        get_logger(), "Replay track '%s': %zu samples, %.1f s, max depth %.2f m (%s)",
+        config.replay->name.c_str(), config.replay->time_s.size(), config.replay->durationS(),
+        config.replay->maxDepthM(), config.replay->path.c_str());
+    }
     config.apply(blackboard);
   } catch (const std::exception & error) {
     mission_config_valid_ = false;

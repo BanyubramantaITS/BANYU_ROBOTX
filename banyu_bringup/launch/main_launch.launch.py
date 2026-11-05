@@ -1,6 +1,6 @@
 import os
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -47,15 +47,6 @@ def generate_launch_description():
         default_value="True",
         description="Whether to start the ArduSub SITL binary alongside Gazebo",
         choices=["True", "False"],
-    )
-
-    fcu_url_arg = DeclareLaunchArgument(
-        name="fcu_url",
-        default_value="udp://127.0.0.1:14551@",
-        description=(
-            "FCU connection URL (udp://127.0.0.1:14551@ for SITL or "
-            "sub_bringup.launch.py for the real AUV). SITL keeps 14550 free for QGC."
-        ),
     )
 
     tier_arg = DeclareLaunchArgument(
@@ -170,16 +161,6 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
-    use_dvl_arg = DeclareLaunchArgument(
-        name="use_dvl",
-        default_value="False",
-        description=(
-            "Enable DVL transport, source switching, and Task 2 DVL readiness "
-            "checks. False leaves the estimator on its configured source set."
-        ),
-        choices=["True", "False"],
-    )
-
     headless_arg = DeclareLaunchArgument(
         name="headless",
         default_value="False",
@@ -198,7 +179,7 @@ def generate_launch_description():
     por_params_arg = DeclareLaunchArgument(
         name="por_params_file",
         default_value=os.path.join(
-            _banyu_bringup_share, "config", "por_params.yaml"
+            _banyu_bringup_share, "config", "por_params_timed_safe.yaml"
         ),
         description="Path to ROS 2 parameter YAML file for POR nodes",
     )
@@ -278,20 +259,28 @@ def generate_launch_description():
         }.items(),
     )
 
-    sitl_mavros_launch = IncludeLaunchDescription(
+    # ArduSub SITL only; MAVROS runs on its own (tools/scripts/run/launch_mavros.sh --sim).
+    sitl_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(_banyu_bringup_share, "launch", "sitl_mavros.launch.py")
+            os.path.join(_banyu_bringup_share, "launch", "sitl.launch.py")
         ),
         launch_arguments={
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "use_ardusub_sitl": LaunchConfiguration("use_ardusub_sitl"),
-            "fcu_url": LaunchConfiguration("fcu_url"),
-            "use_dvl": LaunchConfiguration("use_dvl"),
             "use_gps": LaunchConfiguration("use_gps"),
             "headless": LaunchConfiguration("headless"),
             "site": LaunchConfiguration("site"),
         }.items(),
+    )
+
+    replay_track_arg = DeclareLaunchArgument(
+        name="replay_track",
+        default_value="latest",
+        description=(
+            "Teach track for profiles with use_replay: 'latest' (newest .csv in "
+            "$BANYU_REPLAY_DIR, default ~/banyu_replays), a file name there, or an absolute path."
+        ),
     )
 
     mission_launch = IncludeLaunchDescription(
@@ -316,22 +305,60 @@ def generate_launch_description():
             "buoy_error_y": LaunchConfiguration("buoy_error_y"),
             "task2_params_file": LaunchConfiguration("task2_params_file"),
             "por_params_file": LaunchConfiguration("por_params_file"),
+            "replay_track": LaunchConfiguration("replay_track"),
         }.items(),
     )
 
-    # Same GPS-denied EKF aiding as sub_bringup.launch.py on the robot.
+    record_arg = DeclareLaunchArgument(
+        name="record",
+        default_value="False",
+        description="Record the sim run to $BANYU_BAG_DIR (default ~/banyu_bags) with sim time, "
+        "including /sim/ground_truth/odom (POR), for teach & replay and por_path_compare.py.",
+        choices=["True", "False"],
+    )
+
+    record_images_arg = DeclareLaunchArgument(
+        name="record_images",
+        default_value="False",
+        description="Include compressed camera images in the sim bag (costs CPU: the sim already "
+        "runs slower than real time).",
+        choices=["True", "False"],
+    )
+
+    # Same recorder as sub_bringup.launch.py, run directly so SIGINT closes the bag cleanly.
+    mission_recorder = ExecuteProcess(
+        cmd=[
+            os.path.join(
+                get_package_prefix("banyu_bringup"), "lib", "banyu_bringup", "record_mission.sh"
+            ),
+            [LaunchConfiguration("mode"), "_sim"],
+            "--sim-time",
+        ],
+        name="mission_recorder",
+        output="screen",
+        additional_env={
+            "BANYU_BAG_IMAGES": LaunchConfiguration("record_images"),
+            "BANYU_BAG_PARAMS": PythonExpression([
+                "'", LaunchConfiguration("por_params_file"), "' if '", LaunchConfiguration("mode"),
+                "' == 'por' else '", LaunchConfiguration("task2_params_file"), "'"
+            ]),
+        },
+        sigterm_timeout="15",
+        condition=IfCondition(EqualsSubstitution(LaunchConfiguration("record"), "True")),
+    )
+
+    # Same GPS-denied EKF aiding as sub_bringup.launch.py on the robot. Run directly, not via
+    # `ros2 run`: launch only signals the wrapper, which would orphan the beacon on shutdown.
     nogps_odom_beacon = ExecuteProcess(
-        cmd=["ros2", "run", "banyu_bringup", "nogps_odom_beacon.py",
+        cmd=[os.path.join(get_package_prefix("banyu_bringup"), "lib", "banyu_bringup",
+                          "nogps_odom_beacon.py"),
              "--mavlink", "udpin:127.0.0.1:14552"],
         name="nogps_odom_beacon",
         output="screen",
         condition=IfCondition(
             AndSubstitution(
                 EqualsSubstitution(LaunchConfiguration("use_sim"), "True"),
-                AndSubstitution(
-                    EqualsSubstitution(LaunchConfiguration("use_gps"), "False"),
-                    EqualsSubstitution(LaunchConfiguration("use_dvl"), "False"),
-                ),
+                EqualsSubstitution(LaunchConfiguration("use_gps"), "False"),
             )
         ),
     )
@@ -384,7 +411,6 @@ def generate_launch_description():
             use_sim_arg,
             use_sim_time_arg,
             use_ardusub_sitl_arg,
-            fcu_url_arg,
             tier_arg,
             debug_arg,
             use_gps_arg,
@@ -398,18 +424,21 @@ def generate_launch_description():
             spawn_yaw_arg,
             gps_loss_depth_arg,
             gps_reacquire_delay_arg,
-            use_dvl_arg,
             use_hydrophone_arg,
             dive_point_arg,
             headless_arg,
             task2_params_arg,
             por_params_arg,
+            replay_track_arg,
+            record_arg,
+            record_images_arg,
             set_use_sim_time,
             gazebo_por_launch,
             gazebo_main_launch,
-            sitl_mavros_launch,
+            sitl_launch,
             nogps_odom_beacon,
             sim_gps_gate,
+            mission_recorder,
             mission_launch,
             # After every argument is declared: their conditions read use_sim.
             sim_current,

@@ -1,19 +1,37 @@
-# Hardware configuration for the physical BANYU AUV (V4L2 USB cameras & sensor overrides)
+# Hardware configuration for the physical BANYU AUV (usb_cam USB cameras & sensor overrides)
 
+# Device paths are udev symlinks (tools/udev/99-banyu.rules); usb_cam 0.8 opens them fine.
+
+# Front camera "H264 USB Camera" (32e4:9422, POR). MJPEG 640x480 at up to 30 fps.
 front_camera:
   ros__parameters:
-    video_device: "/dev/video0"
-    image_size: [640, 480]
-    output_encoding: "bgr8"
-    camera_frame_id: "front_camera_optical_frame"
+    video_device: "/dev/front_camera"
+    pixel_format: "mjpeg2rgb"
+    image_width: 640
+    image_height: 480
+    framerate: 30.0
+    io_method: "mmap"
+    # usb_cam otherwise sets brightness to 50.
+    brightness: 100
+    frame_id: "front_camera_optical_frame"
+    camera_name: "front_camera"
     camera_info_url: "package://banyu_bringup/config/front_camera_info.yaml"
 
+# Horus B / 2M WebCam (Task 2): 1920x1080 only, and MJPEG is required over USB 2.0
+# (raw YUYV at 1080p arrives as solid green). 15 fps keeps decode + recording CPU down.
+# See docs/horus_camera.md.
 bottom_camera:
   ros__parameters:
-    video_device: "/dev/video2"
-    image_size: [640, 480]
-    output_encoding: "bgr8"
-    camera_frame_id: "bottom_camera_optical_frame"
+    video_device: "/dev/bottom_camera"
+    pixel_format: "mjpeg2rgb"
+    image_width: 1920
+    image_height: 1080
+    framerate: 15.0
+    io_method: "mmap"
+    # usb_cam otherwise sets brightness to 50.
+    brightness: 100
+    frame_id: "bottom_camera_optical_frame"
+    camera_name: "bottom_camera"
     camera_info_url: "package://banyu_bringup/config/bottom_camera_info.yaml"
 
 # Physical AUV course coordinates & camera mounting overrides (applied when use_sim == False).
@@ -38,18 +56,10 @@ ring_tracker:
 
 esp32_bridge_node:
   ros__parameters:
-    port: "/dev/ttyUSB0"
+    port: "/dev/esp32_kill"
     baud: 115200
 
 esp32_trigger_node:
   ros__parameters:
-    port: "/dev/ttyUSB0"
+    port: "/dev/esp32_kill"
     baud: 115200
-
-# Not read at runtime: sitl_mavros.launch.py loads por_params.yaml for ekf_source_switch
-# and sets require_gps from the use_gps launch argument. Kept for reference only.
-ekf_source_switch:
-  ros__parameters:
-    dive_depth: 0.5
-    surface_depth: 0.2
-    require_gps: false

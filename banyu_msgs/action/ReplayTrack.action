@@ -1,0 +1,32 @@
+# Replay a manually driven (teach) track: the recorded forward/lateral/yaw sticks are
+# replayed open loop, the recorded depth and heading are tracked with the Bar30 and IMU.
+# The track clock pauses (sticks neutral) while the vehicle is far off the recorded depth.
+# All arrays share one index. time_s starts at 0 and strictly increases.
+string track_name
+float64[] time_s
+# Recorded stick deflection from neutral in PWM (RCMAP channels: +forward, +right, +yaw right)
+float64[] forward_pwm
+float64[] lateral_pwm
+float64[] yaw_pwm
+# Heading (ENU, rad) relative to the first sample, unwrapped
+float64[] heading_rad
+# Depth below the surface in metres
+float64[] depth_m
+float64 depth_kp
+float64 max_depth_speed_mps
+---
+bool success
+string reason
+float64 elapsed_s
+float64 paused_s
+float64 final_depth_m
+float64 final_heading_error_rad
+---
+builtin_interfaces/Time stamp
+float64 elapsed_s
+float64 track_time_s
+float64 duration_s
+bool paused
+float64 depth_m
+float64 target_depth_m
+float64 heading_error_rad

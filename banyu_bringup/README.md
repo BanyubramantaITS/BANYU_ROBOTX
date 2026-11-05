@@ -8,7 +8,10 @@ This package contains launch files and bringup configurations for running the **
 
 ### `launch/main_launch.launch.py`
 
-Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL, MAVROS, and the mission stack.
+Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL (`sitl.launch.py`), and the mission stack.
+
+> **No launch file starts MAVROS.** Run it on its own with `tools/scripts/run/launch_mavros.sh`
+> (`--sim` for sim time) and keep it running while the stack is relaunched.
 
 #### Usage Commands
 
@@ -19,8 +22,10 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL, MAVR
 
 - **Full Simulation — Task 2 (Underwater Pipeline & Rings)**:
   ```bash
-  ros2 launch banyu_bringup main_launch.launch.py mode:=task2
+  ./tools/scripts/run/launch_task2.sh --sim     # operator wrapper (see --help)
+  ./tools/scripts/run/launch_mavros.sh --sim    # separate terminal
   ```
+  Scored sim batches (start MAVROS themselves): `tools/scripts/sim/task2_sim_batch.sh --help`.
 
 - **Bare ArduSub SITL Mode**:
   ```bash
@@ -36,12 +41,14 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL, MAVR
 
 - **Real Hardware Bringup Mode (onboard BlueROV2 / Mini-PC)**:
   ```bash
-  ros2 launch banyu_bringup sub_bringup.launch.py mode:=por fcu_url:=udp://127.0.0.1:14551@
+  ./tools/scripts/run/launch_mavros.sh          # separate terminal, after run_mavproxy.sh
+  ros2 launch banyu_bringup sub_bringup.launch.py mode:=por
+  ./tools/scripts/run/launch_task2.sh --real    # Task 2 (checks devices and MAVROS first)
   ```
-  *(Launches MAVROS, `banyu_teleop` safety switches, V4L2 cameras, and the mission stack)*
+  *(Launches `banyu_teleop` safety switches, `usb_cam` cameras, and the mission stack)*
+  Devices (udev names), kill switch protocol, RTK GPS bridge and debug scripts:
+  [`docs/hardware_setup.md`](../docs/hardware_setup.md).
 
-- **No-DVL Negative Control** (see [Navigation Sources](#-navigation-sources-gps-on-the-surface-dvl-underwater)):
-  comment out the `banyu::DvlMavlink` plugin in `banyu_simulation/worlds/main_world.world`.
 
 ---
 
@@ -53,13 +60,14 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL, MAVR
 | `use_sim` | `True` / `False` | `True` | Runs Gazebo simulation and SITL when `True`; skips sim for real ROV hardware when `False`. |
 | `use_sim_time` | `True` / `False` | `True` | Sets `use_sim_time` parameter for ROS 2 nodes. |
 | `use_ardusub_sitl` | `True` / `False` | `True` | Uses `sim_vehicle.py` SITL wrapper (UDP 14550 for QGC) when `True`; uses bare `ardusub` when `False`. |
-| `fcu_url` | string | `udp://127.0.0.1:14551@` | Target MAVLink FCU address (`udp://127.0.0.1:14551@` for SITL to reserve 14550 for QGC; the real AUV uses `sub_bringup.launch.py` with the same default, fed by `tools/scripts/run_mavproxy.sh`). |
 | `use_gps` | `True` / `False` | `True` (`main_launch`); `sub_bringup`: `False` for `por`, `True` for `task2` | `False` removes the SITL GPS from boot and starts `nogps_odom_beacon` (GPS-denied, like the real AUV in POR). `launch_por.sh --sim` and `launch_sim.sh por` pass `False`. |
-| `use_dvl` | `True` / `False` | `False` | Simulated DVL bridge. Keep `False` on hardware: the AUV has no DVL. |
 | `sensors` | `full` / `baro` / `minimal` / `gamble` | `full` | Task 2 sensor profile (`config/task2_sensors_<s>.yaml`): `full` = Bar30 + ALT_HOLD, dive to the fixed inspection depth; `baro` = Bar30 + ALT_HOLD, the dive stops by camera at the pipe (Bar30 as the floor), pipe-width standoff, dive point 1.5 m inside the start buoy, ring order dead-reckoned along the buoy line; `minimal` = no depth sensor (STABILIZE); `gamble` = timed dive, guessed order. `launch_task2.sh --sensors`. |
 | `use_hydrophone` | `True` / `False` | `False` | Task 2 only. Opt in to the hydrophone: `pinger_localization`, the sim `HydrophoneArray` plugin and bridge, pinger homing in `SearchPipeline` and pinger corrections in `underwater_odometry_node` (`config/task2_hydrophone_on.yaml`). The competition UUV has no hydrophone; with `False` nothing publishes `/banyu/pinger/observation` and no decision reads pinger data. `launch_task2.sh --hydrophone`. |
-| `record` | `True` / `False` | `True` (`sub_bringup` only) | Records the run to a rosbag, see [Mission Recording](#-mission-recording). |
-| `record_images` | `True` / `False` | `True` (`sub_bringup` only) | Includes compressed camera images in the bag. Raw images are never recorded. |
+| `record` | `True` / `False` | `True` (`sub_bringup`), `False` (`main_launch`) | Records the run to a rosbag, see [Mission Recording](#-mission-recording). In sim the bag uses sim time and includes the ground truth `/sim/ground_truth/odom` (POR). |
+| `record_images` | `True` / `False` | `True` (`sub_bringup`), `False` (`main_launch`) | Includes compressed camera images in the bag. Raw images are never recorded. |
+| `por_params_file` | path | `config/por_params_timed_safe.yaml` | POR profile. Profiles: `por_params_timed_safe.yaml`, `por_params_timed_fastest.yaml`, `por_params_replay.yaml` (see `docs/por/README.md` §2). One file serves RC and no-RC runs. |
+| `bypass_rc` | `True` / `False` | `False` | No transmitter: POR vehicle status ignores RC freshness and takes the mode from the ESP32 trigger. Use with `enable_teleop:=False enable_esp32_trigger:=True`; `launch_por.sh --no-rc` sets all three. |
+| `replay_track` | `latest`, a name or a path | `latest` | Teach track flown by profiles with `use_replay: true` (newest `.csv` in `$BANYU_REPLAY_DIR`, default `~/banyu_replays`). See `docs/por/README.md` §4.8. |
 
 ---
 
@@ -81,7 +89,7 @@ Each run goes to `~/banyu_bags/<YYYYmmdd_HHMMSS>_<mode>/` (override with `BANYU_
 - `run_info.txt`: start/stop time, host, git commit and recorder settings.
 - `params/`: a copy of the parameter YAML (profile) the run used.
 
-`tools/scripts/launch_por.sh --real` records by default and names the folder after the
+`tools/scripts/por/launch_por.sh --real` records by default and names the folder after the
 profile (e.g. `20261026_133006_por_timed_safe`). It shows the bag location and free disk
 in its banner, and takes `--no-record` and `--no-record-images`.
 
@@ -113,235 +121,39 @@ topics for reviewing performance: `/banyu/mission/run_lifecycle`, `/banyu/vehicl
 
 ---
 
-## 🛁 Navigation Sources: GPS on the Surface, DVL Underwater
+## 🛁 Navigation Without GPS
 
-> [!WARNING]
-> **Simulation only — the team has no physical DVL.** Everything about the DVL in
-> this section applies to Gazebo/SITL. Real-world runs never use a DVL: keep
-> `use_dvl:=False` on hardware (`sub_bringup.launch.py`). Without GPS the real
-> AUV relies on baro depth and compass/IMU heading (see
-> [`docs/por/README.md`](../docs/por/README.md)).
+The AUV has no DVL and, for POR, no GPS, so EKF3 has no horizontal position source.
+`use_gps:=False` (the POR default, also passed by `launch_por.sh --sim`) runs
+`scripts/nogps_odom_beacon.py`, which:
 
-ArduSub's EKF3 carries three switchable source sets. Two are used:
+- selects EKF3 source set 2 with `MAV_CMD_SET_EKF_SOURCE_SET` (resent every 5 s, since the
+  selection does not survive an autopilot reset), and
+- streams a 10 Hz zero-delta `VISION_POSITION_DELTA` on MAVProxy's 14552 output, which takes
+  EKF3 to `AID_RELATIVE`.
 
-| | Set | Horizontal position | Horizontal velocity | Depth | Yaw |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Surface** | `EK3_SRC1_*` | GPS | GPS | Baro | Compass |
-| **Dive** | `EK3_SRC2_*` | *none* | DVL (ExternalNav) | Baro | Compass |
+`/mavros/local_position/pose` then carries Bar30 depth and compass heading; horizontal position
+stays at the origin. In simulation `use_gps:=False` also removes the SITL GPS from boot
+(`config/sim_no_gps.parm`), like the real vehicle. With `use_gps:=True` (Task 2) the beacon does
+not run and EKF3 stays on source set 1 (ArduPilot's GPS defaults).
 
-`scripts/ekf_source_switch.py` flips between them on depth. **Nothing in
-ArduPilot switches source sets on depth by itself** — the mechanism exists (RC
-aux `RCx_OPTION 90`, Lua `ahrs:set_posvelyaw_source_set()`, or
-`MAV_CMD_SET_EKF_SOURCE_SET`), but the decision is ours.
-
-### Why the ordering is the point
-
-`setOrigin()` rejects a second origin — `validOrigin` is sticky
-(`AP_NavEKF3_Control.cpp:698`). A surface GPS fix anchors the EKF origin **once**;
-diving to the DVL then dead-reckons from a georeferenced point rather than from
-nowhere. Position still drifts underwater — the DVL bounds the drift *rate*, it
-does not eliminate drift — but the estimate stays tied to a real place, and
-surfacing re-acquires absolute position.
-
-That is the entire reason to prefer this over a DVL-only setup.
-
-### The DVL chain
-
-```
-Gazebo DVL sensor  ──gz topic /dvl/velocity──▶  banyu::DvlMavlink (world system)
-                                                          │
-                                                 VISION_POSITION_DELTA
-                                                  (UDP 127.0.0.1:14552)
-                                                          ▼
-                                                    ArduSub SITL
-                                             writeBodyFrameOdom() → EKF3
-```
-
-Sim only. The real AUV has no DVL, so this chain has no hardware counterpart.
-
-**Why MAVLink straight to SITL and not MAVROS:**
-
-- **MAVROS cannot emit `VISION_POSITION_DELTA`.** None of its 40 plugins does,
-  and that message is the *only* one that bootstraps EKF3 aiding from a DVL
-  alone. `VISION_SPEED_ESTIMATE` and `ODOMETRY`-twist land in
-  `writeExtNavVelData()`, which is in neither `AID_NONE` exit branch.
-- **Direct MAVLink injection:** `banyu::DvlMavlink` converts `gz.msgs.DVLVelocityTracking` directly to `VISION_POSITION_DELTA` into SITL, avoiding extra ROS hop latency.
-
-So a gz-sim world system (`banyu_simulation/src/DvlMavlink.cc`, loaded by
-`main_world.world`) subscribes to the gz topic and speaks MAVLink straight to
-SITL on its own endpoint (`--out=udp:127.0.0.1:14552`, added to the
-`sim_vehicle.py` invocation — it cannot share MAVROS' 14551). It owns the entire
-frame conversion: Gazebo z-up body frame → ArduPilot FRD. Being part of the
-world, it runs whenever that world does; there is no separate process to launch.
-
-### The switching node
-
-`scripts/ekf_source_switch.py` — a real ROS node, so it *is* a launch `Node`.
-Runs in **both** sim and hardware: this is vehicle behaviour, not sim plumbing.
-
-| Parameter | Default | |
-| :--- | :--- | :--- |
-| `dive_depth` | `0.5` m | Deeper than this → SRC2 (DVL). |
-| `surface_depth` | `0.2` m | Shallower than this → SRC1 (GPS). |
-
-The gap between them is hysteresis — inside the band the active set is held, so
-a vehicle bobbing at the waterline does not flap the EKF between sources.
-
-Depth comes from `/mavros/global_position/rel_alt` (negative below the surface),
-**not** `local_position/pose`. `local_position` z is relative to the EKF
-*origin* — wherever the vehicle happened to be when the origin was set, which in
-this sim is on the pool floor. Measured against it, a sub sitting 2.5 m down
-reports a depth of 0.07 m and the switch never fires; that bug was caught by the
-first end-to-end run. `rel_alt` is relative to home, and ArduSub pins home
-altitude to the water surface (measured offset in SITL: 0.14 m, comfortably
-inside the hysteresis band).
-
-There is still no feedback loop: `EK3_SRC*_POSZ` is Baro in *both* sets, so this
-number does not depend on the horizontal source being chosen.
-
-> `/mavros/altitude` would be the more direct source, but the `altitude` plugin
-> is in `mavros_config.yaml`'s denylist.
-
-Switching goes out as `MAV_CMD_SET_EKF_SOURCE_SET` (42007, param1 1-based) over
-MAVROS' `/mavros/cmd/command`. A rejected or failed call is retried on the next
-depth sample.
-
-Logic check, no ROS required:
-
-```bash
-ros2 run banyu_bringup ekf_source_switch.py --self-check
-```
-
-### Parameters
-
-All in [`config/banyu_defaults.parm`](config/banyu_defaults.parm), which
-`sim_vehicle.py` loads via `--add-param-file`.
+The source set 2 parameters live in `config/banyu_defaults.parm`:
 
 | Parameter | Value | Why |
-| :--- | :--- | :--- |
-| `VISO_TYPE` | `1` | MAVLink visual odometry backend. |
-| `VISO_POS_X/Y/Z` | `0 / 0 / 0.10` | Lever arm to the sensor in FRD (z **down**). Mirrors `dvl_z = -0.10` in `bluerov2_gz`'s `model.xacro`, which is z-up. |
-| `VISO_ORIENT` | `0` | **Not `25` (Down).** ArduSub rotates the incoming delta by this, and the bridge already emits vehicle-frame FRD. `25` would rotate correct data into nonsense. |
-| `EK3_SRC2_VELXY` | `6` (EXTNAV) | `readyToUseBodyOdm()` returns false unless this is EXTNAV or WHEEL_ENCODER. This line is what lets the DVL aid the filter at all. |
-| `EK3_SRC2_POSXY` | `0` (NONE) | A DVL gives velocity, not absolute position. GPS(3) here would make EKF3 wait at depth for a fix it cannot have. |
-| `EK3_SRC2_YAW` | `1` (COMPASS) | **Not the SRC2 default of `0`/NONE.** With no yaw source EKF3 never completes yaw alignment and aiding is blocked outright — the DVL looks dead at depth for a reason that has nothing to do with the DVL. |
-| `EK3_SRC2_POSZ` / `VELZ` | `1` / `0` | Baro depth, baro-derived vertical velocity. Defaults, restated because a source set is read as a unit. |
+|---|---|---|
+| `VISO_TYPE` | `1` (MAVLink) | Accept the beacon's `VISION_POSITION_DELTA`. |
+| `VISO_POS_X/Y/Z` | `0 / 0 / 0` | No physical sensor; a lever arm would turn every yaw into a fake translation. |
+| `EK3_SRC2_VELXY` | `6` (EXTNAV) | `readyToUseBodyOdm()` needs EXTNAV or WHEEL_ENCODER, or the beacon cannot aid the filter. |
+| `EK3_SRC2_POSXY` | `0` (NONE) | No absolute position; GPS(3) would wait for a fix forever. |
+| `EK3_SRC2_POSZ` / `VELZ` | `1` / `0` | Baro depth, baro-derived vertical velocity. |
+| `EK3_SRC2_YAW` | `1` (COMPASS) | Not the SRC2 default of 0/NONE: without a yaw source EKF3 never aligns and aiding is blocked. |
 
-**`EK3_SRC1_*` is deliberately absent from the file.** ArduPilot's shipped
-defaults already *are* the surface configuration — `POSXY 3`, `VELXY 3`,
-`VELZ 3`, `POSZ 1`, `YAW 1` (`AP_NavEKF_Source.cpp:32-60`). Do not re-add them
-as no-ops.
+Check it on a running system: the launch log shows
+`[nogps_odom_beacon] selecting EKF3 source set 2`, and
+`ros2 topic hz /mavros/local_position/pose` is non-zero. Self-check without ROS:
+`ros2 run banyu_bringup nogps_odom_beacon.py --self-check`.
 
-### Verifying which source is really in use
+The beacon reports zero motion, so EKF velocity is always ~0. That is fine for POR (ALT_HOLD +
+RC override, open-loop speeds) but **never** feed it to GUIDED velocity control
+(`docs/task2_underwater_position.md`).
 
-```bash
-ros2 topic echo /mavros/estimator_status
-```
-
-| Flag | Surface (SRC1) | Dive, DVL fusing (SRC2) | Dive, nothing aiding |
-| :--- | :--- | :--- | :--- |
-| `const_pos_mode_status_flag` | `false` | `false` | **`true`** |
-| `pos_horiz_rel_status_flag` | `true` | **`true`** | `false` |
-| `pos_horiz_abs_status_flag` | **`true`** | `false` | `false` |
-
-> [!IMPORTANT]
-> **SITL's synthetic GPS does not cut out when the vehicle submerges.** It is
-> derived from Gazebo ground truth and keeps streaming at depth. So "EKF3 is
-> healthy underwater" proves nothing by itself — what proves it is
-> `pos_horiz_abs` going **clear** once SRC2 is selected, because SRC2's
-> `POSXY` is NONE. Ground truth leaking in would keep that flag set.
->
-> This is the same trap the earlier DVL-only configuration solved by setting
-> `SIM_GPS1_ENABLE 0`. That is no longer the right setting — the surface half
-> needs a GPS to exist — so the discriminator moved from "no GPS exists" to
-> "the active source set cannot see it".
-
-Measured, holding station at 0.85 m in the PoR pool, then surfacing, then
-returning to depth — SITL's synthetic GPS enabled and streaming throughout:
-
-```
-[dive1  ] depth= 0.85  flags=0x12f  ABS=clear  REL=SET  CONST_POS=clear    (50 s)
-[surface] depth= 0.00  flags=0x33f  ABS=SET    REL=SET  CONST_POS=clear    (40 s)
-[dive2  ] depth= 0.97  flags=0x12f  ABS=clear  REL=SET  CONST_POS=clear    (50 s)
-```
-
-with the switch firing cleanly in both directions:
-
-```
-depth 0.12 m -> SRC1/GPS   EKF source set 1 accepted
-depth 0.56 m -> SRC2/DVL   EKF source set 2 accepted
-```
-
-`POS_HORIZ_ABS` going clear at depth *while a healthy GPS is still streaming* is
-the result that matters — it is only reachable by the active source set refusing
-to look at it.
-
-Second readout, autopilot-side: every parsed `VISION_POSITION_DELTA` is written
-to the `VISO` dataflash message whether or not the EKF uses it
-(`AP_VisualOdom_Backend.cpp:73`). `VISO` present *and* `const_pos_mode` still
-true means arriving but rejected — a different fault from never arriving.
-
-Third, the bridge's own `--verbose` output:
-
-```
-[dvl] sent=1321 skipped=0 dt=0.099s v_frd=(-0.001,+0.006,+0.132) conf=99
-```
-
-`skipped` counts gz reports without bottom lock; those are dropped rather than
-sent, since water-track velocity is relative to a moving medium.
-
-### Traps
-
-> [!IMPORTANT]
-> **The vehicle must be driven off the pool floor before any result means
-> anything.** An idle BlueROV2 Heavy free-falls at ~0.13 m/s and beds into the
-> floor at 2.5 m — and it does this *during launch startup*, before a test
-> script can even connect, so arming quickly is not sufficient on its own. A DVL
-> sitting on the bottom has no bottom lock: measured `skipped=428` on one run and
-> `skipped=1536` on another, versus **zero** skips once holding station at
-> 0.85 m. The symptom is `stopped aiding` roughly 20–30 s in, followed by EKF3
-> falling back to whatever else it can find, which looks exactly like a fusion
-> failure and is not one.
->
-> Arm into `ALT_HOLD` and climb to ~1 m depth first. `ALT_HOLD` then holds
-> station there indefinitely (measured drift over 50 s: 0.85 → 0.85 m).
-
-- **Reap stale processes before every run.** `sim_vehicle.py`'s `ardusub` and
-  `mavproxy` children outlive the launch, and so do `banyu_mission`,
-  `por_detection`, `robot_state_publisher` and `image_bridge`. A surviving
-  `ardusub` cannot bind port 5501 and the gz plugin logs `ArduPilot controller
-  has reset`; a surviving `banyu_mission` holds Groot2's ZMQ port and the next
-  run dies with `Address already in use`, meaning no mission ran at all.
-- **The switcher overrides manual source selection.** If you flip sources by
-  hand (QGC, RC aux 90) it will be undone at the next threshold crossing. Stop
-  the node if you want manual control.
-- **Underwater, anything needing a global fix is dead** while SRC2 is active:
-  geofence, RTL-to-home. `/mavros/local_position/pose` keeps working, because
-  `AID_RELATIVE` maintains a local origin.
-
-### Not yet exercised
-
-Stated plainly, because the failure mode of this whole exercise is a config that
-reads green while proving nothing:
-
-- **The source handover has not been exercised by a mission run.** The POR sim
-  now spawns at the surface (z = -0.1) and the timed missions dive from there,
-  but those runs used `use_dvl:=False`, so the switch was not active. The
-  handover has been verified by driving the vehicle by hand only.
-- **The mission has not been re-run on this configuration.** The evidence above
-  is a hold-surface-hold cycle, not a full POR mission. The earlier full
-  mission run was made with the DVL wired into SRC1 and `SIM_GPS1_ENABLE 0`.
-- **Real DVL hardware, and a real GPS.** The team has no DVL, so the DVL half
-  is never used in the real world. A BlueROV2 has no GPS antenna as
-  standard — surface float, mast, or USBL is an open hardware question. Until
-  that is settled, SRC1 on real hardware points at a source the vehicle does
-  not have.
-- **Accuracy.** The run shows EKF3 *accepts and sustains* the DVL velocity and
-  that the source selection takes effect; no drift measurement has been made.
-
-### Dependencies
-
-`banyu::DvlMavlink` builds against gz-transport13, gz-msgs10 and the header-only
-ROS `mavlink` package.
-`ekf_source_switch.py` needs `rclpy`, `geometry_msgs` and `mavros_msgs`. It is
-installed as a program by `CMakeLists.txt`.

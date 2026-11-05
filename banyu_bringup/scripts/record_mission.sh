@@ -16,6 +16,7 @@
 #   BANYU_BAG_IMAGES    False to skip images, same as --no-images (default: True)
 #   BANYU_BAG_LABEL     overrides the label argument (launch_por.sh sets it to the profile)
 #   BANYU_BAG_PARAMS    parameter YAML to save next to the bag (sub_bringup sets it)
+#   BANYU_BAG_REPLAY_TRACK  replay track .csv flown in this run, saved next to it (launch_por.sh)
 #
 # Each run lands in $BANYU_BAG_DIR/<YYYYmmdd_HHMMSS>_<label>/ with:
 #   bag/          MCAP bag, split every 60 s so a power cut only loses the last chunk
@@ -59,8 +60,10 @@ if [ "$(free_mb)" -lt "$MIN_FREE_MB" ]; then
 fi
 
 # Raw images are far too large to keep for a whole dive; the compressed stream is enough
-# to review what the detectors saw. Unit-test topics never matter on the vehicle.
-EXCLUDE='.*/image_raw$|.*/image_raw/(theora|zstd|compressedDepth|ffmpeg).*|/test.*'
+# to review what the detectors saw. Other transports are skipped on every image topic:
+# subscribing to compressedDepth makes it try (and fail, logging an error per frame) to
+# encode colour/mask images. Unit-test topics never matter on the vehicle.
+EXCLUDE='.*/image_raw$|/banyu/detection/debug/[^/]+$|.*/(theora|zstd|compressedDepth|ffmpeg)(/.*)?$|/test.*'
 if [ "$RECORD_IMAGES" -eq 0 ]; then
   EXCLUDE="$EXCLUDE|.*/compressed$"
 fi
@@ -80,6 +83,10 @@ SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 if [ -f "${BANYU_BAG_PARAMS:-}" ]; then
   mkdir -p "$RUN_DIR/params"
   cp "$BANYU_BAG_PARAMS" "$RUN_DIR/params/"
+fi
+if [ -f "${BANYU_BAG_REPLAY_TRACK:-}" ]; then
+  mkdir -p "$RUN_DIR/params"
+  cp "$BANYU_BAG_REPLAY_TRACK" "$RUN_DIR/params/"
 fi
 
 echo "[record_mission] recording to $RUN_DIR"

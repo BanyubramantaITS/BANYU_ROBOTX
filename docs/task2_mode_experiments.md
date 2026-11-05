@@ -1,7 +1,7 @@
 # Task 2: Pixhawk mode behaviour with the GPS lost under water (simulation)
 
 Run with `sim_gps_gate` (worst case: GPS off as soon as the body is 0.1 m below the surface, back on 10 s after
-surfacing) and `tools/scripts/gps_loss_mode_experiment.py`, one fresh sim per mode. The sim batches are in the
+surfacing) and `tools/scripts/sim/gps_loss_mode_experiment.py`, one fresh sim per mode. The sim batches are in the
 scratchpad (not committed); numbers below are copied from their JSONL logs. Plan: `task2_core_disruptive_plan.md`
 section 6.
 

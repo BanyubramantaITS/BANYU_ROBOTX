@@ -6,12 +6,15 @@
 #include <limits>
 #include <memory>
 #include <utility>
+#include <vector>
 
 namespace banyu_vehicle_execution
 {
 namespace
 {
 constexpr double kDetectionTimeout = 0.5;
+// Half-width of the window the recorded dive/climb rate is taken over
+constexpr double kReplayDepthRateWindowS = 0.5;
 
 double positiveOr(double value, double fallback)
 {
@@ -120,6 +123,30 @@ bool validValues(
     }
   }
   return true;
+}
+
+// Inverse of the RC override stick mapping: the intent that reproduces this PWM deflection.
+double stickToIntent(double pwm_offset, double gain, int deadzone)
+{
+  const double magnitude = std::abs(pwm_offset) - std::max(0, deadzone);
+  if (!std::isfinite(magnitude) || !(gain > 0.0) || magnitude <= 0.0) {return 0.0;}
+  return std::copysign(magnitude / gain, pwm_offset);
+}
+
+double interpolate(const std::vector<double> & times, const std::vector<double> & values, double t)
+{
+  if (t <= times.front()) {return values.front();}
+  if (t >= times.back()) {return values.back();}
+  const auto upper = std::upper_bound(times.begin(), times.end(), t);
+  const auto i = static_cast<std::size_t>(upper - times.begin());
+  const double span = times[i] - times[i - 1];
+  const double ratio = span > 0.0 ? (t - times[i - 1]) / span : 0.0;
+  return values[i - 1] + ratio * (values[i] - values[i - 1]);
+}
+
+bool allFinite(const std::vector<double> & values)
+{
+  return std::all_of(values.begin(), values.end(), [](double v) {return std::isfinite(v);});
 }
 
 }
@@ -913,6 +940,183 @@ MotionIntent TimedMoveServer::tick(
     vy = clampFinite(vy, -max_horizontal_speed_mps_, max_horizontal_speed_mps_);
   }
   const auto converted = bodyFluToLocalEnu(MotionIntent::bodyFlu(vx, vy, vz, yaw_rate), yaw);
+  return converted ? *converted : zeroIntent();
+}
+
+ReplayTrackServer::ReplayTrackServer(
+  rclcpp::Node * node, const std::string & name,
+  ActionServerCoordinator * coordinator, const RcOverrideConfig & rc_config)
+: TypedActionServer(node, name, coordinator), rc_config_(rc_config)
+{
+  heading_kp_ = node->declare_parameter<double>("replay.heading_kp", heading_kp_);
+  max_heading_correction_rad_s_ = node->declare_parameter<double>(
+    "replay.max_heading_correction_rad_s", max_heading_correction_rad_s_);
+  heading_deadband_rad_ = node->declare_parameter<double>(
+    "replay.heading_deadband_rad", heading_deadband_rad_);
+  depth_pause_m_ = node->declare_parameter<double>("replay.depth_pause_m", depth_pause_m_);
+  depth_resume_m_ = node->declare_parameter<double>("replay.depth_resume_m", depth_resume_m_);
+  max_pause_s_ = node->declare_parameter<double>("replay.max_pause_s", max_pause_s_);
+}
+
+bool ReplayTrackServer::validateGoal(const Goal & goal, std::string & reason)
+{
+  const auto & t = goal.time_s;
+  const std::size_t n = t.size();
+  if (n < 2) {
+    reason = "track needs at least two samples";
+    return false;
+  }
+  if (goal.forward_pwm.size() != n || goal.lateral_pwm.size() != n || goal.yaw_pwm.size() != n ||
+    goal.heading_rad.size() != n || goal.depth_m.size() != n)
+  {
+    reason = "track arrays must all have the same length";
+    return false;
+  }
+  if (!allFinite(t) || !allFinite(goal.forward_pwm) || !allFinite(goal.lateral_pwm) ||
+    !allFinite(goal.yaw_pwm) || !allFinite(goal.heading_rad) || !allFinite(goal.depth_m))
+  {
+    reason = "track values must be finite";
+    return false;
+  }
+  if (std::abs(t.front()) > 1e-6 || std::adjacent_find(
+      t.begin(), t.end(), [](double a, double b) {return b <= a;}) != t.end())
+  {
+    reason = "time_s must start at 0 and strictly increase";
+    return false;
+  }
+  const auto outside_stick = [](double v) {return std::abs(v) > 500.0;};
+  if (std::any_of(goal.forward_pwm.begin(), goal.forward_pwm.end(), outside_stick) ||
+    std::any_of(goal.lateral_pwm.begin(), goal.lateral_pwm.end(), outside_stick) ||
+    std::any_of(goal.yaw_pwm.begin(), goal.yaw_pwm.end(), outside_stick))
+  {
+    reason = "stick deflections must be within +/-500 PWM";
+    return false;
+  }
+  return validValues(
+    reason, {{"depth_kp", goal.depth_kp}, {"max_depth_speed_mps", goal.max_depth_speed_mps}});
+}
+
+void ReplayTrackServer::onGoalStarted()
+{
+  start_time_ = node_->now();
+  last_tick_ = start_time_;
+  heading_offset_ = std::numeric_limits<double>::quiet_NaN();
+  cursor_ = 0;
+  track_time_s_ = 0.0;
+  paused_s_ = 0.0;
+  paused_ = false;
+  if (active_handle_) {
+    const auto goal = active_handle_->get_goal();
+    RCLCPP_INFO(
+      node_->get_logger(), "[ReplayTrack] Starting '%s' (%zu samples, %.1f s, max depth %.2f m)",
+      goal->track_name.c_str(), goal->time_s.size(), goal->time_s.back(),
+      *std::max_element(goal->depth_m.begin(), goal->depth_m.end()));
+  }
+}
+
+MotionIntent ReplayTrackServer::tick(
+  const VehicleTelemetry & telemetry, const rclcpp::Time & now, double)
+{
+  if (!active_handle_) {return zeroIntent();}
+  if (active_handle_->is_canceling()) {cancelActive(); return zeroIntent();}
+  const auto goal = active_handle_->get_goal();
+  const auto & times = goal->time_s;
+  const double elapsed_s = std::max(0.0, (now - start_time_).seconds());
+  const double duration_s = times.back();
+  const double step_s = std::clamp((now - last_tick_).seconds(), 0.0, 0.5);
+  last_tick_ = now;
+
+  double heading = 0.0;
+  const bool heading_fresh = freshHeading(telemetry, now, &heading);
+  double depth = -1.0;
+  const bool depth_fresh = freshDepth(telemetry, now, depth);
+
+  // A slower dive than the teach run must not start the horizontal legs too shallow
+  // (e.g. over the gate's top bar): hold the track clock until the depth catches up.
+  if (depth_fresh && depth_pause_m_ > 0.0 && paused_s_ < max_pause_s_) {
+    const double error = std::abs(
+      std::max(0.0, interpolate(times, goal->depth_m, track_time_s_)) - depth);
+    if (!paused_ && error > depth_pause_m_) {
+      paused_ = true;
+      RCLCPP_WARN(
+        node_->get_logger(), "[ReplayTrack] %.2f m off the recorded depth at %.1f s: pausing",
+        error, track_time_s_);
+    } else if (paused_ && error < depth_resume_m_) {
+      paused_ = false;
+      RCLCPP_INFO(
+        node_->get_logger(), "[ReplayTrack] Depth caught up after %.1f s paused: resuming",
+        paused_s_);
+    }
+  } else if (paused_) {
+    paused_ = false;
+    RCLCPP_WARN(node_->get_logger(), "[ReplayTrack] Pause budget used or depth lost: resuming");
+  }
+  if (paused_) {
+    paused_s_ += step_s;
+  } else {
+    track_time_s_ = std::min(duration_s, track_time_s_ + step_s);
+  }
+  while (cursor_ + 1 < times.size() && times[cursor_ + 1] <= track_time_s_) {++cursor_;}
+
+  const double target_depth = std::max(0.0, interpolate(times, goal->depth_m, track_time_s_));
+  const double recorded_heading = interpolate(times, goal->heading_rad, track_time_s_);
+  if (heading_fresh && !std::isfinite(heading_offset_)) {
+    heading_offset_ = heading - recorded_heading;
+  }
+  const double heading_error = heading_fresh && std::isfinite(heading_offset_) ?
+    normalizeAngle(heading_offset_ + recorded_heading - heading) : 0.0;
+
+  auto feedback = std::make_shared<Feedback>();
+  feedback->stamp = now;
+  feedback->elapsed_s = elapsed_s;
+  feedback->track_time_s = track_time_s_;
+  feedback->duration_s = duration_s;
+  feedback->paused = paused_;
+  feedback->depth_m = depth;
+  feedback->target_depth_m = target_depth;
+  feedback->heading_error_rad = heading_error;
+  active_handle_->publish_feedback(feedback);
+
+  if (track_time_s_ >= duration_s) {
+    auto result = std::make_shared<Result>();
+    result->success = true;
+    result->reason = "Replay track completed: " + goal->track_name;
+    result->elapsed_s = elapsed_s;
+    result->paused_s = paused_s_;
+    result->final_depth_m = depth;
+    result->final_heading_error_rad = heading_error;
+    succeedActive(result);
+    return zeroIntent();
+  }
+  // Body-frame commands need a heading; without one ALT_HOLD holds the vehicle meanwhile.
+  if (!heading_fresh) {return zeroIntent();}
+
+  // Paused: sticks neutral, only the depth and heading corrections act.
+  const double stick_scale = paused_ ? 0.0 : 1.0;
+  const double vx = stick_scale * stickToIntent(
+    goal->forward_pwm[cursor_], rc_config_.gain_xy_pwm_per_mps, rc_config_.deadzone_xy_pwm);
+  // +PWM is right on the lateral stick and clockwise on the yaw stick (FLU is left / CCW)
+  const double vy = -stick_scale * stickToIntent(
+    goal->lateral_pwm[cursor_], rc_config_.gain_xy_pwm_per_mps, rc_config_.deadzone_xy_pwm);
+  double yaw_rate = -stick_scale * stickToIntent(
+    goal->yaw_pwm[cursor_], rc_config_.gain_yaw_pwm_per_rad_s, rc_config_.deadzone_yaw_pwm);
+  if (std::abs(heading_error) > heading_deadband_rad_) {
+    yaw_rate += clampFinite(
+      heading_kp_ * heading_error, -max_heading_correction_rad_s_, max_heading_correction_rad_s_);
+  }
+
+  double vz = 0.0;
+  if (depth_fresh) {
+    // Feed forward the recorded dive/climb rate, plus a P term on the depth error.
+    const double lo = std::max(0.0, track_time_s_ - kReplayDepthRateWindowS);
+    const double hi = std::min(duration_s, track_time_s_ + kReplayDepthRateWindowS);
+    const double depth_rate = paused_ || hi <= lo ? 0.0 :
+      (interpolate(times, goal->depth_m, hi) - interpolate(times, goal->depth_m, lo)) / (hi - lo);
+    const double max_vz = positiveOr(goal->max_depth_speed_mps, 0.4);
+    const double kp = positiveOr(goal->depth_kp, 0.7);
+    vz = -clampFinite(depth_rate + kp * (target_depth - depth), -max_vz, max_vz);
+  }
+  const auto converted = bodyFluToLocalEnu(MotionIntent::bodyFlu(vx, vy, vz, yaw_rate), heading);
   return converted ? *converted : zeroIntent();
 }
 

@@ -22,14 +22,19 @@ from launch_ros.actions import Node, SetParameter
 
 def _make_camera_node(name, image_topic, info_topic, hardware_params, enable_cameras, target_mode, mode):
     return Node(
-        package="v4l2_camera",
-        executable="v4l2_camera_node",
+        package="usb_cam",
+        executable="usb_cam_node_exe",
         name=name,
         output="screen",
         parameters=[hardware_params],
+        # usb_cam does not carry the image_raw remap over to its transport subtopics,
+        # so the compressed stream the detectors and recorder use is remapped explicitly.
         remappings=[
             ("image_raw", image_topic),
             ("camera_info", info_topic),
+        ] + [
+            (f"image_raw/{transport}", f"{image_topic}/{transport}")
+            for transport in ("compressed", "compressedDepth", "theora", "zstd")
         ],
         condition=IfCondition(
             AndSubstitution(
@@ -59,7 +64,7 @@ def generate_launch_description():
     banyu_teleop_share = get_package_share_directory("banyu_teleop")
 
     default_por_params = os.path.join(
-        banyu_bringup_share, "config", "por_params.yaml"
+        banyu_bringup_share, "config", "por_params_timed_safe.yaml"
     )
     default_task2_params = os.path.join(
         banyu_bringup_share, "config", "task2_params.yaml"
@@ -111,23 +116,6 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
-    fcu_url_arg = DeclareLaunchArgument(
-        name="fcu_url",
-        default_value="udp://127.0.0.1:14551@",
-        description=(
-            "FCU connection URL for the physical Pixhawk "
-            "(udp://127.0.0.1:14551@ when using tools/scripts/run_mavproxy.sh, "
-            "or /dev/ttyACM0:921600 for direct USB serial)."
-        ),
-    )
-
-    use_dvl_arg = DeclareLaunchArgument(
-        name="use_dvl",
-        default_value="False",
-        description="Keep False: the AUV has no physical DVL (DVL is simulation only).",
-        choices=["True", "False"],
-    )
-
     use_gps_arg = DeclareLaunchArgument(
         name="use_gps",
         # POR runs GPS-denied; Task 2 needs the surface GPS leg (NavigateSurfaceGps).
@@ -135,8 +123,8 @@ def generate_launch_description():
             ["'True' if '", LaunchConfiguration("mode"), "' == 'task2' else 'False'"]
         ),
         description=(
-            "Whether GPS is available on the AUV. Default: False for mode:=por (forces EKF3 "
-            "SRC2, baro + compass, and runs nogps_odom_beacon when use_dvl is False), True for "
+            "Whether GPS is available on the AUV. Default: False for mode:=por (runs "
+            "nogps_odom_beacon, which selects EKF3 source set 2: baro + compass), True for "
             "mode:=task2."
         ),
         choices=["True", "False"],
@@ -178,10 +166,18 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    bypass_rc_arg = DeclareLaunchArgument(
+        name="bypass_rc",
+        default_value="False",
+        description="No transmitter: mode comes from the ESP32 trigger, not RC (use with "
+        "enable_esp32_trigger:=True).",
+        choices=["True", "False"],
+    )
+
     enable_cameras_arg = DeclareLaunchArgument(
         name="enable_cameras",
         default_value="True",
-        description="Whether to launch local V4L2 USB camera driver nodes.",
+        description="Whether to launch the local usb_cam USB camera driver nodes.",
         choices=["True", "False"],
     )
 
@@ -224,6 +220,15 @@ def generate_launch_description():
         description="Path to ROS 2 parameter YAML file for banyu_teleop node.",
     )
 
+    replay_track_arg = DeclareLaunchArgument(
+        name="replay_track",
+        default_value="latest",
+        description=(
+            "Teach track for profiles with use_replay: 'latest' (newest .csv in "
+            "$BANYU_REPLAY_DIR, default ~/banyu_replays), a file name there, or an absolute path."
+        ),
+    )
+
     set_wall_time = SetParameter(name="use_sim_time", value=False)
 
     mode = LaunchConfiguration("mode")
@@ -238,36 +243,20 @@ def generate_launch_description():
         "'", por_params, "' if '", mode, "' == 'por' else '", task2_params, "'"
     ])
 
-    mavros_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(banyu_bringup_share, "launch", "sitl_mavros.launch.py")
-        ),
-        launch_arguments={
-            "use_sim": "False",
-            "use_sim_time": "False",
-            "use_ardusub_sitl": "False",
-            "fcu_url": LaunchConfiguration("fcu_url"),
-            "use_dvl": LaunchConfiguration("use_dvl"),
-            "use_gps": LaunchConfiguration("use_gps"),
-        }.items(),
-    )
-
+    # Run directly, not via `ros2 run`: launch only signals the wrapper, which would leave the
+    # beacon running after shutdown (MAVProxy stays up, so it would keep feeding the Pixhawk).
     nogps_odom_beacon = ExecuteProcess(
         cmd=[
-            "ros2",
-            "run",
-            "banyu_bringup",
-            "nogps_odom_beacon.py",
+            os.path.join(
+                get_package_prefix("banyu_bringup"), "lib", "banyu_bringup", "nogps_odom_beacon.py"
+            ),
             "--mavlink",
             "udpin:127.0.0.1:14552",
         ],
         name="nogps_odom_beacon",
         output="screen",
         condition=IfCondition(
-            AndSubstitution(
-                EqualsSubstitution(LaunchConfiguration("use_gps"), "False"),
-                EqualsSubstitution(LaunchConfiguration("use_dvl"), "False"),
-            )
+            EqualsSubstitution(LaunchConfiguration("use_gps"), "False")
         ),
     )
 
@@ -341,8 +330,10 @@ def generate_launch_description():
             "gamble_red": LaunchConfiguration("gamble_red"),
             "enable_esp32_trigger": LaunchConfiguration("enable_esp32_trigger"),
             "enable_esp32_bridge": LaunchConfiguration("enable_esp32_bridge"),
+            "bypass_rc": LaunchConfiguration("bypass_rc"),
             "por_params_file": por_params,
             "task2_params_file": task2_params,
+            "replay_track": LaunchConfiguration("replay_track"),
             "hardware_params_file": hardware_params,
         }.items(),
     )
@@ -355,14 +346,13 @@ def generate_launch_description():
             use_hydrophone_arg,
             dive_point_arg,
             gamble_red_arg,
-            fcu_url_arg,
-            use_dvl_arg,
             use_gps_arg,
             debug_arg,
             enable_teleop_arg,
             enable_mock_auto_arg,
             enable_esp32_bridge_arg,
             enable_esp32_trigger_arg,
+            bypass_rc_arg,
             enable_cameras_arg,
             record_arg,
             record_images_arg,
@@ -370,9 +360,9 @@ def generate_launch_description():
             task2_params_arg,
             hardware_params_arg,
             teleop_params_arg,
+            replay_track_arg,
             set_wall_time,
             OpaqueFunction(function=_check_single_esp32_owner),
-            mavros_launch,
             nogps_odom_beacon,
             mission_recorder,
             teleop_node,

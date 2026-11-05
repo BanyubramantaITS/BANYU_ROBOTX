@@ -98,6 +98,8 @@ void registerActionNodes(
     "TurnAround", node, action_name("turn_around"));
   factory.registerNodeType<TimedMoveNode>(
     "TimedMove", node, action_name("timed_move"));
+  factory.registerNodeType<ReplayTrackNode>(
+    "ReplayTrack", node, action_name("replay_track"));
 }
 
 }  // namespace banyu_mission

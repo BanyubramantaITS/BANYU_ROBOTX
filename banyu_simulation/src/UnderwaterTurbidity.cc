@@ -246,7 +246,7 @@ public:
   void Configure(const gz::sim::Entity &, const std::shared_ptr<const sdf::Element> &_sdf,
                  gz::sim::EntityComponentManager &, gz::sim::EventManager &_events) override
   {
-    // Explicit list: sensors like the DVL render through plain cameras too,
+    // Explicit list: other sensors can render through plain cameras too,
     // and hazing those would corrupt their output.
     for (auto e = _sdf->FindElement("camera"); e; e = e->GetNextElement("camera"))
       cameras_.insert(e->Get<std::string>());

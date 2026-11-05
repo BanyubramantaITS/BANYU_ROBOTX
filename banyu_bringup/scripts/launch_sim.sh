@@ -4,7 +4,7 @@
 #
 # Usage:
 #   ./launch_sim.sh por      # proof-of-readiness sim
-#   ./launch_sim.sh task2    # Task 2 sim (pass use_dvl:=True to enable DVL)
+#   ./launch_sim.sh task2    # Task 2 sim
 #   ./launch_sim.sh          # defaults to 'por'
 #
 # Any extra arguments after the mode are passed straight through to
@@ -31,6 +31,9 @@ EXTRA="${*:2}"
 if [ "$MODE" = "por" ] && [[ " $EXTRA " != *" use_gps:="* ]]; then
   EXTRA="use_gps:=False $EXTRA"
 fi
+
+# MAVROS is not part of the launch: start it in another terminal.
+echo "Start MAVROS in another terminal: ./launch_mavros.sh --sim"
 
 ROS_DISTRO_TO_USE="${ROS_DISTRO:-jazzy}"
 bash -c "source /opt/ros/${ROS_DISTRO_TO_USE}/setup.bash && source install/setup.bash && \

@@ -848,3 +848,32 @@ on the surface and is surely above the pipe when it dives. Which one the real ru
 | midpoint | (15, 0.2) start buoy | 1.33 m | 3.81 m | (-0.01, 0.23) | PASS 450 |
 - **Buoy-dive Core, random spawn, with H51 (the back-up flow): 4 of 4 PASS 450** (seeds 2 1 5 9). The default flow change did
   not regress the normal dive. `launch_task2.sh` help/banner, `task2_params.yaml` comments and AGENTS.md updated (dry runs checked).
+
+### Merge of `feat/competition-hardware` (user request, 2026-11-05)
+
+The user works on this branch for the rest of the competition, so `feat/competition-hardware` is merged in.
+
+- **Conflicts:**
+  - Robot params, POR files and the check scripts: took the hardware side.
+  - `vehicle_execution_node.cpp`: hardware stick ownership (`own_sticks`, idle release) combined with the Task 2 mode checks.
+  - Launch files: kept the Task 2 args and dropped `use_dvl`/`fcu_url`.
+  - `task2_params.yaml`: dropped the dead `ekf_source_switch` block.
+  - Docs: hardware structure plus the Task 2 sections.
+- **MAVROS runs on its own** (hardware rule):
+  - `launch_task2.sh` no longer kills or starts it. `--sim` tells the operator to run `run/launch_mavros.sh --sim`.
+  - `--real` refuses to launch without a `mavros_node` (only warns in dry-run). It also checks `/dev/esp32_kill`, `/dev/gps_rtk` and `/dev/bottom_camera`, warns if the GPS bridge runs (GPS1_TYPE 1), and labels bags `task2_<tier>_<sensors>`.
+  - `task2_sim_e2e.sh` starts `run/launch_mavros.sh --sim` itself (`<run>/mavros.log`). It now reads "is using GPS" from that log: the first smoke run looked for it in `sim.log`, timed out each attempt and judged the sim wedged.
+- **Script layout:** `launch_task2.sh` is now in `run/`; `task2_sim_{e2e,batch,cleanup}.sh` and `gps_loss_mode_experiment.py` in `sim/`; `task2_score_run.py` in `check/`. Paths are `../../..` and every script answers `--help`.
+- **Sim note:** the sim now loads the hardware `banyu_defaults.parm`: `MOT_PWM_MIN/MAX` 1300/1700 (was 1100/1900) and `FRAME_CONFIG 2`. The thrust limit is lower than in every earlier batch.
+- **Tests:**
+  - vehicle_execution 74/74.
+  - `test_launch_readiness` 6/6: the `use_gps` default is mode dependent, so the test now evaluates it for POR (False) and Task 2 (True).
+  - run lifecycle: only the known `NavigationExecutionFailureClearsTask` fails.
+  - The merge adds no new uncrustify failures.
+  - `--dry-run` for `--sim`/`--real` checked.
+- **Sim smoke run on the merged code** (Core, light seed 2 = node 1, random spawn, GUI): **PASS 450**, node 1 repaired (Gazebo
+  `TASK_COMPLETED_GREEN`), reported `RED GREEN GREEN GREEN`; MAVROS from `launch_mavros.sh --sim`, no pinger publisher.
+  The try before scored FAIL 275: the vehicle repaired node 1 and the tracker recorded four rings, but
+  `survey_evidence_node` never received a message (no "Run context updated", absent from the graph: DDS discovery), so the
+  ledger had 0 rings and the report was refused. Seen once in 65 runs; not caused by the merge (`banyu_detection` unchanged).
+  If it recurs, the harness should check that node's "Run context updated" before the start and relaunch.

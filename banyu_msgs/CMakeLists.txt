@@ -50,6 +50,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/OrbitMarker.action"
   "action/TurnAround.action"
   "action/TimedMove.action"
+  "action/ReplayTrack.action"
   "action/FollowPipeline.action"
   "action/CenterOnRing.action"
   "action/HoldProbeOnRing.action"

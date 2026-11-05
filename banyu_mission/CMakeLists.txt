@@ -23,6 +23,7 @@ add_library(banyu_mission_core
   src/run_coordinator.cpp
   src/mission_state.cpp
   src/por_mission_config.cpp
+  src/replay_track.cpp
   src/action/acknowledge_red_ring_node.cpp
   src/action/acquire_pipeline_node.cpp
   src/action/align_heading_node.cpp

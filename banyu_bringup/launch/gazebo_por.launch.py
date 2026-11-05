@@ -76,6 +76,21 @@ def generate_launch_description():
     )
 
     bluerov2_heavy_xml = xacro.process(_bluerov2_heavy_file)
+    # Sim-only ground truth for judging runs afterwards (por_path_compare.py): the vehicle's
+    # world pose from Gazebo. Added to the spawned model only; the real AUV has no equivalent.
+    _ground_truth_plugin = """
+  <gazebo>
+    <plugin filename="gz-sim-odometry-publisher-system"
+        name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>world</odom_frame>
+      <robot_base_frame>bluerov2_heavy</robot_base_frame>
+      <dimensions>3</dimensions>
+      <odom_publish_frequency>20</odom_publish_frequency>
+    </plugin>
+  </gazebo>
+"""
+    _spawn_bluerov2_heavy_xml = bluerov2_heavy_xml.replace(
+        "</robot>", _ground_truth_plugin + "</robot>")
 
     spawn_bluerov2_heavy = Node(
         executable="create",
@@ -85,7 +100,7 @@ def generate_launch_description():
             "-world",
             _world_name,
             "-string",
-            bluerov2_heavy_xml,
+            _spawn_bluerov2_heavy_xml,
             "-name",
             "bluerov2_heavy",
             "-x",
@@ -210,6 +225,16 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("use_sim")),
     )
 
+    ground_truth_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        name="ground_truth_bridge",
+        arguments=["/model/bluerov2_heavy/odometry@nav_msgs/msg/Odometry[gz.msgs.Odometry"],
+        remappings=[("/model/bluerov2_heavy/odometry", "/sim/ground_truth/odom")],
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("use_sim")),
+    )
+
     camera_info_bridge = Node(
         package="ros_gz_bridge",
         executable="parameter_bridge",
@@ -237,6 +262,7 @@ def generate_launch_description():
             headless_arg,
             set_use_sim_time,
             clock_bridge,
+            ground_truth_bridge,
             ros_gz_sim_launch,
             ros_gz_sim_headless_launch,
             spawn_por_pool,

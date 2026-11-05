@@ -17,9 +17,6 @@ install(
 
 install(
     PROGRAMS
-        scripts/dvl_mavlink_bridge.py
-        scripts/dvl_health.py
-        scripts/ekf_source_switch.py
         scripts/nogps_odom_beacon.py
         scripts/sim_gps_gate.py
         scripts/sim_current.py

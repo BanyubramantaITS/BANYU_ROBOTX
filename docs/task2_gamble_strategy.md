@@ -18,9 +18,9 @@ A failed navigation or dive does not stop the report: the tree still surfaces an
 ## Run
 
 ```bash
-tools/scripts/launch_task2.sh --real --tier core --sensors gamble                 # RED at position 2 or 3 at random (default)
-tools/scripts/launch_task2.sh --real --tier core --sensors gamble --gamble-red 3  # always position 3
-tools/scripts/launch_task2.sh --real --tier core --sensors gamble --gamble-red 1,2,3,4
+tools/scripts/run/launch_task2.sh --real --tier core --sensors gamble                 # RED at position 2 or 3 at random (default)
+tools/scripts/run/launch_task2.sh --real --tier core --sensors gamble --gamble-red 3  # always position 3
+tools/scripts/run/launch_task2.sh --real --tier core --sensors gamble --gamble-red 1,2,3,4
 ```
 
 `--sim` instead of `--real` runs it in Gazebo. Position 1 is the node closest to the active buoy, position 4 the farthest (the handbook's

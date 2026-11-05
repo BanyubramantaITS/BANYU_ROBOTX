@@ -1,3 +1,6 @@
+#include "banyu_mission/replay_track.hpp"
+#include <cstdlib>
+#include <unistd.h>
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -68,7 +71,7 @@ std::string porMissionTreePath()
 std::string porParamsPath()
 {
   return ament_index_cpp::get_package_share_directory("banyu_bringup") +
-         "/config/por_params.yaml";
+         "/config/por_params_timed_safe.yaml";
 }
 
 std::string readFile(const std::string & path)
@@ -999,4 +1002,66 @@ TEST_F(MissionTest, ArmAndSetGuidedPublishesZeroVelocityYawRateSetpointsDuringAr
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
   EXPECT_EQ(action.executeTick(), BT::NodeStatus::SUCCESS);
+}
+
+TEST_F(MissionTest, PorReplayLoadsLatestTrackAndBuildsReplayTree)
+{
+  const auto dir = std::filesystem::temp_directory_path() /
+    ("banyu_replay_test_" + std::to_string(::getpid()));
+  std::filesystem::create_directories(dir);
+  ::setenv("BANYU_REPLAY_DIR", dir.c_str(), 1);
+  {
+    std::ofstream old_track(dir / "older.csv");
+    old_track << "time_s,forward_pwm,lateral_pwm,yaw_pwm,heading_rad,depth_m\n0,0,0,0,0,0\n1,0,0,0,0,0\n";
+  }
+  std::filesystem::last_write_time(
+    dir / "older.csv", std::filesystem::file_time_type::clock::now() - std::chrono::hours(1));
+  {
+    std::ofstream track(dir / "teach.csv");
+    track << "# BANYU replay track\n"
+          << "time_s,forward_pwm,lateral_pwm,yaw_pwm,heading_rad,depth_m\n"
+          << "0.0,0,0,0,0.0,0.1\n0.5,200,0,0,0.0,1.0\n1.0,200,-50,30,0.1,1.9\n";
+  }
+  EXPECT_EQ(banyu_mission::resolveReplayTrackPath("latest"), (dir / "teach.csv").string());
+  EXPECT_EQ(banyu_mission::resolveReplayTrackPath("older"), (dir / "older.csv").string());
+  EXPECT_THROW(banyu_mission::resolveReplayTrackPath("missing"), std::invalid_argument);
+
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("mission.use_replay", true);
+  auto node = std::make_shared<rclcpp::Node>("por_replay_tree_test", options);
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get(), false);
+  BT::BehaviorTreeFactory factory;
+  banyu_mission::registerMissionNodes(factory, node, state);
+  auto config = banyu_mission::PorMissionConfig::load(*node);
+  ASSERT_TRUE(config.replay);
+  EXPECT_EQ(config.replay->name, "teach");
+  EXPECT_EQ(config.replay->time_s.size(), 3u);
+  EXPECT_DOUBLE_EQ(config.replay->forward_pwm[1], 200.0);
+  EXPECT_DOUBLE_EQ(config.replay->maxDepthM(), 1.9);
+  EXPECT_NO_THROW(config.validate());
+  auto blackboard = BT::Blackboard::create();
+  config.apply(blackboard);
+
+  std::string tree_path = ament_index_cpp::get_package_share_directory("banyu_mission") +
+    "/bt/por_replay_mission.xml";
+#ifdef BANYU_MISSION_SOURCE_DIR
+  const auto source_path = std::string(BANYU_MISSION_SOURCE_DIR) + "/bt/por_replay_mission.xml";
+  if (std::filesystem::exists(source_path)) {
+    tree_path = source_path;
+  }
+#endif
+  EXPECT_NO_THROW(factory.registerBehaviorTreeFromFile(tree_path));
+  EXPECT_NO_THROW(
+  {
+    auto tree = factory.createTree("Main", blackboard);
+    (void)tree;
+  });
+
+  {
+    std::ofstream bad(dir / "bad.csv");
+    bad << "time_s,forward_pwm,lateral_pwm,yaw_pwm,heading_rad,depth_m\n0,0,0,0,0,0\n0,900,0,0,0,0\n";
+  }
+  EXPECT_THROW(banyu_mission::loadReplayTrack((dir / "bad.csv").string()), std::invalid_argument);
+  std::filesystem::remove_all(dir);
+  ::unsetenv("BANYU_REPLAY_DIR");
 }

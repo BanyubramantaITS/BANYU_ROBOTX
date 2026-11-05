@@ -75,6 +75,11 @@ void VehicleExecutionNode::initParameters()
     "rc_override.deadzone_z_pwm", rc_override_config_.deadzone_z_pwm));
   rc_override_config_.deadzone_yaw_pwm = static_cast<int>(declare_parameter<int64_t>(
     "rc_override.deadzone_yaw_pwm", rc_override_config_.deadzone_yaw_pwm));
+  rc_override_idle_release_s_ = declare_parameter<double>(
+    "rc_override.idle_release_s", rc_override_idle_release_s_);
+  if (!std::isfinite(rc_override_idle_release_s_) || rc_override_idle_release_s_ < 0.0) {
+    throw std::invalid_argument("rc_override.idle_release_s must be finite and non-negative");
+  }
   require_run_authorization_ = declare_parameter<bool>("control.require_run_authorization", false);
   run_lifecycle_timeout_s_ = declare_parameter<double>("control.run_lifecycle_timeout_s", 1.0);
   if (!std::isfinite(run_lifecycle_timeout_s_) || run_lifecycle_timeout_s_ <= 0.0) {
@@ -237,6 +242,8 @@ void VehicleExecutionNode::initActionServers()
     "actions.turn_around", "/banyu/actions/turn_around");
   const auto timed_move_action = declare_parameter<std::string>(
     "actions.timed_move", "/banyu/actions/timed_move");
+  const auto replay_track_action = declare_parameter<std::string>(
+    "actions.replay_track", "/banyu/actions/replay_track");
 
   const double nav_kp = declare_parameter<double>("control.nav_kp", 0.5);
   hold_kp_ = nav_kp;
@@ -346,6 +353,8 @@ void VehicleExecutionNode::initActionServers()
     this, turn_around_action, this);
   auto timed_move_server = std::make_shared<TimedMoveServer>(
     this, timed_move_action, this);
+  auto replay_track_server = std::make_shared<ReplayTrackServer>(
+    this, replay_track_action, this, rc_override_config_);
 
   servers_ = {
     nav_server, align_server, dive_server,
@@ -353,7 +362,7 @@ void VehicleExecutionNode::initActionServers()
     center_server, hold_server, surface_server,
     acquire_gate_server, search_marker_server, search_gate_server,
     align_gate_server, align_marker_server, pass_gate_server,
-    orbit_marker_server, turn_around_server, timed_move_server
+    orbit_marker_server, turn_around_server, timed_move_server, replay_track_server
   };
 
   for (const auto & server : servers_) {
@@ -598,6 +607,13 @@ void VehicleExecutionNode::timerCallback()
     target.header.frame_id = "map";
     preview_target_pub_->publish(target);
 
+    if (arbiter_.state() == GoalState::ZeroBarrier || arbiter_.activeGoal().has_value() ||
+      readiness_output_selected)
+    {
+      last_goal_time_ = steady_now;
+    }
+    const bool own_sticks = last_goal_time_.has_value() &&
+      steady_age(*last_goal_time_) <= rc_override_idle_release_s_;
     if (enable_mavros_publish_ && rc_override_pub_) {
       const bool terminal_stop = require_run_authorization_ &&
         terminal_zero_cycles_remaining_ > 0;
@@ -605,7 +621,7 @@ void VehicleExecutionNode::timerCallback()
         runMotionAuthorized() || terminal_stop;
       const bool allowed = hardwareStatusReady() && run_output_ready && !safety_fault &&
         rcModeActive();
-      publishRcOverride(allowed ? intent : zeroIntent(), allowed);
+      publishRcOverride(allowed ? intent : zeroIntent(), allowed, own_sticks);
       readiness_output_published = false;
     }
     if (enable_mavros_publish_ && mavros_target_pub_ && setpointModeActive()) {
@@ -812,16 +828,18 @@ bool VehicleExecutionNode::setpointModeActive() const
   return output_mode_ == "auto" && telemetry_.mode == autonomy_mode_;
 }
 
-void VehicleExecutionNode::publishRcOverride(const MotionIntent & intent, bool output_allowed)
+void VehicleExecutionNode::publishRcOverride(
+  const MotionIntent & intent, bool output_allowed, bool own_sticks)
 {
-  // While autonomous: stream sticks. Otherwise hold neutral while the vehicle is still
-  // armed in the autonomy mode with autonomy selected (a clean stop), and release the
-  // sticks to the transmitter at once on an RC takeover / MANUAL switch, a disarm or a
-  // mode change, so the pilot is never locked out.
-  const bool armed_in_autonomy = telemetry_.armed && rcModeActive() &&
+  // While a goal runs: stream sticks. Right after one, hold neutral while the vehicle is still
+  // armed in the RC-override mode with autonomy selected (a clean stop). Release the sticks at
+  // once on an RC takeover / MANUAL switch, a disarm or a mode change, and when no goal has
+  // run for idle_release_s (e.g. armed in ALT_HOLD for a manual teach drive with no mission),
+  // so the pilot is never fought or locked out.
+  const bool armed_in_autonomy = own_sticks && telemetry_.armed && rcModeActive() &&
     telemetry_.operational_mode == 2 && !telemetry_.operator_takeover;
   mavros_msgs::msg::OverrideRCIn msg;
-  if (output_allowed) {
+  if (output_allowed && own_sticks) {
     double heading = 0.0;
     if (telemetry_.pose_valid) {
       heading = telemetry_.yaw;
