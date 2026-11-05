@@ -16,6 +16,7 @@
 #   BANYU_BAG_IMAGES    False to skip images, same as --no-images (default: True)
 #   BANYU_BAG_LABEL     overrides the label argument (launch_por.sh sets it to the profile)
 #   BANYU_BAG_PARAMS    parameter YAML to save next to the bag (sub_bringup sets it)
+#   BANYU_BAG_EXTRA_PARAMS  more parameter YAMLs to save, ':'-separated (launch_task2.sh: the overlays the run loaded)
 #   BANYU_BAG_REPLAY_TRACK  replay track .csv flown in this run, saved next to it (launch_por.sh)
 #
 # Each run lands in $BANYU_BAG_DIR/<YYYYmmdd_HHMMSS>_<label>/ with:
@@ -37,7 +38,7 @@ for arg in "$@"; do
   case "$arg" in
     --no-images) RECORD_IMAGES=0 ;;
     --sim-time) SIM_TIME_ARGS=(--use-sim-time) ;;
-    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
     -*) echo "Unknown option: $arg" >&2; exit 1 ;;
     *) LABEL="$arg" ;;
   esac
@@ -78,12 +79,20 @@ SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
   echo "git:       $(git -C "$SCRIPT_DIR" describe --always --dirty 2>/dev/null || echo unknown)"
   echo "free_mb:   $(free_mb)"
   echo "params:    ${BANYU_BAG_PARAMS:-none}"
+  echo "overlays:  ${BANYU_BAG_EXTRA_PARAMS:-none}"
 } > "$RUN_DIR/run_info.txt"
 
 if [ -f "${BANYU_BAG_PARAMS:-}" ]; then
   mkdir -p "$RUN_DIR/params"
   cp "$BANYU_BAG_PARAMS" "$RUN_DIR/params/"
 fi
+IFS=':' read -r -a EXTRA_PARAMS <<< "${BANYU_BAG_EXTRA_PARAMS:-}"
+for extra in "${EXTRA_PARAMS[@]}"; do
+  if [ -f "$extra" ]; then
+    mkdir -p "$RUN_DIR/params"
+    cp "$extra" "$RUN_DIR/params/"
+  fi
+done
 if [ -f "${BANYU_BAG_REPLAY_TRACK:-}" ]; then
   mkdir -p "$RUN_DIR/params"
   cp "$BANYU_BAG_REPLAY_TRACK" "$RUN_DIR/params/"

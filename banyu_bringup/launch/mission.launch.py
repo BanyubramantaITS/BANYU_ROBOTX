@@ -87,6 +87,14 @@ def generate_launch_description():
         choices=["buoy", "midpoint"],
     )
 
+    test_mission_arg = DeclareLaunchArgument(
+        name="test_mission",
+        default_value="False",
+        description="Task 2: fly the test mission (task2_test_mission.xml: the USV waypoint by GPS, dive, timed forward "
+        "and backward legs, surface, Core report) instead of the survey.",
+        choices=["True", "False"],
+    )
+
     scenario_args = [
         DeclareLaunchArgument(name=n, default_value="0.0", description="Simulation scenario, see main_launch.launch.py")
         for n in ("pipe_dx", "pipe_dy", "pipe_dyaw_deg", "buoy_error_x", "buoy_error_y")
@@ -186,6 +194,11 @@ def generate_launch_description():
         "'", banyu_bringup_share, "/config/task2_dive_midpoint.yaml' if '", LaunchConfiguration("dive_point"),
         "' == 'midpoint' else '", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"),
         "' + '.yaml'"])
+    # Test mission overlay, loaded last (a no-op re-load of the sensors overlay when off).
+    task2_test_file = PythonExpression([
+        "'", banyu_bringup_share, "/config/task2_test_mission.yaml' if '", LaunchConfiguration("test_mission"),
+        "'.lower() == 'true' else '", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"),
+        "' + '.yaml'"])
     por_params = LaunchConfiguration("por_params_file")
     hardware_params = LaunchConfiguration("hardware_params_file")
 
@@ -235,6 +248,7 @@ def generate_launch_description():
             task2_sensors_file,
             task2_site_file,
             task2_dive_file,
+            task2_test_file,
         ],
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -391,7 +405,7 @@ def generate_launch_description():
         package="banyu_vehicle_execution",
         executable="vehicle_execution_node",
         name="vehicle_execution_node",
-        parameters=[task2_params, task2_sensors_file, task2_hydrophone_file],
+        parameters=[task2_params, task2_sensors_file, task2_hydrophone_file, task2_test_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -498,6 +512,7 @@ def generate_launch_description():
             sensors_arg,
             use_hydrophone_arg,
             dive_point_arg,
+            test_mission_arg,
             task2_params_arg,
             por_params_arg,
             hardware_params_arg,

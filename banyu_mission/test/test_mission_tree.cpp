@@ -116,6 +116,28 @@ TEST_F(MissionTest, GambleTreeLoads)
   EXPECT_NO_THROW({auto tree = factory.createTree("Main", BT::Blackboard::create()); (void)tree;});
 }
 
+TEST_F(MissionTest, TestMissionTreeLoads)
+{
+  auto node = std::make_shared<rclcpp::Node>("mission_tree_test_mission_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get(), false);
+  BT::BehaviorTreeFactory factory;
+  banyu_mission::registerMissionNodes(factory, node, state);
+  const auto path = ament_index_cpp::get_package_share_directory("banyu_mission") + "/bt/task2_test_mission.xml";
+  EXPECT_NO_THROW(factory.registerBehaviorTreeFromFile(path));
+  EXPECT_NO_THROW({auto tree = factory.createTree("Main", BT::Blackboard::create()); (void)tree;});
+  // Order of the underwater legs: dive, settle, forward, pause, backward; then surface and report.
+  const auto xml = readFile(path);
+  std::size_t previous = 0;
+  for (const auto * step : {"WaitForBuoyTarget", "NavigateSurfaceGps", "LockBuoyTarget", "segment_name=\"dive\"",
+      "segment_name=\"forward\"", "segment_name=\"backward\"", "GiveUpSurvey", "<Surface ",
+      "PublishPipelineSurvey best_effort=\"true\""})
+  {
+    const auto current = xml.find(step, previous);
+    ASSERT_NE(current, std::string::npos) << step;
+    previous = current;
+  }
+}
+
 TEST_F(MissionTest, LoadsAndRegistersAllNodes)
 {
   auto node = std::make_shared<rclcpp::Node>("mission_tree_parser_test");

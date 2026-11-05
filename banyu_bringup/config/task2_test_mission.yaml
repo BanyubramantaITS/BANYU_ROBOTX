@@ -1,0 +1,30 @@
+# Task 2 test mission overlay (test_mission:=True, launch_task2.sh --test-mission): task2_test_mission.xml instead of the
+# survey. Same run start and the same waypoint source (the USV's PipelineBuoys active buoy) as the real Task 2; the vehicle
+# goes to that point itself (no standoff, no keep-out), dives to mission.test.depth_m, flies timed forward and backward
+# legs holding that depth, surfaces and sends the best-effort Core survey. mission.launch.py loads it last.
+banyu_mission:
+  ros__parameters:
+    mission:
+      strategy: "test"
+      buoy_standoff_m: 0.0      # the waypoint is the goal itself
+      buoy_keep_out_m: 0.0
+      gps_tolerance_m: 1.0      # arrival radius of the surface transit
+      depth_tolerance_m: 0.2    # the dive ends once within this of test.depth_m for 0.5 s
+      test:
+        depth_m: 1.0            # depth of the dive and of both legs (Bar30, calibrated at the surface)
+        dive_timeout_s: 40.0    # the dive ends after this even if the depth was not reached
+        settle_s: 3.0           # hold still at depth before the forward leg and between the legs
+        leg_duration_s: 10.0    # forward leg, then the backward leg, each this long
+        leg_speed_mps: 0.3      # commanded surge (backward = the same, negative)
+        depth_kp: 0.7
+        max_depth_speed_mps: 0.3
+        transit_timeout_s: 300.0   # surface transit retries stop after this; the vehicle then dives where it is
+vehicle_execution_node:
+  ros__parameters:
+    # The legs keep the heading the vehicle had when the leg started.
+    timed_move:
+      heading_hold:
+        enabled: true
+        kp: 1.0
+        max_yaw_rate_rad_s: 0.3
+        deadband_rad: 0.02

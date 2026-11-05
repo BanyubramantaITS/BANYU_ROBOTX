@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Task 2 test mission (mission.strategy test; launch_task2.sh --test-mission): a short end-to-end check of the real
+     Task 2 run on the AUV without a pipe. Same start (prepare_autonomy + GCS CMD_RUN_START) and the same waypoint source
+     (the USV's PipelineBuoys, active buoy) as the real run; GPS transit to that point, a depth-held dive, timed forward
+     and backward legs, surface, and the Core survey report of what was seen (no rings: all GREEN). Every underwater step
+     is bounded by time and a failed step never stops the surfacing and the report. -->
+<root BTCPP_format="4" main_tree_to_execute="Main">
+  <BehaviorTree ID="Main">
+    <ReactiveFallback name="mission_root">
+      <Sequence name="interrupt_sequence">
+        <AutonomyInterrupted />
+        <HandleAbortOrTeleop />
+      </Sequence>
+      <Sequence name="mission_phases">
+        <RequireMissionStarted />
+        <RequireVehicleReady />
+        <!-- Stand by on the surface until the waypoint (the USV's active buoy) arrives; abort to stop. -->
+        <WaitForBuoyTarget />
+        <!-- A transit that does not arrive in time ends there: the test goes on from where the vehicle is. -->
+        <ForceSuccess>
+          <Timeout msec="{test_transit_timeout_ms}">
+            <RetryUntilSuccessful num_attempts="-1">
+              <Fallback>
+                <NavigateSurfaceGps target_latitude="{target_latitude}" target_longitude="{target_longitude}"
+                  start_latitude="{start_latitude}" start_longitude="{start_longitude}" tolerance="{gps_tolerance}" />
+                <Sequence>
+                  <Sleep msec="1000" />
+                  <AlwaysFailure />
+                </Sequence>
+              </Fallback>
+            </RetryUntilSuccessful>
+          </Timeout>
+        </ForceSuccess>
+        <LockBuoyTarget />
+        <ForceSuccess>
+          <Sequence name="dive_and_timed_legs">
+            <SetFcuMode mode="{underwater_mode}" />
+            <TimedMove name="dive" segment_name="dive" duration_s="{test_dive_timeout_s}" speed_x_mps="0.0"
+              speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="0.0" use_baro_depth="true"
+              target_depth_m="{test_depth_m}" depth_kp="{test_depth_kp}" max_depth_speed_mps="{test_max_depth_speed_mps}"
+              check_depth_reached="true" depth_tolerance_m="{depth_tolerance}"
+              use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            <TimedMove name="settle" segment_name="settle" duration_s="{test_settle_s}" speed_x_mps="0.0"
+              speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="0.0" use_baro_depth="true"
+              target_depth_m="{test_depth_m}" depth_kp="{test_depth_kp}" max_depth_speed_mps="{test_max_depth_speed_mps}"
+              use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            <TimedMove name="forward" segment_name="forward" duration_s="{test_leg_duration_s}"
+              speed_x_mps="{test_leg_speed_mps}" speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="0.0"
+              use_baro_depth="true" target_depth_m="{test_depth_m}" depth_kp="{test_depth_kp}"
+              max_depth_speed_mps="{test_max_depth_speed_mps}" use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            <TimedMove name="pause" segment_name="pause" duration_s="{test_settle_s}" speed_x_mps="0.0"
+              speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="0.0" use_baro_depth="true"
+              target_depth_m="{test_depth_m}" depth_kp="{test_depth_kp}" max_depth_speed_mps="{test_max_depth_speed_mps}"
+              use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            <TimedMove name="backward" segment_name="backward" duration_s="{test_leg_duration_s}"
+              speed_x_mps="{test_leg_speed_back_mps}" speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="0.0"
+              use_baro_depth="true" target_depth_m="{test_depth_m}" depth_kp="{test_depth_kp}"
+              max_depth_speed_mps="{test_max_depth_speed_mps}" use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+          </Sequence>
+        </ForceSuccess>
+        <GiveUpSurvey />
+        <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}" />
+        <ConfirmSurfaceAction />
+        <Timeout msec="15000">
+          <PublishPipelineSurvey best_effort="true" />
+        </Timeout>
+      </Sequence>
+    </ReactiveFallback>
+  </BehaviorTree>
+</root>

@@ -109,6 +109,13 @@ def generate_launch_description():
         choices=["buoy", "midpoint"],
     )
 
+    test_mission_arg = DeclareLaunchArgument(
+        name="test_mission",
+        default_value="False",
+        description="Task 2: fly the test mission (USV waypoint by GPS, dive, timed forward/backward legs, surface, Core report).",
+        choices=["True", "False"],
+    )
+
     use_hydrophone_arg = DeclareLaunchArgument(
         name="use_hydrophone",
         default_value="False",
@@ -327,6 +334,7 @@ def generate_launch_description():
             "sensors": LaunchConfiguration("sensors"),
             "use_hydrophone": LaunchConfiguration("use_hydrophone"),
             "dive_point": LaunchConfiguration("dive_point"),
+            "test_mission": LaunchConfiguration("test_mission"),
             "gamble_red": LaunchConfiguration("gamble_red"),
             "enable_esp32_trigger": LaunchConfiguration("enable_esp32_trigger"),
             "enable_esp32_bridge": LaunchConfiguration("enable_esp32_bridge"),
@@ -345,6 +353,7 @@ def generate_launch_description():
             sensors_arg,
             use_hydrophone_arg,
             dive_point_arg,
+            test_mission_arg,
             gamble_red_arg,
             use_gps_arg,
             debug_arg,

@@ -673,11 +673,17 @@ std::string BanyuMission::xmlPath()
   } else if (por_use_vision_return_) {
     por_tree = "por_hybrid_mission.xml";
   }
+  std::string task2_tree = "banyu_mission.xml";
+  if (mission_mode != "por") {
+    const auto strategy = declare_parameter<std::string>("mission.strategy", "survey");
+    if (strategy == "gamble") {
+      task2_tree = "task2_gamble_mission.xml";
+    } else if (strategy == "test") {
+      task2_tree = "task2_test_mission.xml";
+    }
+  }
   const auto default_tree = ament_index_cpp::get_package_share_directory(
-    "banyu_mission") + "/bt/" +
-    (mission_mode == "por" ? por_tree :
-    declare_parameter<std::string>("mission.strategy", "survey") == "gamble" ?
-    std::string("task2_gamble_mission.xml") : std::string("banyu_mission.xml"));
+    "banyu_mission") + "/bt/" + (mission_mode == "por" ? por_tree : task2_tree);
   return declare_parameter<std::string>(
     "bt_xml", default_tree);
 }
@@ -913,6 +919,27 @@ void BanyuMission::initialize()
   blackboard->set("end_buoy_latitude", std::nan(""));
   blackboard->set("end_buoy_longitude", std::nan(""));
   blackboard->set("leg_end_lost_s", declare_parameter<double>("mission.leg_end_lost_s", 6.0));
+  // Test mission (mission.strategy test, task2_test_mission.xml): dive, then timed forward and backward legs.
+  const auto test_depth = declare_parameter<double>("mission.test.depth_m", 1.0);
+  const auto test_dive_timeout = declare_parameter<double>("mission.test.dive_timeout_s", 40.0);
+  const auto test_settle = declare_parameter<double>("mission.test.settle_s", 3.0);
+  const auto test_leg_duration = declare_parameter<double>("mission.test.leg_duration_s", 10.0);
+  const auto test_leg_speed = declare_parameter<double>("mission.test.leg_speed_mps", 0.3);
+  const auto test_depth_kp = declare_parameter<double>("mission.test.depth_kp", 0.7);
+  const auto test_max_depth_speed = declare_parameter<double>("mission.test.max_depth_speed_mps", 0.3);
+  const auto test_transit_timeout = declare_parameter<double>("mission.test.transit_timeout_s", 300.0);
+  mission_config_valid_ = mission_config_valid_ && nonnegative(test_depth) && positive(test_dive_timeout) &&
+    nonnegative(test_settle) && nonnegative(test_leg_duration) && nonnegative(test_leg_speed) &&
+    positive(test_depth_kp) && positive(test_max_depth_speed) && positive(test_transit_timeout);
+  blackboard->set("test_depth_m", test_depth);
+  blackboard->set("test_dive_timeout_s", test_dive_timeout);
+  blackboard->set("test_settle_s", test_settle);
+  blackboard->set("test_leg_duration_s", test_leg_duration);
+  blackboard->set("test_leg_speed_mps", test_leg_speed);
+  blackboard->set("test_leg_speed_back_mps", -test_leg_speed);
+  blackboard->set("test_depth_kp", test_depth_kp);
+  blackboard->set("test_max_depth_speed_mps", test_max_depth_speed);
+  blackboard->set("test_transit_timeout_ms", static_cast<unsigned>(test_transit_timeout * 1000.0));
   blackboard->set("heading_tolerance", heading_tolerance);
   blackboard->set("inspection_depth", inspection_depth);
   blackboard->set("depth_tolerance", depth_tolerance);

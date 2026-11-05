@@ -28,7 +28,7 @@ banyu_mission:
     mission:
       underwater_mode: "ALT_HOLD"   # second entry of autonomy_mode
       # A failed first dive or traverse surfaces, moves this far along the buoy line toward the other buoy and dives again.
-      strategy: "survey"   # survey or gamble (task2_gamble_mission.xml; sensors:=gamble)
+      strategy: "survey"   # survey, gamble (task2_gamble_mission.xml; sensors:=gamble) or test (task2_test_mission.xml; test_mission:=True)
       retry_dive_offset_m: 3.0
       # Dive point this far from the start buoy toward the other one (0 = at the buoy). The reported buoy position is unchanged.
       dive_offset_m: 0.0
@@ -73,6 +73,16 @@ banyu_mission:
       repair_step_timeout_s: 60.0   # limit for each repair step; a step that times out is skipped
       # Advanced and Disruptive: time to stay on the repaired ring while the flash code is read.
       decode_window_s: 40.0
+      # strategy test only (task2_test_mission.yaml sets these for the run): dive, then timed forward and backward legs.
+      test:
+        depth_m: 1.0
+        dive_timeout_s: 40.0
+        settle_s: 3.0
+        leg_duration_s: 10.0
+        leg_speed_mps: 0.3
+        depth_kp: 0.7
+        max_depth_speed_mps: 0.3
+        transit_timeout_s: 300.0
 
 task2_sim_provider:
   ros__parameters:
