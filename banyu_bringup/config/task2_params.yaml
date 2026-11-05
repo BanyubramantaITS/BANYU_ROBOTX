@@ -45,10 +45,10 @@ banyu_mission:
       task2_tier: 2   # launch argument tier:= overrides this (core 2, advanced 3, disruptive 4)
       surface_depth_m: 0.0
       surface_tolerance_m: 0.5
-      # The default is 3 m, but the sim spawn is only 3.8 m from the green buoy, so with 3 m the vehicle stops
-      # after 0.8 m and dives west of the first light node. RTK GPS is far better than this; the limit on the
+      # The dive point must be on the buoy line: a transit that ends from the side (a detour around a buoy) stopped
+      # 0.8 m off it with 1.0 m and the camera missed the first nodes. RTK GPS is far better than this; the limit on the
       # robot is the buoy position error (USV uncertainty_m), not the vehicle fix.
-      gps_tolerance_m: 1.0
+      gps_tolerance_m: 0.4
       max_retries: 3
       start_latitude: 33.810313
       start_longitude: -118.393866
