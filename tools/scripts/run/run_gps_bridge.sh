@@ -2,7 +2,7 @@
 # ==============================================================================
 # run_gps_bridge.sh — u-blox RTK GPS -> Pixhawk (MAVLink GPS_INPUT, GPS1_TYPE 14)
 # ==============================================================================
-# Runs gps_to_pixhawk.py from the team repo BanyubramantaITS/RTK-GPS-GNSS. It sends GPS_INPUT to
+# Runs gps_forwarder.py (next to this script): UBX NAV-PVT from the receiver -> GPS_INPUT to
 # MAVProxy on 127.0.0.1:14553 (run_mavproxy.sh), which forwards it to the Pixhawk, instead of
 # opening /dev/pixhawk a second time. The Pixhawk's GPS with GPS1_TYPE 14 (docs/hardware_setup.md
 # section 4). Runs on its own, like MAVProxy and MAVROS; robot order: run_mavproxy.sh ->
@@ -11,7 +11,8 @@
 
 set -e
 
-GPS_REPO="${BANYU_GPS_REPO:-$HOME/RTK-GPS-GNSS}"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+FORWARDER="${SCRIPT_DIR}/gps_forwarder.py"
 PYTHON="${BANYU_GPS_PYTHON:-$HOME/venv-ardupilot/bin/python3}"
 GPS_PORT="/dev/gps_rtk"
 MAVLINK_URL="udpout:127.0.0.1:14553"
@@ -29,9 +30,10 @@ Options:
   --dry-run           Print the command without starting the bridge.
   -h, --help          Show this help message.
 
-Environment: BANYU_GPS_REPO (default ~/RTK-GPS-GNSS), BANYU_GPS_PYTHON (default ~/venv-ardupilot).
+Environment: BANYU_GPS_PYTHON (default ~/venv-ardupilot/bin/python3, needs pyserial + pymavlink).
+On each start the receiver gets the sea dynamic model, a 10 deg elevation mask and static hold off.
 Nothing is sent to the Pixhawk until the receiver has a fix (antenna with sky view).
-Check on the Pixhawk side: ros2 topic echo /mavros/global_position/raw/fix --once
+Check on the Pixhawk side: ros2 topic echo /mavros/gpsstatus/gps1/raw --once
 USAGE
 }
 
@@ -46,18 +48,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# --no-anti-drift: the bridge's anti-drift freezes the position and zeroes the velocity below
-# 0.35 m/s / 1.6 m, which the slow AUV is during the whole GPS leg. --optimize-gps re-applies the
-# receiver config on each start: sea dynamic model, 10 deg elevation mask, rate.
 BRIDGE_CMD=(
-  "$PYTHON" "${GPS_REPO}/gps_to_pixhawk.py"
-  --gps-port "$GPS_PORT"
-  --pixhawk-port "$MAVLINK_URL"
+  "$PYTHON" "$FORWARDER"
+  --gps "$GPS_PORT"
+  --out "$MAVLINK_URL"
   --rate "$RATE_HZ"
-  --no-anti-drift
-  --no-qgc
-  --optimize-gps --dyn-model sea --elev-mask 10
-  --mode cli
 )
 
 echo "=========================================================="
@@ -66,11 +61,16 @@ echo "=========================================================="
 if [ -e "$GPS_PORT" ]; then
   echo "GPS Port          : OK ($GPS_PORT -> $(readlink -f "$GPS_PORT"))"
 else
+  # The forwarder waits for the port, but a missing udev name at start is an operator error.
   echo "Error: GPS port $GPS_PORT not found (u-blox plugged in? udev rule installed?)." >&2
   [ "$DRY_RUN" = true ] || exit 1
 fi
-if [ ! -f "${GPS_REPO}/gps_to_pixhawk.py" ]; then
-  echo "Error: ${GPS_REPO}/gps_to_pixhawk.py not found (clone BanyubramantaITS/RTK-GPS-GNSS)." >&2
+if [ ! -x "$PYTHON" ]; then
+  echo "Error: $PYTHON not found (set BANYU_GPS_PYTHON to a Python with pyserial + pymavlink)." >&2
+  [ "$DRY_RUN" = true ] || exit 1
+fi
+if pgrep -f "python[0-9.]* [^ ]*gps_(forwarder|to_pixhawk)[.]py" > /dev/null; then
+  echo "Error: a GPS forwarder is already running (only one may own $GPS_PORT)." >&2
   [ "$DRY_RUN" = true ] || exit 1
 fi
 if [[ "$MAVLINK_URL" == udpout:127.0.0.1:14553 ]] && ! pgrep -f "mavproxy.py.*udpin:127.0.0.1:14553" > /dev/null; then

@@ -496,7 +496,7 @@ else
   done
   # The GPS forwarder runs on its own (run_gps_bridge.sh), like MAVProxy and MAVROS: with GPS1_TYPE 14
   # the Pixhawk's only GPS is its GPS_INPUT.
-  if pgrep -f "python[0-9.]* [^ ]*gps_to_pixhawk[.]py" > /dev/null; then
+  if pgrep -f "python[0-9.]* [^ ]*gps_forwarder[.]py" > /dev/null; then
     echo "GPS Forwarder     : RUNNING (run_gps_bridge.sh)"
   elif [ "$ALLOW_NO_GPS_BRIDGE" = true ]; then
     echo "GPS Forwarder     : not running (--allow-no-gps-bridge: GPS must be wired to the Pixhawk, GPS1_TYPE 1)"

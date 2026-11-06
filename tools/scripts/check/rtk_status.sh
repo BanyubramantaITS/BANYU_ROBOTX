@@ -28,7 +28,7 @@ timeout 5 ros2 topic echo /mavros/gpsstatus/gps1/raw --once 2>/dev/null \
   | grep -E "fix_type|satellites_visible|eph|h_acc" \
   || echo "no /mavros/gpsstatus/gps1/raw (MAVROS running?)"
 echo
-if pgrep -f "gps_to_pixhawk.py" > /dev/null; then
+if pgrep -f "gps_forwarder.py" > /dev/null; then
   # The bridge owns the UBX stream on USB; a second reader would split it.
   echo "run_gps_bridge.sh owns the receiver's USB stream; skipping the USB read (the Pixhawk view above shows the fix)"
 else

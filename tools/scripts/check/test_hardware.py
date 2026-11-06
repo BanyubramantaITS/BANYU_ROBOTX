@@ -168,7 +168,7 @@ def test_gps(args):
         rover = subprocess.run(["systemctl", "is-active", "rtk-rover.service"],
                                capture_output=True, text=True).stdout.strip()
         report("rtk-rover service", rover == "active", rover)
-    if subprocess.run(["pgrep", "-f", "gps_to_pixhawk.py"], capture_output=True).returncode == 0:
+    if subprocess.run(["pgrep", "-f", "gps_forwarder.py"], capture_output=True).returncode == 0:
         print("  run_gps_bridge.sh owns the receiver's USB stream; the pixhawk test shows the fix")
         return
     import serial

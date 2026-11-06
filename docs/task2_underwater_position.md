@@ -60,5 +60,5 @@ Jadi hasil sim Task 2 saat ini **tidak** membuktikan Task 2 bisa jalan di robot.
   Pixhawk dan dibaca driver u-blox ArduPilot, jadi tidak perlu program pengirim di Pi.
 - Koreksi RTK masuk lewat USB F9P (`rtk-rover.service`, `str2str`); F9P menerima RTCM di port mana
   pun. Parameter dan rantainya: `docs/hardware_setup.md` bagian 4.
-- `tools/scripts/run/run_gps_bridge.sh` (`gps_to_pixhawk.py`, `GPS_INPUT`) hanya cadangan untuk
+- `tools/scripts/run/run_gps_bridge.sh` (`gps_forwarder.py`, `GPS_INPUT`) hanya cadangan untuk
   `GPS1_TYPE 14`; jangan dijalankan bersama `GPS1_TYPE 1` (mengubah konfigurasi receiver).

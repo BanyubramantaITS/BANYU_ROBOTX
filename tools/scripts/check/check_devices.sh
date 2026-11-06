@@ -25,7 +25,7 @@ echo "Processes:"
 proc() { if pgrep -f "$2" > /dev/null; then ok "$1" "running"; else bad "$1" "not running ($3)"; fi; }
 proc mavproxy "mavproxy.py" "run_mavproxy.sh"
 proc mavros "mavros_node" "launch_mavros.sh"
-proc gps_bridge "python[0-9.]* [^ ]*gps_to_pixhawk[.]py" "run_gps_bridge.sh; the Pixhawk's GPS with GPS1_TYPE 14"
+proc gps_bridge "python[0-9.]* [^ ]*gps_forwarder[.]py" "run_gps_bridge.sh; the Pixhawk's GPS with GPS1_TYPE 14"
 if systemctl cat rtk-rover.service > /dev/null 2>&1; then
   [ "$(systemctl is-active rtk-rover.service)" = active ] && ok rtk-rover "active" || bad rtk-rover "$(systemctl is-active rtk-rover.service)"
 else

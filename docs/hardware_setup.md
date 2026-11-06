@@ -98,7 +98,7 @@ Chain (Task 2 surface GPS leg):
 
 ```
 base station --RTCM, tcp :2002--> str2str (rtk-rover.service) --USB--> /dev/gps_rtk (ZED-F9P)
-/dev/gps_rtk --USB--> run_gps_bridge.sh (gps_to_pixhawk.py) --GPS_INPUT, udp 14553--> MAVProxy
+/dev/gps_rtk --USB--> run_gps_bridge.sh (gps_forwarder.py) --GPS_INPUT, udp 14553--> MAVProxy
    --> Pixhawk (GPS1_TYPE 14) --> MAVROS /mavros/global_position/raw/fix, /mavros/gpsstatus/gps1/raw
 ```
 
@@ -115,6 +115,10 @@ base station --RTCM, tcp :2002--> str2str (rtk-rover.service) --USB--> /dev/gps_
   `rtklib` first; prompts for the base IP, default `192.168.0.1:2002`).
 - **Current setup (2026-11-06): `GPS1_TYPE 14`.** The Pixhawk's GPS is `run/run_gps_bridge.sh`, started on its
   own after `run_mavproxy.sh` (like MAVProxy and MAVROS; `launch_task2.sh --real` refuses to start without it).
+  It runs `run/gps_forwarder.py`, which replaced the team's `gps_to_pixhawk.py` on 2026-11-06: that one
+  reported the NMEA GGA satellite count (capped at 12; NAV-PVT showed 32) and turned on the receiver's
+  static hold (30 cm/s, 10 m), which freezes the position on the slow surface leg. The forwarder uses
+  NAV-PVT only and turns static hold off.
   The wired `GPS1_TYPE 1` chain and params in this section are the alternative: then do not run the bridge (the
   Pixhawk ignores its `GPS_INPUT` and its receiver setup fights ArduPilot's auto-config) and launch with
   `launch_task2.sh --allow-no-gps-bridge`.
