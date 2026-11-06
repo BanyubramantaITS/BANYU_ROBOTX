@@ -794,7 +794,12 @@ def parse_args():
     s.add_argument("--ignore-stack", action="store_true", help="run even though teleop / the mission stack runs")
     s.add_argument("--dry-run", action="store_true", help="connect, check and print the plan; never arm")
     s.add_argument("--log-dir", default=os.path.expanduser(os.environ.get("BANYU_MOVE_LOG_DIR", "~/banyu_bags/move_tests")))
-    a = p.parse_args()
+    # A value starting with '-' (south latitude, south offset) reads as an option to argparse: glue it on.
+    argv = sys.argv[1:]
+    for i in range(len(argv) - 1):
+        if argv[i] in ("--wp", "--ne") and argv[i + 1].startswith("-"):
+            argv[i], argv[i + 1] = argv[i] + "=" + argv[i + 1], ""
+    a = p.parse_args([arg for arg in argv if arg != ""])
 
     if a.test == "dive":
         if a.depth is None or a.depth <= 0:

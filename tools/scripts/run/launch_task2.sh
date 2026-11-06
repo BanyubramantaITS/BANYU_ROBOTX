@@ -38,6 +38,7 @@ GAMBLE_RED="2,3"
 USE_HYDROPHONE=false
 ALLOW_CHANNEL_OVERLAP=false
 DIVE_POINT="buoy"
+DIVE_POINT_SET=false
 PIPE_DEPTH=""
 TEST_MISSION=false
 DEBUG=false
@@ -94,19 +95,15 @@ Simulation Options (--sim only):
                         The gps-gate options are rejected with --real.
 
 Both targets:
-  --test-mission        Fly the Task 2 TEST mission (task2_test_mission.xml, test_mission:=True) instead of the survey:
-                        after SB Up, the run start and the waypoint (sent as the USV's PipelineBuoys active buoy) the
-                        AUV goes there by GPS, dives to mission.test.depth_m (1 m), flies a timed forward leg and a
-                        timed backward leg holding that depth, surfaces and sends the Core survey report (all GREEN, no
-                        pipe). Tuning: banyu_bringup/config/task2_test_mission.yaml. Start it with
-                        ./tools/scripts/run/task2_test_waypoint.py LAT LON (see the instructions printed below).
-                        Not with --sensors gamble.
-  --debug               Show what the bottom-camera pipeline detector sees: OpenCV windows (annotated frame, pipe and
-                        ring masks; only where there is a display, e.g. the sim) and the same views as topics
-                        /banyu/pipeline/debug/{annotated,original,pipeline_mask,red_mask,green_mask} (5 Hz, half
-                        size; debug:=True debug_topics:=True). View them from the laptop with
-                        ROS_DOMAIN_ID=40 ros2 run rqt_image_view rqt_image_view /banyu/pipeline/debug/annotated
-                        When recording with images, the compressed annotated view is also in the bag.
+  --test-mission        Fly the Task 2 TEST mission (task2_test_mission.xml, test_mission:=True) instead of the survey,
+                        with the real midpoint strategy: after SB Up, the run start and the USV's two buoys (PipelineBuoys)
+                        the AUV goes midway between the buoys by GPS (keeping clear of both), turns to face the end buoy,
+                        dives to mission.test.depth_m (1 m), flies a timed forward leg (toward the end buoy) and a timed
+                        backward leg holding that depth, surfaces and sends the Core survey report (all GREEN, no pipe).
+                        With only the start buoy it dives inside it, like the real run. Tuning:
+                        banyu_bringup/config/task2_test_mission.yaml. Start it with
+                        ./tools/scripts/run/task2_test_waypoint.py <start LAT LON> --end <end LAT LON>.
+                        Implies --dive-point midpoint; not with --sensors gamble.
   --tier <t>            (see above) On --real the default is core, like sub_bringup.launch.py.
   --sensors <s>         full (default: Bar30 depth, ALT_HOLD under water, dive to the fixed inspection depth)
                         | baro (Bar30 + ALT_HOLD, but the dive stops by camera at the pipe, pipe-width standoff,
@@ -214,7 +211,7 @@ while [[ $# -gt 0 ]]; do
     --hydrophone) USE_HYDROPHONE=true; shift ;;
     --dive-point)
       [ $# -ge 2 ] || { echo "Error: --dive-point needs a value (buoy|midpoint)." >&2; exit 1; }
-      DIVE_POINT="$2"; shift 2 ;;
+      DIVE_POINT="$2"; DIVE_POINT_SET=true; shift 2 ;;
     --allow-channel-overlap) ALLOW_CHANNEL_OVERLAP=true; shift ;;
     --test-mission) TEST_MISSION=true; shift ;;
     --debug) DEBUG=true; shift ;;
@@ -253,6 +250,13 @@ case "$DIVE_POINT" in
 esac
 if [ "$TEST_MISSION" = true ] && [ "$SENSORS" = gamble ]; then
   echo "Error: --test-mission cannot be combined with --sensors gamble (both pick the mission tree)." >&2; exit 1
+fi
+# The test mission flies the real midpoint strategy (task2_test_mission.yaml sets it too).
+if [ "$TEST_MISSION" = true ]; then
+  if [ "$DIVE_POINT_SET" = true ] && [ "$DIVE_POINT" != midpoint ]; then
+    echo "Error: --test-mission always dives midway between the buoys (--dive-point midpoint)." >&2; exit 1
+  fi
+  DIVE_POINT="midpoint"
 fi
 # Recording defaults as in the launch files: every real run, sim runs only when asked.
 if [ -z "$RECORD" ]; then
@@ -330,10 +334,14 @@ echo "Active Git Branch : $CURRENT_BRANCH"
 echo "Target Platform   : $([ "$TARGET" = "sim" ] && echo "Gazebo Simulation (SITL)" || echo "Real AUV Physical Hardware")"
 echo "use_gps           : $(TF $USE_GPS)"
 echo "Tier              : $([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && echo core || echo "$TIER")"
-echo "Mission           : $([ "$TEST_MISSION" = true ] && echo "TEST (USV waypoint by GPS, dive, timed forward/backward legs, surface, Core report; task2_test_mission.yaml)" || echo "survey (banyu_mission.xml$([ "$SENSORS" = gamble ] && echo ", gamble tree"))")"
+echo "Mission           : $([ "$TEST_MISSION" = true ] && echo "TEST (midpoint by GPS, face the end buoy, 1 m dive, timed forward/backward legs, surface, Core report; task2_test_mission.yaml)" || echo "survey (banyu_mission.xml$([ "$SENSORS" = gamble ] && echo ", gamble tree"))")"
 echo "Detector debug    : $([ "$DEBUG" = true ] && echo "ON (windows where there is a display; topics /banyu/pipeline/debug/*)" || echo "off (--debug)")"
 echo "Sensors           : $SENSORS$([ "$SENSORS" = baro ] && echo " (Bar30 + ALT_HOLD; dive stops by camera at the pipe, order dead-reckoned)")$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")$([ "$SENSORS" = gamble ] && echo " (GPS to the buoy, timed dive and bobbing, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
-echo "Dive point        : $([ "$DIVE_POINT" = midpoint ] && echo "midpoint (midway between the buoys)" || echo "buoy (inside the start buoy, standoff from it)"); both back up to the pipe's start, then survey forward"
+if [ "$TEST_MISSION" = true ]; then
+  echo "Dive point        : midpoint (midway between the buoys, facing the end buoy; start buoy only: inside it)"
+else
+  echo "Dive point        : $([ "$DIVE_POINT" = midpoint ] && echo "midpoint (midway between the buoys)" || echo "buoy (inside the start buoy, standoff from it)"); both back up to the pipe's start, then survey forward"
+fi
 echo "Surface transit   : keeps clear of both buoys (mission.buoy_keep_out_m)"
 echo "Hydrophone        : $([ "$USE_HYDROPHONE" = true ] && echo "ON (opt-in; pinger data used by SearchPipeline)" || echo "OFF (none fitted; start buoy from the USV PipelineBuoys only)")"
 if [ "$TARGET" = real ] && [ "$USE_HYDROPHONE" = true ]; then
@@ -444,10 +452,10 @@ print('%.2f %.2f %.3f' % (d * math.cos(b), d * math.sin(b), r.uniform(-math.pi, 
   echo "  2. Verify link: ros2 topic echo /mavros/state --once"
   if [ "$TEST_MISSION" = true ]; then
   echo "  3. TEST mission: course, prepare_autonomy, CMD_RUN_START in one command (the sim provider sends the"
-  echo "     world's start buoy as the waypoint, so give no LAT LON; the sim has no SB switch):"
+  echo "     world's two buoys like the USV, so give no LAT LON; the sim has no SB switch):"
   echo "       ROS_DOMAIN_ID=40 ./tools/scripts/run/task2_test_waypoint.py --course-center 33.810313 -118.393866"
-  echo "  4. It goes to the start buoy, dives to mission.test.depth_m, flies forward then backward, surfaces and"
-  echo "     reports; the tool prints the PipelineSurvey."
+  echo "  4. It goes midway between the buoys, faces the end buoy, dives to mission.test.depth_m, flies forward"
+  echo "     then backward, surfaces and reports; the tool prints the PipelineSurvey."
   else
   echo "  3. Prepare autonomy: ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger \"{}\""
   echo "  4. The run does NOT start from /banyu/mission/start. It starts only when the GCS sends"
@@ -521,13 +529,14 @@ else
   echo "  1. UUV side runs on ROS_DOMAIN_ID 40 (export ROS_DOMAIN_ID=40 in this shell and in"
   echo "     any shell you use to call services); the GCS side uses its own domain."
   if [ "$TEST_MISSION" = true ]; then
-  echo "  2. TEST mission: flick SB Up (AUTO). Then send the waypoint; this also publishes the course, calls"
-  echo "     prepare_autonomy and sends CMD_RUN_START (as the GCS would), and the waypoint goes out as the USV's"
-  echo "     PipelineBuoys active buoy:"
-  echo "       ROS_DOMAIN_ID=40 ./tools/scripts/run/task2_test_waypoint.py <LAT> <LON>"
-  echo "     (real GCS/USV on the link? add --no-course / --no-start, or leave out LAT LON)"
-  echo "  3. The AUV goes to the waypoint by GPS, dives to mission.test.depth_m, flies the timed forward and"
-  echo "     backward legs, surfaces and sends the Core PipelineSurvey; the tool prints it when the link is back."
+  echo "  2. TEST mission: flick SB Up (AUTO). Then send the buoys; this also publishes the course, calls"
+  echo "     prepare_autonomy and sends CMD_RUN_START (as the GCS would), and the buoys go out as the USV's"
+  echo "     PipelineBuoys (start = active):"
+  echo "       ROS_DOMAIN_ID=40 ./tools/scripts/run/task2_test_waypoint.py <start LAT> <LON> --end <end LAT> <LON>"
+  echo "     (real GCS/USV on the link? add --no-course / --no-start, or leave out the buoys)"
+  echo "  3. The AUV goes midway between the buoys by GPS, faces the end buoy, dives to mission.test.depth_m,"
+  echo "     flies the timed forward and backward legs, surfaces and sends the Core PipelineSurvey; the tool"
+  echo "     prints it when the link is back."
   echo "     SB Mid/Down at any time takes over (MANUAL/KILL)."
   else
   echo "  2. Prepare autonomy: ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger \"{}\""

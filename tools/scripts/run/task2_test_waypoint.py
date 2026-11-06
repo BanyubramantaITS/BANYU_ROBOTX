@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""Send the Task 2 test mission its waypoint and start it (launch_task2.sh --test-mission).
+"""Send the Task 2 test mission its buoys and start it (launch_task2.sh --test-mission).
 
 Stands in for the GCS and the USV on the AUV's domain, so after SB Up (auto) one command starts the run:
 
   1. waits until /banyu/vehicle_status reports SB Up (operational_mode 2),
-  2. publishes the GCS course (a square around the waypoint, ~1 Hz) unless --no-course,
+  2. publishes the GCS course (a square around the buoys, ~1 Hz) unless --no-course,
   3. calls /banyu/mission/prepare_autonomy, waits for READY and sends CMD_RUN_START (as the GCS does) unless --no-start,
-  4. publishes the waypoint as the USV's rx_msgs/PipelineBuoys (active buoy A, ~1 Hz) unless no LAT LON is given,
+  4. publishes the buoys as the USV's rx_msgs/PipelineBuoys (~1 Hz): LAT LON = the start (active) buoy A, --end LAT LON =
+     the end buoy B. With both the AUV dives midway between them facing the end buoy (the real midpoint strategy);
+     with the start buoy only it dives inside it. Nothing is published without LAT LON (the USV sends them),
   5. prints the run lifecycle and the UUV heartbeat, then the PipelineSurvey the AUV sends after surfacing.
 
 The link drops while the AUV is under water; the tool keeps going and shows the report once it is back.
-In the sim leave out LAT LON: task2_sim_provider.py publishes the world's start buoy as the waypoint.
+In the sim leave out LAT LON: task2_sim_provider.py publishes the world's two buoys, as the USV does.
 
 Run on the laptop (or the Pi) in the UUV domain:
-  ROS_DOMAIN_ID=40 ./tools/scripts/run/task2_test_waypoint.py -7.2834567 112.7948123
+  ROS_DOMAIN_ID=40 ./tools/scripts/run/task2_test_waypoint.py -7.2834567 112.7948123 --end -7.2834567 112.7948823
 """
 import argparse
 import math
@@ -116,7 +118,9 @@ class TestWaypoint(Node):
         msg.source_vehicle = VehicleType.TYPE_USV
         msg.seq = self.args.buoy_seq
         msg.buoy_a = LatLng(latitude=self.args.lat, longitude=self.args.lon)
-        msg.buoy_b_valid = False
+        if self.args.end is not None:
+            msg.buoy_b = LatLng(latitude=self.args.end[0], longitude=self.args.end[1])
+        msg.buoy_b_valid = self.args.end is not None
         msg.active_buoy = PipelineBuoys.ACTIVE_A
         msg.uncertainty_m = self.args.uncertainty_m
         self.buoys_pub.publish(msg)
@@ -192,7 +196,11 @@ class TestWaypoint(Node):
         if domain != '40':
             self.log(f'Warning: ROS_DOMAIN_ID is {domain}; the UUV side runs on 40')
         if self.args.lat is not None:
-            self.log(f'waypoint {self.args.lat:.7f}, {self.args.lon:.7f} (sent as the USV active buoy)')
+            self.log(f'start buoy {self.args.lat:.7f}, {self.args.lon:.7f} (active)')
+            if self.args.end is not None:
+                self.log(f'end buoy {self.args.end[0]:.7f}, {self.args.end[1]:.7f}: dive midway, facing the end buoy')
+            else:
+                self.log('no end buoy (--end): the AUV dives inside the start buoy')
         if not self.wait_until(self.auto_ready, self.args.auto_timeout_s, self.status_text):
             self.log('ERROR: SB never went to AUTO (Up); nothing was started')
             return 1
@@ -208,7 +216,7 @@ class TestWaypoint(Node):
         if self.args.lat is not None:
             self.buoys_on = True
             self.publish_buoys()
-            self.log('publishing the waypoint (PipelineBuoys ~1 Hz) until the report arrives')
+            self.log('publishing the buoys (PipelineBuoys ~1 Hz) until the report arrives')
         last_hb = 0.0
         end = time.time() + self.args.timeout_s
         while rclpy.ok() and time.time() < end and self.survey is None:
@@ -231,8 +239,10 @@ class TestWaypoint(Node):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('lat', type=float, nargs='?', help='waypoint latitude (deg); omit to leave the waypoint to the USV')
-    ap.add_argument('lon', type=float, nargs='?', help='waypoint longitude (deg)')
+    ap.add_argument('lat', type=float, nargs='?', help='start (active) buoy latitude (deg); omit to leave the buoys to the USV')
+    ap.add_argument('lon', type=float, nargs='?', help='start buoy longitude (deg)')
+    ap.add_argument('--end', type=float, nargs=2, metavar=('LAT', 'LON'),
+                    help='end buoy: the AUV then dives midway between the buoys, facing the end buoy')
     ap.add_argument('--no-course', dest='course', action='store_false',
                     help='do not publish the course (the real GCS does)')
     ap.add_argument('--no-start', dest='start', action='store_false',
@@ -246,7 +256,7 @@ def main():
     ap.add_argument('--command-seq', type=int, default=1,
                     help='prepare_autonomy forgets earlier runs, so run 1 / seq 1 works every time')
     ap.add_argument('--buoy-seq', type=int, default=1)
-    ap.add_argument('--uncertainty-m', type=float, default=0.5, help='reported waypoint uncertainty (m)')
+    ap.add_argument('--uncertainty-m', type=float, default=0.5, help='reported buoy position uncertainty (m)')
     ap.add_argument('--prepare-attempts', type=int, default=3)
     ap.add_argument('--auto-timeout-s', type=float, default=600.0, help='how long to wait for SB Up')
     ap.add_argument('--timeout-s', type=float, default=1800.0, help='how long to wait for the report')
@@ -256,7 +266,16 @@ def main():
         ap.error('give both LAT and LON, or neither')
     if args.lat is not None and not (abs(args.lat) <= 90.0 and abs(args.lon) <= 180.0):
         ap.error('LAT/LON out of range')
-    center = args.course_center or ((args.lat, args.lon) if args.lat is not None else None)
+    if args.end is not None and args.lat is None:
+        ap.error('--end needs the start buoy LAT LON')
+    if args.end is not None and not (abs(args.end[0]) <= 90.0 and abs(args.end[1]) <= 180.0):
+        ap.error('--end LAT/LON out of range')
+    if args.lat is None:
+        center = args.course_center
+    elif args.end is None:
+        center = args.course_center or (args.lat, args.lon)
+    else:
+        center = args.course_center or (0.5 * (args.lat + args.end[0]), 0.5 * (args.lon + args.end[1]))
     if args.course and center is None:
         ap.error('without LAT LON the course needs --course-center LAT LON (or --no-course)')
     if center is not None:
