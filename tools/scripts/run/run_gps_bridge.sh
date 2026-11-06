@@ -4,9 +4,9 @@
 # ==============================================================================
 # Runs gps_to_pixhawk.py from the team repo BanyubramantaITS/RTK-GPS-GNSS. It sends GPS_INPUT to
 # MAVProxy on 127.0.0.1:14553 (run_mavproxy.sh), which forwards it to the Pixhawk, instead of
-# opening /dev/pixhawk a second time. Start it after run_mavproxy.sh; leave it running.
-# FALLBACK ONLY: the AUV's F9P is wired to the Pixhawk (GPS1_TYPE 1), which ignores GPS_INPUT;
-# use this only with a receiver on USB alone and GPS1_TYPE 14 (docs/hardware_setup.md section 4).
+# opening /dev/pixhawk a second time. The Pixhawk's GPS with GPS1_TYPE 14 (docs/hardware_setup.md
+# section 4). Runs on its own, like MAVProxy and MAVROS; robot order: run_mavproxy.sh ->
+# run_gps_bridge.sh -> launch_mavros.sh -> launch_task2.sh --real (which refuses to start without it).
 # ==============================================================================
 
 set -e

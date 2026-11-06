@@ -98,8 +98,8 @@ Chain (Task 2 surface GPS leg):
 
 ```
 base station --RTCM, tcp :2002--> str2str (rtk-rover.service) --USB--> /dev/gps_rtk (ZED-F9P)
-ZED-F9P UART1 --wire, 230400--> Pixhawk SERIAL3 (GPS1_TYPE 1, ArduPilot u-blox driver)
-   --> MAVProxy --> MAVROS /mavros/global_position/raw/fix, /mavros/gpsstatus/gps1/raw
+/dev/gps_rtk --USB--> run_gps_bridge.sh (gps_to_pixhawk.py) --GPS_INPUT, udp 14553--> MAVProxy
+   --> Pixhawk (GPS1_TYPE 14) --> MAVROS /mavros/global_position/raw/fix, /mavros/gpsstatus/gps1/raw
 ```
 
 - **Pixhawk GPS params** (checked by `check/check_pixhawk_params.py`): `GPS1_TYPE 1`,
@@ -113,9 +113,11 @@ ZED-F9P UART1 --wire, 230400--> Pixhawk SERIAL3 (GPS1_TYPE 1, ArduPilot u-blox d
   accepts RTCM on any port, so corrections go in over USB while the Pixhawk reads UART1. Run it once
   per computer, and again whenever the base IP changes, with `setup/rtk_setup.sh` (installs
   `rtklib` first; prompts for the base IP, default `192.168.0.1:2002`).
-- **Do not run `run/run_gps_bridge.sh`** with `GPS1_TYPE 1`: the Pixhawk ignores its `GPS_INPUT`,
-  and its receiver setup (`--optimize-gps`) fights ArduPilot's auto-config. It is kept only as a
-  fallback for a receiver on USB alone (`GPS1_TYPE 14`).
+- **Current setup (2026-11-06): `GPS1_TYPE 14`.** The Pixhawk's GPS is `run/run_gps_bridge.sh`, started on its
+  own after `run_mavproxy.sh` (like MAVProxy and MAVROS; `launch_task2.sh --real` refuses to start without it).
+  The wired `GPS1_TYPE 1` chain and params in this section are the alternative: then do not run the bridge (the
+  Pixhawk ignores its `GPS_INPUT` and its receiver setup fights ArduPilot's auto-config) and launch with
+  `launch_task2.sh --allow-no-gps-bridge`.
 - No satellites (`satellites_visible 0` on the Pixhawk and the receiver) means the antenna: sky
   view, SMA cable. A cold start takes 1–2 min outdoors.
 
@@ -175,7 +177,7 @@ camera only one stream.
 | `run/run_mavproxy.sh` | Pixhawk link: outs 14550 (QGC) / 14551 (MAVROS) / 14552, in 14553 (fallback GPS bridge) |
 | `run/launch_mavros.sh` | MAVROS on its own, leave running |
 | `run/tmux_panes.sh [-r ROWS] [-c COLS]` | tmux window split into an even grid (default 2 rows x 4 columns), all in the current directory |
-| `run/run_gps_bridge.sh` | Fallback only (`GPS1_TYPE 14`): u-blox USB → Pixhawk `GPS_INPUT`; not used with the wired F9P |
+| `run/run_gps_bridge.sh` | GPS forwarder (`GPS1_TYPE 14`, the current setup): u-blox USB → Pixhawk `GPS_INPUT`; start on its own after `run_mavproxy.sh` |
 | `check/test_hardware.sh [tests] [--no-prompt]` | Bench test (section 6) |
 | `check/check_devices.sh` | udev devices and who holds them, MAVProxy, MAVROS, rtk-rover, a stray GPS bridge, last kill-switch report |
 | `check/gps_receiver.py [--seconds N]` | Live F9P health over USB without the bridge: fix, RTK, satellites and C/N0 per constellation, antenna/AGC/jamming (read-only polls) |

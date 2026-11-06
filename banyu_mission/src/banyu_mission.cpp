@@ -923,7 +923,7 @@ void BanyuMission::initialize()
   const auto test_depth = declare_parameter<double>("mission.test.depth_m", 1.0);
   const auto test_dive_timeout = declare_parameter<double>("mission.test.dive_timeout_s", 40.0);
   const auto test_settle = declare_parameter<double>("mission.test.settle_s", 3.0);
-  const auto test_leg_duration = declare_parameter<double>("mission.test.leg_duration_s", 10.0);
+  const auto test_leg_duration = declare_parameter<double>("mission.test.leg_duration_s", 6.0);
   const auto test_leg_speed = declare_parameter<double>("mission.test.leg_speed_mps", 0.3);
   const auto test_depth_kp = declare_parameter<double>("mission.test.depth_kp", 0.7);
   const auto test_max_depth_speed = declare_parameter<double>("mission.test.max_depth_speed_mps", 0.3);

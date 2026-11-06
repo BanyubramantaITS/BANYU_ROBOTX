@@ -13,3 +13,10 @@ log/
 
 # HailoRT writes its log into the current directory
 hailort.log
+
+# ArduSub SITL writes these into the current directory
+eeprom.bin
+/logs/
+mav.parm
+mav.tlog
+mav.tlog.raw

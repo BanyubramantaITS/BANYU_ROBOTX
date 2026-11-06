@@ -19,8 +19,8 @@ DEFAULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", 
 HARDWARE = {
     "FRAME_CONFIG": (2, "vectored 6DOF (BlueROV2 Heavy layout)"),
     **{f"SERVO{i}_FUNCTION": (32 + i, f"motor {i}") for i in range(1, 9)},
-    # ZED-F9P wired to SERIAL3, read by ArduPilot's u-blox driver (docs/hardware_setup.md section 4)
-    "GPS1_TYPE": (1, "u-blox on the Pixhawk UART"),
+    # GPS from run_gps_bridge.sh as MAVLink GPS_INPUT (docs/hardware_setup.md section 4)
+    "GPS1_TYPE": (14, "MAVLink GPS_INPUT from run_gps_bridge.sh"),
     "SERIAL3_PROTOCOL": (5, "GPS"),
     "GPS_NAVFILTER": (5, "sea dynamic model"),
     "GPS_MIN_ELEV": (10, "10 deg elevation mask"),

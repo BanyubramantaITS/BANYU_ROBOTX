@@ -128,7 +128,7 @@ TEST_F(MissionTest, TestMissionTreeLoads)
   // Order of the underwater legs: dive, settle, forward, pause, backward; then surface and report.
   const auto xml = readFile(path);
   std::size_t previous = 0;
-  for (const auto * step : {"WaitForBuoyTarget", "NavigateSurfaceGps", "LockBuoyTarget", "segment_name=\"dive\"",
+  for (const auto * step : {"WaitForBuoyTarget", "NavigateSurfaceGps", "LockBuoyTarget", "AlignHeading", "segment_name=\"dive\"",
       "segment_name=\"forward\"", "segment_name=\"backward\"", "GiveUpSurvey", "<Surface ",
       "PublishPipelineSurvey best_effort=\"true\""})
   {

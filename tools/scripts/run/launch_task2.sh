@@ -37,6 +37,7 @@ SENSORS="full"
 GAMBLE_RED="2,3"
 USE_HYDROPHONE=false
 ALLOW_CHANNEL_OVERLAP=false
+ALLOW_NO_GPS_BRIDGE=false
 DIVE_POINT="buoy"
 DIVE_POINT_SET=false
 PIPE_DEPTH=""
@@ -113,6 +114,8 @@ Both targets:
                         surface proven by a GPS fix; no depth sensor is used for any decision)
                         | gamble (Pixhawk and surface GPS only: go to the start buoy, short timed dive and bobbing, surface,
                         report the buoy with a RANDOM light order; no camera, no pipe, no repair).
+  --allow-no-gps-bridge  --real: launch even though run_gps_bridge.sh (the GPS forwarder) is not running. Only for a
+                        GPS wired to the Pixhawk (GPS1_TYPE 1); with GPS1_TYPE 14 the Pixhawk then has no GPS.
   --allow-channel-overlap
                         --real: launch even if an rc_override channel of task2_params.yaml (or the sensors
                         overlay) is also a banyu_teleop switch channel (SB/SC). Unsafe: the switch then reads the
@@ -136,8 +139,9 @@ Both targets:
   --dry-run             Print the resolved launch command without launching or cleaning.
   -h, --help            Show this help message.
 
-MAVROS is not started by this script: run ./tools/scripts/run/launch_mavros.sh [--sim] in its
-own terminal (after this script for --sim; it must be running before --real).
+MAVROS and the GPS forwarder are not started by this script. Robot order, each in its own terminal:
+run_mavproxy.sh -> run_gps_bridge.sh -> launch_mavros.sh -> launch_task2.sh --real
+(--sim: this script first, then launch_mavros.sh --sim; the sim has its own GPS).
 
 Any other argument is passed through to ros2 launch (e.g. task2_params_file:=/path.yaml).
 
@@ -213,6 +217,7 @@ while [[ $# -gt 0 ]]; do
       [ $# -ge 2 ] || { echo "Error: --dive-point needs a value (buoy|midpoint)." >&2; exit 1; }
       DIVE_POINT="$2"; DIVE_POINT_SET=true; shift 2 ;;
     --allow-channel-overlap) ALLOW_CHANNEL_OVERLAP=true; shift ;;
+    --allow-no-gps-bridge) ALLOW_NO_GPS_BRIDGE=true; shift ;;
     --test-mission) TEST_MISSION=true; shift ;;
     --debug) DEBUG=true; shift ;;
     --record) RECORD=true; shift ;;
@@ -489,9 +494,16 @@ else
       echo "Warning: /dev/${NAME} not found (udev rule installed?)." >&2
     fi
   done
-  # The Pixhawk reads the F9P itself (GPS1_TYPE 1); the GPS bridge would reconfigure the receiver.
-  if pgrep -f "gps_to_pixhawk.py" > /dev/null; then
-    echo "Warning: run_gps_bridge.sh is running; stop it (GPS1_TYPE 1 ignores it)." >&2
+  # The GPS forwarder runs on its own (run_gps_bridge.sh), like MAVProxy and MAVROS: with GPS1_TYPE 14
+  # the Pixhawk's only GPS is its GPS_INPUT.
+  if pgrep -f "python[0-9.]* [^ ]*gps_to_pixhawk[.]py" > /dev/null; then
+    echo "GPS Forwarder     : RUNNING (run_gps_bridge.sh)"
+  elif [ "$ALLOW_NO_GPS_BRIDGE" = true ]; then
+    echo "GPS Forwarder     : not running (--allow-no-gps-bridge: GPS must be wired to the Pixhawk, GPS1_TYPE 1)"
+  else
+    echo "Error: the GPS forwarder is not running. Start it in another terminal first:" \
+      "./tools/scripts/run/run_gps_bridge.sh (or --allow-no-gps-bridge for GPS1_TYPE 1)" >&2
+    [ "$DRY_RUN" = true ] || exit 1
   fi
   echo "GPS fix           : check with ./tools/scripts/check/rtk_status.sh before the start"
 

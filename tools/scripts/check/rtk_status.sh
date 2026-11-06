@@ -30,7 +30,7 @@ timeout 5 ros2 topic echo /mavros/gpsstatus/gps1/raw --once 2>/dev/null \
 echo
 if pgrep -f "gps_to_pixhawk.py" > /dev/null; then
   # The bridge owns the UBX stream on USB; a second reader would split it.
-  echo "run_gps_bridge.sh is running (not needed with GPS1_TYPE 1; stop it); skipping the USB read"
+  echo "run_gps_bridge.sh owns the receiver's USB stream; skipping the USB read (the Pixhawk view above shows the fix)"
 else
   "$PYTHON" "$(dirname "$0")/gps_receiver.py" --port "$GPS_PORT" --seconds "$SECONDS_TO_WATCH" || true
 fi

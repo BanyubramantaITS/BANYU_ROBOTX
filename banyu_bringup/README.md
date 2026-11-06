@@ -44,7 +44,7 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL (`sit
   ./tools/scripts/run/launch_mavros.sh          # separate terminal, after run_mavproxy.sh
   ros2 launch banyu_bringup sub_bringup.launch.py mode:=por
   ./tools/scripts/run/launch_task2.sh --real    # Task 2 (checks devices and MAVROS first)
-  ./tools/scripts/run/launch_task2.sh --real --test-mission   # Task 2 test: waypoint, 1 m dive, forward/back, report
+  ./tools/scripts/run/launch_task2.sh --real --test-mission   # Task 2 test: midpoint, 1 m dive, forward/back, report
   ```
   *(Launches `banyu_teleop` safety switches, `usb_cam` cameras, and the mission stack)*
   Devices (udev names), kill switch protocol, RTK GPS bridge and debug scripts:
@@ -64,7 +64,7 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL (`sit
 | `use_gps` | `True` / `False` | `True` (`main_launch`); `sub_bringup`: `False` for `por`, `True` for `task2` | `False` removes the SITL GPS from boot and starts `nogps_odom_beacon` (GPS-denied, like the real AUV in POR). `launch_por.sh --sim` and `launch_sim.sh por` pass `False`. |
 | `sensors` | `full` / `baro` / `minimal` / `gamble` | `full` | Task 2 sensor profile (`config/task2_sensors_<s>.yaml`): `full` = Bar30 + ALT_HOLD, dive to the fixed inspection depth; `baro` = Bar30 + ALT_HOLD, the dive stops by camera at the pipe (Bar30 as the floor), pipe-width standoff, dive point 1.5 m inside the start buoy, ring order dead-reckoned along the buoy line; `minimal` = no depth sensor (STABILIZE); `gamble` = timed dive, guessed order. `launch_task2.sh --sensors`. |
 | `use_hydrophone` | `True` / `False` | `False` | Task 2 only. Opt in to the hydrophone: `pinger_localization`, the sim `HydrophoneArray` plugin and bridge, pinger homing in `SearchPipeline` and pinger corrections in `underwater_odometry_node` (`config/task2_hydrophone_on.yaml`). The competition UUV has no hydrophone; with `False` nothing publishes `/banyu/pinger/observation` and no decision reads pinger data. `launch_task2.sh --hydrophone`. |
-| `test_mission` | `True` / `False` | `False` | Task 2 only. Fly `task2_test_mission.xml` instead of the survey: USV waypoint by GPS, dive to 1 m, timed forward and backward legs, surface, Core report (`config/task2_test_mission.yaml`, `docs/task2_test_mission.md`). `launch_task2.sh --test-mission`. |
+| `test_mission` | `True` / `False` | `False` | Task 2 only. Fly `task2_test_mission.xml` instead of the survey: GPS to the midpoint between the USV buoys, face the end buoy, dive to 1 m, timed forward and backward legs, surface, Core report (`config/task2_test_mission.yaml`, `docs/task2_test_mission.md`). `launch_task2.sh --test-mission`. |
 | `record` | `True` / `False` | `True` (`sub_bringup`), `False` (`main_launch`) | Records the run to a rosbag, see [Mission Recording](#-mission-recording). In sim the bag uses sim time and includes the ground truth `/sim/ground_truth/odom` (POR). |
 | `record_images` | `True` / `False` | `True` (`sub_bringup`), `False` (`main_launch`) | Includes compressed camera images in the bag. Raw images are never recorded. |
 | `por_params_file` | path | `config/por_params_timed_safe.yaml` | POR profile. Profiles: `por_params_timed_safe.yaml`, `por_params_timed_fastest.yaml`, `por_params_replay.yaml` (see `docs/por/README.md` §2). One file serves RC and no-RC runs. |

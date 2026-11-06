@@ -78,7 +78,7 @@ banyu_mission:
         depth_m: 1.0
         dive_timeout_s: 40.0
         settle_s: 3.0
-        leg_duration_s: 10.0
+        leg_duration_s: 6.0
         leg_speed_mps: 0.3
         depth_kp: 0.7
         max_depth_speed_mps: 0.3
@@ -344,6 +344,9 @@ vehicle_execution_node:
       # see docs/task2_mode_experiments.md. banyu_mission, banyu_vehicle_status and this node must list the same modes.
       autonomy_mode: "GUIDED,ALT_HOLD"
       output_mode: "auto"
+      # Surface GPS transit speed limit (NavigateSurfaceGps only). Faster pushes the hull and the GPS antenna under.
+      nav_max_speed: 0.4
+      nav_kp: 0.5
       acquire_surge_speed: 0.3
       acquire_timeout_s: 20.0
       acquire_confirm_frames: 5
