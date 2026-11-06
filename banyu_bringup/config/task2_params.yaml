@@ -22,6 +22,8 @@ banyu_mission:
     timing:
       preparation_timeout_s: 30.0
       execution_readiness_timeout_s: 1.0
+      # Pose age that ends readiness, and a live run. On the robot the pose comes at ~3 Hz (QGC's stream request).
+      readiness_pose_timeout_s: 2.0
       run_reset_timeout_s: 3.0
       state_timeout_s: 5.0
       gps_timeout_s: 5.0
@@ -337,6 +339,9 @@ vehicle_execution_node:
       use_pressure_depth: true
       require_run_authorization: true
       run_lifecycle_timeout_s: 1.0
+      # /mavros/local_position/pose age limit (readiness hold and every action). On the robot QGC's stream request
+      # brings it down to ~3 Hz with gaps up to 0.7 s; 0.5 s dropped the readiness hold at random.
+      pose_timeout_s: 1.0
       enable_mavros_publish: true
       publish_rate_hz: 20.0
       require_guided: true

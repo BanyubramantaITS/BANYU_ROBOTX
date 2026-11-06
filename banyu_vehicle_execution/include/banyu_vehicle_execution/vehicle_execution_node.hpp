@@ -122,6 +122,7 @@ private:
   bool status_ever_received_{false};
   bool require_run_authorization_{false};
   double run_lifecycle_timeout_s_{1.0};
+  double pose_timeout_s_{0.5};
   banyu_msgs::msg::RunLifecycle run_lifecycle_;
   bool lifecycle_received_{false};
   bool authority_handshake_{false};

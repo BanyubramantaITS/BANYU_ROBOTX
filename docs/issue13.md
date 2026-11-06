@@ -35,6 +35,7 @@ Scope decisions from the UUV team: Task 2 is attempted at the **Disruptive** tie
 | Action goals | Task 2 action nodes read run context from an unpublished topic; every goal was `(0, 0)` and rejected | Use `topics.run_lifecycle` |
 | Simulation clock | No `/clock` bridge and `SetUseSimTime` does not reach launched nodes; sim-stamped camera vs wall-time nodes dropped every observation; MAVROS stamped zero | `/clock` bridge, `SetParameter(use_sim_time)` only with `use_sim:=True`, MAVROS from the same condition |
 | Telemetry rate | MAVProxy default 4 Hz pose vs 1 s readiness window | `--streamrate=10` |
+| Telemetry rate (robot) | QGC's stream request cuts the pose to ~3 Hz (gaps to 0.7 s); the 0.5 s hold limit dropped READY at random | Task 2 `control.pose_timeout_s` 1.0, `timing.readiness_pose_timeout_s` 2.0; RC override hold needs no pose |
 | Mission BT | Single-pass traversal; acquisition without retry; no traversal bound | Loop until `PipelineEnded`, retry acquisition via search, `mission.traverse_timeout_s` |
 | Pipeline loss | One dropped frame aborted following; reacquire surges random-walked the vehicle off the pipe | Loss only after `pipeline_timeout_s` without a tracked frame; search retraces before sweeping |
 | Readiness | Lost readiness only said `AUTONOMY_READINESS_LOST`; busy-executor clock lag made fresh poses look future-stamped | Reason names the failing input; 0.5 s future-skew tolerance |

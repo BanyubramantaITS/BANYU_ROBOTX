@@ -169,6 +169,7 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
   reset_timeout_s_ = declare_parameter<double>("timing.run_reset_timeout_s", 3.0);
   execution_readiness_timeout_s_ = declare_parameter<double>(
     "timing.execution_readiness_timeout_s", 1.0);
+  readiness_pose_timeout_s_ = declare_parameter<double>("timing.readiness_pose_timeout_s", 1.0);
   const auto lifecycle_topic = declare_parameter<std::string>(
     "topics.run_lifecycle", "/banyu/mission/run_lifecycle");
   const auto command_topic = declare_parameter<std::string>(
@@ -258,7 +259,8 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
         (pose->header.stamp.sec != 0 || pose->header.stamp.nanosec != 0);
         const double source_age = (now() - rclcpp::Time(pose->header.stamp,
           get_clock()->get_clock_type())).seconds();
-        pose_valid_ = pose_valid_ && source_age >= -kMaxFutureStampS && source_age <= 1.0;
+        pose_valid_ = pose_valid_ && source_age >= -kMaxFutureStampS &&
+        source_age <= readiness_pose_timeout_s_;
         pose_received_at_ = std::chrono::steady_clock::now();
       });
     for (const auto & service : reset_services) {
@@ -365,7 +367,8 @@ bool BanyuMission::autonomousReady() const
   return mission_config_valid_ && vehicle.fcu_connected && vehicle.fcu_status_fresh &&
          vehicle.rc_fresh && vehicle.armed && !vehicle.operator_takeover &&
          (underway || vehicle.gps_available) && state_->autonomyModeAllowed(vehicle.mode) && pose_valid_ &&
-         std::chrono::steady_clock::now() - pose_received_at_ < std::chrono::seconds(1);
+         std::chrono::duration<double>(std::chrono::steady_clock::now() - pose_received_at_).count() <
+         readiness_pose_timeout_s_;
 }
 
 std::string BanyuMission::autonomyNotReadyReason() const
@@ -381,9 +384,11 @@ std::string BanyuMission::autonomyNotReadyReason() const
   if (vehicle.operator_takeover) {return "operator takeover";}
   if (!underway && !vehicle.gps_available) {return "GPS unavailable";}
   if (!state_->autonomyModeAllowed(vehicle.mode)) {return "mode " + vehicle.mode;}
-  if (!pose_valid_) {return "pose invalid or stamp older than 1 s";}
-  if (std::chrono::steady_clock::now() - pose_received_at_ >= std::chrono::seconds(1)) {
-    return "pose not received for 1 s";
+  if (!pose_valid_) {return "pose invalid or stamp too old";}
+  if (std::chrono::duration<double>(std::chrono::steady_clock::now() - pose_received_at_).count() >=
+    readiness_pose_timeout_s_)
+  {
+    return "pose not received within timing.readiness_pose_timeout_s";
   }
   return "ready";
 }

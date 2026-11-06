@@ -597,12 +597,14 @@ TEST_F(RunLifecycleTest, MissionDoneStopsWithoutManufacturingSuccess)
   EXPECT_EQ(navigation_goals_.load(), 1U);
 }
 
-TEST_F(RunLifecycleTest, NavigationExecutionFailureClearsTask)
+// SurfaceTransitToStart retries a failed navigation once per second (for up to 3 minutes) instead of failing the run.
+TEST_F(RunLifecycleTest, NavigationExecutionFailureIsRetriedWithoutEndingTheRun)
 {
   ASSERT_NO_FATAL_FAILURE(start());
+  const auto goals = navigation_goals_.load();
   fail_navigation_.store(true);
-  ASSERT_TRUE(waitUntil([this]() {return lifecycle().phase == Lifecycle::FAILED;}));
-  EXPECT_EQ(lifecycle().current_task, rx_msgs::msg::RxTask::TASK_NONE);
+  ASSERT_TRUE(waitUntil([this, goals]() {return navigation_goals_.load() >= goals + 2;}));
+  EXPECT_EQ(lifecycle().phase, Lifecycle::ACTIVE);
   EXPECT_EQ(lifecycle().run_id, 13U);
 }
 

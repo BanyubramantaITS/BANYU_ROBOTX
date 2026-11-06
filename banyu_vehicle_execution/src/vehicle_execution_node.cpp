@@ -85,6 +85,10 @@ void VehicleExecutionNode::initParameters()
   if (!std::isfinite(run_lifecycle_timeout_s_) || run_lifecycle_timeout_s_ <= 0.0) {
     throw std::invalid_argument("control.run_lifecycle_timeout_s must be positive and finite");
   }
+  pose_timeout_s_ = declare_parameter<double>("control.pose_timeout_s", 0.5);
+  if (!std::isfinite(pose_timeout_s_) || pose_timeout_s_ <= 0.0) {
+    throw std::invalid_argument("control.pose_timeout_s must be positive and finite");
+  }
   require_calibrated_surface_depth_ = declare_parameter<bool>(
     "control.require_calibrated_surface_depth", false);
   surface_depth_timeout_s_ = declare_parameter<double>("control.surface_depth_timeout_s", 0.5);
@@ -443,7 +447,7 @@ void VehicleExecutionNode::timerCallback()
   telemetry_.current_time = current_ros_time;
 
   // Telemetry freshness watchdog
-  constexpr double kPoseTimeoutS = 0.5;
+  constexpr double kImuTimeoutS = 0.5;
   constexpr double kGpsTimeoutS = 2.0;
   constexpr double kStatusTimeoutS = 1.0;
   constexpr double kGuidanceTimeoutS = 0.5;
@@ -454,8 +458,8 @@ void VehicleExecutionNode::timerCallback()
       return std::chrono::duration<double>(steady_now - receipt).count();
     };
   if (telemetry_.pose_valid &&
-    ((current_ros_time - telemetry_.pose_stamp).seconds() > kPoseTimeoutS ||
-    steady_age(pose_receipt_) > kPoseTimeoutS))
+    ((current_ros_time - telemetry_.pose_stamp).seconds() > pose_timeout_s_ ||
+    steady_age(pose_receipt_) > pose_timeout_s_))
   {
     telemetry_.pose_valid = false;
   }
@@ -509,7 +513,7 @@ void VehicleExecutionNode::timerCallback()
     }
   }
   if (telemetry_.imu_valid &&
-    (current_ros_time - telemetry_.imu_stamp).seconds() > kPoseTimeoutS)
+    (current_ros_time - telemetry_.imu_stamp).seconds() > kImuTimeoutS)
   {
     telemetry_.imu_valid = false;
   }
@@ -672,7 +676,7 @@ void VehicleExecutionNode::handlePose(const geometry_msgs::msg::PoseStamped::Sha
     if (msg->header.stamp.nanosec >= 1000000000U || msg->header.stamp.sec < 0) {return;}
     const rclcpp::Time stamp(msg->header.stamp, get_clock()->get_clock_type());
     const double age = (now() - stamp).seconds();
-    if (msg->header.frame_id != "map" || stamp.nanoseconds() <= 0 || age < 0.0 || age > 0.5 ||
+    if (msg->header.frame_id != "map" || stamp.nanoseconds() <= 0 || age < 0.0 || age > pose_timeout_s_ ||
       (telemetry_.pose_stamp.nanoseconds() > 0 && stamp <= telemetry_.pose_stamp))
     {
       return;
@@ -897,8 +901,9 @@ bool VehicleExecutionNode::readinessHoldAuthorized() const
          (run_lifecycle_.phase == Lifecycle::READY ||
          (run_lifecycle_.phase == Lifecycle::INITIALIZING &&
          run_lifecycle_.epoch > revoked_epoch_)) && hardwareStatusReady() &&
-         telemetry_.pose_valid &&
-         std::chrono::duration<double>(steady_clock_.now() - pose_receipt_).count() <= 0.5;
+         // RC override holds with neutral sticks and needs no pose (it may arrive at only ~2.5 Hz on the robot).
+         (rcModeActive() || (telemetry_.pose_valid &&
+         std::chrono::duration<double>(steady_clock_.now() - pose_receipt_).count() <= pose_timeout_s_));
 }
 
 void VehicleExecutionNode::publishReadiness(bool holding, const std::string & reason)
@@ -930,7 +935,7 @@ void VehicleExecutionNode::revokeGoals(const std::string & reason)
 MotionIntent VehicleExecutionNode::readinessHoldIntent()
 {
   if (!telemetry_.pose_valid ||
-    std::chrono::duration<double>(steady_clock_.now() - pose_receipt_).count() > 0.5)
+    std::chrono::duration<double>(steady_clock_.now() - pose_receipt_).count() > pose_timeout_s_)
   {
     return zeroIntent();
   }

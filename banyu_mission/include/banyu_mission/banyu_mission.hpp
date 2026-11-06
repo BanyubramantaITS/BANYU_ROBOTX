@@ -99,6 +99,7 @@ private:
   std::chrono::steady_clock::time_point lifecycle_published_at_{};
   std::chrono::steady_clock::time_point pose_received_at_{};
   bool pose_valid_{false};
+  double readiness_pose_timeout_s_{1.0};
   banyu_msgs::msg::ExecutionReadiness execution_readiness_;
   std::chrono::steady_clock::time_point execution_received_at_{};
   double execution_readiness_timeout_s_{1.0};

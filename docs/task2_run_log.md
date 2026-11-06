@@ -877,3 +877,15 @@ The user works on this branch for the rest of the competition, so `feat/competit
   `survey_evidence_node` never received a message (no "Run context updated", absent from the graph: DDS discovery), so the
   ledger had 0 rings and the report was refused. Seen once in 65 runs; not caused by the merge (`banyu_detection` unchanged).
   If it recurs, the harness should check that node's "Run context updated" before the start and relaunch.
+- **Robot pose rate (2026-11-06).** On the AUV `/mavros/local_position/pose` arrives at ~2.6 Hz with gaps up to 0.7 s: QGC's
+  `REQUEST_DATA_STREAM` (sent when it connects, after MAVProxy's `--streamrate=10`) sets POSITION 3 Hz, EXTENDED_STATUS 2 Hz.
+  Vehicle execution's fixed 0.5 s pose limit dropped the readiness hold at random (start `NOT_READY`, holding 0) and would
+  zero every Task 2 action in each gap. Fixes: the RC override readiness hold (neutral sticks) needs no pose;
+  `vehicle_execution_node` `control.pose_timeout_s` (default 0.5, Task 2 1.0) and `banyu_mission`
+  `timing.readiness_pose_timeout_s` (default 1.0, Task 2 2.0). The test mission then started on the real AUV.
+  Sim check of the full mission with the robot's rate reproduced (a stub sends the same stream request through
+  `/mavros/set_stream_rate`, POSITION 4 Hz sim time = gaps 0.7-0.97 s wall at 0.35x real time; `GZ_IP=127.0.0.1`, since a
+  Wi-Fi change stalls Gazebo's multicast transport mid-run): Core, default seed (node 2): two runs, both reach READY, start,
+  transit, dive, survey, repair and report; FAIL 300 (rings 1 and 2 swapped: the RED node-2 sighting at offset y -0.98
+  computed progress <= 1.03 and merged into node 0, cause not found; the same sighting at the normal rate gave 1.81) and
+  PASS 450. Normal-rate baseline: PASS 450 twice.
