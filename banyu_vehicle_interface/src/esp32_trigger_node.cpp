@@ -126,7 +126,16 @@ Esp32TriggerNode::Esp32TriggerNode(const rclcpp::NodeOptions & options)
   // hardware kill input is active.
   use_hardware_kill_ = declare_parameter<bool>("use_hardware_kill", true);
   kill_report_grace_s_ = declare_parameter<double>("kill_report_grace_s", 0.3);
+  kill_report_count_ = std::max<int>(1, declare_parameter<int>("kill_report_count", 1));
+  kill_release_to_manual_ = declare_parameter<bool>("kill_release_to_manual", false);
   resend_period_s_ = declare_parameter<double>("resend_period_s", 1.0);
+  fcu_mode_sync_ = declare_parameter<bool>("fcu_mode_sync", true);
+  fcu_manual_mode_ = declare_parameter<std::string>("fcu_manual_mode", "MANUAL");
+  fcu_sync_retry_s_ = std::max(0.1, declare_parameter<double>("fcu_sync_retry_s", 1.0));
+  fcu_sync_timeout_s_ = declare_parameter<double>("fcu_sync_timeout_s", 10.0);
+  const auto fcu_state_topic = declare_parameter<std::string>("fcu_state_topic", "/mavros/state");
+  const auto set_mode_service = declare_parameter<std::string>("set_mode_service", "/mavros/set_mode");
+  const auto arming_service = declare_parameter<std::string>("arming_service", "/mavros/cmd/arming");
 
   trigger_service_ = create_service<std_srvs::srv::Trigger>(
     trigger_service_name_,
@@ -155,6 +164,18 @@ Esp32TriggerNode::Esp32TriggerNode(const rclcpp::NodeOptions & options)
   if (publish_kill_switch_) {
     kill_switch_publisher_ = create_publisher<std_msgs::msg::UInt8>(
       kill_switch_topic_name_, rclcpp::QoS(10));
+  }
+
+  if (fcu_mode_sync_) {
+    fcu_state_subscriber_ = create_subscription<mavros_msgs::msg::State>(
+      fcu_state_topic, rclcpp::QoS(10),
+      [this](const mavros_msgs::msg::State::SharedPtr msg) {
+        fcu_state_received_ = true;
+        fcu_armed_ = msg->armed;
+        fcu_mode_ = msg->mode;
+      });
+    set_mode_client_ = create_client<mavros_msgs::srv::SetMode>(set_mode_service);
+    arming_client_ = create_client<mavros_msgs::srv::CommandBool>(arming_service);
   }
 
   if (openSerialPort()) {
@@ -375,19 +396,52 @@ void Esp32TriggerNode::recordCommandedMode(const std::string & cmd)
 void Esp32TriggerNode::handleBoardReport(const std::string & line)
 {
   const int reported = parseIndicatorReport(line);
+  if (reported < 0) {
+    return;
+  }
+  if (hw_kill_latched_ && kill_release_to_manual_) {
+    // Kill input released: the board reports a normal state again for kill_report_count reports in a row.
+    if (reported == 0) {
+      release_reports_seen_ = 0;
+    } else if (++release_reports_seen_ >= kill_report_count_) {
+      release_reports_seen_ = 0;
+      hw_kill_latched_ = false;
+      commanded_mode_ = 1;
+      commanded_at_ = steady_clock_.now();
+      hw_kill_pending_write_ = true;
+      RCLCPP_WARN(
+        get_logger(), "ESP32 kill switch released: MANUAL. Send '2' for AUTO (the interrupted run needs a new "
+        "prepare and start).");
+      publishCommandedMode();
+    }
+    return;
+  }
   if (reported != 0 || !use_hardware_kill_ || hw_kill_latched_ || !has_commanded_mode_ ||
     commanded_mode_ == 0)
   {
+    if (reported != 0 && kill_reports_seen_ > 0) {
+      RCLCPP_WARN(
+        get_logger(), "ESP32 kill input glitch: %d emergency report(s), then normal again (not latched)",
+        kill_reports_seen_);
+    }
+    kill_reports_seen_ = 0;
     return;
   }
   // A report emitted before the board applied the last command is not a hardware kill.
   if ((steady_clock_.now() - commanded_at_).seconds() < kill_report_grace_s_) {
     return;
   }
+  if (++kill_reports_seen_ < kill_report_count_) {
+    return;
+  }
+  kill_reports_seen_ = 0;
+  release_reports_seen_ = 0;
   hw_kill_latched_ = true;
-  hw_kill_pending_write_ = true;
+  // With kill_release_to_manual the board shows the kill itself; writing its2 would keep it red after the release.
+  hw_kill_pending_write_ = !kill_release_to_manual_;
   RCLCPP_ERROR(
-    get_logger(), "ESP32 reports a hardware kill (emergency input active): publishing kill. "
+    get_logger(), "ESP32 reports a hardware kill (emergency input active): publishing kill. %s",
+    kill_release_to_manual_ ? "Put the kill switch back in to return to MANUAL." :
     "Send '0' to acknowledge before commanding a mode again.");
   publishCommandedMode();
 }
@@ -402,10 +456,69 @@ void Esp32TriggerNode::publishCommandedMode()
   kill_switch_publisher_->publish(msg);
 }
 
+void Esp32TriggerNode::syncFcu()
+{
+  if (!fcu_mode_sync_ || !has_commanded_mode_) {
+    return;
+  }
+  const uint8_t mode = hw_kill_latched_ ? 0 : commanded_mode_;
+  const auto now = steady_clock_.now();
+  if (mode != fcu_sync_mode_) {
+    fcu_sync_mode_ = mode;
+    fcu_sync_pending_ = mode != 2;
+    fcu_sync_started_ = now;
+    last_set_mode_request_ = rclcpp::Time(0, 0, RCL_STEADY_TIME);
+    last_arming_request_ = rclcpp::Time(0, 0, RCL_STEADY_TIME);
+  }
+  if (!fcu_sync_pending_) {
+    return;
+  }
+
+  const bool want_armed = mode == 1;
+  const char * target = want_armed ? "armed" : "disarmed";
+  const bool mode_ok = fcu_state_received_ && fcu_mode_ == fcu_manual_mode_;
+  const bool armed_ok = fcu_state_received_ && fcu_armed_ == want_armed;
+  if (mode_ok && armed_ok) {
+    fcu_sync_pending_ = false;
+    RCLCPP_INFO(get_logger(), "Pixhawk %s and %s", fcu_manual_mode_.c_str(), target);
+    return;
+  }
+  if ((now - fcu_sync_started_).seconds() > fcu_sync_timeout_s_) {
+    fcu_sync_pending_ = false;
+    RCLCPP_ERROR(
+      get_logger(), "Pixhawk did not reach %s %s within %.1f s (mode '%s', %s); set it from QGC",
+      fcu_manual_mode_.c_str(), target, fcu_sync_timeout_s_, fcu_mode_.c_str(),
+      fcu_armed_ ? "armed" : "disarmed");
+    return;
+  }
+
+  auto due = [&](const rclcpp::Time & last) {
+      return last.nanoseconds() == 0 || (now - last).seconds() >= fcu_sync_retry_s_;
+    };
+  if (!mode_ok && due(last_set_mode_request_) && set_mode_client_->service_is_ready()) {
+    auto request = std::make_shared<mavros_msgs::srv::SetMode::Request>();
+    request->custom_mode = fcu_manual_mode_;
+    set_mode_client_->async_send_request(request);
+    last_set_mode_request_ = now;
+    RCLCPP_INFO(get_logger(), "Requesting Pixhawk mode %s", fcu_manual_mode_.c_str());
+  }
+  // Disarm at once on a kill; arm for MANUAL only once the mode has changed (the mission flies GUIDED/ALT_HOLD).
+  if (!armed_ok && (!want_armed || mode_ok) && due(last_arming_request_) &&
+    arming_client_->service_is_ready())
+  {
+    auto request = std::make_shared<mavros_msgs::srv::CommandBool::Request>();
+    request->value = want_armed;
+    arming_client_->async_send_request(request);
+    last_arming_request_ = now;
+    RCLCPP_INFO(get_logger(), "Requesting Pixhawk %s", want_armed ? "arm" : "disarm");
+  }
+}
+
 void Esp32TriggerNode::timerCallback()
 {
   // Keep the commanded mode fresh for vehicle status (kill_switch_timeout_s).
   publishCommandedMode();
+  syncFcu();
   if (!isPortOpen()) {
     reconnect_counter_++;
     const int retry_interval = static_cast<int>(1.0 / std::max(0.01, timer_period_s_));
@@ -420,7 +533,7 @@ void Esp32TriggerNode::timerCallback()
   processIncomingData();
 
   // Show the kill on the board, and resend the mode because the board forgets it on reboot.
-  const bool resend_due = has_commanded_mode_ &&
+  const bool resend_due = has_commanded_mode_ && !(hw_kill_latched_ && kill_release_to_manual_) &&
     (steady_clock_.now() - last_mode_write_).seconds() >= resend_period_s_;
   if (hw_kill_pending_write_ || resend_due) {
     hw_kill_pending_write_ = false;

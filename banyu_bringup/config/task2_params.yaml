@@ -184,6 +184,8 @@ banyu_vehicle_status:
     autonomy_mode: "GUIDED,ALT_HOLD"   # surface mode, then the mode used under water
     default_operational_mode: 0
     kill_switch_timeout_s: 1.0
+    # bypass_rc (launch_task2.sh --no-rc): mode until the first /banyu/trigger/cmd ('2' = the software SB Up).
+    bypass_operational_mode: 1
 
 ring_tracker:
   ros__parameters:
@@ -522,7 +524,22 @@ esp32_trigger_node:
     monitor_topic: "/banyu/trigger/monitor"
     use_hardware_kill: true      # board its2 while 1/2 is commanded = physical kill
     kill_report_grace_s: 0.3
+    # The board reports a single ADC sample of the kill input every 500 ms: a power dip or noise can show as one
+    # its2. Latch the kill only after this many in a row (~1.5 s); shorter glitches are logged, not latched.
+    kill_report_count: 3
+    # The board cuts thruster power and shows EMERGENCY by itself when the kill switch is pulled. Leave its LED alone and
+    # go to MANUAL when the switch is back in (no '0' needed); AUTO again only on a '2', and the run needs a new start.
+    kill_release_to_manual: true
     resend_period_s: 1.0
+    # '1' MANUAL: Pixhawk to fcu_manual_mode and armed; '0' KILL: fcu_manual_mode and disarmed; '2' AUTO: left to the
+    # mission manager. Retried until /mavros/state confirms it or fcu_sync_timeout_s.
+    fcu_mode_sync: true
+    fcu_manual_mode: "MANUAL"
+    fcu_sync_retry_s: 1.0
+    fcu_sync_timeout_s: 10.0
+    fcu_state_topic: "/mavros/state"
+    set_mode_service: "/mavros/set_mode"
+    arming_service: "/mavros/cmd/arming"
 
 sim_rc_deadman_node:
   ros__parameters:

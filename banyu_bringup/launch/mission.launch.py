@@ -148,8 +148,8 @@ def generate_launch_description():
         name="bypass_rc",
         default_value="False",
         description=(
-            "No transmitter: POR vehicle status ignores RC freshness and takes the mode from "
-            "the ESP32 trigger (launch_por.sh --no-rc)."
+            "No transmitter: vehicle status ignores RC freshness and takes the mode from "
+            "the ESP32 trigger /banyu/trigger/cmd (launch_por.sh / launch_task2.sh --no-rc)."
         ),
         choices=["True", "False"],
     )
@@ -357,6 +357,7 @@ def generate_launch_description():
         parameters=[
             task2_params,
             task2_sensors_file,
+            task2_test_file,
             {
                 "default_operational_mode": ParameterValue(
                     default_op_mode_expr,
@@ -368,6 +369,7 @@ def generate_launch_description():
                     ),
                     value_type=str,
                 ),
+                "bypass_rc": ParameterValue(LaunchConfiguration("bypass_rc"), value_type=bool),
             },
         ],
         output="screen",
@@ -397,7 +399,7 @@ def generate_launch_description():
         executable="uuv_comm_node",
         name="uuv_comm_node",
         parameters=[
-            task2_params, task2_tier_file, task2_sensors_file, task2_site_file,
+            task2_params, task2_tier_file, task2_sensors_file, task2_site_file, task2_test_file,
             {"survey.gamble_red_positions": ParameterValue(LaunchConfiguration("gamble_red"), value_type=str)},
         ],
         output="screen",

@@ -38,6 +38,7 @@ GAMBLE_RED="2,3"
 USE_HYDROPHONE=false
 ALLOW_CHANNEL_OVERLAP=false
 ALLOW_NO_GPS_BRIDGE=false
+NO_RC=false
 DIVE_POINT="buoy"
 DIVE_POINT_SET=false
 PIPE_DEPTH=""
@@ -114,6 +115,13 @@ Both targets:
                         surface proven by a GPS fix; no depth sensor is used for any decision)
                         | gamble (Pixhawk and surface GPS only: go to the start buoy, short timed dive and bobbing, surface,
                         report the buoy with a RANDOM light order; no camera, no pipe, no repair).
+  --no-rc               --real: no transmitter. Teleop off, esp32_trigger_node on, bypass_rc:=True: the mode is
+                        set in software instead of SB (MANUAL until the first command):
+                          ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '2'}"   (= SB Up)
+                          ... "{data: '1'}" = SB Mid (Pixhawk MANUAL, armed), "{data: '0'}" = SB Down
+                          (Pixhawk MANUAL, disarmed); '2' leaves the Pixhawk mode to the mission.
+                        Without RC there is no stick takeover: stop with '0', the abort service or the
+                        physical kill switch.
   --allow-no-gps-bridge  --real: launch even though run_gps_bridge.sh (the GPS forwarder) is not running. Only for a
                         GPS wired to the Pixhawk (GPS1_TYPE 1); with GPS1_TYPE 14 the Pixhawk then has no GPS.
   --allow-channel-overlap
@@ -218,6 +226,7 @@ while [[ $# -gt 0 ]]; do
       DIVE_POINT="$2"; DIVE_POINT_SET=true; shift 2 ;;
     --allow-channel-overlap) ALLOW_CHANNEL_OVERLAP=true; shift ;;
     --allow-no-gps-bridge) ALLOW_NO_GPS_BRIDGE=true; shift ;;
+    --no-rc) NO_RC=true; shift ;;
     --test-mission) TEST_MISSION=true; shift ;;
     --debug) DEBUG=true; shift ;;
     --record) RECORD=true; shift ;;
@@ -280,6 +289,9 @@ fi
 if ! [[ "$GPS_REACQUIRE_DELAY" =~ $NUM_RE ]]; then
   echo "Error: --gps-reacquire-delay must be a non-negative number (got '$GPS_REACQUIRE_DELAY')." >&2; exit 1
 fi
+if [ "$NO_RC" = true ] && [ "$TARGET" = sim ]; then
+  echo "Error: --no-rc is for --real (the sim has no transmitter; its deadman stands in for it)." >&2; exit 1
+fi
 if [ "$TARGET" = "real" ]; then
   if [ "$GPS_GATE" = true ] || [ "$GPS_GATE_OPTS_SET" = true ]; then
     echo "Error: --gps-gate / --gps-loss-depth / --gps-reacquire-delay / --light-seed / --spawn* / --pipe-* / scenario options are simulation only" >&2
@@ -340,6 +352,7 @@ echo "Target Platform   : $([ "$TARGET" = "sim" ] && echo "Gazebo Simulation (SI
 echo "use_gps           : $(TF $USE_GPS)"
 echo "Tier              : $([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && echo core || echo "$TIER")"
 echo "Mission           : $([ "$TEST_MISSION" = true ] && echo "TEST (midpoint by GPS, face the end buoy, 1 m dive, timed forward/backward legs, surface, Core report; task2_test_mission.yaml)" || echo "survey (banyu_mission.xml$([ "$SENSORS" = gamble ] && echo ", gamble tree"))")"
+[ "$TARGET" = real ] && echo "RC / mode switch   : $([ "$NO_RC" = true ] && echo "NO RC: mode from /banyu/trigger/cmd ('2' auto, '1' manual, '0' kill); MANUAL until set" || echo "TX16S, SB (teleop)")"
 echo "Detector debug    : $([ "$DEBUG" = true ] && echo "ON (windows where there is a display; topics /banyu/pipeline/debug/*)" || echo "off (--debug)")"
 echo "Sensors           : $SENSORS$([ "$SENSORS" = baro ] && echo " (Bar30 + ALT_HOLD; dive stops by camera at the pipe, order dead-reckoned)")$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")$([ "$SENSORS" = gamble ] && echo " (GPS to the buoy, timed dive and bobbing, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
 if [ "$TEST_MISSION" = true ]; then
@@ -534,10 +547,19 @@ else
     use_gps:="$(TF $USE_GPS)"
     record:="$(TF $RECORD)"
     record_images:="$(TF $RECORD_IMAGES)"
+    enable_teleop:="$([ "$NO_RC" = true ] && echo False || echo True)"
+    enable_esp32_trigger:="$(TF $NO_RC)"
+    bypass_rc:="$(TF $NO_RC)"
   )
   [ ${#EXTRA_ARGS[@]} -gt 0 ] && LAUNCH_CMD+=("${EXTRA_ARGS[@]}")
 
   echo "Operator Instructions (Task 2, real AUV):"
+  if [ "$NO_RC" = true ]; then
+  echo "  NO RC: wherever these steps say SB, use (ROS_DOMAIN_ID=40):"
+  echo "    SB Up   : ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String \"{data: '2'}\""
+  echo "    SB Mid  : ... \"{data: '1'}\" (Pixhawk MANUAL, armed)    SB Down: ... \"{data: '0'}\" (MANUAL, disarmed)"
+  echo "    No stick takeover without RC. Physical kill switch: send '0' to acknowledge before '2' again."
+  fi
   echo "  1. UUV side runs on ROS_DOMAIN_ID 40 (export ROS_DOMAIN_ID=40 in this shell and in"
   echo "     any shell you use to call services); the GCS side uses its own domain."
   if [ "$TEST_MISSION" = true ]; then

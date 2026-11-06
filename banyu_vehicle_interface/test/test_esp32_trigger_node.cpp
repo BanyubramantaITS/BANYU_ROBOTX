@@ -12,6 +12,10 @@
 #include <gtest/gtest.h>
 #include <rclcpp/rclcpp.hpp>
 
+#include <mavros_msgs/msg/state.hpp>
+#include <mavros_msgs/srv/command_bool.hpp>
+#include <mavros_msgs/srv/set_mode.hpp>
+
 #include "banyu_vehicle_interface/esp32_trigger_node.hpp"
 
 class Esp32TriggerNodeTest : public ::testing::Test
@@ -570,4 +574,188 @@ TEST_F(Esp32TriggerNodeTest, BoardEmergencyReportLatchesKill)
   EXPECT_EQ(received.back(), 0);
   node->sendTrigger("0");
   EXPECT_FALSE(node->isHardwareKillLatched());
+}
+
+TEST_F(Esp32TriggerNodeTest, ShortEmergencyGlitchDoesNotLatchKill)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"kill_switch_topic", "/test/hw_kill_glitch"},
+    {"kill_report_grace_s", 0.05},
+    {"kill_report_count", 3}
+  });
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  ASSERT_TRUE(node->isPortOpen());
+  auto spin_for = [&](int ms) {
+      const auto start = std::chrono::steady_clock::now();
+      while ((std::chrono::steady_clock::now() - start) < std::chrono::milliseconds(ms)) {
+        rclcpp::spin_some(node);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+    };
+  auto board_says = [&](const char * report) {
+      ASSERT_GT(write(master_fd_, report, strlen(report)), 0);
+      spin_for(250);
+    };
+
+  EXPECT_TRUE(node->sendTrigger("2"));
+  spin_for(200);
+  // Two emergency reports, then normal: a glitch, not a kill.
+  board_says("its2\r\n");
+  board_says("its2\r\n");
+  board_says("its1\r\n");
+  EXPECT_FALSE(node->isHardwareKillLatched());
+
+  // Three in a row: a held kill input.
+  board_says("its2\r\n");
+  board_says("its2\r\n");
+  EXPECT_FALSE(node->isHardwareKillLatched());
+  board_says("its2\r\n");
+  EXPECT_TRUE(node->isHardwareKillLatched());
+}
+
+TEST_F(Esp32TriggerNodeTest, KillSwitchReleaseReturnsToManual)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"kill_switch_topic", "/test/hw_kill_release"},
+    {"kill_report_grace_s", 0.05},
+    {"kill_report_count", 2},
+    {"kill_release_to_manual", true}
+  });
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+  ASSERT_TRUE(node->isPortOpen());
+  std::vector<uint8_t> received;
+  auto sub = node->create_subscription<std_msgs::msg::UInt8>(
+    "/test/hw_kill_release", 10,
+    [&received](const std_msgs::msg::UInt8::SharedPtr msg) {received.push_back(msg->data);});
+  auto spin_for = [&](int ms) {
+      const auto start = std::chrono::steady_clock::now();
+      while ((std::chrono::steady_clock::now() - start) < std::chrono::milliseconds(ms)) {
+        rclcpp::spin_some(node);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+    };
+  auto board_says = [&](const char * report) {
+      ASSERT_GT(write(master_fd_, report, strlen(report)), 0);
+      spin_for(250);
+    };
+  auto drain = [&]() {
+      char buf[256];
+      std::string out;
+      ssize_t n;
+      while ((n = read(master_fd_, buf, sizeof(buf))) > 0) {out.append(buf, n);}
+      return out;
+    };
+
+  EXPECT_TRUE(node->sendTrigger("2"));
+  spin_for(200);
+  board_says("its2\r\n");
+  board_says("its2\r\n");
+  ASSERT_TRUE(node->isHardwareKillLatched());
+  EXPECT_EQ(received.back(), 0);
+  drain();
+  spin_for(1300);
+  // The board shows the kill itself: nothing is written over it while the switch is out.
+  EXPECT_EQ(drain().find("its"), std::string::npos);
+
+  // Switch back in: the board reports its last state again -> MANUAL, its0 written.
+  board_says("its1\r\n");
+  board_says("its1\r\n");
+  EXPECT_FALSE(node->isHardwareKillLatched());
+  EXPECT_EQ(received.back(), 1);
+  spin_for(200);
+  EXPECT_NE(drain().find("its0"), std::string::npos);
+}
+
+TEST_F(Esp32TriggerNodeTest, ManualAndKillSwitchPixhawkToManual)
+{
+  std::string slave_path;
+  ASSERT_TRUE(createPtyPair(slave_path));
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"port", slave_path},
+    {"kill_switch_topic", "/test/fcu_sync/kill_switch"},
+    {"fcu_state_topic", "/test/fcu_sync/state"},
+    {"set_mode_service", "/test/fcu_sync/set_mode"},
+    {"arming_service", "/test/fcu_sync/arming"},
+    {"fcu_sync_retry_s", 0.2}
+  });
+  auto node = std::make_shared<banyu_vehicle_interface::Esp32TriggerNode>(options);
+
+  // Fake Pixhawk: flying the mission in GUIDED, armed.
+  auto fcu = std::make_shared<rclcpp::Node>("fake_fcu");
+  mavros_msgs::msg::State state;
+  state.connected = true;
+  state.armed = true;
+  state.mode = "GUIDED";
+  int set_mode_calls = 0;
+  int arming_calls = 0;
+  auto state_pub = fcu->create_publisher<mavros_msgs::msg::State>("/test/fcu_sync/state", 10);
+  auto set_mode_srv = fcu->create_service<mavros_msgs::srv::SetMode>(
+    "/test/fcu_sync/set_mode",
+    [&](const std::shared_ptr<mavros_msgs::srv::SetMode::Request> req,
+    std::shared_ptr<mavros_msgs::srv::SetMode::Response> res) {
+      ++set_mode_calls;
+      state.mode = req->custom_mode;
+      res->mode_sent = true;
+    });
+  auto arming_srv = fcu->create_service<mavros_msgs::srv::CommandBool>(
+    "/test/fcu_sync/arming",
+    [&](const std::shared_ptr<mavros_msgs::srv::CommandBool::Request> req,
+    std::shared_ptr<mavros_msgs::srv::CommandBool::Response> res) {
+      ++arming_calls;
+      state.armed = req->value;
+      res->success = true;
+    });
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(fcu);
+  auto spin_for = [&](int ms) {
+      const auto start = std::chrono::steady_clock::now();
+      while ((std::chrono::steady_clock::now() - start) < std::chrono::milliseconds(ms)) {
+        state_pub->publish(state);
+        executor.spin_some();
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+    };
+
+  // AUTO: the mission manager owns the FCU mode.
+  EXPECT_TRUE(node->sendTrigger("2"));
+  spin_for(600);
+  EXPECT_EQ(state.mode, "GUIDED");
+  EXPECT_EQ(set_mode_calls, 0);
+  EXPECT_EQ(arming_calls, 0);
+
+  // MANUAL: Pixhawk MANUAL, stays armed.
+  EXPECT_TRUE(node->sendTrigger("1"));
+  spin_for(800);
+  EXPECT_EQ(state.mode, "MANUAL");
+  EXPECT_TRUE(state.armed);
+  EXPECT_EQ(arming_calls, 0);
+
+  // KILL: MANUAL and disarmed.
+  state.mode = "ALT_HOLD";
+  EXPECT_TRUE(node->sendTrigger("0"));
+  spin_for(800);
+  EXPECT_EQ(state.mode, "MANUAL");
+  EXPECT_FALSE(state.armed);
+
+  // MANUAL again after a kill: armed in MANUAL.
+  EXPECT_TRUE(node->sendTrigger("1"));
+  spin_for(800);
+  EXPECT_EQ(state.mode, "MANUAL");
+  EXPECT_TRUE(state.armed);
+  const int calls = set_mode_calls + arming_calls;
+  spin_for(600);
+  EXPECT_EQ(set_mode_calls + arming_calls, calls);  // confirmed: no more requests
 }

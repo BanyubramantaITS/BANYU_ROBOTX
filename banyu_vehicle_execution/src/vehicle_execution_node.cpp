@@ -590,8 +590,14 @@ void VehicleExecutionNode::timerCallback()
     telemetry_.water_depth.samples_since_last_tick.clear();
     telemetry_.depth_samples_since_last_tick.clear();
   } else if (readinessHoldAuthorized() && !safety_fault) {
-    intent = readinessHoldIntent();
-    readiness_output_selected = hold_pose_captured_ && telemetry_.pose_valid;
+    // RC override has no ArduSub position hold: neutral sticks while waiting for the start.
+    if (rcModeActive()) {
+      intent = zeroIntent();
+      readiness_output_selected = true;
+    } else {
+      intent = readinessHoldIntent();
+      readiness_output_selected = hold_pose_captured_ && telemetry_.pose_valid;
+    }
   }
 
   if (safety_fault || (require_run_authorization_ &&
@@ -622,11 +628,11 @@ void VehicleExecutionNode::timerCallback()
       const bool terminal_stop = require_run_authorization_ &&
         terminal_zero_cycles_remaining_ > 0;
       const bool run_output_ready = !require_run_authorization_ ||
-        runMotionAuthorized() || terminal_stop;
+        runMotionAuthorized() || (readinessHoldAuthorized() && readiness_output_selected) || terminal_stop;
       const bool allowed = hardwareStatusReady() && run_output_ready && !safety_fault &&
         rcModeActive();
       publishRcOverride(allowed ? intent : zeroIntent(), allowed, own_sticks);
-      readiness_output_published = false;
+      readiness_output_published = allowed && readiness_output_selected && !terminal_stop;
     }
     if (enable_mavros_publish_ && mavros_target_pub_ && setpointModeActive()) {
       if (!hardwareStatusReady()) {
@@ -651,7 +657,8 @@ void VehicleExecutionNode::timerCallback()
       "Failed to encode preview setpoint: %s", ex.what());
   }
   publishReadiness(readiness_output_published,
-    readiness_output_published ? "Readiness position hold streaming" :
+    readiness_output_published ? (rcModeActive() ? "Readiness hold streaming (neutral sticks)" :
+    "Readiness position hold streaming") :
     !enable_mavros_publish_ ? "MAVROS output disabled" :
     !lifecycleFresh() ? "Mission lifecycle unavailable or expired" :
     !hardwareStatusReady() ? "Hardware safety denied" :
@@ -822,7 +829,8 @@ bool VehicleExecutionNode::modeAllowed(const std::string & mode) const
 
 bool VehicleExecutionNode::rcModeActive() const
 {
-  if (output_mode_ == "rc_override") {return telemetry_.mode == autonomy_mode_;}
+  // rc_override: sticks in every listed mode (e.g. "STABILIZE,ALT_HOLD": surface and under water).
+  if (output_mode_ == "rc_override") {return modeAllowed(telemetry_.mode);}
   return output_mode_ == "auto" && telemetry_.mode == underwater_mode_;
 }
 

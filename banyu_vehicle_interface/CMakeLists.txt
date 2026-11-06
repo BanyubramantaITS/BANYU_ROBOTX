@@ -56,7 +56,8 @@ ament_target_dependencies(esp32_trigger_node
   rclcpp
   std_msgs
   std_srvs
-  banyu_msgs)
+  banyu_msgs
+  mavros_msgs)
 
 add_executable(esp32_trigger_node_bin src/esp32_trigger_main.cpp)
 set_target_properties(esp32_trigger_node_bin PROPERTIES OUTPUT_NAME "esp32_trigger_node")
@@ -126,7 +127,8 @@ if(BUILD_TESTING)
     rclcpp
     std_msgs
     std_srvs
-    banyu_msgs)
+    banyu_msgs
+    mavros_msgs)
 
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)

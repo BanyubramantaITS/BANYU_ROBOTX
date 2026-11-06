@@ -86,7 +86,10 @@ Behaviour in `banyu_teleop` (`teleop_rcin.yaml`):
 - `use_hardware_kill: false` ignores the reports (land tests with the kill input unwired only).
 
 With `--no-rc`, `esp32_trigger_node` does the same: `'0'/'1'/'2'` commands are sent as
-`its2/its0/its1`, and a physical kill is held until a `'0'` command.
+`its2/its0/its1`, and a physical kill is held until a `'0'` command. It also sets the Pixhawk
+(`fcu_mode_sync`): `'1'` → `MANUAL` and armed, `'0'` or a physical kill → `MANUAL` and disarmed,
+`'2'` → left to the mission manager. Requests are retried until `/mavros/state` confirms them
+(error log after `fcu_sync_timeout_s`, 10 s).
 
 > On 2026-11-03 the board reported `its2` permanently and ignored `its0`/`its1`: the physical kill
 > input reads as active (switch engaged or ADC line not wired). With that, teleop keeps the vehicle

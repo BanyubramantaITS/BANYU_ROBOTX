@@ -43,6 +43,10 @@ ROS_DOMAIN_ID=40 ./tools/scripts/run/task2_test_waypoint.py <start LAT> <start L
 4. publishes the buoys as the USV `PipelineBuoys` (start = buoy A, active; `--end` = buoy B),
 5. prints the lifecycle, the UUV heartbeat (position, depth) and the `PipelineSurvey` when the AUV sends it.
 
+No transmitter: launch with `launch_task2.sh --real --test-mission --no-rc` and send the software SB Up before the
+tool (`ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '2'}"`; `'1'` manual, `'0'` kill). There
+is no stick takeover then: stop with `'0'`, the abort service or the physical kill switch.
+
 When the real GCS or USV is on the link, use `--no-course`, `--no-start`, or leave out the buoys.
 
 ## Simulation

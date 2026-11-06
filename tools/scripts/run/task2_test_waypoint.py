@@ -147,8 +147,9 @@ class TestWaypoint(Node):
         if s is None:
             return 'waiting for /banyu/vehicle_status (stack running? ROS_DOMAIN_ID 40?)'
         mode = {0: 'KILL (SB Down)', 1: 'MANUAL (SB Mid)', 2: 'AUTO (SB Up)'}.get(s.operational_mode, '?')
-        return (f'waiting for SB Up: switch {mode}, armed {s.armed}, FCU mode {s.mode}, rc_fresh {s.rc_fresh}, '
-                f'gps {s.gps_valid and s.gps_fresh}')
+        return (f"waiting for SB Up (no RC: ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "
+                f"\"{{data: '2'}}\"): switch {mode}, armed {s.armed}, FCU mode {s.mode}, rc_fresh {s.rc_fresh}, "
+                f"gps {s.gps_valid and s.gps_fresh}")
 
     def auto_ready(self):
         s = self.status
@@ -164,13 +165,17 @@ class TestWaypoint(Node):
                 rclpy.spin_once(self, timeout_sec=0.1)
             response = future.result()
             self.log(f'prepare_autonomy try {attempt}: {response.message}')
+            # READY is published before vehicle execution reports its position hold; a start sent in between is
+            # rejected (NOT_READY, holding 0), so wait for autonomous_ready as well.
             if response.success and self.wait_until(
-                    lambda: self.lifecycle is not None and self.lifecycle.phase == RunLifecycle.READY, 35.0,
-                    lambda: 'preparing (GUIDED, position hold)...'):
+                    lambda: self.lifecycle is not None and self.lifecycle.phase == RunLifecycle.READY and
+                    self.lifecycle.autonomous_ready, 35.0,
+                    lambda: 'preparing (mode + arm, waiting for the hold)...'):
                 break
             self.spin_for(3.0)
         else:
-            self.log('ERROR: the AUV did not become READY; check SB Up, GPS fix and the mission log')
+            self.log('ERROR: the AUV did not become READY; check SB Up, the ESP32 kill input, the GPS fix (GUIDED needs '
+                     'a position) and the mission log')
             return False
         self.spin_for(1.0)
         cmd = Command()
