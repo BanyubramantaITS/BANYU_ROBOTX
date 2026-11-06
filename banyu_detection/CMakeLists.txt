@@ -60,7 +60,7 @@ target_include_directories(por_detection PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/inc
 
 add_executable(task2_pipeline_detector src/task2_pipeline_detector.cpp)
 target_link_libraries(task2_pipeline_detector banyu_task2_perception)
-ament_target_dependencies(task2_pipeline_detector rclcpp cv_bridge OpenCV sensor_msgs banyu_msgs)
+ament_target_dependencies(task2_pipeline_detector rclcpp cv_bridge OpenCV sensor_msgs banyu_msgs image_transport)
 
 add_executable(pinger_localization src/pinger_localization_node.cpp)
 target_link_libraries(pinger_localization banyu_task2_perception)

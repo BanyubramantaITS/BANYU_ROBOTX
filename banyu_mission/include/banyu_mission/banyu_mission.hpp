@@ -144,7 +144,7 @@ private:
   bool por_use_vision_return_{false};
   bool por_use_vision_assist_{false};
   bool por_use_replay_{false};
-  std::string fallback_mode_{"SURFACE"};
+  std::string fallback_mode_{"MANUAL"};
   std::string set_mode_service_{"/mavros/set_mode"};
   rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr set_mode_client_;
   std::string arming_service_{"/mavros/cmd/arming"};

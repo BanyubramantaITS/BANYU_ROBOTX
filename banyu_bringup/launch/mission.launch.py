@@ -55,6 +55,14 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    debug_topics_arg = DeclareLaunchArgument(
+        name="debug_topics",
+        default_value="False",
+        description="Task 2: publish the pipeline detector's annotated frame and masks on /banyu/pipeline/debug/* "
+        "(view with rqt_image_view; works without a display, recorded as compressed images).",
+        choices=["True", "False"],
+    )
+
     tier_arg = DeclareLaunchArgument(
         name="tier",
         default_value="core",
@@ -331,7 +339,11 @@ def generate_launch_description():
         name="task2_pipeline_detector",
         parameters=[
             task2_params,
-            {"use_gui": debug, "use_compressed_image": use_compressed_image},
+            {
+                "use_gui": debug,
+                "use_compressed_image": use_compressed_image,
+                "publish_debug_images": ParameterValue(LaunchConfiguration("debug_topics"), value_type=bool),
+            },
         ],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
@@ -508,6 +520,7 @@ def generate_launch_description():
             use_sim_arg,
             use_sim_time_arg,
             debug_arg,
+            debug_topics_arg,
             tier_arg,
             sensors_arg,
             use_hydrophone_arg,

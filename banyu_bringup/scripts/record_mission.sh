@@ -64,7 +64,7 @@ fi
 # to review what the detectors saw. Other transports are skipped on every image topic:
 # subscribing to compressedDepth makes it try (and fail, logging an error per frame) to
 # encode colour/mask images. Unit-test topics never matter on the vehicle.
-EXCLUDE='.*/image_raw$|/banyu/detection/debug/[^/]+$|.*/(theora|zstd|compressedDepth|ffmpeg)(/.*)?$|/test.*'
+EXCLUDE='.*/image_raw$|/banyu/(detection|pipeline)/debug/[^/]+$|.*/(theora|zstd|compressedDepth|ffmpeg)(/.*)?$|/test.*'
 if [ "$RECORD_IMAGES" -eq 0 ]; then
   EXCLUDE="$EXCLUDE|.*/compressed$"
 fi

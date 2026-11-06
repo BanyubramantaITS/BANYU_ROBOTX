@@ -831,7 +831,7 @@ TEST_F(MissionTest, PorVisionAssistedTreeLoadsWithTimedFallbacks)
   }
 }
 
-TEST_F(MissionTest, FallbackModeParameterDefaultsToSurface)
+TEST_F(MissionTest, FallbackModeParameterDefaultsToManual)
 {
   rclcpp::NodeOptions options;
   options.parameter_overrides(
@@ -841,7 +841,7 @@ TEST_F(MissionTest, FallbackModeParameterDefaultsToSurface)
   auto mission = std::make_shared<banyu_mission::BanyuMission>(options);
   std::string fallback_mode;
   EXPECT_TRUE(mission->get_parameter("fallback_mode", fallback_mode));
-  EXPECT_EQ(fallback_mode, "SURFACE");
+  EXPECT_EQ(fallback_mode, "MANUAL");
 }
 
 TEST_F(MissionTest, HandleAbortOrTeleopInvokesAbortCallback)
@@ -859,7 +859,7 @@ TEST_F(MissionTest, HandleAbortOrTeleopInvokesAbortCallback)
   EXPECT_TRUE(state->snapshot().abort_requested);
 }
 
-TEST_F(MissionTest, AbortServiceCommandsFallbackModeSurface)
+TEST_F(MissionTest, AbortServiceCommandsFallbackModeManual)
 {
   auto helper_node = std::make_shared<rclcpp::Node>("set_mode_helper_node");
   std::string received_mode;
@@ -890,7 +890,7 @@ TEST_F(MissionTest, AbortServiceCommandsFallbackModeSurface)
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 
-  EXPECT_EQ(received_mode, "SURFACE");
+  EXPECT_EQ(received_mode, "MANUAL");
 }
 
 TEST_F(MissionTest, SingleDroppedPipelineFrameDoesNotCountAsLosingThePipe)

@@ -153,6 +153,13 @@ def generate_launch_description():
         choices=["buoy", "midpoint"],
     )
 
+    debug_topics_arg = DeclareLaunchArgument(
+        name="debug_topics",
+        default_value="False",
+        description="Task 2: publish the pipeline detector's annotated frame and masks on /banyu/pipeline/debug/*.",
+        choices=["True", "False"],
+    )
+
     test_mission_arg = DeclareLaunchArgument(
         name="test_mission",
         default_value="False",
@@ -299,6 +306,7 @@ def generate_launch_description():
             "use_sim": LaunchConfiguration("use_sim"),
             "use_sim_time": LaunchConfiguration("use_sim_time"),
             "debug": LaunchConfiguration("debug"),
+            "debug_topics": LaunchConfiguration("debug_topics"),
             "tier": LaunchConfiguration("tier"),
             "sensors": LaunchConfiguration("sensors"),
             "use_hydrophone": LaunchConfiguration("use_hydrophone"),
@@ -435,6 +443,7 @@ def generate_launch_description():
             use_hydrophone_arg,
             dive_point_arg,
             test_mission_arg,
+            debug_topics_arg,
             headless_arg,
             task2_params_arg,
             por_params_arg,

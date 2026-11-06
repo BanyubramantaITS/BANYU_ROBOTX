@@ -24,7 +24,7 @@ HEADLESS=false
 CLEAN_SIM=true
 TIER="advanced"
 GPS_GATE=false
-GPS_LOSS_DEPTH="0.1"
+GPS_LOSS_DEPTH="0.2"
 GPS_REACQUIRE_DELAY="10.0"
 USE_GPS=true
 DRY_RUN=false
@@ -40,6 +40,7 @@ ALLOW_CHANNEL_OVERLAP=false
 DIVE_POINT="buoy"
 PIPE_DEPTH=""
 TEST_MISSION=false
+DEBUG=false
 RECORD=""                # empty = the target's default: on for --real, off for --sim
 RECORD_IMAGES=""
 SCENARIO_ARGS=()
@@ -86,7 +87,7 @@ Simulation Options (--sim only):
                         Scenario: water current east and north (m/s), plus a gust along it for 5 s of every 30 s.
   --gps-gate            Simulate GPS loss/reacquire around depth (gps_gate:=True).
   --no-gps-gate         (Default) Do not gate GPS (gps_gate:=False).
-  --gps-loss-depth <m>  Depth at which GPS is lost (default: 0.1; gps_loss_depth_m).
+  --gps-loss-depth <m>  Depth at which GPS is lost (default: 0.2; gps_loss_depth_m).
   --gps-reacquire-delay <s>
                         Seconds after surfacing before GPS returns (default: 10.0;
                         gps_reacquire_delay_s).
@@ -100,6 +101,12 @@ Both targets:
                         pipe). Tuning: banyu_bringup/config/task2_test_mission.yaml. Start it with
                         ./tools/scripts/run/task2_test_waypoint.py LAT LON (see the instructions printed below).
                         Not with --sensors gamble.
+  --debug               Show what the bottom-camera pipeline detector sees: OpenCV windows (annotated frame, pipe and
+                        ring masks; only where there is a display, e.g. the sim) and the same views as topics
+                        /banyu/pipeline/debug/{annotated,original,pipeline_mask,red_mask,green_mask} (5 Hz, half
+                        size; debug:=True debug_topics:=True). View them from the laptop with
+                        ROS_DOMAIN_ID=40 ros2 run rqt_image_view rqt_image_view /banyu/pipeline/debug/annotated
+                        When recording with images, the compressed annotated view is also in the bag.
   --tier <t>            (see above) On --real the default is core, like sub_bringup.launch.py.
   --sensors <s>         full (default: Bar30 depth, ALT_HOLD under water, dive to the fixed inspection depth)
                         | baro (Bar30 + ALT_HOLD, but the dive stops by camera at the pipe, pipe-width standoff,
@@ -210,6 +217,7 @@ while [[ $# -gt 0 ]]; do
       DIVE_POINT="$2"; shift 2 ;;
     --allow-channel-overlap) ALLOW_CHANNEL_OVERLAP=true; shift ;;
     --test-mission) TEST_MISSION=true; shift ;;
+    --debug) DEBUG=true; shift ;;
     --record) RECORD=true; shift ;;
     --no-record) RECORD=false; shift ;;
     --record-images) RECORD_IMAGES=true; shift ;;
@@ -323,6 +331,7 @@ echo "Target Platform   : $([ "$TARGET" = "sim" ] && echo "Gazebo Simulation (SI
 echo "use_gps           : $(TF $USE_GPS)"
 echo "Tier              : $([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && echo core || echo "$TIER")"
 echo "Mission           : $([ "$TEST_MISSION" = true ] && echo "TEST (USV waypoint by GPS, dive, timed forward/backward legs, surface, Core report; task2_test_mission.yaml)" || echo "survey (banyu_mission.xml$([ "$SENSORS" = gamble ] && echo ", gamble tree"))")"
+echo "Detector debug    : $([ "$DEBUG" = true ] && echo "ON (windows where there is a display; topics /banyu/pipeline/debug/*)" || echo "off (--debug)")"
 echo "Sensors           : $SENSORS$([ "$SENSORS" = baro ] && echo " (Bar30 + ALT_HOLD; dive stops by camera at the pipe, order dead-reckoned)")$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")$([ "$SENSORS" = gamble ] && echo " (GPS to the buoy, timed dive and bobbing, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
 echo "Dive point        : $([ "$DIVE_POINT" = midpoint ] && echo "midpoint (midway between the buoys)" || echo "buoy (inside the start buoy, standoff from it)"); both back up to the pipe's start, then survey forward"
 echo "Surface transit   : keeps clear of both buoys (mission.buoy_keep_out_m)"
@@ -396,6 +405,8 @@ if [ "$TARGET" = "sim" ]; then
     use_hydrophone:="$(TF $USE_HYDROPHONE)"
     dive_point:="$DIVE_POINT"
     test_mission:="$(TF $TEST_MISSION)"
+    debug:="$(TF $DEBUG)"
+    debug_topics:="$(TF $DEBUG)"
     gamble_red:="$GAMBLE_RED"
     record:="$(TF $RECORD)"
     record_images:="$(TF $RECORD_IMAGES)"
@@ -445,6 +456,7 @@ print('%.2f %.2f %.3f' % (d * math.cos(b), d * math.sin(b), r.uniform(-math.pi, 
   echo "     buoy (no fallback to the YAML coordinates); abort to stop."
   fi
   echo "     Hydrophone $([ "$USE_HYDROPHONE" = true ] && echo ON || echo "OFF: /banyu/pinger/observation has no publisher")."
+  [ "$DEBUG" = true ] && echo "     Detector view: windows, or ros2 run rqt_image_view rqt_image_view /banyu/pipeline/debug/annotated"
   echo "  5. UUV side runs on ROS_DOMAIN_ID 40 (the GCS side uses its own domain)."
   echo "  6. Teardown: killall -9 ardusub mavproxy; Ctrl+C in the launch_mavros.sh terminal"
 else
@@ -496,6 +508,8 @@ else
     use_hydrophone:="$(TF $USE_HYDROPHONE)"
     dive_point:="$DIVE_POINT"
     test_mission:="$(TF $TEST_MISSION)"
+    debug:="$(TF $DEBUG)"
+    debug_topics:="$(TF $DEBUG)"
     gamble_red:="$GAMBLE_RED"
     use_gps:="$(TF $USE_GPS)"
     record:="$(TF $RECORD)"
@@ -523,6 +537,7 @@ else
   echo "     buoy (no fallback to the YAML coordinates). Not coming? Abort:"
   echo "     There is no hydrophone: the active buoy comes only from PipelineBuoys (GREEN indicator)."
   fi
+  [ "$DEBUG" = true ] && echo "  Detector view: ROS_DOMAIN_ID=40 ros2 run rqt_image_view rqt_image_view /banyu/pipeline/debug/annotated"
   echo "  After the run: the bag is in ${BANYU_BAG_DIR:-$HOME/banyu_bags}/<date>_${BANYU_BAG_LABEL}/ (params/ = the profiles)."
   echo "  Software Abort: ros2 service call /banyu/mission/abort std_srvs/srv/Trigger \"{}\""
 fi

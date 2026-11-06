@@ -159,7 +159,7 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
     declare_parameter<std::string>("autonomy_authority", ""),
     mission_mode != "por");
   declare_parameter<int>("groot_port", 1666);
-  fallback_mode_ = declare_parameter<std::string>("fallback_mode", "SURFACE");
+  fallback_mode_ = declare_parameter<std::string>("fallback_mode", "MANUAL");
   set_mode_service_ = declare_parameter<std::string>("services.set_mode", "/mavros/set_mode");
   set_mode_client_ = create_client<mavros_msgs::srv::SetMode>(set_mode_service_);
   arming_service_ = declare_parameter<std::string>("services.arming", "/mavros/cmd/arming");

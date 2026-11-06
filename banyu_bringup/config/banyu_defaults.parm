@@ -47,7 +47,7 @@ FS_EKF_ACTION 0
 
 # GCS failsafe: 0 = Disabled.
 # A tetherless AUV intentionally loses wireless/GCS link to dock when submerged.
-# Mission abort and failure fallback to SURFACE is managed onboard by banyu_mission.
+# Mission abort and failure fallback (fallback_mode, Task 2: MANUAL) is managed onboard by banyu_mission.
 FS_GCS_ENABLE 0
 
 # GCS sysid allowed to send RC override / MANUAL_CONTROL. MAVROS uses system_id 255

@@ -2,7 +2,7 @@
 
 banyu_mission:
   ros__parameters:
-    fallback_mode: "SURFACE"
+    fallback_mode: "MANUAL"   # FCU mode commanded on abort/failure (DISARM = disarm, then MANUAL)
     autonomy_mode: "GUIDED,ALT_HOLD"   # surface mode, then the mode used under water (SetFcuMode)
     topics:
       pipeline_observation: "/banyu/pipeline/observation"
@@ -117,7 +117,13 @@ task2_sim_provider:
 
 task2_pipeline_detector:
   ros__parameters:
-    use_gui: false
+    use_gui: false                 # OpenCV windows (launch debug:=True; ignored without a display)
+    # Annotated frame and masks on <debug_topic_prefix>/{annotated,original,pipeline_mask,red_mask,green_mask}
+    # (launch debug_topics:=True). Only encoded while someone subscribes; the compressed ones are recorded.
+    publish_debug_images: false
+    debug_topic_prefix: "/banyu/pipeline/debug"
+    debug_rate_hz: 5.0
+    debug_scale: 0.5
     image_topic: "/bottom_camera/image_raw"
     # Launch sets this true on the real AUV (use_sim:=False)
     use_compressed_image: false

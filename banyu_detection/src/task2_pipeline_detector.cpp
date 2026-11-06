@@ -5,6 +5,8 @@
 #include <banyu_msgs/msg/pipeline_ring_observation.hpp>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <image_transport/image_transport.hpp>
 #include <limits>
 #include <mutex>
 #include <opencv2/highgui.hpp>
@@ -82,14 +84,29 @@ public:
         std::bind(&Task2PipelineDetector::cameraInfoCallback, this, std::placeholders::_1));
     }
 
+    // OpenCV windows abort the node without a display (the Pi over SSH): use the debug topics there.
+    const char * display = std::getenv("DISPLAY");
+    const char * wayland = std::getenv("WAYLAND_DISPLAY");
+    if (use_gui_ && (!display || !*display) && (!wayland || !*wayland)) {
+      RCLCPP_WARN(get_logger(), "use_gui: no display, windows disabled (publish_debug_images shows the same views)");
+      use_gui_ = false;
+    }
     if (use_gui_) {
       createSlider();
     }
+    if (publish_debug_images_) {
+      debug_annotated_pub_ = image_transport::create_publisher(this, debug_topic_prefix_ + "/annotated");
+      debug_original_pub_ = image_transport::create_publisher(this, debug_topic_prefix_ + "/original");
+      debug_pipeline_mask_pub_ = image_transport::create_publisher(this, debug_topic_prefix_ + "/pipeline_mask");
+      debug_red_mask_pub_ = image_transport::create_publisher(this, debug_topic_prefix_ + "/red_mask");
+      debug_green_mask_pub_ = image_transport::create_publisher(this, debug_topic_prefix_ + "/green_mask");
+    }
 
     RCLCPP_INFO(
-      get_logger(), "task2_pipeline_detector listening on %s (GUI: %s)",
+      get_logger(), "task2_pipeline_detector listening on %s (GUI: %s, debug topics: %s)",
       (use_compressed_image_ ? image_topic_ + "/compressed" : image_topic_).c_str(),
-      use_gui_ ? "enabled" : "disabled");
+      use_gui_ ? "enabled" : "disabled",
+      publish_debug_images_ ? (debug_topic_prefix_ + "/*").c_str() : "disabled");
   }
 
   ~Task2PipelineDetector() override
@@ -103,6 +120,10 @@ private:
   void declareParameters()
   {
     use_gui_ = declare_parameter<bool>("use_gui", false);
+    publish_debug_images_ = declare_parameter<bool>("publish_debug_images", false);
+    debug_topic_prefix_ = declare_parameter<std::string>("debug_topic_prefix", "/banyu/pipeline/debug");
+    debug_rate_hz_ = declare_parameter<double>("debug_rate_hz", 5.0);
+    debug_scale_ = declare_parameter<double>("debug_scale", 0.5);
     undistort_ = declare_parameter<bool>("undistort", true);
     image_topic_ = declare_parameter<std::string>("image_topic", "/front_camera/image_raw");
     use_compressed_image_ = declare_parameter<bool>("use_compressed_image", false);
@@ -385,6 +406,33 @@ private:
     }
   }
 
+  // Same views as the windows, rate limited and scaled; nothing is encoded without a subscriber.
+  void publishDebug(
+    const std_msgs::msg::Header & header, const cv::Mat & original, const cv::Mat & annotated,
+    const cv::Mat & pipeline_mask, const cv::Mat & red_mask, const cv::Mat & green_mask)
+  {
+    const auto stamp = now();
+    if (debug_rate_hz_ > 0.0 && last_debug_publish_.nanoseconds() != 0 &&
+      (stamp - last_debug_publish_).seconds() < 1.0 / debug_rate_hz_)
+    {
+      return;
+    }
+    last_debug_publish_ = stamp;
+    const double scale = (debug_scale_ > 0.0 && debug_scale_ <= 1.0) ? debug_scale_ : 1.0;
+    const auto send = [&header, scale](image_transport::Publisher & pub, const cv::Mat & image,
+        const std::string & encoding) {
+        if (pub.getNumSubscribers() == 0 || image.empty()) {return;}
+        cv::Mat scaled;
+        cv::resize(image, scaled, cv::Size(), scale, scale, cv::INTER_AREA);
+        pub.publish(cv_bridge::CvImage(header, encoding, scaled).toImageMsg());
+      };
+    send(debug_annotated_pub_, annotated, "bgr8");
+    send(debug_original_pub_, original, "bgr8");
+    send(debug_pipeline_mask_pub_, pipeline_mask, "mono8");
+    send(debug_red_mask_pub_, red_mask, "mono8");
+    send(debug_green_mask_pub_, green_mask, "mono8");
+  }
+
   void imageCallback(const sensor_msgs::msg::Image::SharedPtr msg)
   {
     const uint64_t sequence = ++frame_sequence_;
@@ -546,7 +594,7 @@ private:
         }
       }
 
-      if (use_gui_) {
+      if (use_gui_ || publish_debug_images_) {
         cv::Mat annotated = image.clone();
         if (observation.status == banyu_msgs::msg::PipelineObservation::TRACKED) {
           const double vx = pipeline.line[0];
@@ -596,12 +644,18 @@ private:
             cv::FONT_HERSHEY_SIMPLEX, 0.55, ring_color, 2);
         }
 
-        cv::imshow("Original Frame", image);
-        cv::imshow("Pipeline Mask", pipeline_mask.empty() ? edge_mask : pipeline_mask);
-        if (!red_mask.empty()) {cv::imshow("Red Ring Mask", red_mask);}
-        if (!green_mask.empty()) {cv::imshow("Green Ring Mask", green_mask);}
-        cv::imshow("Annotated", annotated);
-        cv::waitKey(1);
+        const cv::Mat & shown_pipeline_mask = pipeline_mask.empty() ? edge_mask : pipeline_mask;
+        if (publish_debug_images_) {
+          publishDebug(msg->header, image, annotated, shown_pipeline_mask, red_mask, green_mask);
+        }
+        if (use_gui_) {
+          cv::imshow("Original Frame", image);
+          cv::imshow("Pipeline Mask", shown_pipeline_mask);
+          if (!red_mask.empty()) {cv::imshow("Red Ring Mask", red_mask);}
+          if (!green_mask.empty()) {cv::imshow("Green Ring Mask", green_mask);}
+          cv::imshow("Annotated", annotated);
+          cv::waitKey(1);
+        }
       }
     } catch (const cv_bridge::Exception & error) {
       observation.status = banyu_msgs::msg::PipelineObservation::INVALID;
@@ -1086,6 +1140,16 @@ private:
   std::string ring_observation_topic_;
 
   bool use_gui_ {false};
+  bool publish_debug_images_ {false};
+  std::string debug_topic_prefix_;
+  double debug_rate_hz_ {5.0};
+  double debug_scale_ {0.5};
+  rclcpp::Time last_debug_publish_ {0, 0, RCL_ROS_TIME};
+  image_transport::Publisher debug_annotated_pub_;
+  image_transport::Publisher debug_original_pub_;
+  image_transport::Publisher debug_pipeline_mask_pub_;
+  image_transport::Publisher debug_red_mask_pub_;
+  image_transport::Publisher debug_green_mask_pub_;
   int gray_threshold_ {170};
   int hsv_value_threshold_ {150};
   int hsv_saturation_max_ {125};
