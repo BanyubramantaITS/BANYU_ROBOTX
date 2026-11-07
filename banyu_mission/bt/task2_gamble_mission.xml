@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Task 2 gamble strategy (sensors:=gamble): GPS to the start buoy from the USV's two buoy positions, a short timed dive and bobbing,
+<!-- Task 2 gamble strategy (sensors:=gamble): GPS to the dive point (midpoint of the USV's two buoys by default, or the start buoy), a short timed dive and bobbing,
      then surface by GPS fix and report the buoy with a random light order. No camera, no pipe, no repair: heartbeat and start buoy
      points, the order by chance. Every underwater step is bounded by time; a failed step never stops the report. -->
 <root BTCPP_format="4" main_tree_to_execute="Main">

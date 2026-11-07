@@ -1,5 +1,6 @@
-# Task 2 overlay for sensors:=gamble: RTK GPS at the surface and the Pixhawk only. GPS to the start buoy (from the USV's two buoy
-# positions), a short timed dive and bobbing in STABILIZE, surface by a GPS fix, report the buoy with a random light order.
+# Task 2 overlay for sensors:=gamble: RTK GPS at the surface and the Pixhawk only. GPS to the dive point (launch_task2.sh: midpoint
+# between the USV's two buoys unless --dive-point buoy; only the start buoy: inside it), a short timed dive and bobbing in STABILIZE, surface by a GPS fix, report the start
+# buoy with a random light order.
 # mission.launch.py loads it after the params and tier files.
 banyu_mission:
   ros__parameters:

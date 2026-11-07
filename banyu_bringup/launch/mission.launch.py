@@ -89,10 +89,11 @@ def generate_launch_description():
 
     dive_point_arg = DeclareLaunchArgument(
         name="dive_point",
-        default_value="buoy",
-        description="Task 2 dive point: 'buoy' (inside the start buoy, one traverse) or 'midpoint' (midway between the "
-        "buoys facing the end buoy, back up to the pipe's start, then survey forward).",
-        choices=["buoy", "midpoint"],
+        default_value="auto",
+        description="Task 2 dive point: 'buoy' (inside the start buoy, one traverse), 'midpoint' (midway between the "
+        "buoys facing the end buoy, back up to the pipe's start, then survey forward) or 'auto' (midpoint for "
+        "sensors:=gamble, buoy otherwise).",
+        choices=["auto", "buoy", "midpoint"],
     )
 
     test_mission_arg = DeclareLaunchArgument(
@@ -197,10 +198,11 @@ def generate_launch_description():
         "'", banyu_bringup_share, "/config/task2_hydrophone_on.yaml' if '", LaunchConfiguration("use_hydrophone"),
         "'.lower() == 'true' else '", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"),
         "' + '.yaml'"])
-    # Dive point overlay (a no-op re-load of the sensors overlay for dive_point:=buoy).
+    # Dive point overlay for midpoint, or auto with sensors:=gamble (a no-op re-load of the sensors overlay for buoy).
     task2_dive_file = PythonExpression([
         "'", banyu_bringup_share, "/config/task2_dive_midpoint.yaml' if '", LaunchConfiguration("dive_point"),
-        "' == 'midpoint' else '", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"),
+        "' == 'midpoint' or ('", LaunchConfiguration("dive_point"), "' == 'auto' and '", LaunchConfiguration("sensors"),
+        "' == 'gamble') else '", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"),
         "' + '.yaml'"])
     # Test mission overlay, loaded last (a no-op re-load of the sensors overlay when off).
     task2_test_file = PythonExpression([

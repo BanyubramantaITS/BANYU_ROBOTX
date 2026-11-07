@@ -39,7 +39,7 @@ USE_HYDROPHONE=false
 ALLOW_CHANNEL_OVERLAP=false
 ALLOW_NO_GPS_BRIDGE=false
 NO_RC=false
-DIVE_POINT="buoy"
+DIVE_POINT="auto"
 DIVE_POINT_SET=false
 PIPE_DEPTH=""
 TEST_MISSION=false
@@ -113,8 +113,9 @@ Both targets:
                         | minimal (bottom camera, Pixhawk
                         IMU/compass and RTK GPS at the surface only: STABILIZE under water, heave from the camera,
                         surface proven by a GPS fix; no depth sensor is used for any decision)
-                        | gamble (Pixhawk and surface GPS only: go to the start buoy, short timed dive and bobbing, surface,
-                        report the buoy with a RANDOM light order; no camera, no pipe, no repair).
+                        | gamble (Pixhawk and surface GPS only: go midway between the buoys, short timed dive and bobbing,
+                        surface, report the start buoy with a RANDOM light order; no camera, no pipe, no repair).
+                        Dives at the midpoint unless --dive-point buoy is given (--dive-point auto).
   --no-rc               --real: no transmitter. Teleop off, esp32_trigger_node on, bypass_rc:=True: the mode is
                         set in software instead of SB (MANUAL until the first command):
                           ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '2'}"   (= SB Up)
@@ -128,7 +129,8 @@ Both targets:
                         --real: launch even if an rc_override channel of task2_params.yaml (or the sensors
                         overlay) is also a banyu_teleop switch channel (SB/SC). Unsafe: the switch then reads the
                         override.
-  --dive-point <p>      buoy (default: dive inside the start buoy, at least mission.buoy_standoff_m from it, back up along
+  --dive-point <p>      auto (default: midpoint with --sensors gamble, buoy otherwise)
+                        | buoy (dive inside the start buoy, at least mission.buoy_standoff_m from it, back up along
                         the pipe to its start, then survey forward)
                         | midpoint (navigate midway between the start and end buoys, dive facing the end buoy, back up
                         along the pipe to its start, then survey forward; needs both buoys from the USV).
@@ -259,8 +261,8 @@ case "$SENSORS" in
   *) echo "Error: --sensors must be full, baro, minimal or gamble (got '$SENSORS')." >&2; exit 1 ;;
 esac
 case "$DIVE_POINT" in
-  buoy|midpoint) ;;
-  *) echo "Error: --dive-point must be buoy or midpoint (got '$DIVE_POINT')." >&2; exit 1 ;;
+  auto|buoy|midpoint) ;;
+  *) echo "Error: --dive-point must be auto, buoy or midpoint (got '$DIVE_POINT')." >&2; exit 1 ;;
 esac
 if [ "$TEST_MISSION" = true ] && [ "$SENSORS" = gamble ]; then
   echo "Error: --test-mission cannot be combined with --sensors gamble (both pick the mission tree)." >&2; exit 1
@@ -271,6 +273,10 @@ if [ "$TEST_MISSION" = true ]; then
     echo "Error: --test-mission always dives midway between the buoys (--dive-point midpoint)." >&2; exit 1
   fi
   DIVE_POINT="midpoint"
+fi
+# auto, as in the launch files: midpoint for the gamble strategy, buoy otherwise.
+if [ "$DIVE_POINT" = auto ]; then
+  [ "$SENSORS" = gamble ] && DIVE_POINT="midpoint" || DIVE_POINT="buoy"
 fi
 # Recording defaults as in the launch files: every real run, sim runs only when asked.
 if [ -z "$RECORD" ]; then
@@ -354,9 +360,11 @@ echo "Tier              : $([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && e
 echo "Mission           : $([ "$TEST_MISSION" = true ] && echo "TEST (midpoint by GPS, face the end buoy, 1 m dive, timed forward/backward legs, surface, Core report; task2_test_mission.yaml)" || echo "survey (banyu_mission.xml$([ "$SENSORS" = gamble ] && echo ", gamble tree"))")"
 [ "$TARGET" = real ] && echo "RC / mode switch   : $([ "$NO_RC" = true ] && echo "NO RC: mode from /banyu/trigger/cmd ('2' auto, '1' manual, '0' kill); MANUAL until set" || echo "TX16S, SB (teleop)")"
 echo "Detector debug    : $([ "$DEBUG" = true ] && echo "ON (windows where there is a display; topics /banyu/pipeline/debug/*)" || echo "off (--debug)")"
-echo "Sensors           : $SENSORS$([ "$SENSORS" = baro ] && echo " (Bar30 + ALT_HOLD; dive stops by camera at the pipe, order dead-reckoned)")$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")$([ "$SENSORS" = gamble ] && echo " (GPS to the buoy, timed dive and bobbing, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
+echo "Sensors           : $SENSORS$([ "$SENSORS" = baro ] && echo " (Bar30 + ALT_HOLD; dive stops by camera at the pipe, order dead-reckoned)")$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")$([ "$SENSORS" = gamble ] && echo " (GPS to the dive point, timed dive and bobbing, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
 if [ "$TEST_MISSION" = true ]; then
   echo "Dive point        : midpoint (midway between the buoys, facing the end buoy; start buoy only: inside it)"
+elif [ "$SENSORS" = gamble ]; then
+  echo "Dive point        : $([ "$DIVE_POINT" = midpoint ] && echo "midpoint (midway between the buoys; start buoy only: inside it)" || echo "buoy (inside the start buoy, standoff from it)"); timed dive in place, no pipe"
 else
   echo "Dive point        : $([ "$DIVE_POINT" = midpoint ] && echo "midpoint (midway between the buoys)" || echo "buoy (inside the start buoy, standoff from it)"); both back up to the pipe's start, then survey forward"
 fi
