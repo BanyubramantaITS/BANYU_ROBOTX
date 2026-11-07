@@ -23,9 +23,11 @@ public:
     std::string service_name = "/banyu/communication/trigger_pipeline_survey");
 
   // best_effort: if the survey is incomplete, ask for the Core survey of what was seen (report id suffix ".best_effort").
+  // timeout_s: retry window for retryable rejections (e.g. the surface hold not yet complete).
   static BT::PortsList providedPorts()
   {
-    return {BT::InputPort<bool>("best_effort", false, "report what was seen when the survey is incomplete")};
+    return {BT::InputPort<bool>("best_effort", false, "report what was seen when the survey is incomplete"),
+      BT::InputPort<double>("timeout_s", 5.0, "give up after this long without an accepted report")};
   }
 
   BT::NodeStatus onStart() override;
@@ -34,6 +36,7 @@ public:
 
 private:
   bool best_effort_{false};
+  std::chrono::duration<double> timeout_{5.0};
 
 private:
   rclcpp::Node::SharedPtr node_;

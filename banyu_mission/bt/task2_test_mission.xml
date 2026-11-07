@@ -85,7 +85,7 @@
         <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}" />
         <ConfirmSurfaceAction />
         <Timeout msec="15000">
-          <PublishPipelineSurvey best_effort="true" />
+          <PublishPipelineSurvey best_effort="true" timeout_s="15.0" />
         </Timeout>
       </Sequence>
     </ReactiveFallback>

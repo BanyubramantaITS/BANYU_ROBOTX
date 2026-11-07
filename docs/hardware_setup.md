@@ -134,8 +134,13 @@ or `ros2 topic echo /mavros/gpsstatus/gps1/raw --once` with MAVROS running.
 
 ## 5. Bring-up order on the robot
 
+Every terminal runs on the UUV domain: `export ROS_DOMAIN_ID=40` (the DDS Router forwards `/system/*` from it to
+the GCS). `launch_task2.sh --real` refuses another domain (`--allow-other-domain` for a bench test without the GCS)
+and a MAVROS started on a different domain from the stack.
+
 ```bash
 cd ~/ros_ws
+export ROS_DOMAIN_ID=40
 ./src/BANYU_ROBOTX/tools/scripts/run/tmux_panes.sh            # 0. optional: tmux window, 2x4 panes
 ./src/BANYU_ROBOTX/tools/scripts/run/run_mavproxy.sh          # 1. Pixhawk link (outs 14550/14551/14552)
 ./src/BANYU_ROBOTX/tools/scripts/run/launch_mavros.sh         # 2. MAVROS, leave running

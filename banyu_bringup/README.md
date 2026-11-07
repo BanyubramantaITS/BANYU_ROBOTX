@@ -43,7 +43,7 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL (`sit
   ```bash
   ./tools/scripts/run/launch_mavros.sh          # separate terminal, after run_mavproxy.sh
   ros2 launch banyu_bringup sub_bringup.launch.py mode:=por
-  ./tools/scripts/run/launch_task2.sh --real    # Task 2 (checks devices and MAVROS first)
+  ./tools/scripts/run/launch_task2.sh --real    # Task 2 (checks devices, MAVROS and ROS_DOMAIN_ID=40 first)
   ./tools/scripts/run/launch_task2.sh --real --test-mission   # Task 2 test: midpoint, 1 m dive, forward/back, report
   ```
   *(Launches `banyu_teleop` safety switches, `usb_cam` cameras, and the mission stack)*

@@ -38,6 +38,8 @@ GAMBLE_RED="2,3"
 USE_HYDROPHONE=false
 ALLOW_CHANNEL_OVERLAP=false
 ALLOW_NO_GPS_BRIDGE=false
+ALLOW_OTHER_DOMAIN=false
+UUV_DOMAIN_ID=40          # RobotX SoS: the DDS Router forwards /system/* from this domain to the GCS (10)
 NO_RC=false
 DIVE_POINT="auto"
 DIVE_POINT_SET=false
@@ -125,6 +127,8 @@ Both targets:
                         physical kill switch.
   --allow-no-gps-bridge  --real: launch even though run_gps_bridge.sh (the GPS forwarder) is not running. Only for a
                         GPS wired to the Pixhawk (GPS1_TYPE 1); with GPS1_TYPE 14 the Pixhawk then has no GPS.
+  --allow-other-domain  --real: launch with ROS_DOMAIN_ID other than 40 (bench test without the GCS). The DDS Router
+                        only forwards /system/* from domain 40: the GCS then gets no heartbeat, status or survey.
   --allow-channel-overlap
                         --real: launch even if an rc_override channel of task2_params.yaml (or the sensors
                         overlay) is also a banyu_teleop switch channel (SB/SC). Unsafe: the switch then reads the
@@ -228,6 +232,7 @@ while [[ $# -gt 0 ]]; do
       DIVE_POINT="$2"; DIVE_POINT_SET=true; shift 2 ;;
     --allow-channel-overlap) ALLOW_CHANNEL_OVERLAP=true; shift ;;
     --allow-no-gps-bridge) ALLOW_NO_GPS_BRIDGE=true; shift ;;
+    --allow-other-domain) ALLOW_OTHER_DOMAIN=true; shift ;;
     --no-rc) NO_RC=true; shift ;;
     --test-mission) TEST_MISSION=true; shift ;;
     --debug) DEBUG=true; shift ;;
@@ -527,6 +532,27 @@ else
     [ "$DRY_RUN" = true ] || exit 1
   fi
   echo "GPS fix           : check with ./tools/scripts/check/rtk_status.sh before the start"
+
+  # Heartbeat, MissionStatus and the survey reach the GCS only from the UUV domain; MAVROS on another domain than
+  # the stack leaves the heartbeat without /mavros/state (STATE_KILLED).
+  if [ "${ROS_DOMAIN_ID:-0}" = "$UUV_DOMAIN_ID" ]; then
+    echo "ROS_DOMAIN_ID     : ${UUV_DOMAIN_ID} (UUV; /system/* goes to the GCS through the DDS Router)"
+  elif [ "$ALLOW_OTHER_DOMAIN" = true ]; then
+    echo "ROS_DOMAIN_ID     : ${ROS_DOMAIN_ID:-0 (unset)} (--allow-other-domain: NOTHING reaches the GCS)"
+  else
+    echo "Error: ROS_DOMAIN_ID is ${ROS_DOMAIN_ID:-unset}, not ${UUV_DOMAIN_ID}: the GCS would get no heartbeat," \
+      "status or survey. export ROS_DOMAIN_ID=${UUV_DOMAIN_ID} here and in the MAVROS terminal" \
+      "(or --allow-other-domain for a bench test)." >&2
+    [ "$DRY_RUN" = true ] || exit 1
+  fi
+  for PID in $(pgrep -x mavros_node); do
+    MAVROS_DOMAIN="$(tr '\0' '\n' < "/proc/${PID}/environ" 2>/dev/null | sed -n 's/^ROS_DOMAIN_ID=//p')"
+    if [ "${MAVROS_DOMAIN:-0}" != "${ROS_DOMAIN_ID:-0}" ]; then
+      echo "Error: mavros_node (pid ${PID}) runs on ROS_DOMAIN_ID ${MAVROS_DOMAIN:-0}, this stack on" \
+        "${ROS_DOMAIN_ID:-0}: the mission would see no vehicle. Restart launch_mavros.sh with the same domain." >&2
+      [ "$DRY_RUN" = true ] || exit 1
+    fi
+  done
 
   # MAVROS runs on its own (launch_mavros.sh); the stack never starts it.
   MAVROS_RUNNING="$(mavros_count)"
