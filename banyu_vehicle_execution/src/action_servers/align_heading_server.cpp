@@ -55,7 +55,10 @@ MotionIntent AlignHeadingServer::tick(
   // A Task 4 zone reached the vehicle: leave it first (turning on the way), then hold the new position outside.
   if (telemetry.gps_valid && telemetry.zones.any()) {
     const auto zones = telemetry.zonesAroundVehicle(now);
-    if (const auto exit = exitVector(Vec2{0.0, 0.0}, zones, telemetry.zones.exit_clearance_m)) {
+    if (const auto exit = exitVector(
+        Vec2{0.0, 0.0}, zones, telemetry.zones.exit_clearance_m,
+        telemetry.buoysAroundVehicle(), telemetry.keep_out_radius_m))
+    {
       hold_captured_ = false;
       RCLCPP_WARN_THROTTLE(
         node_->get_logger(), *node_->get_clock(), 2000, "Task 4: inside a keep-out zone during AlignHeading, leaving");

@@ -474,9 +474,22 @@ void VehicleExecutionNode::notifyDisplaced(
   }
 }
 
+void VehicleExecutionNode::setBuoyKeepOut(
+  const std::vector<double> & latitude_deg,
+  const std::vector<double> & longitude_deg,
+  double radius_m)
+{
+  telemetry_.keep_out_latitude_deg = latitude_deg;
+  telemetry_.keep_out_longitude_deg = longitude_deg;
+  telemetry_.keep_out_radius_m = radius_m;
+}
+
 void VehicleExecutionNode::timerCallback()
 {
   const auto current_ros_time = now();
+  const bool sim_clock_stalled = get_parameter("use_sim_time").as_bool() &&
+    last_tick_time_.nanoseconds() > 0 &&
+    current_ros_time <= last_tick_time_;
   double dt = 0.05;
   if (last_tick_time_.nanoseconds() > 0) {
     dt = (current_ros_time - last_tick_time_).seconds();
@@ -495,6 +508,23 @@ void VehicleExecutionNode::timerCallback()
   constexpr double kObservationTimeoutS = 0.5;
 
   const auto steady_now = steady_clock_.now();
+  if (sim_clock_stalled) {
+    if (telemetry_.pose_valid) {
+      pose_receipt_ = steady_now;
+    }
+    if (telemetry_.status_valid) {
+      status_receipt_ = steady_now;
+    }
+    if (lifecycle_received_) {
+      lifecycle_receipt_ = steady_now;
+    }
+    if (telemetry_.water_depth.receipt_valid) {
+      telemetry_.water_depth.receipt_time = steady_now;
+    }
+    if (telemetry_.depth_receipt_valid) {
+      telemetry_.depth_receipt_time = steady_now;
+    }
+  }
   const auto steady_age = [steady_now](const SteadyTime & receipt) {
       return std::chrono::duration<double>(steady_now - receipt).count();
     };
@@ -854,8 +884,11 @@ void VehicleExecutionNode::handleStatus(const banyu_msgs::msg::VehicleStatus::Sh
   if (msg->header.stamp.nanosec >= 1000000000U || msg->header.stamp.sec < 0) {return;}
   const rclcpp::Time stamp(msg->header.stamp, get_clock()->get_clock_type());
   const double age = (now() - stamp).seconds();
+  const bool allow_equal_stamp = get_parameter("use_sim_time").as_bool();
+  const bool non_monotonic = telemetry_.status_stamp.nanoseconds() > 0 &&
+    (allow_equal_stamp ? (stamp < telemetry_.status_stamp) : (stamp <= telemetry_.status_stamp));
   if (stamp.nanoseconds() <= 0 || age < 0.0 || age > 1.0 ||
-    (telemetry_.status_stamp.nanoseconds() > 0 && stamp <= telemetry_.status_stamp))
+    non_monotonic)
   {
     return;
   }
@@ -1043,9 +1076,12 @@ void VehicleExecutionNode::handleRunLifecycle(
   }
   const bool new_authority = !lifecycle_received_ ||
     msg->authority_instance != run_lifecycle_.authority_instance;
+  const bool allow_equal_stamp = get_parameter("use_sim_time").as_bool();
+  const rclcpp::Time prev_stamp(run_lifecycle_.header.stamp, get_clock()->get_clock_type());
+  const bool stamp_regressed = allow_equal_stamp ? (stamp < prev_stamp) : (stamp <= prev_stamp);
   if (!new_authority && (msg->revision <= run_lifecycle_.revision ||
     msg->epoch < run_lifecycle_.epoch ||
-    stamp <= rclcpp::Time(run_lifecycle_.header.stamp, get_clock()->get_clock_type())))
+    stamp_regressed))
   {
     return;
   }
@@ -1071,6 +1107,9 @@ void VehicleExecutionNode::handleRunLifecycle(
     run_context_start_ns_ = accepted_stamp.nanoseconds() > 0 ?
       accepted_stamp.nanoseconds() : stamp.nanoseconds();
     last_water_depth_stamp_ns_ = 0;
+    telemetry_.keep_out_latitude_deg.clear();
+    telemetry_.keep_out_longitude_deg.clear();
+    telemetry_.keep_out_radius_m = 0.0;
     if (require_calibrated_surface_depth_) {
       telemetry_.water_depth.valid = false;
       telemetry_.water_depth.calibrated = false;
@@ -1141,13 +1180,16 @@ void VehicleExecutionNode::handleZones(const banyu_msgs::msg::Task4Zones::Shared
 MotionIntent VehicleExecutionNode::zoneGuardIntent(const rclcpp::Time & now, bool & selected)
 {
   selected = false;
-  if (!zone_guard_enabled_ || !telemetry_.zones.any() || !telemetry_.gps_valid || !telemetry_.pose_valid) {
+  const bool heading_valid = telemetry_.pose_valid || (rcModeActive() && telemetry_.imu_valid);
+  if (!zone_guard_enabled_ || !telemetry_.zones.any() || !telemetry_.gps_valid || !heading_valid) {
     return zeroIntent();
   }
   if (require_run_authorization_ && !runMotionAuthorized()) {return zeroIntent();}
   const auto & water = telemetry_.water_depth;
   if (water.valid && water.depth_m > zone_surface_depth_m_) {return zeroIntent();}
-  const auto exit = exitVector(Vec2{0.0, 0.0}, telemetry_.zonesAroundVehicle(now), telemetry_.zones.exit_clearance_m);
+  const auto exit = exitVector(
+    Vec2{0.0, 0.0}, telemetry_.zonesAroundVehicle(now), telemetry_.zones.exit_clearance_m,
+    telemetry_.buoysAroundVehicle(), telemetry_.keep_out_radius_m);
   if (!exit) {return zeroIntent();}
   selected = true;
   RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Task 4: idle inside a keep-out zone, leaving %.1f m", exit->distance_m);

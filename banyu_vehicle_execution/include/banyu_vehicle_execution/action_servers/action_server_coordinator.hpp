@@ -2,6 +2,7 @@
 #define BANYU_VEHICLE_EXECUTION__ACTION_SERVERS__ACTION_SERVER_COORDINATOR_HPP_
 
 #include <string>
+#include <vector>
 
 #include "banyu_vehicle_execution/goal_arbiter.hpp"
 
@@ -19,6 +20,10 @@ public:
   virtual void notifyDisplaced(
     const GoalIdentity & displaced_identity,
     const std::string & new_owner) = 0;
+  virtual void setBuoyKeepOut(
+    const std::vector<double> & /*latitude_deg*/,
+    const std::vector<double> & /*longitude_deg*/,
+    double /*radius_m*/) {}
 };
 
 }  // namespace banyu_vehicle_execution

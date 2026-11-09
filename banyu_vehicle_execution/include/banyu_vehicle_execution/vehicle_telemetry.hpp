@@ -134,12 +134,29 @@ struct VehicleTelemetry
   // Task 4 keep-out zones (RoboCommand), run-scoped; the moving object is predicted from its receipt time.
   ZoneField zones;
   rclcpp::Time zones_moving_stamp{};
+  std::vector<double> keep_out_latitude_deg{};
+  std::vector<double> keep_out_longitude_deg{};
+  double keep_out_radius_m{0.0};
 
   // Zones as capsules around the last known position (the last GPS fix when under water).
   std::vector<Capsule> zonesAroundVehicle(const rclcpp::Time & now) const
   {
     const double age = zones_moving_stamp.nanoseconds() != 0 ? (now - zones_moving_stamp).seconds() : 0.0;
     return zonesAround(zones, latitude_deg, longitude_deg, std::max(0.0, age));
+  }
+
+  // Known buoys as planar ENU offsets from the vehicle.
+  std::vector<Vec2> buoysAroundVehicle() const
+  {
+    std::vector<Vec2> buoys;
+    const std::size_t count = std::min(keep_out_latitude_deg.size(), keep_out_longitude_deg.size());
+    for (std::size_t i = 0; i < count; ++i) {
+      if (!std::isfinite(keep_out_latitude_deg[i]) || !std::isfinite(keep_out_longitude_deg[i])) {
+        continue;
+      }
+      buoys.push_back(enuOffset(latitude_deg, longitude_deg, keep_out_latitude_deg[i], keep_out_longitude_deg[i]));
+    }
+    return buoys;
   }
 
   // Guidance velocity intent (for FollowPipeline)

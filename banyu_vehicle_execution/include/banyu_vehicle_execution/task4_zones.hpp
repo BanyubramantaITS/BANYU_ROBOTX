@@ -90,7 +90,9 @@ struct Exit
   double distance_m{0.0};
 };
 
-inline std::optional<Exit> exitVector(Vec2 p, const std::vector<Capsule> & zones, double clearance_m)
+inline std::optional<Exit> exitVector(
+  Vec2 p, const std::vector<Capsule> & zones, double clearance_m,
+  const std::vector<Vec2> & buoys = {}, double buoy_keep_out_m = 0.0)
 {
   const Capsule * deepest = nullptr;
   double depth = 0.0;
@@ -113,23 +115,119 @@ inline std::optional<Exit> exitVector(Vec2 p, const std::vector<Capsule> & zones
     const double axis_len = length(axis);
     if (axis_len > 1e-6) {direction = Vec2{-axis.y / axis_len, axis.x / axis_len};}
   }
-  return Exit{direction, -depth + clearance_m};
+  const double nominal_dist = -depth + clearance_m;
+  if (buoys.empty() || buoy_keep_out_m <= 0.0) {
+    return Exit{direction, nominal_dist};
+  }
+
+  std::vector<Capsule> buoy_discs;
+  buoy_discs.reserve(buoys.size());
+  for (const auto & b : buoys) {
+    buoy_discs.push_back(Capsule{b, b, buoy_keep_out_m, false});
+  }
+  // Physical buoys take priority over virtual zones: if already inside a buoy keep-out disc, step out of the buoy first.
+  if (insideAny(p, buoy_discs)) {
+    if (const auto buoy_exit = exitVector(p, buoy_discs, 0.2)) {
+      return Exit{buoy_exit->direction, std::max(nominal_dist, buoy_exit->distance_m)};
+    }
+  }
+
+  const auto all_zones_clear = [&](Vec2 q) {
+      return std::all_of(
+        zones.begin(), zones.end(),
+        [&](const Capsule & z) {return signedDistance(q, z) >= clearance_m - 1e-4;});
+    };
+  const Vec2 nominal_target = p + direction * nominal_dist;
+  if (all_zones_clear(nominal_target) && !insideAny(nominal_target, buoy_discs) &&
+    segmentClear(p, nominal_target, buoy_discs))
+  {
+    return Exit{direction, nominal_dist};
+  }
+
+  // Search rays and 1-hop buoy tangent flanks for the shortest buoy-clear route out of all zones.
+  constexpr int kRays = 72;
+  constexpr double kStepM = 0.25;
+  constexpr double kMaxSearchM = 100.0;
+  constexpr double kBuoyFlank = 1.05;
+  const double base_angle = std::atan2(direction.y, direction.x);
+
+  std::vector<Vec2> exit_targets;
+  for (int i = 0; i < kRays; ++i) {
+    const double angle = base_angle + (2.0 * M_PI * static_cast<double>(i)) / static_cast<double>(kRays);
+    const Vec2 ray_dir{std::cos(angle), std::sin(angle)};
+    for (double d = std::max(kStepM, nominal_dist); d <= kMaxSearchM; d += kStepM) {
+      const Vec2 q = p + ray_dir * d;
+      if (all_zones_clear(q) && !insideAny(q, buoy_discs)) {
+        exit_targets.push_back(q);
+        break;
+      }
+    }
+  }
+
+  std::vector<Vec2> flank_nodes;
+  for (const auto & b : buoys) {
+    const Vec2 to_b = b - p;
+    const double dist_b = length(to_b);
+    const Vec2 dir_b = dist_b > 1e-6 ? to_b * (1.0 / dist_b) : direction;
+    const Vec2 norm_b{-dir_b.y, dir_b.x};
+    const double r = buoy_keep_out_m * kBuoyFlank;
+    for (const double side : {-1.0, 1.0}) {
+      for (const Vec2 w : {b + norm_b * (side * r), b - dir_b * r + norm_b * (side * r),
+          b + dir_b * r + norm_b * (side * r)})
+      {
+        if (!insideAny(w, buoy_discs) && segmentClear(p, w, buoy_discs) && length(w - p) > 1e-3) {
+          flank_nodes.push_back(w);
+        }
+      }
+    }
+  }
+
+  double best_cost = std::numeric_limits<double>::infinity();
+  std::optional<Exit> best_exit;
+  for (const auto & q : exit_targets) {
+    const double direct_len = length(q - p);
+    if (direct_len > 1e-6 && segmentClear(p, q, buoy_discs) && direct_len < best_cost) {
+      best_cost = direct_len;
+      best_exit = Exit{(q - p) * (1.0 / direct_len), direct_len};
+    }
+    for (const auto & w : flank_nodes) {
+      if (!segmentClear(w, q, buoy_discs)) {continue;}
+      const double leg1 = length(w - p);
+      const double total = leg1 + length(q - w);
+      if (total < best_cost) {
+        best_cost = total;
+        best_exit = Exit{(w - p) * (1.0 / leg1), total};
+      }
+    }
+  }
+  // If every route out of the zone is blocked by buoys, ignore the zone rather than risk colliding with a buoy.
+  return best_exit;
 }
 
-// Where to steer to reach `goal` from the origin without entering a zone: the goal when the straight line is clear, else the
-// first waypoint of the shortest path through points around the zone ends and flanks (1.25 x radius out). Empty when the
-// goal cannot be reached around the zones.
-inline std::optional<Vec2> detourAim(Vec2 goal, const std::vector<Capsule> & zones)
+// Where to steer to reach `goal` from the origin without entering a zone or buoy keep-out disc: the goal when the
+// straight line is clear, else the first waypoint of the shortest path through points around the zone/buoy ends and
+// flanks (1.25 x radius out). Empty when the goal cannot be reached around the obstacles.
+inline std::optional<Vec2> detourAim(
+  Vec2 goal, const std::vector<Capsule> & zones,
+  const std::vector<Vec2> & buoys = {}, double buoy_keep_out_m = 0.0)
 {
   const Vec2 origin{0.0, 0.0};
-  if (segmentClear(origin, goal, zones)) {return goal;}
+  std::vector<Capsule> all_obstacles = zones;
+  if (buoy_keep_out_m > 0.0) {
+    for (const auto & b : buoys) {
+      if (length(b - goal) > buoy_keep_out_m) {
+        all_obstacles.push_back(Capsule{b, b, buoy_keep_out_m, false});
+      }
+    }
+  }
+  if (segmentClear(origin, goal, all_obstacles)) {return goal;}
   constexpr double kFlank = 1.25;
   const Vec2 path = goal - origin;
   const double path_len = length(path);
   const Vec2 path_normal = path_len > 1e-6 ? Vec2{-path.y / path_len, path.x / path_len} : Vec2{0.0, 1.0};
   // Node 0 is the origin; the goal is the last node.
   std::vector<Vec2> nodes{origin};
-  for (const auto & z : zones) {
+  for (const auto & z : all_obstacles) {
     const Vec2 axis = z.b - z.a;
     const double axis_len = length(axis);
     const Vec2 axis_dir = axis_len > 1e-6 ? axis * (1.0 / axis_len) : path_normal * -1.0;
@@ -140,7 +238,7 @@ inline std::optional<Vec2> detourAim(Vec2 goal, const std::vector<Capsule> & zon
           z.a - axis_dir * r + normal * (side * r), z.b + axis_dir * r + normal * (side * r),
           closestOnSegment(origin + path * 0.5, z.a, z.b) + path_normal * (side * r)})
       {
-        if (!insideAny(c, zones)) {nodes.push_back(c);}
+        if (!insideAny(c, all_obstacles)) {nodes.push_back(c);}
       }
     }
   }
@@ -158,7 +256,7 @@ inline std::optional<Vec2> detourAim(Vec2 goal, const std::vector<Capsule> & zon
     if (u == n || !std::isfinite(dist[u])) {break;}
     done[u] = true;
     for (std::size_t v = 0; v < n; ++v) {
-      if (done[v] || !segmentClear(nodes[u], nodes[v], zones)) {continue;}
+      if (done[v] || !segmentClear(nodes[u], nodes[v], all_obstacles)) {continue;}
       const double d = dist[u] + length(nodes[v] - nodes[u]);
       if (d < dist[v]) {
         dist[v] = d;

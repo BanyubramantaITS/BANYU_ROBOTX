@@ -59,6 +59,10 @@ public:
   void notifyDisplaced(
     const GoalIdentity & displaced_identity,
     const std::string & new_owner) override;
+  void setBuoyKeepOut(
+    const std::vector<double> & latitude_deg,
+    const std::vector<double> & longitude_deg,
+    double radius_m) override;
 
   // Accessors for testing and inspection
   const GoalArbiter & arbiter() const noexcept {return arbiter_;}
