@@ -5,6 +5,7 @@
 #include <mavros_msgs/msg/rc_in.hpp>
 #include <mavros_msgs/msg/state.hpp>
 #include <mavros_msgs/srv/command_bool.hpp>
+#include <mavros_msgs/srv/command_long.hpp>
 #include <mavros_msgs/srv/set_mode.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/u_int8.hpp>
@@ -32,6 +33,8 @@ public:
   bool isGimbalInputRejected() const {return _currentOperationalMode == 2 && _gimbalDeflectedLast;}
   bool isGimbalOverrideActive() const {return _gimbalOverrideActive;}
   bool isHardwareKillLatched() const {return _hwKillLatched;}
+  bool isLightOn() const {return _lightIsOn;}
+  bool isLightEnabled() const {return _lightEnabled;}
 
   // One state line from the ESP32 indicator ("itsN"); public so tests can feed reports.
   void handleIndicatorLine(const std::string & line);
@@ -53,6 +56,7 @@ private:
 
   void armVehicle(bool arm);
   void setFlightMode(const std::string & mode);
+  void setLightState(bool on);
 
   void openSerial(bool quiet = false);
   void closeSerial();
@@ -77,6 +81,7 @@ private:
   rclcpp::Publisher<mavros_msgs::msg::PositionTarget>::SharedPtr _setpointPub;
 
   rclcpp::Client<mavros_msgs::srv::CommandBool>::SharedPtr _armingClient;
+  rclcpp::Client<mavros_msgs::srv::CommandLong>::SharedPtr _commandClient;
   rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr _setModeClient;
   rclcpp::TimerBase::SharedPtr _mockAutoTimer;
   rclcpp::TimerBase::SharedPtr _indicatorTimer;
@@ -87,6 +92,16 @@ private:
   std::string _overrideTopic;
   std::string _setpointTopic;
   std::string _stateTopic;
+  std::string _commandService = "/mavros/cmd/command";
+
+  bool _lightEnabled = true;
+  int _lightChannel = 9;
+  double _lightOnPwm = 1900.0;
+  double _lightOffPwm = 1100.0;
+  bool _lightIsOn = false;
+  bool _lightStateInitialized = false;
+  bool _targetLightOn = false;
+  uint32_t _lightRequestSeq = 0;
 
   int _modeChannel = 7;
   int _killChannel = 5;

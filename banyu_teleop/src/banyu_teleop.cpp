@@ -35,6 +35,9 @@ BanyuTeleop::~BanyuTeleop()
     publishReleaseOverride();
     _gimbalOverrideActive = false;
   }
+  if (_lightIsOn) {
+    setLightState(false);
+  }
   closeSerial();
 }
 
@@ -84,6 +87,12 @@ void BanyuTeleop::declareParameters()
   this->declare_parameter<int>("forward_channel", 2);
   this->declare_parameter<int>("lateral_channel", 1);
 
+  this->declare_parameter<bool>("light_enabled", true);
+  this->declare_parameter<int>("light_channel", 9);
+  this->declare_parameter<double>("light_on_pwm", 1900.0);
+  this->declare_parameter<double>("light_off_pwm", 1100.0);
+  this->declare_parameter<std::string>("command_service", "/mavros/cmd/command");
+
   // Retrieve values
   this->get_parameter("rc_topic", _rcTopic);
   this->get_parameter("kill_switch_topic", _killSwitchTopic);
@@ -126,6 +135,12 @@ void BanyuTeleop::declareParameters()
   this->get_parameter("yaw_channel", _yawChannel);
   this->get_parameter("forward_channel", _forwardChannel);
   this->get_parameter("lateral_channel", _lateralChannel);
+
+  this->get_parameter("light_enabled", _lightEnabled);
+  this->get_parameter("light_channel", _lightChannel);
+  this->get_parameter("light_on_pwm", _lightOnPwm);
+  this->get_parameter("light_off_pwm", _lightOffPwm);
+  this->get_parameter("command_service", _commandService);
 
   RCLCPP_INFO(this->get_logger(), "RC input: %s", _rcTopic.c_str());
   RCLCPP_INFO(
@@ -171,13 +186,25 @@ void BanyuTeleop::initCommunication()
   _setpointPub = this->create_publisher<mavros_msgs::msg::PositionTarget>(_setpointTopic, 10);
 
   _armingClient = this->create_client<mavros_msgs::srv::CommandBool>("/mavros/cmd/arming");
+  _commandClient = this->create_client<mavros_msgs::srv::CommandLong>(_commandService);
   _setModeClient = this->create_client<mavros_msgs::srv::SetMode>("/mavros/set_mode");
 }
 
 void BanyuTeleop::stateCallback(const mavros_msgs::msg::State::SharedPtr msg)
 {
+  const bool became_disarmed = _isArmed && !msg->armed;
+  const bool became_armed = !_isArmed && msg->armed;
   _isArmed = msg->armed;
   _currentMode = msg->mode;
+
+  if (became_disarmed) {
+    RCLCPP_INFO(this->get_logger(), "Pixhawk disarmed: turning light OFF.");
+    setLightState(false);
+  } else if (became_armed && (_currentOperationalMode == 1 || _currentOperationalMode == 2)) {
+    RCLCPP_INFO(this->get_logger(), "Pixhawk armed in operational mode %u: turning light ON.",
+      _currentOperationalMode);
+    setLightState(true);
+  }
 }
 
 void BanyuTeleop::handleModeSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg)
@@ -338,6 +365,7 @@ void BanyuTeleop::handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg
         stopMockAutoMode();
       }
       armVehicle(false);
+      setLightState(false);
     } else if (operational_mode == 1) {
       // SB Middle: manual mode, automatically arm Pixhawk
       if (_gimbalOverrideActive) {
@@ -352,6 +380,7 @@ void BanyuTeleop::handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg
       if (!_isArmed) {
         armVehicle(true);
       }
+      setLightState(true);
     } else if (operational_mode == 2) {
       // SB Up: autonomous mode, arm Pixhawk if not armed
       if (!_isArmed) {
@@ -360,6 +389,7 @@ void BanyuTeleop::handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg
       if (_enableMockAuto) {
         startMockAutoMode();
       }
+      setLightState(true);
     }
   }
   _lastKillCommand = command;
@@ -384,6 +414,7 @@ void BanyuTeleop::latchHardwareKill()
     stopMockAutoMode();
   }
   armVehicle(false);
+  setLightState(false);
   if (_killSwitchPublisher) {
     std_msgs::msg::UInt8 status_msg;
     status_msg.data = 0;
@@ -821,6 +852,52 @@ void BanyuTeleop::writeKillCommand(int command)
     RCLCPP_WARN(
       this->get_logger(), "Failed to send kill switch command %d: %s", command, e.what());
   }
+}
+
+void BanyuTeleop::setLightState(bool on)
+{
+  if (!_lightEnabled) {
+    return;
+  }
+
+  if (_lightStateInitialized && _targetLightOn == on) {
+    return;
+  }
+  _targetLightOn = on;
+
+  if (!_commandClient || !_commandClient->service_is_ready()) {
+    return;
+  }
+
+  auto request = std::make_shared<mavros_msgs::srv::CommandLong::Request>();
+  request->command = 183;  // MAV_CMD_DO_SET_SERVO
+  request->param1 = static_cast<float>(_lightChannel);
+  request->param2 = on ? static_cast<float>(_lightOnPwm) : static_cast<float>(_lightOffPwm);
+
+  RCLCPP_INFO(this->get_logger(), "Commanding light (SERVO%d) %s (PWM: %.0f)...",
+    _lightChannel, on ? "ON" : "OFF", request->param2);
+
+  const uint32_t req_id = ++_lightRequestSeq;
+  _commandClient->async_send_request(
+    request,
+    [this, on, req_id](rclcpp::Client<mavros_msgs::srv::CommandLong>::SharedFuture future) {
+      try {
+        auto response = future.get();
+        if (response->success) {
+          if (req_id == _lightRequestSeq) {
+            _lightIsOn = on;
+            _lightStateInitialized = true;
+          }
+          RCLCPP_INFO(this->get_logger(), "Light successfully turned %s", on ? "ON" : "OFF");
+        } else {
+          RCLCPP_WARN(this->get_logger(), "Failed to set light state (result: %u)",
+            response->result);
+        }
+      } catch (const std::exception & e) {
+        RCLCPP_ERROR(this->get_logger(), "Command service call for light threw an exception: %s",
+          e.what());
+      }
+    });
 }
 
 }   // namespace banyu_teleop

@@ -5,6 +5,7 @@
 #include <mavros_msgs/msg/rc_in.hpp>
 #include <mavros_msgs/msg/state.hpp>
 #include <mavros_msgs/srv/command_bool.hpp>
+#include <mavros_msgs/srv/command_long.hpp>
 #include <mavros_msgs/srv/set_mode.hpp>
 #include <std_msgs/msg/u_int8.hpp>
 
@@ -785,4 +786,99 @@ TEST_F(BanyuTeleopTest, HardwareKillIgnoredWhenDisabled)
   teleop->handleIndicatorLine("its2");
   EXPECT_FALSE(teleop->isHardwareKillLatched());
   EXPECT_EQ(teleop->getOperationalMode(), 1);
+}
+
+TEST_F(BanyuTeleopTest, AutomaticLightControlWithOperationalModeAndDisarm)
+{
+  std::vector<std::pair<float, float>> light_calls;
+  auto cmd_service = test_node_->create_service<mavros_msgs::srv::CommandLong>(
+    "/mavros/cmd/command",
+    [&](
+      const std::shared_ptr<mavros_msgs::srv::CommandLong::Request> request,
+      std::shared_ptr<mavros_msgs::srv::CommandLong::Response> response) {
+      if (request->command == 183) {
+        light_calls.push_back({request->param1, request->param2});
+      }
+      response->success = true;
+      response->result = 0;
+    });
+
+  auto arm_service = test_node_->create_service<mavros_msgs::srv::CommandBool>(
+    "/mavros/cmd/arming",
+    [&](
+      const std::shared_ptr<mavros_msgs::srv::CommandBool::Request>,
+      std::shared_ptr<mavros_msgs::srv::CommandBool::Response> response) {
+      response->success = true;
+      response->result = 0;
+    });
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"serial_port", "none"},
+    {"enable_mock_auto", false},
+    {"kill_channel", 5},
+    {"mode_channel", 7},
+    {"light_enabled", true},
+    {"light_channel", 9},
+    {"light_on_pwm", 1900.0},
+    {"light_off_pwm", 1100.0},
+  });
+
+  auto teleop = std::make_shared<banyu_teleop::BanyuTeleop>(options);
+
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(test_node_);
+  exec.add_node(teleop);
+
+  auto spin = [&]() {
+      for (int i = 0; i < 15; ++i) {
+        exec.spin_some();
+        std::this_thread::sleep_for(10ms);
+      }
+    };
+
+  // 1. SB Mid (1500): Manual mode -> turns light ON (SERVO 9, 1900 PWM)
+  auto rc_mid = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_mid->channels = {1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500};
+  teleop->rcinCallback(rc_mid);
+  spin();
+
+  ASSERT_FALSE(light_calls.empty());
+  EXPECT_EQ(light_calls.back().first, 9.0f);
+  EXPECT_EQ(light_calls.back().second, 1900.0f);
+  EXPECT_TRUE(teleop->isLightOn());
+
+  // 2. SB Down (2011): Kill / Disarm -> turns light OFF (SERVO 9, 1100 PWM)
+  auto rc_down = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_down->channels = {1500, 1500, 1500, 1500, 1500, 2011, 1500, 1500};
+  teleop->rcinCallback(rc_down);
+  spin();
+
+  ASSERT_GE(light_calls.size(), 2u);
+  EXPECT_EQ(light_calls.back().first, 9.0f);
+  EXPECT_EQ(light_calls.back().second, 1100.0f);
+  EXPECT_FALSE(teleop->isLightOn());
+
+  // 3. SB Up (988): Autonomous mode -> turns light ON
+  auto rc_up = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_up->channels = {1500, 1500, 1500, 1500, 1500, 988, 1500, 1500};
+  teleop->rcinCallback(rc_up);
+  spin();
+
+  ASSERT_GE(light_calls.size(), 3u);
+  EXPECT_EQ(light_calls.back().first, 9.0f);
+  EXPECT_EQ(light_calls.back().second, 1900.0f);
+  EXPECT_TRUE(teleop->isLightOn());
+
+  // 4. Pixhawk reports disarmed via /mavros/state -> turns light OFF
+  auto state_disarmed = std::make_shared<mavros_msgs::msg::State>();
+  state_disarmed->armed = false;
+  state_disarmed->mode = "MANUAL";
+  teleop->stateCallback(state_disarmed);
+  spin();
+
+  ASSERT_GE(light_calls.size(), 4u);
+  EXPECT_EQ(light_calls.back().first, 9.0f);
+  EXPECT_EQ(light_calls.back().second, 1100.0f);
+  EXPECT_FALSE(teleop->isLightOn());
 }

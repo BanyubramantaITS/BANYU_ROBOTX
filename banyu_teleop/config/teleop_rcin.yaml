@@ -43,6 +43,14 @@ banyu_teleop:
     rc_timeout_s: 3.0              # no RC with the SB channel for this long -> RC counts as lost
     kill_switch_board_topic: "/banyu/hardware/kill_switch_board"
 
+    # Automatic light control on AUX output (MAV_CMD_DO_SET_SERVO = 183)
+    # Turns ON in Manual (SB Mid) or Autonomous (SB Up), and OFF on Disarm/Kill (SB Down/disarm).
+    light_enabled: true
+    light_channel: 9               # AUX 1 / SERVO 9 (1-based instance)
+    light_on_pwm: 1900.0           # PWM value for full brightness
+    light_off_pwm: 1100.0          # PWM value for off
+    command_service: "/mavros/cmd/command"
+
     # Mock ESP32 Auto/Mission Mode (land testing)
     enable_mock_auto: false   # land test only: SB Up spins all thrusters; never true for a mission
     mock_auto_flight_mode: "MANUAL"
