@@ -22,32 +22,31 @@ RingTrackerNode::RingTrackerNode(const rclcpp::NodeOptions & options)
   pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
     pose_topic_, rclcpp::SensorDataQoS(),
     std::bind(&RingTrackerNode::poseCallback, this, std::placeholders::_1));
-  if (dead_reckoning_ || buoy_line_axis_) {
-    fix_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
-      declare_parameter<std::string>("gps_fix_topic", "/mavros/global_position/global"), rclcpp::SensorDataQoS(),
-      [this](const sensor_msgs::msg::NavSatFix::SharedPtr m) {
-        std::lock_guard<std::mutex> lock(pose_mutex_);
-        fix_valid_ = m->status.status >= sensor_msgs::msg::NavSatStatus::STATUS_FIX &&
-        std::isfinite(m->latitude) && std::isfinite(m->longitude);
-        fix_time_ = now();
-      });
-    command_sub_ = create_subscription<mavros_msgs::msg::PositionTarget>(
-      declare_parameter<std::string>("command_topic", "/banyu/execution/preview_target"), rclcpp::QoS(10),
-      [this](const mavros_msgs::msg::PositionTarget::SharedPtr m) {
-        std::lock_guard<std::mutex> lock(pose_mutex_);
-        reckoner_.setCommand(m->velocity.x, m->velocity.y, rclcpp::Time(m->header.stamp).seconds());
-      });
-    buoy_sub_ = create_subscription<banyu_msgs::msg::Task2BuoyTarget>(
-      declare_parameter<std::string>("buoy_target_topic", "/banyu/task2/buoy_target"),
-      rclcpp::QoS(1).reliable().transient_local(),
-      [this](const banyu_msgs::msg::Task2BuoyTarget::SharedPtr m) {
-        std::lock_guard<std::mutex> lock(pose_mutex_);
-        if (m->heading_valid && std::isfinite(m->heading_enu_rad)) {
-          buoy_heading_valid_ = true;
-          buoy_heading_enu_ = m->heading_enu_rad;
-        }
-      });
-  }
+  // No position under water: the pose is the last surface fix plus the commanded velocity.
+  fix_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
+    declare_parameter<std::string>("gps_fix_topic", "/mavros/global_position/global"), rclcpp::SensorDataQoS(),
+    [this](const sensor_msgs::msg::NavSatFix::SharedPtr m) {
+      std::lock_guard<std::mutex> lock(pose_mutex_);
+      fix_valid_ = m->status.status >= sensor_msgs::msg::NavSatStatus::STATUS_FIX &&
+      std::isfinite(m->latitude) && std::isfinite(m->longitude);
+      fix_time_ = now();
+    });
+  command_sub_ = create_subscription<mavros_msgs::msg::PositionTarget>(
+    declare_parameter<std::string>("command_topic", "/banyu/execution/preview_target"), rclcpp::QoS(10),
+    [this](const mavros_msgs::msg::PositionTarget::SharedPtr m) {
+      std::lock_guard<std::mutex> lock(pose_mutex_);
+      reckoner_.setCommand(m->velocity.x, m->velocity.y, rclcpp::Time(m->header.stamp).seconds());
+    });
+  buoy_sub_ = create_subscription<banyu_msgs::msg::Task2BuoyTarget>(
+    declare_parameter<std::string>("buoy_target_topic", "/banyu/task2/buoy_target"),
+    rclcpp::QoS(1).reliable().transient_local(),
+    [this](const banyu_msgs::msg::Task2BuoyTarget::SharedPtr m) {
+      std::lock_guard<std::mutex> lock(pose_mutex_);
+      if (m->heading_valid && std::isfinite(m->heading_enu_rad)) {
+        buoy_heading_valid_ = true;
+        buoy_heading_enu_ = m->heading_enu_rad;
+      }
+    });
   if (pipe_height_enabled_) {
     pipe_sub_ = create_subscription<banyu_msgs::msg::PipelineObservation>(
       declare_parameter<std::string>("pipeline_observation_topic", "/banyu/pipeline/observation"),
@@ -139,27 +138,9 @@ void RingTrackerNode::declareParameters()
   pipe_diameter_m_ = declare_parameter<double>("pipe_height.pipe_diameter_m", 0.0889);
   pipe_hfov_rad_ = declare_parameter<double>("pipe_height.hfov_rad", 1.047);
   camera_tilt_rad_ = config.camera_tilt_from_vertical_rad;
-  const auto pose_source = declare_parameter<std::string>("pose_source", "ekf");
-  const auto progress_axis = declare_parameter<std::string>("progress_axis", "centerline");
-  if ((pose_source != "ekf" && pose_source != "dead_reckoning") ||
-    (progress_axis != "centerline" && progress_axis != "buoy_line"))
-  {
-    throw std::invalid_argument("pose_source must be ekf or dead_reckoning, progress_axis centerline or buoy_line");
-  }
-  dead_reckoning_ = pose_source == "dead_reckoning";
-  buoy_line_axis_ = progress_axis == "buoy_line";
+  // Progress is measured along the buoy-to-buoy line, set at the dive from the USV buoys' bearing: no pipe map.
   buoy_line_half_length_m_ = declare_parameter<double>("buoy_line_half_length_m", 30.0);
   reckoner_ = DeadReckoner(declare_parameter<double>("dead_reckoning.velocity_gain", 1.0));
-  const auto centerline_points = declare_parameter<std::vector<double>>(
-    "centerline_points", std::vector<double>{});
-  // buoy_line: the pipe map (centerline) is not known; the axis is set at the dive from the buoys' bearing.
-  if (!buoy_line_axis_ && centerline_points.size() >= 4 && centerline_points.size() % 2 == 0) {
-    std::vector<std::pair<double, double>> waypoints;
-    for (std::size_t i = 0; i < centerline_points.size(); i += 2) {
-      waypoints.emplace_back(centerline_points[i], centerline_points[i + 1]);
-    }
-    adapter_.setCenterline(waypoints);
-  }
 }
 
 double RingTrackerNode::pipeHeight(double t) const
@@ -185,34 +166,28 @@ void RingTrackerNode::poseCallback(const geometry_msgs::msg::PoseStamped::Shared
     return;
   }
   std::lock_guard<std::mutex> lock(pose_mutex_);
-  if (!dead_reckoning_ && !buoy_line_axis_) {
-    pose_history_.push_back(*msg);
+  const double t = stampSeconds(msg->header.stamp);
+  const bool gps_fresh = fix_valid_ && (now() - fix_time_).seconds() <= gps_fresh_s_;
+  auto pose = *msg;
+  if (gps_fresh) {
+    reckoner_.reset(msg->pose.position.x, msg->pose.position.y, t);
   } else {
-    const double t = stampSeconds(msg->header.stamp);
-    const bool gps_fresh = fix_valid_ && (now() - fix_time_).seconds() <= gps_fresh_s_;
-    auto pose = *msg;
-    if (dead_reckoning_) {
-      if (gps_fresh) {
-        reckoner_.reset(msg->pose.position.x, msg->pose.position.y, t);
-      } else {
-        reckoner_.advance(t);
-      }
-      if (reckoner_.valid()) {
-        pose.pose.position.x = reckoner_.x();
-        pose.pose.position.y = reckoner_.y();
-      }
-    }
-    if (buoy_line_axis_ && !gps_fresh && !axis_set_ && buoy_heading_valid_) {
-      // The dive point (the start buoy) is the origin; progress grows toward the other buoy.
-      const double c = std::cos(buoy_heading_enu_), sn = std::sin(buoy_heading_enu_);
-      const double x0 = pose.pose.position.x, y0 = pose.pose.position.y, l = buoy_line_half_length_m_;
-      pending_axis_ = {{x0 - l * c, y0 - l * sn}, {x0 + l * c, y0 + l * sn}};
-      axis_set_ = true;
-      RCLCPP_INFO(get_logger(), "Ring progress axis from the buoys: origin (%.2f, %.2f), heading %.3f rad",
-        x0, y0, buoy_heading_enu_);
-    }
-    pose_history_.push_back(pose);
+    reckoner_.advance(t);
   }
+  if (reckoner_.valid()) {
+    pose.pose.position.x = reckoner_.x();
+    pose.pose.position.y = reckoner_.y();
+  }
+  if (!gps_fresh && !axis_set_ && buoy_heading_valid_) {
+    // The dive point is the origin; progress grows toward the other buoy.
+    const double c = std::cos(buoy_heading_enu_), sn = std::sin(buoy_heading_enu_);
+    const double x0 = pose.pose.position.x, y0 = pose.pose.position.y, l = buoy_line_half_length_m_;
+    pending_axis_ = {{x0 - l * c, y0 - l * sn}, {x0 + l * c, y0 + l * sn}};
+    axis_set_ = true;
+    RCLCPP_INFO(get_logger(), "Ring progress axis from the buoys: origin (%.2f, %.2f), heading %.3f rad",
+      x0, y0, buoy_heading_enu_);
+  }
+  pose_history_.push_back(pose);
   while (pose_history_.size() > pose_history_size_) {
     pose_history_.pop_front();
   }

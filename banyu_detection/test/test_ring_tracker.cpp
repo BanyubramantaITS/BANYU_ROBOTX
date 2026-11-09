@@ -654,6 +654,8 @@ TEST(RingTracker, MergedPairKeepsTheRedRecordInItsSlot) {
   EXPECT_EQ(u.merged_record.node_id, 2U);
   EXPECT_EQ(u.merged_record.color, red);
   EXPECT_EQ(u.superseded_record.node_id, 1U);
+  // The node's place in the report order is its first sighting, the GREEN at 1.5 (frame 4), not the RED (frame 7).
+  EXPECT_EQ(u.merged_record.frame_sequence, 4U);
   EXPECT_EQ(u.record.node_id, 4U);
   EXPECT_EQ(tracker.records()[2].color, red);
   EXPECT_FALSE(tracker.records()[2].superseded);

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <mutex>
 #include <utility>
 #include <vector>
 #include <cstdlib>
@@ -12,6 +13,7 @@
 #include <stdexcept>
 #include "rx_msgs/msg/rx_task.hpp"
 #include "std_msgs/msg/bool.hpp"
+#include "banyu_msgs/msg/task4_zones.hpp"
 #include "rx_msgs/msg/vehicle_type.hpp"
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
@@ -122,6 +124,56 @@ void registerMissionNodes(
     [on_shift_buoy_target](BT::TreeNode &) {return on_shift_buoy_target();});
   if (!on_wait_buoy_target) {on_wait_buoy_target = []() {return BT::NodeStatus::SUCCESS;};}
   factory.registerNodeType<WaitUntil>("WaitForBuoyTarget", on_wait_buoy_target);
+  // Task 4: after the report, stay on the surface (the vehicle execution keeps it out of the zones) while a RoboCommand
+  // keep-out zone or moving object is active, then release after mission.zones.release_s without one.
+  {
+    struct ZoneWatch
+    {
+      std::mutex mutex;
+      bool active{false};
+      bool holding{false};
+      rclcpp::Time hold_start{0, 0, RCL_ROS_TIME};
+      rclcpp::Time last_active{0, 0, RCL_ROS_TIME};
+    };
+    auto watch = std::make_shared<ZoneWatch>();
+    if (!node->has_parameter("topics.task4_zones")) {
+      node->declare_parameter<std::string>("topics.task4_zones", "/banyu/task4/zones");
+    }
+    const double release_s = node->has_parameter("mission.zones.release_s") ?
+      node->get_parameter("mission.zones.release_s").as_double() :
+      node->declare_parameter<double>("mission.zones.release_s", 10.0);
+    const double max_hold_s = node->has_parameter("mission.zones.max_hold_s") ?
+      node->get_parameter("mission.zones.max_hold_s").as_double() :
+      node->declare_parameter<double>("mission.zones.max_hold_s", 600.0);
+    auto zones_sub = node->create_subscription<banyu_msgs::msg::Task4Zones>(
+      node->get_parameter("topics.task4_zones").as_string(), rclcpp::QoS(1).reliable().transient_local(),
+      [watch](banyu_msgs::msg::Task4Zones::ConstSharedPtr msg) {
+        std::lock_guard<std::mutex> lock(watch->mutex);
+        watch->active = !msg->static_radius_m.empty() || msg->moving_active;
+      });
+    factory.registerNodeType<WaitUntil>("KeepClearOfZones", std::function<BT::NodeStatus()>(
+      [node, watch, zones_sub, release_s, max_hold_s]() {
+        std::lock_guard<std::mutex> lock(watch->mutex);
+        const auto t = node->now();
+        if (watch->active) {
+          if (!watch->holding) {
+            watch->holding = true;
+            watch->hold_start = t;
+            RCLCPP_WARN(node->get_logger(), "Task 4 zone active after the report: staying on the surface, clear of it");
+          }
+          watch->last_active = t;
+          if ((t - watch->hold_start).seconds() > max_hold_s) {
+            RCLCPP_WARN(node->get_logger(), "Task 4 zone still active after %.0f s: ending the run", max_hold_s);
+            watch->holding = false;
+            return BT::NodeStatus::SUCCESS;
+          }
+          return BT::NodeStatus::RUNNING;
+        }
+        if (watch->holding && (t - watch->last_active).seconds() < release_s) {return BT::NodeStatus::RUNNING;}
+        watch->holding = false;
+        return BT::NodeStatus::SUCCESS;
+      }));
+  }
   // Ring recording on or off for the ring tracker (off while diving and backing up to the pipe's start).
   if (!node->has_parameter("topics.ring_recording")) {
     node->declare_parameter<std::string>("topics.ring_recording", "/banyu/mission/ring_recording");

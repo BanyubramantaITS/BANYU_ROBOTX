@@ -5,6 +5,8 @@
 #include <memory>
 #include <stdexcept>
 
+#include "banyu_vehicle_execution/task4_zones.hpp"
+
 namespace banyu_vehicle_execution
 {
 
@@ -64,6 +66,7 @@ void SurfaceServer::onGoalStarted()
   blind_s_ = 0.0;
   last_valid_depth_time_ = std::chrono::steady_clock::now();
   hold_active_ = false;
+  zone_hold_s_ = 0.0;
 }
 
 MotionIntent SurfaceServer::tick(
@@ -77,6 +80,18 @@ MotionIntent SurfaceServer::tick(
     return zeroIntent();
   }
   const auto goal = active_handle_->get_goal();
+  // Surfacing point (the last fix) inside a Task 4 zone: stay at depth until it clears, within the time limit. With a GPS
+  // fix the vehicle is already on the surface and there is nothing to wait for.
+  if (goal->hold_for_zones && !telemetry.gps_valid && telemetry.zones.any() &&
+    telemetry.gps_stamp.nanoseconds() != 0 && zone_hold_s_ < zone_hold_timeout_s_ &&
+    insideAny(Vec2{0.0, 0.0}, telemetry.zonesAroundVehicle(now)))
+  {
+    zone_hold_s_ += std::max(0.0, dt);
+    RCLCPP_INFO_THROTTLE(
+      node_->get_logger(), *node_->get_clock(), 5000,
+      "Task 4: surfacing point inside a keep-out zone, holding at depth (%.0f s)", zone_hold_s_);
+    return zeroIntent();
+  }
   const auto steady_now = std::chrono::steady_clock::now();
   const auto & water = telemetry.water_depth;
   const double depth_m = require_calibrated_depth_ ? water.depth_m : telemetry.depth_m;

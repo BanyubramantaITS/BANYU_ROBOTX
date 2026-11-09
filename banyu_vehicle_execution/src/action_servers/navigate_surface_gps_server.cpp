@@ -48,6 +48,12 @@ std::pair<double, double> keepOutAim(
   return aim;
 }
 
+MotionIntent zoneExitIntent(const Exit & exit, double max_speed_mps, double yaw_rate)
+{
+  const double speed = std::clamp(0.5 + exit.distance_m, 0.2, std::max(0.2, max_speed_mps));
+  return MotionIntent::localEnu(exit.direction.x * speed, exit.direction.y * speed, 0.0, yaw_rate);
+}
+
 NavigateSurfaceGpsServer::NavigateSurfaceGpsServer(
   rclcpp::Node * node,
   const std::string & action_name,
@@ -93,6 +99,51 @@ MotionIntent NavigateSurfaceGpsServer::tick(
     goal->target_latitude_deg, goal->target_longitude_deg,
     dx, dy);
 
+  // Buoys as ENU offsets from the vehicle.
+  std::vector<std::pair<double, double>> buoys;
+  const std::size_t count = std::min(goal->keep_out_latitude_deg.size(), goal->keep_out_longitude_deg.size());
+  for (std::size_t i = 0; i < count; ++i) {
+    if (!std::isfinite(goal->keep_out_latitude_deg[i]) || !std::isfinite(goal->keep_out_longitude_deg[i])) {continue;}
+    double ox = 0.0;
+    double oy = 0.0;
+    latLonToEnuOffsets(
+      telemetry.latitude_deg, telemetry.longitude_deg,
+      goal->keep_out_latitude_deg[i], goal->keep_out_longitude_deg[i], ox, oy);
+    buoys.emplace_back(ox, oy);
+  }
+
+  // Task 4 zones: a dive point inside a static zone moves along the buoy line to the nearest point outside; one inside
+  // the moving object's projected zone is waited for at its edge.
+  const auto zones = telemetry.zonesAroundVehicle(now);
+  std::vector<Capsule> static_zones;
+  std::vector<Capsule> moving_zones;
+  for (const auto & z : zones) {(z.moving ? moving_zones : static_zones).push_back(z);}
+  bool waiting_for_moving = false;
+  if (!static_zones.empty()) {
+    std::vector<Vec2> buoy_points;
+    for (const auto & [bx, by] : buoys) {buoy_points.push_back(Vec2{bx, by});}
+    std::optional<std::pair<Vec2, Vec2>> line;
+    if (buoy_points.size() >= 2) {line = std::make_pair(buoy_points[0], buoy_points[1]);}
+    if (const auto shift = shiftDivePoint(Vec2{dx, dy}, static_zones, buoy_points, zone_buoy_clear_m_, line);
+      shift && shift->shifted)
+    {
+      RCLCPP_INFO_THROTTLE(
+        node_->get_logger(), *node_->get_clock(), 5000,
+        "Task 4: dive point inside a keep-out zone, shifted %.1f m %s", std::hypot(shift->point.x - dx, shift->point.y - dy),
+        shift->along_line ? "along the buoy line" : "off the buoy line");
+      dx = shift->point.x;
+      dy = shift->point.y;
+    }
+  }
+  if (insideAny(Vec2{dx, dy}, moving_zones)) {waiting_for_moving = true;}
+
+  // Inside a zone (published on top of the vehicle, or a moving object arriving): leave along the shortest way first.
+  if (const auto exit = exitVector(Vec2{0.0, 0.0}, zones, telemetry.zones.exit_clearance_m)) {
+    RCLCPP_WARN_THROTTLE(
+      node_->get_logger(), *node_->get_clock(), 2000, "Task 4: inside a keep-out zone, leaving %.1f m", exit->distance_m);
+    return zoneExitIntent(*exit, telemetry.zones.exit_speed_mps, 0.0);
+  }
+
   const double distance = std::hypot(dx, dy);
 
   auto feedback = std::make_shared<Feedback>();
@@ -102,7 +153,7 @@ MotionIntent NavigateSurfaceGpsServer::tick(
   feedback->distance_remaining_m = distance;
   active_handle_->publish_feedback(feedback);
 
-  if (distance <= goal->tolerance_m) {
+  if (distance <= goal->tolerance_m && !waiting_for_moving) {
     auto result = std::make_shared<Result>();
     result->success = true;
     result->reason = "Target GPS coordinates reached";
@@ -116,22 +167,31 @@ MotionIntent NavigateSurfaceGpsServer::tick(
     return zeroIntent();
   }
 
+  if (waiting_for_moving) {
+    // Wait outside the projected zone until the object has passed.
+    RCLCPP_INFO_THROTTLE(
+      node_->get_logger(), *node_->get_clock(), 5000, "Task 4: dive point in the moving object's path, waiting");
+    const auto edge = truncateAtZone(Vec2{dx, dy}, moving_zones, telemetry.zones.exit_clearance_m);
+    dx = edge ? edge->x : 0.0;
+    dy = edge ? edge->y : 0.0;
+  }
+
   // Keep clear of the buoys on the way (a target inside a keep-out circle drops that circle).
   std::vector<std::pair<double, double>> obstacles;
-  const std::size_t count = std::min(goal->keep_out_latitude_deg.size(), goal->keep_out_longitude_deg.size());
-  for (std::size_t i = 0; i < count; ++i) {
-    if (!std::isfinite(goal->keep_out_latitude_deg[i]) || !std::isfinite(goal->keep_out_longitude_deg[i])) {continue;}
-    double ox = 0.0;
-    double oy = 0.0;
-    latLonToEnuOffsets(
-      telemetry.latitude_deg, telemetry.longitude_deg,
-      goal->keep_out_latitude_deg[i], goal->keep_out_longitude_deg[i], ox, oy);
+  for (const auto & [ox, oy] : buoys) {
     if (std::hypot(ox - dx, oy - dy) > goal->keep_out_radius_m) {obstacles.emplace_back(ox, oy);}
   }
-  const auto [ax, ay] = keepOutAim({dx, dy}, obstacles, goal->keep_out_radius_m);
+  auto [ax, ay] = keepOutAim({dx, dy}, obstacles, goal->keep_out_radius_m);
+  if (!zones.empty()) {
+    // Around a zone on the way; with no clear way (boxed in) hold here rather than cross it.
+    const auto aim = detourAim(Vec2{ax, ay}, zones);
+    ax = aim ? aim->x : 0.0;
+    ay = aim ? aim->y : 0.0;
+  }
+  if (std::hypot(ax, ay) < 1e-3) {return zeroIntent();}
   const double bearing = std::atan2(ay, ax);
   const double heading_err = normalizeAngle(bearing - telemetry.yaw);
-  const double speed = std::clamp(nav_kp_ * distance, 0.0, nav_max_speed_);
+  const double speed = std::clamp(nav_kp_ * std::max(distance, std::hypot(ax, ay)), 0.0, nav_max_speed_);
   const double yaw_rate = std::clamp(yaw_kp_ * heading_err, -max_yaw_rate_, max_yaw_rate_);
 
   const double surge = speed * std::cos(heading_err);

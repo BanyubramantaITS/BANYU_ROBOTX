@@ -36,6 +36,9 @@ start buoy, in this order:
 1. **Descend in steps** (0.5 m) with a short lateral sweep (+-3 m, along the buoy-to-buoy line first, then across it) at each step. The footprint of the camera at 1.5 m is about 1.7 m wide,
    so the sweep spacing is about 1.2 m.
 2. **Use the hydrophone** when it is available: the bearing to the green buoy's pinger (hung below the buoy) says where the start end is, even when the GPS is a few metres off.
+Implemented (2026-11-08): the light cue. With no pipe in view the detector reports a light anywhere in the image on `/banyu/pipeline/light_cue`,
+and `AcquirePipeline`/`SearchPipeline` steer over it below `light_cue.min_depth_m`, for at most `light_cue.budget_s` per goal. Not implemented:
+the depth steps with sweeps, the IR LED toggle (no software control of the LED yet).
 3. **Turn the IR LED on and off** at each step and keep the better contrast (backscatter in turbid water can wash the lights out with the LED on, which the sim does not model).
 4. After a full sweep without a find, rise 1 m, move 3 m along the line and restart (a shifted pipe, a GPS offset). After N tries, surface and report the Core survey with what was seen
    (an empty survey is still a valid report; the points for the report order are lost, the heartbeat and the start buoy points are kept).
@@ -64,6 +67,10 @@ on its anchor line and the unknown pipe offset can make the first dive miss it. 
 4. Scenarios (section 4): pipe offset from the buoy line by 0-4 m, heading off by +-25 degrees, GPS offset 1-3 m, a buoy drifted 2 m: acceptance is "found within the budget in 10 of 10 runs, or a report is sent".
 
 ### 2.8 Light order without a known pipe map (needed for any dive that is not at the start buoy)
+**Done (2026-11-08):** `centerline_points` and the `ekf` pose source are removed. The ring tracker always dead-reckons and measures
+progress along the buoy line (only to tell a repeat sighting from a new node), and the report order is the order of first sighting in
+the forward survey from the pipe's start. The text below is the original analysis.
+
 Now the order of the four lights is the progress of each ring along a **centerline that is hard-coded in `task2_params.yaml`** (`centerline_points`, the sim pipe), measured from the start-buoy end
 (`low_progress_endpoint_id: start_buoy`). In Marina Bay the pipe's place is unknown, so there is no such line. With no centerline the tracker only has the distance travelled since the following began, which is right only when the UUV began at the start-buoy end.
 H18 handles the direction of the traverse on a known geometry only; it does not solve this.

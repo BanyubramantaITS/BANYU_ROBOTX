@@ -5,6 +5,8 @@ float64 target_depth_m
 float64 depth_tolerance_m
 # Optional continuous missing-prerequisite watchdog; zero disables it.
 float64 watchdog_timeout_s
+# Task 4: wait at depth (time-bounded) while the last known position is inside a keep-out zone, then ascend.
+bool hold_for_zones
 ---
 bool success
 string reason

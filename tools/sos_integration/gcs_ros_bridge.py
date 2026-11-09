@@ -211,10 +211,13 @@ class Bridge(Node):
                                target_vehicle=command.all_clear.vehicle_type))
         elif body == 'moving_object_alert':
             b = command.moving_object_alert
+            # robocommand RobotX_2026 rx_commands.proto: MovingObjectAlert.keep_out_radius_m (5 m by default; proto3 sends
+            # 0 for an unset field).
+            radius_m = b.keep_out_radius_m or 5.0
             for vehicle_type in b.affected_vehicle_types:
                 out.append(Command(command_type=Command.CMD_TASK4_MOVING_OBJECT,
                                    target_vehicle=vehicle_type, heading_deg=b.heading_deg,
-                                   speed_mps=b.speed_mps, position=lat_lng(b.position)))
+                                   speed_mps=b.speed_mps, radius_m=radius_m, position=lat_lng(b.position)))
         elif body == 'readiness_confirm':
             b = command.readiness_confirm
             target = VehicleType.TYPE_UUV if b.vehicle_id.upper().startswith('UUV') \

@@ -121,6 +121,12 @@ if(BUILD_TESTING)
     std_msgs
     unique_identifier_msgs)
 
+  ament_add_gtest(test_task4_zones test/test_task4_zones.cpp ENV ROS_DOMAIN_ID=42)
+  target_link_libraries(test_task4_zones ${PROJECT_NAME})
+  target_compile_features(test_task4_zones PUBLIC cxx_std_17)
+  target_include_directories(test_task4_zones PRIVATE include)
+  ament_target_dependencies(test_task4_zones rclcpp rclcpp_action banyu_msgs mavros_msgs geometry_msgs sensor_msgs)
+
   ament_add_gtest(test_run_authorization test/test_run_authorization.cpp)
   target_link_libraries(test_run_authorization ${PROJECT_NAME})
   target_compile_features(test_run_authorization PUBLIC cxx_std_17)

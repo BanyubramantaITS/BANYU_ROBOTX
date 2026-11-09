@@ -35,7 +35,7 @@ so enum fields copy across unchanged.
 | `assistance_request` | `CMD_TASK4_ASSISTANCE` | `target_vehicle = vehicle_type`, `position` |
 | `keep_out_zone` | `CMD_TASK4_KEEP_OUT_ZONE` | `target_vehicle`, `center`, `radius_m` |
 | `all_clear` | `CMD_TASK4_ALL_CLEAR` | `target_vehicle` |
-| `moving_object_alert` | `CMD_TASK4_MOVING_OBJECT` | one command per `affected_vehicle_types` entry; `position`, `heading_deg`, `speed_mps` |
+| `moving_object_alert` | `CMD_TASK4_MOVING_OBJECT` | one command per `affected_vehicle_types` entry; `position`, `heading_deg`, `speed_mps`, **`radius_m`** from the proto field `MovingObjectAlert.keep_out_radius_m` (robonation/robocommand `RobotX_2026/proto/robotx/rx_commands.proto`; 5 m by default, so 0 becomes 5; handbook update 2026-10-23). The bridge used to drop it, and the UUV rejects an alert without a radius |
 | `readiness_confirm` | `CMD_TASK4_READINESS_CONFIRM` | `report_seq`; target from `vehicle_id` |
 
 ## Required behaviour (found missing in `GcsReporter` during integration testing)
@@ -71,8 +71,13 @@ so enum fields copy across unchanged.
   re-prepares autonomy. Each preparation opens a new run identity window (the console may also reset
   `run_id` to 1); within one window an already accepted `run_id` is never restarted, and reports stay
   tied to the run epoch.
-- Task 4: `IncidentAck` with the original `command_seq` for assistance, keep-out and all-clear; no
-  ACK for moving-object alerts; no `ReadinessReport` (Task 4 is not attempted yet).
+- Task 4: `IncidentAck` with the original `command_seq` for assistance, keep-out and all-clear
+  addressed to the UUV or to all vehicles (not the USV's own); no ACK for moving-object alerts unless
+  `uuv_comm_node` `task4.ack_moving_object` is set (the protocol has none, the scoring awards one; see
+  `docs/task4.md`); no `ReadinessReport`. Keep-out zones and moving-object alerts (any target UUV, UNKNOWN or USV,
+  since a surfaced UUV is a USV) are kept per run and avoided on the surface. Dedup key `(command_seq, command_type)`:
+  the bridge sends one `Command` per addressed vehicle type with the same `seq`, so the second is a duplicate for the
+  zone state (still acked when it is the UUV's). `MOVING_OBJECT` needs `radius_m` (>0) or it is rejected.
 - `PipelineSurvey` is published once per run, after surfacing, with the active (GREEN) buoy
   position and the four original segment states ordered from the active buoy end.
 

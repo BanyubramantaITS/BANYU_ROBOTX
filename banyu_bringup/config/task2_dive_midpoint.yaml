@@ -1,4 +1,4 @@
-# Task 2 dive point overlay for dive_point:=midpoint (launch_task2.sh --dive-point midpoint). The vehicle navigates to the
+# Task 2 dive point overlay for dive_point:=midpoint, the default (launch_task2.sh --dive-point midpoint). The vehicle navigates to the
 # middle of the start and end buoys (the pipe is surely below; both buoys are far away), dives facing the end buoy, acquires the
 # pipe, backs up along it (stern toward the start buoy) to the pipe's start, then surveys forward over the whole pipe.
 # mission.launch.py loads it after the sensors overlay; dive_point:=buoy loads nothing.

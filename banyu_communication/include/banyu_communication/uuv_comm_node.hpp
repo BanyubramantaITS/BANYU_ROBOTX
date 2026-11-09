@@ -32,6 +32,8 @@
 #include <rx_msgs/msg/rx_task.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include "banyu_communication/survey_reporting.hpp"
+#include "banyu_communication/task4_zones.hpp"
+#include <banyu_msgs/msg/task4_zones.hpp>
 
 class UuvCommNodeTest;
 
@@ -61,6 +63,7 @@ private:
   void evidenceCallback(const banyu_msgs::msg::Task2SurveyEvidence::SharedPtr msg);
   void depthCallback(const banyu_msgs::msg::WaterDepth::SharedPtr msg);
   void publishSurveyProgress();
+  void publishZones();
   void surveyCallback(
     std::shared_ptr<rclcpp::Service<TriggerPipelineSurvey>> service,
     std::shared_ptr<rmw_request_id_t> header,
@@ -105,6 +108,9 @@ private:
   // Keyed by epoch: RoboCommand may reuse a run_id after a run ID reset.
   std::set<uint64_t> submitted_epochs_;
   uint64_t evidence_revision_{0};
+  // Task 4 keep-out zones (RoboCommand), published for the surface avoidance; cleared at prepare_autonomy.
+  std::unique_ptr<Task4ZoneTracker> zones_;
+  rclcpp::Publisher<banyu_msgs::msg::Task4Zones>::SharedPtr zones_pub_;
 
   rclcpp::Publisher<rx_msgs::msg::Heartbeat>::SharedPtr heartbeat_pub_;
   rclcpp::Publisher<rx_msgs::msg::MissionStatus>::SharedPtr mission_status_pub_;

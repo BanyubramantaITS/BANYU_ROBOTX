@@ -44,6 +44,11 @@ banyu_mission:
       dive_point: "buoy"
       # Backing up ends at the pipe's start, when the pipe was out of view this long in total.
       leg_end_lost_s: 6.0
+      # Task 4: after the report the mission stays on the surface (keeping clear of the zones) while a RoboCommand
+      # keep-out zone or moving object is active, until none has been for release_s, at most max_hold_s.
+      zones:
+        release_s: 10.0
+        max_hold_s: 600.0
       task2_tier: 2   # launch argument tier:= overrides this (core 2, advanced 3, disruptive 4)
       surface_depth_m: 0.0
       surface_tolerance_m: 0.5
@@ -134,6 +139,8 @@ task2_pipeline_detector:
     undistort: true
     observation_topic: "/banyu/pipeline/observation"
     ring_observation_topic: "/banyu/pipeline/ring_observation"
+    # A light seen with no pipe in view: a steering cue for AcquirePipeline/SearchPipeline, never a ring record.
+    light_cue_topic: "/banyu/pipeline/light_cue"
     min_aspect_ratio: 1.5
     min_line_length_px: 18.0
     min_component_area_px: 20
@@ -203,7 +210,8 @@ ring_tracker:
     # Four records and a fifth distinct ring: merge the two closest records if nearer than this (one node recorded twice,
     # seen from far or beside the line; seed 24). Sim node spacing 1.28-1.55 m. 0 = never merge (the fifth is ignored).
     min_node_spacing_m: 1.0
-    require_monotonic_order: true
+    # Off: the report order is the first sighting, so dead-reckoning noise in progress must not void it.
+    require_monotonic_order: false
     # No new ring record while the camera is higher than this above the pipe (from its width): rings seen from the descent are
     # placed badly and one node becomes several records. The following height is about 1 m. 0 = no limit.
     max_record_height_m: 2.2
@@ -219,34 +227,21 @@ ring_tracker:
     camera_half_vfov_rad: 0.408
     lid_diameter_m: 0.074     # sim lid; height above the ring from observation.size once the vehicle leaves the survey altitude
     focal_ratio: 0.866        # fx / image width (554 / 640)
-    # ekf: the vehicle pose from MAVROS (the sim EKF keeps a near-perfect position under water; the real one has none).
-    # dead_reckoning: the last surface fix, then the commanded velocity x velocity_gain.
     # Camera height above the pipe from its apparent width (fixed camera_height_m when the pipe is not measured).
     pipe_height:
       enabled: true
       pipe_diameter_m: 0.0889
       hfov_rad: 1.047
-    pose_source: "ekf"
+    # The pose under water is dead-reckoned: the last surface fix, then the commanded velocity x velocity_gain (the robot
+    # has no underwater position). Progress runs along the buoy-to-buoy line (USV PipelineBuoys bearing) from where the GPS
+    # is lost at the dive; it only tells a repeat sighting from a new node. The report order is the order of first sighting
+    # in the forward survey. No pipe map is used.
     dead_reckoning:
       velocity_gain: 1.0
-    # centerline: progress along centerline_points (the sim pipe map). buoy_line: along the line from the start buoy
-    # toward the other one (USV PipelineBuoys bearing), origin where the GPS is lost at the dive; no pipe map needed.
-    progress_axis: "centerline"
     buoy_line_half_length_m: 30.0
     gps_fix_topic: "/mavros/global_position/global"
     command_topic: "/banyu/execution/preview_target"
     buoy_target_topic: "/banyu/task2/buoy_target"
-    # Ordered from the active (start) buoy end so progress increases along the survey;
-    # survey_evidence low_progress_endpoint_id is start_buoy.
-    # Through the four light nodes of main_world.world (2.35,0) (0.93,-0.62) (-0.35,-0.62) (-1.75,0).
-    centerline_points: [
-      2.30, 0.0,
-      1.60, 0.0,
-      0.93, -0.62,
-      -0.35, -0.62,
-      -1.75, 0.0,
-      -2.27, 0.0
-    ]
 
 pipeline_guidance:
   ros__parameters:
@@ -267,6 +262,12 @@ pipeline_guidance:
 
 uuv_comm_node:
   ros__parameters:
+    # Task 4 (RoboCommand keep-out zones): published on /banyu/task4/zones, recorded in the bag.
+    task4:
+      max_static_zones: 16
+      max_radius_m: 500.0
+      moving_expiry_s: 120.0      # a moving object RoboCommand stopped updating is dropped (no all-clear exists for it)
+      ack_moving_object: false    # protocol: no ack for MOVING_OBJECT; scoring: 25 for acknowledging. Settle at the briefing.
     survey:
       task2_tier: 2
       evidence_sources: ["pipeline_topology"]
@@ -368,6 +369,25 @@ vehicle_execution_node:
       search_pinger_timeout_s: 3.0
       search_pinger_kp: 0.8
       search_pinger_forward_speed: 0.25
+    # Task 4: keep-out zone avoidance of the surfaced vehicle (a surface vehicle is a USV).
+    zones:
+      margin_m: 2.0               # added to every zone radius: GPS error plus vehicle size
+      horizon_s: 30.0             # a moving object's projected travel is kept clear of this far ahead
+      exit_clearance_m: 0.5       # leave a zone to this distance outside it
+      exit_speed_mps: 0.6
+      idle_guard: true            # no goal running (standby, after the report): move out of a zone and stay out
+      surface_depth_m: 0.5        # the idle guard acts only at or above this depth
+      dive_point_buoy_clear_m: 1.5  # a dive point shifted out of a zone stays this far from both buoys (buoy_standoff_m)
+      surface_hold_timeout_s: 60.0  # Surface: wait at depth this long in all while the surfacing point is inside a zone
+    # AcquirePipeline and SearchPipeline steer over a light seen with no pipe in view (the node sits on the pipe).
+    light_cue:
+      enabled: true
+      min_confidence: 0.5
+      min_depth_m: 1.0     # shallower lights are ignored: the start buoy's indicator is seen from the surface
+      kp_sway: 0.4
+      kp_surge: 0.3
+      max_speed_mps: 0.2
+      budget_s: 15.0       # steering time per goal, so a false light (fish, reflection) cannot hold the search
     # Heave from the pipe's apparent width (sensors:=minimal): range = diameter / (width x 2 tan(hfov / 2)).
     # Diameter: 3" Schedule 40 PVC in the sim (measure the real pipe). hfov: the sim bottom camera (re-calibrate the HORUS).
     camera_heave:
@@ -416,6 +436,7 @@ vehicle_execution_node:
       gps: "/mavros/global_position/raw/fix"
       pipeline_obs: "/banyu/pipeline/observation"
       ring_obs: "/banyu/pipeline/ring_observation"
+      light_cue: "/banyu/pipeline/light_cue"
       pinger_obs: "/banyu/pinger/observation"
       guidance_intent: "/banyu/guidance/velocity_intent"
       preview_target: "/banyu/execution/preview_target"

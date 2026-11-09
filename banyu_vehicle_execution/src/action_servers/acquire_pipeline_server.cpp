@@ -27,10 +27,12 @@ void AcquirePipelineServer::onGoalStarted()
 {
   start_time_ = node_->now();
   consecutive_frames_ = 0;
+  light_cue_used_s_ = 0.0;
+  light_cue_logged_ = false;
 }
 
 MotionIntent AcquirePipelineServer::tick(
-  const VehicleTelemetry & telemetry, const rclcpp::Time & now, double /*dt*/)
+  const VehicleTelemetry & telemetry, const rclcpp::Time & now, double dt)
 {
   if (!active_handle_) {
     return zeroIntent();
@@ -126,8 +128,21 @@ MotionIntent AcquirePipelineServer::tick(
     consecutive_frames_ = 0;
   }
 
+  // No pipe yet but a light in view: steer over it (the node sits on the pipe) instead of driving on.
+  double sway = 0.0;
+  const auto cue = is_tracked ? std::nullopt : lightCueVelocity(telemetry, light_cue_);
+  if (cue && light_cue_used_s_ < light_cue_.budget_s) {
+    light_cue_used_s_ += std::max(0.0, dt);
+    surge = cue->surge;
+    sway = cue->sway;
+    if (!light_cue_logged_) {
+      light_cue_logged_ = true;
+      RCLCPP_INFO(node_->get_logger(), "AcquirePipeline: light in view, steering over it to find the pipe");
+    }
+  }
+
   const auto local_intent = bodyFluToLocalEnu(
-    MotionIntent::bodyFlu(surge, 0.0, 0.0, yaw_rate), telemetry.yaw);
+    MotionIntent::bodyFlu(surge, sway, 0.0, yaw_rate), telemetry.yaw);
   return local_intent.value_or(zeroIntent());
 }
 

@@ -500,6 +500,8 @@ bool RingTracker::mergeClosestRecords(std::size_t & survivor, std::size_t & free
   survivor = (recs[b].color == kRed && recs[a].color != kRed) ? b : a;
   freed = survivor == a ? b : a;
   if (recs[freed].color == kRed) {recs[survivor].color = kRed;}
+  // The node's place in the order is its first sighting.
+  recs[survivor].frame_sequence = std::min(recs[a].frame_sequence, recs[b].frame_sequence);
   recs[freed].superseded = true;
   return true;
 }

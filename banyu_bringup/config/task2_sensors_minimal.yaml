@@ -40,9 +40,3 @@ vehicle_execution_node:
 calibrated_depth_node:
   ros__parameters:
     depth_source: "gps_surface"
-# Under water the Pixhawk has no position (no GPS, no DVL): ring positions are dead-reckoned from the last surface fix and
-# the commanded velocity, and the ring order is the progress along the buoy-to-buoy line (no pipe map).
-ring_tracker:
-  ros__parameters:
-    pose_source: "dead_reckoning"
-    progress_axis: "buoy_line"

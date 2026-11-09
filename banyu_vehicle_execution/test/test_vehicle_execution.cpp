@@ -5,6 +5,7 @@
 #include "banyu_vehicle_execution/action_servers.hpp"
 #include "banyu_vehicle_execution/vehicle_execution_node.hpp"
 #include "banyu_vehicle_execution/por_visual_helpers.hpp"
+#include "banyu_vehicle_execution/light_cue.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
 #include <limits>
@@ -2412,4 +2413,130 @@ TEST_F(VehicleExecutionNodeTest, RcOverrideReleasesSticksWhenNoGoalRuns)
   const auto count = sent.size();
   run_for(20);
   EXPECT_EQ(sent.size(), count);
+}
+
+TEST(LightCue, SteersTowardALitLightOnlyWhenDeepAndConfident)
+{
+  banyu_vehicle_execution::VehicleTelemetry t;
+  t.light_cue_valid = true;
+  t.light_cue_visible = true;
+  t.light_cue_confidence = 0.6;
+  t.light_cue_color = banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN;
+  t.light_cue_offset_x = 0.5;    // right of the image centre
+  t.light_cue_offset_y = -0.5;   // above it: ahead for the bottom camera
+  t.depth_valid = true;
+  t.depth_m = 3.0;
+  const banyu_vehicle_execution::LightCueConfig config;
+  const auto cue = banyu_vehicle_execution::lightCueVelocity(t, config);
+  ASSERT_TRUE(cue.has_value());
+  EXPECT_GT(cue->surge, 0.0);
+  EXPECT_LT(cue->sway, 0.0);   // FLU: negative sway is to the right
+
+  auto shallow = t;
+  shallow.depth_m = 0.3;   // the start buoy's indicator seen from the surface
+  EXPECT_FALSE(banyu_vehicle_execution::lightCueVelocity(shallow, config).has_value());
+  auto unsure = t;
+  unsure.light_cue_confidence = 0.2;
+  EXPECT_FALSE(banyu_vehicle_execution::lightCueVelocity(unsure, config).has_value());
+  auto red = t;
+  red.light_cue_color = banyu_msgs::msg::PipelineRingObservation::COLOR_RED;
+  EXPECT_TRUE(banyu_vehicle_execution::lightCueVelocity(red, config).has_value());
+  for (const auto colour : {banyu_msgs::msg::PipelineRingObservation::COLOR_BLUE,
+      banyu_msgs::msg::PipelineRingObservation::COLOR_UNKNOWN})
+  {
+    auto other = t;
+    other.light_cue_color = colour;
+    EXPECT_FALSE(banyu_vehicle_execution::lightCueVelocity(other, config).has_value());
+  }
+  auto unseen = t;
+  unseen.light_cue_visible = false;
+  EXPECT_FALSE(banyu_vehicle_execution::lightCueVelocity(unseen, config).has_value());
+  auto no_depth = t;
+  no_depth.depth_valid = false;
+  EXPECT_FALSE(banyu_vehicle_execution::lightCueVelocity(no_depth, config).has_value());
+  auto disabled = config;
+  disabled.enabled = false;
+  EXPECT_FALSE(banyu_vehicle_execution::lightCueVelocity(t, disabled).has_value());
+}
+
+namespace
+{
+struct CommandedRange
+{
+  double min_vx{0.0}, max_vx{0.0}, min_vy{0.0}, max_vy{0.0};
+};
+
+// Runs a pipeline action for a while at the given depth (heading east, no pipe in view) with a light right of the image
+// centre on the light cue topic; returns the ENU velocities the action commanded.
+template<typename Action>
+CommandedRange runWithLightCue(const std::string & action_name, const typename Action::Goal & goal, double depth_m)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  CommandedRange range;
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&range](const mavros_msgs::msg::PositionTarget::SharedPtr msg) {
+      range.min_vx = std::min(range.min_vx, static_cast<double>(msg->velocity.x));
+      range.max_vx = std::max(range.max_vx, static_cast<double>(msg->velocity.x));
+      range.min_vy = std::min(range.min_vy, static_cast<double>(msg->velocity.y));
+      range.max_vy = std::max(range.max_vy, static_cast<double>(msg->velocity.y));
+    });
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto depth_pub = node->create_publisher<std_msgs::msg::Float64>(
+    "/mavros/global_position/rel_alt", rclcpp::SensorDataQoS());
+  auto cue_pub = node->create_publisher<banyu_msgs::msg::PipelineRingObservation>(
+    "/banyu/pipeline/light_cue", rclcpp::SensorDataQoS());
+  auto client = rclcpp_action::create_client<Action>(node, action_name);
+  EXPECT_TRUE(client->wait_for_action_server(1s));
+  auto send_future = client->async_send_goal(goal);
+  EXPECT_TRUE(waitForFuture(node, send_future));
+  std_msgs::msg::Float64 depth;
+  depth.data = -depth_m;
+  for (int i = 0; i < 40; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    depth_pub->publish(depth);
+    banyu_msgs::msg::PipelineRingObservation cue;
+    cue.header.stamp = node->now();
+    cue.visible = true;
+    cue.color = banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN;
+    cue.confidence = 0.6F;
+    cue.offset_x = 0.5F;
+    cue.offset_y = 0.0F;
+    cue_pub->publish(cue);
+    spinFor(node, 2);
+  }
+  return range;
+}
+}  // namespace
+
+TEST_F(VehicleExecutionNodeTest, SearchPipelineSteersOverALightInsteadOfRetracing)
+{
+  using Action = banyu_msgs::action::SearchPipeline;
+  Action::Goal goal;
+  goal.search_span_rad = 10.0;
+  goal.sweep_rate_rad_s = 0.2;
+  const auto deep = runWithLightCue<Action>("/banyu/actions/search_pipeline", goal, 3.0);
+  // Heading east: the light right of centre is to the south (negative ENU y); no backward retrace.
+  EXPECT_LT(deep.min_vy, -0.05);
+  EXPECT_GT(deep.min_vx, -0.05);
+  // Near the surface the light is ignored (the start buoy's indicator): the search retraces as before.
+  const auto shallow = runWithLightCue<Action>("/banyu/actions/search_pipeline", goal, 0.3);
+  EXPECT_NEAR(shallow.min_vx, -0.2, 1e-3);
+  EXPECT_GT(shallow.min_vy, -1e-6);
+}
+
+TEST_F(VehicleExecutionNodeTest, AcquirePipelineSteersOverALightInsteadOfDrivingOn)
+{
+  using Action = banyu_msgs::action::AcquirePipeline;
+  Action::Goal goal;
+  goal.use_heading_prior = false;
+  const auto deep = runWithLightCue<Action>("/banyu/actions/acquire_pipeline", goal, 3.0);
+  EXPECT_LT(deep.min_vy, -0.05);
+  EXPECT_LT(deep.max_vx, 0.05);   // not the 0.3 m/s forward drive
+  const auto shallow = runWithLightCue<Action>("/banyu/actions/acquire_pipeline", goal, 0.3);
+  EXPECT_NEAR(shallow.max_vx, 0.3, 1e-3);
+  EXPECT_GT(shallow.min_vy, -1e-6);
 }

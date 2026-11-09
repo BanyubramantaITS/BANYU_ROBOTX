@@ -70,6 +70,9 @@ protected:
     ack_sub_ = peer_->create_subscription<rx_msgs::msg::IncidentAck>(
       "/system/vehicle/uuv/task4/incident_ack", 10,
       [this](rx_msgs::msg::IncidentAck::SharedPtr msg) {acks_.push_back(*msg);});
+    zones_sub_ = peer_->create_subscription<banyu_msgs::msg::Task4Zones>(
+      "/banyu/task4/zones", rclcpp::QoS(1).reliable().transient_local(),
+      [this](banyu_msgs::msg::Task4Zones::SharedPtr msg) {zones_.push_back(*msg);});
     readiness_sub_ = peer_->create_subscription<rx_msgs::msg::ReadinessReport>(
       "/system/vehicle/uuv/task4/readiness", 10,
       [this](rx_msgs::msg::ReadinessReport::SharedPtr msg) {readiness_.push_back(*msg);});
@@ -198,6 +201,8 @@ protected:
   rclcpp::Subscription<rx_msgs::msg::PipelineSurvey>::SharedPtr survey_sub_;
   rclcpp::Subscription<rx_msgs::msg::IncidentAck>::SharedPtr ack_sub_;
   rclcpp::Subscription<rx_msgs::msg::ReadinessReport>::SharedPtr readiness_sub_;
+  rclcpp::Subscription<banyu_msgs::msg::Task4Zones>::SharedPtr zones_sub_;
+  std::vector<banyu_msgs::msg::Task4Zones> zones_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr start_server_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr abort_server_;
   rclcpp::Publisher<Command>::SharedPtr command_pub_;
@@ -415,6 +420,85 @@ TEST_F(UuvCommNodeTest, AcknowledgesTask4CommandsWithMatchingSequence)
   ASSERT_TRUE(spinUntil([this]() {return acks_.size() == 3;}));
   EXPECT_EQ(acks_.back().command_seq, 12u);
   EXPECT_TRUE(readiness_.empty());
+}
+
+TEST_F(UuvCommNodeTest, Task4ZonesArePublishedAckedPerTargetAndClearedByAllClear)
+{
+  Command command;
+  command.command_type = Command::CMD_TASK4_KEEP_OUT_ZONE;
+  command.center.latitude = 33.0;
+  command.center.longitude = -118.0;
+  command.radius_m = 25.0F;
+
+  // Addressed to the USV: avoided, not acknowledged (the USV is the correct system for it).
+  command.target_vehicle = VehicleType::TYPE_USV;
+  command.command_seq = 21;
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {
+      return !zones_.empty() && zones_.back().static_radius_m.size() == 1;
+  }));
+  EXPECT_DOUBLE_EQ(zones_.back().static_radius_m[0], 25.0);
+  EXPECT_EQ(zones_.back().last_event, "keep_out_zone");
+  spinFor(100ms);
+  EXPECT_TRUE(acks_.empty());
+
+  // The same RxCommand for the UUV: no second zone, but acknowledged.
+  command.target_vehicle = VehicleType::TYPE_UUV;
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {return acks_.size() == 1;}));
+  EXPECT_EQ(acks_.back().command_seq, 21u);
+  EXPECT_EQ(zones_.back().static_radius_m.size(), 1u);
+
+  command.command_type = Command::CMD_TASK4_ALL_CLEAR;
+  command.command_seq = 22;
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {
+      return !zones_.empty() && zones_.back().static_radius_m.empty();
+  }));
+  EXPECT_EQ(zones_.back().last_event, "all_clear");
+  ASSERT_TRUE(spinUntil([this]() {return acks_.size() == 2;}));
+  EXPECT_EQ(acks_.back().command_seq, 22u);
+}
+
+TEST_F(UuvCommNodeTest, Task4MovingObjectIsPublishedWithoutAnAckByDefault)
+{
+  Command command;
+  command.command_type = Command::CMD_TASK4_MOVING_OBJECT;
+  command.target_vehicle = VehicleType::TYPE_UUV;
+  command.command_seq = 30;
+  command.position.latitude = 33.0;
+  command.position.longitude = -118.0;
+  command.heading_deg = 90.0F;
+  command.speed_mps = 1.5F;
+  command.radius_m = 12.0F;
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {return !zones_.empty() && zones_.back().moving_active;}));
+  EXPECT_DOUBLE_EQ(zones_.back().moving_radius_m, 12.0);
+  EXPECT_NEAR(zones_.back().moving_heading_enu_rad, 0.0, 1e-9);
+  EXPECT_GT(zones_.back().moving_stamp.sec, 0);
+  spinFor(100ms);
+  EXPECT_TRUE(acks_.empty());
+}
+
+TEST_F(UuvCommNodeTest, PrepareAutonomyClearsTheTask4Zones)
+{
+  Command command;
+  command.command_type = Command::CMD_TASK4_KEEP_OUT_ZONE;
+  command.target_vehicle = VehicleType::TYPE_UUV;
+  command.command_seq = 40;
+  command.center.latitude = 33.0;
+  command.center.longitude = -118.0;
+  command.radius_m = 25.0F;
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {
+      return !zones_.empty() && zones_.back().static_radius_m.size() == 1;
+  }));
+  publishLifecycle(lifecycle(banyu_msgs::msg::RunLifecycle::PREPARING, 18, 1));
+  ASSERT_TRUE(spinUntil([this]() {return zones_.back().static_radius_m.empty();}));
+  EXPECT_EQ(zones_.back().last_event, "reset");
+  // The new window accepts seq 40 again.
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {return zones_.back().static_radius_m.size() == 1;}));
 }
 
 TEST_F(UuvCommNodeTest, HeartbeatUsesTelemetryAndFallsBackForInvalidGps)

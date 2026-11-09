@@ -26,6 +26,8 @@
 // A ring found only by colour thresholds (no bright light) is weaker evidence than a lit one (0.9): in the dark half of a
 // flash it can be the green-olive water. Consumers that read the flash code ask for more than this.
 constexpr float kFallbackRingConfidenceMax = 0.8F;
+// A light seen with no pipe in view: lower than an on-pipe light, it is only a steering cue.
+constexpr float kLightCueConfidence = 0.6F;
 
 namespace task2_pipeline_detector
 {
@@ -64,6 +66,8 @@ public:
       rclcpp::SensorDataQoS());
     ring_observation_pub_ = create_publisher<banyu_msgs::msg::PipelineRingObservation>(
       ring_observation_topic_, rclcpp::SensorDataQoS());
+    light_cue_pub_ = create_publisher<banyu_msgs::msg::PipelineRingObservation>(
+      light_cue_topic_, rclcpp::SensorDataQoS());
 
     if (image_topic_.empty()) {
       throw std::invalid_argument("image_topic must not be empty");
@@ -135,6 +139,8 @@ private:
     ring_observation_topic_ = declare_parameter<std::string>(
       "ring_observation_topic",
       "/banyu/pipeline/ring_observation");
+    light_cue_topic_ = declare_parameter<std::string>(
+      "light_cue_topic", "/banyu/pipeline/light_cue");
 
     const auto rect = declare_parameter<std::vector<int64_t>>("probe_rect", std::vector<int64_t>{});
     if (rect.size() == 4) {
@@ -442,6 +448,7 @@ private:
 
     banyu_msgs::msg::PipelineObservation observation = makeLostObservation(*msg, sequence);
     banyu_msgs::msg::PipelineRingObservation ring = makeLostRingObservation(*msg, sequence);
+    banyu_msgs::msg::PipelineRingObservation light_cue = makeLostRingObservation(*msg, sequence);
 
     try {
       if (msg->data.empty() || msg->width == 0 || msg->height == 0) {
@@ -531,38 +538,8 @@ private:
       const auto lights = banyu_detection::detectLights(image, lights_mask);
       bool light_found = false;
 
-      if (!lights.empty()) {
-        const banyu_detection::Light * chosen = nullptr;
-        for (const auto & l : lights) {
-          if (l.colour == banyu_detection::Light::kRed) {
-            chosen = &l;
-            break;
-          }
-        }
-        if (!chosen) {
-          for (const auto & l : lights) {
-            if (l.colour == banyu_detection::Light::kBlue) {
-              chosen = &l;
-              break;
-            }
-          }
-        }
-        if (!chosen) {
-          chosen = &lights.front();
-        }
-
-        ring.visible = true;
-        ring.color = (chosen->colour == banyu_detection::Light::kRed) ?
-          banyu_msgs::msg::PipelineRingObservation::COLOR_RED :
-          ((chosen->colour == banyu_detection::Light::kBlue) ?
-          banyu_msgs::msg::PipelineRingObservation::COLOR_BLUE :
-          banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN);
-        ring.confidence = 0.9f;
-        ring.offset_x = std::clamp(static_cast<float>(normalizedX(chosen->x, image.cols)), -1.0f,
-            1.0f);
-        ring.offset_y = std::clamp(static_cast<float>(normalizedY(chosen->y, image.rows)), -1.0f,
-            1.0f);
-        ring.size = std::clamp(chosen->size / static_cast<float>(image.cols), 0.0f, 1.0f);
+      if (const auto * chosen = pickLight(lights)) {
+        fillLight(ring, *chosen, image, 0.9f);
         light_found = true;
       }
 
@@ -591,6 +568,16 @@ private:
           ring.confidence = std::min(static_cast<float>(best_green.confidence), kFallbackRingConfidenceMax);
           ring.offset_x = static_cast<float>(normalizedX(best_green.center.x, image.cols));
           ring.offset_y = static_cast<float>(normalizedY(best_green.center.y, image.rows));
+        }
+      }
+
+      // No pipe in view: a RED or GREEN light anywhere in the image is a cue to steer over (the node sits on the pipe). It
+      // has its own topic so an unconfirmed light (a fish, a reflection) never reaches the ring tracker.
+      if (!pipeline_detected) {
+        const auto anywhere = banyu_detection::detectLights(
+          image, cv::Mat(image.size(), CV_8U, cv::Scalar(255)));
+        if (const auto * cue = pickCueLight(anywhere)) {
+          fillLight(light_cue, *cue, image, kLightCueConfidence);
         }
       }
 
@@ -676,6 +663,45 @@ private:
 
     observation_pub_->publish(observation);
     ring_observation_pub_->publish(ring);
+    light_cue_pub_->publish(light_cue);
+  }
+
+  // RED first (the damaged node), then BLUE, then any.
+  static const banyu_detection::Light * pickLight(const std::vector<banyu_detection::Light> & lights)
+  {
+    for (const auto colour : {banyu_detection::Light::kRed, banyu_detection::Light::kBlue}) {
+      for (const auto & l : lights) {
+        if (l.colour == colour) {return &l;}
+      }
+    }
+    return lights.empty() ? nullptr : &lights.front();
+  }
+
+  // Before the repair a node is lit only RED or GREEN: any other colour is not a node.
+  static const banyu_detection::Light * pickCueLight(const std::vector<banyu_detection::Light> & lights)
+  {
+    for (const auto colour : {banyu_detection::Light::kRed, banyu_detection::Light::kGreen}) {
+      for (const auto & l : lights) {
+        if (l.colour == colour) {return &l;}
+      }
+    }
+    return nullptr;
+  }
+
+  void fillLight(
+    banyu_msgs::msg::PipelineRingObservation & out, const banyu_detection::Light & light,
+    const cv::Mat & image, float confidence) const
+  {
+    out.visible = true;
+    out.color = (light.colour == banyu_detection::Light::kRed) ?
+      banyu_msgs::msg::PipelineRingObservation::COLOR_RED :
+      ((light.colour == banyu_detection::Light::kBlue) ?
+      banyu_msgs::msg::PipelineRingObservation::COLOR_BLUE :
+      banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN);
+    out.confidence = confidence;
+    out.offset_x = std::clamp(static_cast<float>(normalizedX(light.x, image.cols)), -1.0f, 1.0f);
+    out.offset_y = std::clamp(static_cast<float>(normalizedY(light.y, image.rows)), -1.0f, 1.0f);
+    out.size = std::clamp(light.size / static_cast<float>(image.cols), 0.0f, 1.0f);
   }
 
   static bool isSupportedEncoding(const std::string & encoding)
@@ -1138,6 +1164,7 @@ private:
   bool use_camera_info_ {true};
   std::string observation_topic_;
   std::string ring_observation_topic_;
+  std::string light_cue_topic_;
 
   bool use_gui_ {false};
   bool publish_debug_images_ {false};
@@ -1214,6 +1241,7 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_sub_;
   rclcpp::Publisher<banyu_msgs::msg::PipelineObservation>::SharedPtr observation_pub_;
   rclcpp::Publisher<banyu_msgs::msg::PipelineRingObservation>::SharedPtr ring_observation_pub_;
+  rclcpp::Publisher<banyu_msgs::msg::PipelineRingObservation>::SharedPtr light_cue_pub_;
 
   uint64_t frame_sequence_ {0};
   mutable std::mutex camera_mutex_;

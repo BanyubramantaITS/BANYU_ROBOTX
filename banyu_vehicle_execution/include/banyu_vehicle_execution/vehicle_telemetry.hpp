@@ -9,6 +9,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "banyu_msgs/msg/detection.hpp"
+#include "banyu_vehicle_execution/task4_zones.hpp"
 
 namespace banyu_vehicle_execution
 {
@@ -120,6 +121,26 @@ struct VehicleTelemetry
   double ring_offset_y{0.0};
   double ring_confidence{0.0};
   double ring_size{0.0};
+
+  // Light seen with no pipe in view (detector light_cue topic): a steering cue only, never a ring record.
+  bool light_cue_valid{false};
+  rclcpp::Time light_cue_stamp{};
+  bool light_cue_visible{false};
+  uint8_t light_cue_color{0};
+  double light_cue_offset_x{0.0};
+  double light_cue_offset_y{0.0};
+  double light_cue_confidence{0.0};
+
+  // Task 4 keep-out zones (RoboCommand), run-scoped; the moving object is predicted from its receipt time.
+  ZoneField zones;
+  rclcpp::Time zones_moving_stamp{};
+
+  // Zones as capsules around the last known position (the last GPS fix when under water).
+  std::vector<Capsule> zonesAroundVehicle(const rclcpp::Time & now) const
+  {
+    const double age = zones_moving_stamp.nanoseconds() != 0 ? (now - zones_moving_stamp).seconds() : 0.0;
+    return zonesAround(zones, latitude_deg, longitude_deg, std::max(0.0, age));
+  }
 
   // Guidance velocity intent (for FollowPipeline)
   bool guidance_intent_valid{false};

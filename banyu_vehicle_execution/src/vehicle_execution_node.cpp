@@ -121,6 +121,8 @@ void VehicleExecutionNode::initSubscribers()
     "topics.pipeline_obs", "/banyu/pipeline/observation");
   const auto ring_obs_topic = declare_parameter<std::string>(
     "topics.ring_obs", "/banyu/pipeline/ring_observation");
+  const auto light_cue_topic = declare_parameter<std::string>(
+    "topics.light_cue", "/banyu/pipeline/light_cue");
   const auto detection_topic = declare_parameter<std::string>(
     "topics.detection", "/banyu/detection");
   const auto guidance_intent_topic = declare_parameter<std::string>(
@@ -159,10 +161,18 @@ void VehicleExecutionNode::initSubscribers()
   ring_obs_sub_ = create_subscription<banyu_msgs::msg::PipelineRingObservation>(
     ring_obs_topic, rclcpp::SensorDataQoS(),
     std::bind(&VehicleExecutionNode::handleRingObs, this, std::placeholders::_1));
+  light_cue_sub_ = create_subscription<banyu_msgs::msg::PipelineRingObservation>(
+    light_cue_topic, rclcpp::SensorDataQoS(),
+    std::bind(&VehicleExecutionNode::handleLightCue, this, std::placeholders::_1));
 
   detection_sub_ = create_subscription<banyu_msgs::msg::Detection>(
     detection_topic, rclcpp::SensorDataQoS(),
     std::bind(&VehicleExecutionNode::handleDetection, this, std::placeholders::_1));
+
+  zones_sub_ = create_subscription<banyu_msgs::msg::Task4Zones>(
+    declare_parameter<std::string>("topics.task4_zones", "/banyu/task4/zones"),
+    rclcpp::QoS(1).reliable().transient_local(),
+    std::bind(&VehicleExecutionNode::handleZones, this, std::placeholders::_1));
 
   guidance_intent_sub_ = create_subscription<banyu_guidance::msg::VelocityIntent>(
     guidance_intent_topic, rclcpp::QoS(10),
@@ -265,9 +275,37 @@ void VehicleExecutionNode::initActionServers()
   const double acquire_timeout_s = declare_parameter<double>("control.acquire_timeout_s", 20.0);
   const double acquire_surge_speed = declare_parameter<double>("control.acquire_surge_speed", 0.3);
   const int acquire_confirm_frames = declare_parameter<int>("control.acquire_confirm_frames", 5);
+  // Task 4: keep-out zone avoidance of the surfaced vehicle (RoboCommand zones from /banyu/task4/zones).
+  telemetry_.zones.margin_m = declare_parameter<double>("zones.margin_m", telemetry_.zones.margin_m);
+  telemetry_.zones.horizon_s = declare_parameter<double>("zones.horizon_s", telemetry_.zones.horizon_s);
+  telemetry_.zones.exit_clearance_m =
+    declare_parameter<double>("zones.exit_clearance_m", telemetry_.zones.exit_clearance_m);
+  telemetry_.zones.exit_speed_mps = declare_parameter<double>("zones.exit_speed_mps", telemetry_.zones.exit_speed_mps);
+  zone_guard_enabled_ = declare_parameter<bool>("zones.idle_guard", zone_guard_enabled_);
+  zone_surface_depth_m_ = declare_parameter<double>("zones.surface_depth_m", zone_surface_depth_m_);
+  const double zone_buoy_clear_m = declare_parameter<double>("zones.dive_point_buoy_clear_m", 1.5);
+  const double zone_surface_hold_s = declare_parameter<double>("zones.surface_hold_timeout_s", 60.0);
+  if (!(telemetry_.zones.margin_m >= 0.0) || !(telemetry_.zones.horizon_s >= 0.0) ||
+    !(telemetry_.zones.exit_clearance_m >= 0.0) || !(telemetry_.zones.exit_speed_mps > 0.0) ||
+    !(zone_buoy_clear_m >= 0.0) || !(zone_surface_hold_s >= 0.0) || !(zone_surface_depth_m_ > 0.0))
+  {
+    throw std::invalid_argument("zones margin, horizon, clearance, buoy clearance and hold must not be negative, speed and surface depth positive");
+  }
+  LightCueConfig light_cue;
+  light_cue.enabled = declare_parameter<bool>("light_cue.enabled", light_cue.enabled);
+  light_cue.min_confidence = declare_parameter<double>("light_cue.min_confidence", light_cue.min_confidence);
+  light_cue.min_depth_m = declare_parameter<double>("light_cue.min_depth_m", light_cue.min_depth_m);
+  light_cue.kp_sway = declare_parameter<double>("light_cue.kp_sway", light_cue.kp_sway);
+  light_cue.kp_surge = declare_parameter<double>("light_cue.kp_surge", light_cue.kp_surge);
+  light_cue.max_speed_mps = declare_parameter<double>("light_cue.max_speed_mps", light_cue.max_speed_mps);
+  light_cue.budget_s = declare_parameter<double>("light_cue.budget_s", light_cue.budget_s);
+  if (!(light_cue.max_speed_mps >= 0.0) || !(light_cue.budget_s >= 0.0)) {
+    throw std::invalid_argument("light_cue max_speed_mps and budget_s must not be negative");
+  }
 
   auto nav_server = std::make_shared<NavigateSurfaceGpsServer>(
     this, nav_action, this, nav_kp, nav_max_speed, yaw_kp, max_yaw_rate);
+  nav_server->setZoneBuoyClear(zone_buoy_clear_m);
   auto align_server = std::make_shared<AlignHeadingServer>(
     this, align_action, this, yaw_kp, max_yaw_rate);
   auto dive_server = std::make_shared<DiveToDepthServer>(
@@ -275,6 +313,7 @@ void VehicleExecutionNode::initActionServers()
   auto acquire_server = std::make_shared<AcquirePipelineServer>(
     this, acquire_action, this, yaw_kp, max_yaw_rate, 0.3, acquire_timeout_s, acquire_surge_speed,
     acquire_confirm_frames);
+  acquire_server->setLightCue(light_cue);
   const double search_retrace_distance_m =
     declare_parameter<double>("control.search_retrace_distance_m", 1.5);
   const double search_retrace_speed = declare_parameter<double>("control.search_retrace_speed",
@@ -288,6 +327,7 @@ void VehicleExecutionNode::initActionServers()
   auto search_server = std::make_shared<SearchPipelineServer>(
     this, search_action, this, 0.2, 0.3, search_retrace_distance_m, search_retrace_speed,
     search_pinger_timeout_s, search_pinger_kp, search_pinger_forward_speed, use_hydrophone_);
+  search_server->setLightCue(light_cue);
   auto follow_server = std::make_shared<FollowPipelineServer>(
     this, follow_action, this);
   auto center_server = std::make_shared<CenterOnRingServer>(
@@ -336,6 +376,7 @@ void VehicleExecutionNode::initActionServers()
   }
   camera_heave_servers_ = {acquire_server->name(), search_server->name(), follow_server->name(),
     center_server->name()};
+  surface_server->setZoneHold(zone_surface_hold_s);
   surface_server->setBlindRise(
     declare_parameter<double>("control.surface_blind_rise_rate_mps", 0.0),
     declare_parameter<double>("control.surface_blind_timeout_s", 180.0));
@@ -500,6 +541,11 @@ void VehicleExecutionNode::timerCallback()
   {
     telemetry_.ring_obs_valid = false;
   }
+  if (telemetry_.light_cue_valid &&
+    (current_ros_time - telemetry_.light_cue_stamp).seconds() > kObservationTimeoutS)
+  {
+    telemetry_.light_cue_valid = false;
+  }
   if (telemetry_.detection_valid &&
     (current_ros_time - telemetry_.detection_stamp).seconds() > kObservationTimeoutS)
   {
@@ -554,6 +600,7 @@ void VehicleExecutionNode::timerCallback()
 
   MotionIntent intent = zeroIntent();
   bool readiness_output_selected = false;
+  bool zone_guard_selected = false;
   bool readiness_output_published = false;
 
   if (arbiter_.state() == GoalState::ZeroBarrier) {
@@ -589,6 +636,10 @@ void VehicleExecutionNode::timerCallback()
     }
     telemetry_.water_depth.samples_since_last_tick.clear();
     telemetry_.depth_samples_since_last_tick.clear();
+  } else if (const auto guard_intent = zoneGuardIntent(current_ros_time, zone_guard_selected);
+    zone_guard_selected && !safety_fault)
+  {
+    intent = guard_intent;
   } else if (readinessHoldAuthorized() && !safety_fault) {
     // RC override has no ArduSub position hold: neutral sticks while waiting for the start.
     if (rcModeActive()) {
@@ -618,7 +669,7 @@ void VehicleExecutionNode::timerCallback()
     preview_target_pub_->publish(target);
 
     if (arbiter_.state() == GoalState::ZeroBarrier || arbiter_.activeGoal().has_value() ||
-      readiness_output_selected)
+      readiness_output_selected || (zone_guard_selected && !safety_fault))
     {
       last_goal_time_ = steady_now;
     }
@@ -1059,6 +1110,50 @@ void VehicleExecutionNode::handleRunLifecycle(
   }
 }
 
+void VehicleExecutionNode::handleZones(const banyu_msgs::msg::Task4Zones::SharedPtr msg)
+{
+  auto & zones = telemetry_.zones;
+  zones.active = true;
+  zones.static_latitude_deg = msg->static_latitude_deg;
+  zones.static_longitude_deg = msg->static_longitude_deg;
+  zones.static_radius_m = msg->static_radius_m;
+  zones.moving.reset();
+  if (msg->moving_active) {
+    MovingObject moving;
+    moving.latitude_deg = msg->moving_latitude_deg;
+    moving.longitude_deg = msg->moving_longitude_deg;
+    moving.heading_enu_rad = msg->moving_heading_enu_rad;
+    moving.speed_mps = msg->moving_speed_mps;
+    moving.radius_m = msg->moving_radius_m;
+    zones.moving = moving;
+    // The alert's age is counted from its receipt by the communication node (the message is repeated every second).
+    // Not resolveStamp: it treats a stamp over 60 s old as bad and would put the object back at its alert position.
+    telemetry_.zones_moving_stamp = (msg->moving_stamp.sec != 0 || msg->moving_stamp.nanosec != 0) ?
+      rclcpp::Time(msg->moving_stamp, get_clock()->get_clock_type()) : now();
+  }
+  RCLCPP_INFO(
+    get_logger(), "Task 4 zones (%s): %zu static, moving object %s", msg->last_event.c_str(),
+    msg->static_latitude_deg.size(), msg->moving_active ? "active" : "none");
+}
+
+// Nobody is steering (no goal) but the vehicle sits on the surface inside a zone, e.g. in the buoy-target standby or
+// after the report: move out and stay out. Returns true in `selected` when it commands.
+MotionIntent VehicleExecutionNode::zoneGuardIntent(const rclcpp::Time & now, bool & selected)
+{
+  selected = false;
+  if (!zone_guard_enabled_ || !telemetry_.zones.any() || !telemetry_.gps_valid || !telemetry_.pose_valid) {
+    return zeroIntent();
+  }
+  if (require_run_authorization_ && !runMotionAuthorized()) {return zeroIntent();}
+  const auto & water = telemetry_.water_depth;
+  if (water.valid && water.depth_m > zone_surface_depth_m_) {return zeroIntent();}
+  const auto exit = exitVector(Vec2{0.0, 0.0}, telemetry_.zonesAroundVehicle(now), telemetry_.zones.exit_clearance_m);
+  if (!exit) {return zeroIntent();}
+  selected = true;
+  RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Task 4: idle inside a keep-out zone, leaving %.1f m", exit->distance_m);
+  return zoneExitIntent(*exit, telemetry_.zones.exit_speed_mps, 0.0);
+}
+
 void VehicleExecutionNode::handlePipelineObs(
   const banyu_msgs::msg::PipelineObservation::SharedPtr msg)
 {
@@ -1086,6 +1181,18 @@ void VehicleExecutionNode::handleRingObs(
   telemetry_.ring_offset_y = msg->offset_y;
   telemetry_.ring_size = msg->size;
   telemetry_.ring_confidence = msg->confidence;
+}
+
+void VehicleExecutionNode::handleLightCue(
+  const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg)
+{
+  telemetry_.light_cue_valid = true;
+  telemetry_.light_cue_stamp = resolveStamp(msg->header.stamp);
+  telemetry_.light_cue_visible = msg->visible;
+  telemetry_.light_cue_color = msg->color;
+  telemetry_.light_cue_offset_x = msg->offset_x;
+  telemetry_.light_cue_offset_y = msg->offset_y;
+  telemetry_.light_cue_confidence = msg->confidence;
 }
 
 void VehicleExecutionNode::handleDetection(const banyu_msgs::msg::Detection::SharedPtr msg)

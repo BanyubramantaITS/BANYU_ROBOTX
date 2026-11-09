@@ -28,6 +28,16 @@ bool historicalStamp(int64_t stamp, int64_t start, int64_t now)
   return stamp > 0 && stamp >= start && stamp <= now;
 }
 
+// Report order: rings are recorded only in the forward survey from the pipe's start (the active buoy end), so the order
+// they were first seen in is the order along the pipe. No pipe map or underwater position is needed for it.
+void sortByFirstSighting(std::vector<banyu_msgs::msg::Task2RingRecord> & rings, bool from_active_end)
+{
+  std::sort(rings.begin(), rings.end(), [from_active_end](const auto & first, const auto & second) {
+      return from_active_end ? first.frame_sequence < second.frame_sequence :
+             first.frame_sequence > second.frame_sequence;
+    });
+}
+
 bool validReportId(const std::string & report_id)
 {
   if (report_id.empty() || report_id.size() > 128) {return false;}
@@ -293,10 +303,7 @@ SurveyLedger::Report SurveyLedger::build(const std::string & report_id) const
     ordered.push_back(ring.second);
   }
   const bool ascending = evidence_.active_buoy.endpoint_id == evidence_.low_progress_endpoint_id;
-  std::sort(ordered.begin(), ordered.end(), [ascending](const auto & first, const auto & second) {
-      return ascending ? first.pipeline_progress_m<second.pipeline_progress_m :
-             first.pipeline_progress_m> second.pipeline_progress_m;
-    });
+  sortByFirstSighting(ordered, ascending);
   for (std::size_t i = 0; i < 4 && i < ordered.size(); ++i) {
     report.original_conditions[i] = ordered[i].color == 1 ? 2 : 1;
   }
@@ -346,10 +353,7 @@ SurveyLedger::Report SurveyLedger::buildBestEffort(const std::string & report_id
     }
   }
   const bool ascending = evidence_.active_buoy.endpoint_id == evidence_.low_progress_endpoint_id;
-  std::sort(seen.begin(), seen.end(), [ascending](const auto & first, const auto & second) {
-      return ascending ? first.pipeline_progress_m<second.pipeline_progress_m :
-             first.pipeline_progress_m> second.pipeline_progress_m;
-    });
+  sortByFirstSighting(seen, ascending);
   report.original_conditions.fill(1);  // GREEN where nothing was seen
   for (std::size_t i = 0; i < 4 && i < seen.size(); ++i) {
     report.original_conditions[i] = seen[i].color == 1 ? 2 : 1;

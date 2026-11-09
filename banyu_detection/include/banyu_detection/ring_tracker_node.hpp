@@ -83,9 +83,7 @@ private:
   mutable std::mutex pose_mutex_;
   std::deque<geometry_msgs::msg::PoseStamped> pose_history_;
 
-  // sensors:=minimal: dead-reckoned pose under water and ring progress along the buoy-to-buoy line (no pipe map).
-  bool dead_reckoning_{false};
-  bool buoy_line_axis_{false};
+  // Dead-reckoned pose under water and ring progress along the buoy-to-buoy line (no pipe map, no underwater position).
   double buoy_line_half_length_m_{30.0};
   double gps_fresh_s_{1.0};
   DeadReckoner reckoner_;

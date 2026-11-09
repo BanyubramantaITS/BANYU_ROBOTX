@@ -69,6 +69,18 @@ UuvCommNode::UuvCommNode(const rclcpp::NodeOptions & options)
     "/system/vehicle/uuv/task4/incident_ack", 10);
   readiness_pub_ = create_publisher<rx_msgs::msg::ReadinessReport>(
     "/system/vehicle/uuv/task4/readiness", 10);
+  Task4ZoneTracker::Config zone_config;
+  zone_config.max_static_zones = static_cast<std::size_t>(declare_parameter<int>("task4.max_static_zones", 16));
+  zone_config.max_radius_m = declare_parameter<double>("task4.max_radius_m", zone_config.max_radius_m);
+  zone_config.moving_expiry_s = declare_parameter<double>("task4.moving_expiry_s", zone_config.moving_expiry_s);
+  zone_config.ack_moving_object = declare_parameter<bool>("task4.ack_moving_object", false);
+  if (!(zone_config.max_radius_m > 0.0) || !(zone_config.moving_expiry_s > 0.0)) {
+    throw std::invalid_argument("task4.max_radius_m and task4.moving_expiry_s must be positive");
+  }
+  zones_ = std::make_unique<Task4ZoneTracker>(zone_config);
+  zones_pub_ = create_publisher<banyu_msgs::msg::Task4Zones>(
+    declare_parameter<std::string>("topics.task4_zones", "/banyu/task4/zones"),
+    rclcpp::QoS(1).reliable().transient_local());
   SurveyLedger::Config ledger_config;
   ledger_config.evidence_sources = declare_parameter<std::vector<std::string>>(
     "survey.evidence_sources", {"pipeline_topology"});
@@ -244,6 +256,25 @@ void UuvCommNode::publishHeartbeat()
   }
   heartbeat_pub_->publish(heartbeat);
   publishSurveyProgress();
+  publishZones();
+}
+
+void UuvCommNode::publishZones()
+{
+  banyu_msgs::msg::Task4Zones msg;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    zones_->expire(now().seconds());
+    msg.run_id = run_id_;
+    msg.epoch = lifecycle_.epoch;
+    zones_->fill(msg);
+    if (zones_->movingActive()) {
+      msg.moving_stamp = rclcpp::Time(static_cast<int64_t>(zones_->movingReceivedS() * 1e9), RCL_ROS_TIME);
+    }
+  }
+  msg.header.stamp = now();
+  msg.header.frame_id = "wgs84";
+  zones_pub_->publish(msg);
 }
 
 void UuvCommNode::publishMissionStatus(
@@ -273,23 +304,46 @@ void UuvCommNode::commandCallback(const rx_msgs::msg::Command::SharedPtr msg)
   }
   using rx_msgs::msg::Command;
   using rx_msgs::msg::VehicleType;
+
+  // Task 4 zones: the surfaced UUV is a USV, so zones for the USV are kept clear of too.
+  Task4ZoneTracker::Result zone;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    zone = zones_->handle(*msg, now().seconds());
+  }
+  if (zone.relevant) {
+    if (zone.rejected) {
+      RCLCPP_WARN(get_logger(), "Task 4 %s ignored (seq %u): invalid zone", zone.event.c_str(), msg->command_seq);
+    } else if (zone.duplicate) {
+      RCLCPP_INFO(get_logger(), "Task 4 command seq %u type %u is a duplicate, ignored", msg->command_seq,
+        msg->command_type);
+    } else {
+      RCLCPP_INFO(get_logger(), "Task 4 %s (seq %u, target %u)%s", zone.event.c_str(), msg->command_seq,
+        msg->target_vehicle, zone.changed ? "" : ", no change");
+    }
+    if (zone.changed) {publishZones();}
+    if (zone.ack) {
+      rx_msgs::msg::IncidentAck ack;
+      ack.header.stamp = now();
+      ack.header.frame_id = "uuv";
+      ack.command_seq = msg->command_seq;
+      incident_ack_pub_->publish(ack);
+    }
+    return;
+  }
+
   if (msg->target_vehicle != VehicleType::TYPE_UUV &&
     msg->target_vehicle != VehicleType::TYPE_UNKNOWN)
   {
     return;
   }
-  if (msg->command_type == Command::CMD_TASK4_ASSISTANCE ||
-    msg->command_type == Command::CMD_TASK4_KEEP_OUT_ZONE ||
-    msg->command_type == Command::CMD_TASK4_ALL_CLEAR)
-  {
+  if (msg->command_type == Command::CMD_TASK4_ASSISTANCE) {
     rx_msgs::msg::IncidentAck ack;
     ack.header.stamp = now();
     ack.header.frame_id = "uuv";
     ack.command_seq = msg->command_seq;
     incident_ack_pub_->publish(ack);
-    if (msg->command_type == Command::CMD_TASK4_ASSISTANCE) {
-      publishMissionStatus("assistance execution unsupported/not ready");
-    }
+    publishMissionStatus("assistance execution unsupported/not ready");
   }
 }
 
@@ -366,6 +420,7 @@ void UuvCommNode::lifecycleCallback(const banyu_msgs::msg::RunLifecycle::SharedP
     return;
   }
   bool notify = false;
+  bool zones_dirty = false;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (retired_authorities_.count(msg->authority_instance) != 0) {
@@ -401,12 +456,23 @@ void UuvCommNode::lifecycleCallback(const banyu_msgs::msg::RunLifecycle::SharedP
     notify = !lifecycle_received_ || msg->event != Lifecycle::SNAPSHOT ||
       msg->run_id != lifecycle_.run_id || msg->phase != lifecycle_.phase ||
       msg->reason != lifecycle_.reason || msg->current_task != lifecycle_.current_task;
+    // prepare_autonomy opens a new run identity window: zones and their sequence numbers start over.
+    const bool preparing = msg->phase == Lifecycle::PREPARING &&
+      (!lifecycle_received_ || lifecycle_.phase != Lifecycle::PREPARING);
+    if (preparing) {
+      zones_->reset();
+      zones_dirty = true;
+    }
     lifecycle_ = *msg;
     lifecycle_received_ = true;
     last_lifecycle_received_ = std::chrono::steady_clock::now();
     run_id_ = msg->run_id;
     current_task_ = msg->phase >= Lifecycle::ACTIVE && msg->phase <= Lifecycle::SURFACED ?
       msg->current_task : rx_msgs::msg::RxTask::TASK_NONE;
+  }
+  if (zones_dirty) {
+    RCLCPP_INFO(get_logger(), "Task 4 zones reset for a new run window");
+    publishZones();
   }
   if (notify) {
     publishMissionStatus(msg->reason.empty() ? "Mission lifecycle updated" : msg->reason,

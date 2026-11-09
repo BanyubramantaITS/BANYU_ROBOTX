@@ -33,6 +33,8 @@ void SearchPipelineServer::onGoalStarted()
   retrace_started_ = false;
   retrace_done_ = retrace_distance_m_ <= 0.0 || retrace_speed_ <= 0.0;
   retrace_elapsed_s_ = 0.0;
+  light_cue_used_s_ = 0.0;
+  light_cue_logged_ = false;
 }
 
 MotionIntent SearchPipelineServer::tick(
@@ -50,7 +52,21 @@ MotionIntent SearchPipelineServer::tick(
   const double sweep_rate = (goal->sweep_rate_rad_s != 0.0) ?
     goal->sweep_rate_rad_s : default_sweep_rate_;
 
-  const bool pinger_fresh = use_pinger_ && telemetry.pinger_obs_valid &&
+  const bool is_tracked = telemetry.pipeline_obs_valid &&
+    telemetry.pipeline_status == banyu_msgs::msg::PipelineObservation::TRACKED;
+
+  // A light in view while the pipe is not: hold the retrace and the sweep and steer over it (the node sits on the pipe).
+  const auto cue = is_tracked ? std::nullopt : lightCueVelocity(telemetry, light_cue_);
+  const bool steering_to_light = cue.has_value() && light_cue_used_s_ < light_cue_.budget_s;
+  if (steering_to_light) {
+    light_cue_used_s_ += std::max(0.0, dt);
+    if (!light_cue_logged_) {
+      light_cue_logged_ = true;
+      RCLCPP_INFO(node_->get_logger(), "SearchPipeline: light in view, steering over it to find the pipe");
+    }
+  }
+
+  const bool pinger_fresh = !steering_to_light && use_pinger_ && telemetry.pinger_obs_valid &&
     telemetry.pinger_obs_stamp.nanoseconds() > 0 &&
     (now - telemetry.pinger_obs_stamp).seconds() >= 0.0 &&
     (now - telemetry.pinger_obs_stamp).seconds() <= pinger_timeout_s_;
@@ -58,7 +74,7 @@ MotionIntent SearchPipelineServer::tick(
   // The pipe is usually lost by overrunning an end or a bend, which a sweep in place cannot
   // see past the camera footprint; retrace along the entry heading before sweeping (unless homing on pinger).
   bool retracing = false;
-  if (!pinger_fresh && !retrace_done_ && telemetry.pose_valid) {
+  if (!steering_to_light && !pinger_fresh && !retrace_done_ && telemetry.pose_valid) {
     if (!retrace_started_) {
       retrace_started_ = true;
       retrace_origin_x_ = telemetry.pos_x;
@@ -76,12 +92,9 @@ MotionIntent SearchPipelineServer::tick(
   }
 
   // Only accumulate visual sweep progress when actually performing the yaw sweep
-  if (!retracing && !pinger_fresh && dt > 0.0) {
+  if (!steering_to_light && !retracing && !pinger_fresh && dt > 0.0) {
     sweep_progress_rad_ += std::abs(sweep_rate) * dt;
   }
-
-  const bool is_tracked = telemetry.pipeline_obs_valid &&
-    telemetry.pipeline_status == banyu_msgs::msg::PipelineObservation::TRACKED;
 
   auto feedback = std::make_shared<Feedback>();
   feedback->stamp = now;
@@ -118,6 +131,12 @@ MotionIntent SearchPipelineServer::tick(
     active_handle_.reset();
     active_identity_ = {};
     return zeroIntent();
+  }
+
+  if (steering_to_light) {
+    const auto local_intent = bodyFluToLocalEnu(
+      MotionIntent::bodyFlu(cue->surge, cue->sway, 0.0, 0.0), telemetry.yaw);
+    return local_intent.value_or(zeroIntent());
   }
 
   if (pinger_fresh) {

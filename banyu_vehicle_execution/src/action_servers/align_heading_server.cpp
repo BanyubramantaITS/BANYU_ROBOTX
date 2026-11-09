@@ -1,4 +1,5 @@
 #include "banyu_vehicle_execution/action_servers/align_heading_server.hpp"
+#include "banyu_vehicle_execution/action_servers/navigate_surface_gps_server.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -50,6 +51,18 @@ MotionIntent AlignHeadingServer::tick(
   feedback->current_heading_rad = telemetry.yaw;
   feedback->heading_error_rad = heading_err;
   active_handle_->publish_feedback(feedback);
+
+  // A Task 4 zone reached the vehicle: leave it first (turning on the way), then hold the new position outside.
+  if (telemetry.gps_valid && telemetry.zones.any()) {
+    const auto zones = telemetry.zonesAroundVehicle(now);
+    if (const auto exit = exitVector(Vec2{0.0, 0.0}, zones, telemetry.zones.exit_clearance_m)) {
+      hold_captured_ = false;
+      RCLCPP_WARN_THROTTLE(
+        node_->get_logger(), *node_->get_clock(), 2000, "Task 4: inside a keep-out zone during AlignHeading, leaving");
+      return zoneExitIntent(
+        *exit, telemetry.zones.exit_speed_mps, std::clamp(yaw_kp_ * heading_err, -max_yaw_rate_, max_yaw_rate_));
+    }
+  }
 
   if (std::abs(heading_err) <= goal->tolerance_rad) {
     auto result = std::make_shared<Result>();

@@ -889,3 +889,25 @@ The user works on this branch for the rest of the competition, so `feat/competit
   transit, dive, survey, repair and report; FAIL 300 (rings 1 and 2 swapped: the RED node-2 sighting at offset y -0.98
   computed progress <= 1.03 and merged into node 0, cause not found; the same sighting at the normal rate gave 1.81) and
   PASS 450. Normal-rate baseline: PASS 450 twice.
+
+## Light cue for finding the pipe (2026-11-08)
+- The detector only reported lights next to a detected pipe (`detectLights` near-pipe mask), so a light with the pipe out of
+  view never reached the actions, and `AcquirePipeline`/`SearchPipeline` used the pipe alone.
+- Now: with no tracked pipe, `task2_pipeline_detector` runs `detectLights` over the whole image and publishes the best light
+  (RED or GREEN only, the only colours a node shows before the repair; confidence 0.6) on `/banyu/pipeline/light_cue`. A separate topic: the ring tracker never sees an
+  unconfirmed light. `AcquirePipeline` replaces its forward drive and `SearchPipeline` holds its retrace and sweep while they
+  centre the light (CenterOnRing signs, `light_cue.kp_*`, `max_speed_mps` 0.2). Gates: depth >= `light_cue.min_depth_m` 1.0
+  (Bar30, or the integrated heave with no depth sensor: the start buoy's indicator ended a camera descent at 0.2 m, H30),
+  confidence >= 0.5, fresh (0.5 s), at most `light_cue.budget_s` 15 s per goal. Both still succeed only on a tracked pipe.
+- Unit tests: gating and signs; SearchPipeline and AcquirePipeline steer over a light at 3 m and ignore it at 0.3 m. Not run
+  in the sim.
+
+## No pipe map: ring order from the first sighting (2026-11-08)
+- Removed `centerline_points` (the sim pipe's node coordinates) and the `progress_axis`/`pose_source` switches: the real
+  `sensors:=full` default used the sim map and the EKF position, which the robot does not have under water (no GPS, no DVL).
+  The ring tracker now always dead-reckons from the last surface fix and measures progress along the buoy line from the dive.
+- Progress only tells a repeat sighting from a new node. The survey ledger orders the nodes by first sighting (`frame_sequence`)
+  in the forward survey, which starts at the pipe's start (the active buoy end); a five-for-four merge keeps the earlier
+  sighting. `require_monotonic_order` is off, so dead-reckoning noise in progress no longer voids the order.
+- Unit tests: ledger order follows the first sighting when progress disagrees (complete and best-effort); merge keeps the first
+  sighting. Ring tracker 26/26, ledger 27/27, bringup 16/16.

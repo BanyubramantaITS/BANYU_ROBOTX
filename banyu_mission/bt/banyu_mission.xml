@@ -21,10 +21,11 @@
           <!-- Second try: surface, move retry_dive_offset_m along the buoy line toward the other buoy (the pipe lies
                between them), dive again. The ring order is by progress along the buoy line, from whichever point. -->
           <Sequence name="second_dive_along_the_buoy_line">
-            <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}" />
+            <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}" hold_for_zones="true" />
             <ShiftBuoyTarget />
-            <SetFcuMode mode="GUIDED" />
-            <Timeout msec="120000">
+            <!-- GUIDED is refused until the EKF is using the GPS again, some time after surfacing. -->
+            <SetFcuMode mode="GUIDED" timeout_s="60" />
+            <Timeout msec="600000">
               <RetryUntilSuccessful num_attempts="-1">
                 <Fallback>
                   <NavigateSurfaceGps target_latitude="{target_latitude}" target_longitude="{target_longitude}"
@@ -47,6 +48,9 @@
           <AlwaysSuccess />
         </Fallback>
         <SubTree ID="SurfaceAndReport" _autoremap="true" />
+        <!-- Task 4: the report is sent, but the vehicle stays armed on the surface (keeping out of any RoboCommand zone) until
+             no zone is active; with no zone this succeeds at once. -->
+        <KeepClearOfZones />
       </Sequence>
     </ReactiveFallback>
   </BehaviorTree>
@@ -63,8 +67,9 @@
       <!-- The run can start before the USV's PipelineBuoys message (the start point) has arrived. There is no fallback to the
            configured coordinates: stand by on the surface, with no time limit, until it does (the operator aborts to stop). -->
       <WaitForBuoyTarget />
-      <!-- A failed navigation is retried once per second for up to 3 minutes instead of failing the whole mission. -->
-      <Timeout msec="180000">
+      <!-- A failed navigation is retried once per second instead of failing the whole mission. The limit also has to cover
+           Task 4 detours and waiting for a moving object to pass. -->
+      <Timeout msec="600000">
         <RetryUntilSuccessful num_attempts="-1">
           <Fallback>
             <NavigateSurfaceGps target_latitude="{target_latitude}" target_longitude="{target_longitude}"
@@ -245,7 +250,7 @@
         </Timeout>
         <GiveUpSurvey />
       </Fallback>
-      <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}" />
+      <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}" hold_for_zones="true" />
       <ConfirmSurfaceAction />
       <Fallback>
         <Timeout msec="5000">

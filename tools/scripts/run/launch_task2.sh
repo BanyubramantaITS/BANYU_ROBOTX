@@ -133,7 +133,7 @@ Both targets:
                         --real: launch even if an rc_override channel of task2_params.yaml (or the sensors
                         overlay) is also a banyu_teleop switch channel (SB/SC). Unsafe: the switch then reads the
                         override.
-  --dive-point <p>      auto (default: midpoint with --sensors gamble, buoy otherwise)
+  --dive-point <p>      auto (default: midpoint)
                         | buoy (dive inside the start buoy, at least mission.buoy_standoff_m from it, back up along
                         the pipe to its start, then survey forward)
                         | midpoint (navigate midway between the start and end buoys, dive facing the end buoy, back up
@@ -279,10 +279,8 @@ if [ "$TEST_MISSION" = true ]; then
   fi
   DIVE_POINT="midpoint"
 fi
-# auto, as in the launch files: midpoint for the gamble strategy, buoy otherwise.
-if [ "$DIVE_POINT" = auto ]; then
-  [ "$SENSORS" = gamble ] && DIVE_POINT="midpoint" || DIVE_POINT="buoy"
-fi
+# auto, as in the launch files: midpoint (--dive-point buoy dives inside the start buoy instead).
+[ "$DIVE_POINT" = auto ] && DIVE_POINT="midpoint"
 # Recording defaults as in the launch files: every real run, sim runs only when asked.
 if [ -z "$RECORD" ]; then
   [ "$TARGET" = real ] && RECORD=true || RECORD=false
@@ -374,6 +372,7 @@ else
   echo "Dive point        : $([ "$DIVE_POINT" = midpoint ] && echo "midpoint (midway between the buoys)" || echo "buoy (inside the start buoy, standoff from it)"); both back up to the pipe's start, then survey forward"
 fi
 echo "Surface transit   : keeps clear of both buoys (mission.buoy_keep_out_m)"
+echo "Task 4 zones      : RoboCommand keep-out zones / moving object are avoided on the surface (docs/task4.md; tools/scripts/run/task4_command.py)"
 echo "Hydrophone        : $([ "$USE_HYDROPHONE" = true ] && echo "ON (opt-in; pinger data used by SearchPipeline)" || echo "OFF (none fitted; start buoy from the USV PipelineBuoys only)")"
 if [ "$TARGET" = real ] && [ "$USE_HYDROPHONE" = true ]; then
   echo "Warning: --hydrophone on --real: the competition UUV has no hydrophone; nothing will publish pings." >&2

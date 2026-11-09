@@ -21,7 +21,3 @@ vehicle_execution_node:
 calibrated_depth_node:
   ros__parameters:
     depth_source: "pressure"
-ring_tracker:
-  ros__parameters:
-    pose_source: "dead_reckoning"
-    progress_axis: "buoy_line"

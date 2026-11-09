@@ -141,7 +141,7 @@ TEST(SurveyLedger, ReportsAllRedPositionsFromBothObservedActiveEndpoints)
   }
 }
 
-TEST(SurveyLedger, BentPipeUsesProgressRatherThanVehicleDistanceOrAcceptanceOrder)
+TEST(SurveyLedger, OrderIsTheFirstSightingRatherThanVehicleDistanceOrSnapshotOrder)
 {
   SurveyLedger ledger(ledgerConfig());
   initialize(ledger);
@@ -605,4 +605,18 @@ TEST(SurveyLedger, SupersededDuplicateRecordIsDroppedAndTheNewNodeKeepsTheOrder)
   EXPECT_EQ(report.original_conditions[1], 1u);
   EXPECT_EQ(report.original_conditions[2], 1u);
   EXPECT_EQ(report.original_conditions[3], 2u);
+}
+
+TEST(SurveyLedger, OrderFollowsTheFirstSightingWhenDeadReckonedProgressDisagrees)
+{
+  // Dead-reckoning drift put the third node seen (RED) behind the second one in progress: the report keeps the order the
+  // forward survey met them in.
+  SurveyLedger ledger(ledgerConfig());
+  initialize(ledger);
+  auto value = evidence();
+  value.rings[1].pipeline_progress_m = 20.1;
+  value.rings[2].pipeline_progress_m = 10.1;   // the RED one (frame 3)
+  ASSERT_TRUE(ledger.ingest(value, 11 * kSecond).empty());
+  EXPECT_EQ(ledger.build("drift").original_conditions, (std::array<uint8_t, 4>{1, 1, 2, 1}));
+  EXPECT_EQ(ledger.buildBestEffort("drift.best_effort").original_conditions, (std::array<uint8_t, 4>{1, 1, 2, 1}));
 }

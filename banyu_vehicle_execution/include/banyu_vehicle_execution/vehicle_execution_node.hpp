@@ -22,6 +22,7 @@
 #include "banyu_msgs/msg/pipeline_observation.hpp"
 #include "banyu_msgs/msg/pipeline_ring_observation.hpp"
 #include "banyu_msgs/msg/detection.hpp"
+#include "banyu_msgs/msg/task4_zones.hpp"
 #include "banyu_guidance/msg/velocity_intent.hpp"
 
 #include "banyu_msgs/msg/pinger_observation.hpp"
@@ -79,6 +80,9 @@ private:
   void handleStatus(const banyu_msgs::msg::VehicleStatus::SharedPtr msg);
   void handlePipelineObs(const banyu_msgs::msg::PipelineObservation::SharedPtr msg);
   void handleRingObs(const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg);
+  void handleZones(const banyu_msgs::msg::Task4Zones::SharedPtr msg);
+  MotionIntent zoneGuardIntent(const rclcpp::Time & now, bool & selected);
+  void handleLightCue(const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg);
   void handleDetection(const banyu_msgs::msg::Detection::SharedPtr msg);
   void handleImu(const sensor_msgs::msg::Imu::SharedPtr msg);
   void handleGuidanceIntent(const banyu_guidance::msg::VelocityIntent::SharedPtr msg);
@@ -163,7 +167,12 @@ private:
   rclcpp::Subscription<banyu_msgs::msg::VehicleStatus>::SharedPtr status_sub_;
   rclcpp::Subscription<banyu_msgs::msg::PipelineObservation>::SharedPtr pipeline_obs_sub_;
   rclcpp::Subscription<banyu_msgs::msg::PipelineRingObservation>::SharedPtr ring_obs_sub_;
+  rclcpp::Subscription<banyu_msgs::msg::PipelineRingObservation>::SharedPtr light_cue_sub_;
   rclcpp::Subscription<banyu_msgs::msg::Detection>::SharedPtr detection_sub_;
+  rclcpp::Subscription<banyu_msgs::msg::Task4Zones>::SharedPtr zones_sub_;
+  // Idle on the surface (no goal) and a keep-out zone reaches the vehicle: move out and stay out.
+  bool zone_guard_enabled_{true};
+  double zone_surface_depth_m_{0.5};
   rclcpp::Subscription<banyu_guidance::msg::VelocityIntent>::SharedPtr guidance_intent_sub_;
   rclcpp::Subscription<banyu_msgs::msg::PingerObservation>::SharedPtr pinger_obs_sub_;
   bool use_hydrophone_{false};
