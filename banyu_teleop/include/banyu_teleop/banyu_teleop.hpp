@@ -60,6 +60,7 @@ private:
   void indicatorTimerCallback();
   void readIndicatorSerial();
   void latchHardwareKill();
+  void handleHardwareKillRelease();
 
   void startMockAutoMode();
   void stopMockAutoMode();
@@ -99,6 +100,7 @@ private:
   double _killReportTimeoutS = 1.5;
   double _killReportGraceS = 0.3;
   double _indicatorResendPeriodS = 1.0;
+  double _rcTimeoutS = 3.0;
 
   std::string _lastMode;
   bool _modeStateInitialized = false;
@@ -123,7 +125,10 @@ private:
   rclcpp::Time _lastCommandSentAt{0, 0, RCL_STEADY_TIME};
   rclcpp::Time _lastReportAt{0, 0, RCL_STEADY_TIME};
   rclcpp::Time _lastReconnectAt{0, 0, RCL_STEADY_TIME};
+  rclcpp::Time _lastRcAt{0, 0, RCL_STEADY_TIME};
   bool _hwKillLatched = false;
+  // Latched and waiting for the board to report the kill input released.
+  bool _hwKillAwaitRelease = false;
   bool _reportStaleWarned = false;
   rclcpp::Clock _steadyClock{RCL_STEADY_TIME};
 

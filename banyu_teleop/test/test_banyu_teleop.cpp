@@ -630,7 +630,7 @@ TEST(Esp32IndicatorProtocol, MapsOperationalModeToBoardStates)
   EXPECT_EQ(banyu_teleop::parseIndicatorReport("2"), -1);
 }
 
-TEST_F(BanyuTeleopTest, HardwareKillReportLatchesUntilSBDown)
+TEST_F(BanyuTeleopTest, HardwareKillHeldUntilReleasedThenFollowsSB)
 {
   std::vector<bool> arm_calls;
   auto arm_service = test_node_->create_service<mavros_msgs::srv::CommandBool>(
@@ -669,8 +669,6 @@ TEST_F(BanyuTeleopTest, HardwareKillReportLatchesUntilSBDown)
   rc_up->channels = {1500, 1500, 1500, 1500, 1500, 988, 1500, 1500};
   auto rc_mid = std::make_shared<mavros_msgs::msg::RCIn>();
   rc_mid->channels = {1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500};
-  auto rc_down = std::make_shared<mavros_msgs::msg::RCIn>();
-  rc_down->channels = {1500, 1500, 1500, 1500, 1500, 2011, 1500, 1500};
 
   teleop->rcinCallback(rc_up);
   // A report emitted before the board applied the new mode is not a hardware kill.
@@ -689,15 +687,77 @@ TEST_F(BanyuTeleopTest, HardwareKillReportLatchesUntilSBDown)
   ASSERT_FALSE(kills.empty());
   EXPECT_EQ(kills.back(), 0);
 
-  // Releasing the kill or moving SB to Mid does not re-arm or leave kill.
+  // Moving SB while the input is still active does not re-arm or leave kill.
   const size_t arm_count = arm_calls.size();
+  teleop->rcinCallback(rc_mid);
+  teleop->handleIndicatorLine("its2\r");
+  spin();
+  EXPECT_TRUE(teleop->isHardwareKillLatched());
+  EXPECT_EQ(teleop->getOperationalMode(), 0);
+  EXPECT_EQ(arm_calls.size(), arm_count);
+  EXPECT_EQ(kills.back(), 0);
+
+  // On release the board restores its old state; the vehicle follows SB as it is now.
   teleop->handleIndicatorLine("its1\r");
-  teleop->rcinCallback(rc_up);
+  EXPECT_FALSE(teleop->isHardwareKillLatched());
+  teleop->rcinCallback(rc_mid);
+  spin();
+  EXPECT_EQ(teleop->getOperationalMode(), 1);
+  ASSERT_GT(arm_calls.size(), arm_count);
+  EXPECT_TRUE(arm_calls.back());
+  EXPECT_EQ(kills.back(), 1);
+}
+
+TEST_F(BanyuTeleopTest, HardwareKillReleasedWithoutRCHoldsUntilSBDown)
+{
+  std::vector<bool> arm_calls;
+  auto arm_service = test_node_->create_service<mavros_msgs::srv::CommandBool>(
+    "/mavros/cmd/arming",
+    [&](
+      const std::shared_ptr<mavros_msgs::srv::CommandBool::Request> request,
+      std::shared_ptr<mavros_msgs::srv::CommandBool::Response> response) {
+      arm_calls.push_back(request->value);
+      response->success = true;
+    });
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"serial_port", "none"},
+    {"enable_mock_auto", false},
+    {"kill_report_grace_s", 0.0},
+    {"rc_timeout_s", 0.02},
+  });
+  auto teleop = std::make_shared<banyu_teleop::BanyuTeleop>(options);
+
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(test_node_);
+  exec.add_node(teleop);
+  auto spin = [&]() {
+      for (int i = 0; i < 10; ++i) {
+        exec.spin_some();
+        std::this_thread::sleep_for(10ms);
+      }
+    };
+
+  auto rc_mid = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_mid->channels = {1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500};
+  auto rc_down = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_down->channels = {1500, 1500, 1500, 1500, 1500, 2011, 1500, 1500};
+
+  teleop->rcinCallback(rc_mid);
+  spin();
+  teleop->handleIndicatorLine("its2\r");
+  ASSERT_TRUE(teleop->isHardwareKillLatched());
+  spin();
+  const size_t arm_count = arm_calls.size();
+
+  // RC went silent before the release: RC coming back does not arm by itself.
+  teleop->handleIndicatorLine("its0\r");
+  EXPECT_TRUE(teleop->isHardwareKillLatched());
   teleop->rcinCallback(rc_mid);
   spin();
   EXPECT_EQ(teleop->getOperationalMode(), 0);
   EXPECT_EQ(arm_calls.size(), arm_count);
-  EXPECT_EQ(kills.back(), 0);
 
   // SB Down acknowledges; SB Mid then arms in manual again.
   teleop->rcinCallback(rc_down);

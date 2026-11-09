@@ -60,6 +60,7 @@ void BanyuTeleop::declareParameters()
   this->declare_parameter<double>("kill_report_timeout_s", 1.5);
   this->declare_parameter<double>("kill_report_grace_s", 0.3);
   this->declare_parameter<double>("indicator_resend_period_s", 1.0);
+  this->declare_parameter<double>("rc_timeout_s", 3.0);
 
   // Mock auto / mission mode parameters
   this->declare_parameter<bool>("enable_mock_auto", false);
@@ -103,6 +104,7 @@ void BanyuTeleop::declareParameters()
   this->get_parameter("kill_report_timeout_s", _killReportTimeoutS);
   this->get_parameter("kill_report_grace_s", _killReportGraceS);
   this->get_parameter("indicator_resend_period_s", _indicatorResendPeriodS);
+  this->get_parameter("rc_timeout_s", _rcTimeoutS);
 
   this->get_parameter("enable_mock_auto", _enableMockAuto);
   this->get_parameter("mock_auto_flight_mode", _mockAutoFlightMode);
@@ -292,9 +294,12 @@ void BanyuTeleop::handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg
   }
   const int command = operational_mode;
 
-  // A hardware kill holds the vehicle in kill until the operator acknowledges it with SB Down.
+  _lastRcAt = _steadyClock.now();
+
+  // A hardware kill holds the vehicle in kill until the input is released or SB Down clears it.
   if (_hwKillLatched && operational_mode == 0) {
     _hwKillLatched = false;
+    _hwKillAwaitRelease = false;
     RCLCPP_WARN(this->get_logger(), "Hardware kill acknowledged with SB Down; latch cleared.");
   }
   const uint8_t effective_mode = _hwKillLatched ? 0 : operational_mode;
@@ -305,8 +310,11 @@ void BanyuTeleop::handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg
     status_msg.data = effective_mode;
     _killSwitchPublisher->publish(status_msg);
   }
-  if (effective_mode != _commandedMode) {
-    writeKillCommand(effective_mode);
+  // The board ignores the SB mode during a hardware kill and only leaves its2 once released;
+  // commanding its2 here would hide the release.
+  const uint8_t board_mode = _hwKillAwaitRelease ? operational_mode : effective_mode;
+  if (board_mode != _commandedMode) {
+    writeKillCommand(board_mode);
   }
 
   if (!_killStateInitialized || command != _lastKillCommand) {
@@ -314,7 +322,9 @@ void BanyuTeleop::handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg
       command, effective_mode);
 
     if (_hwKillLatched) {
-      RCLCPP_WARN(this->get_logger(),
+      RCLCPP_WARN(this->get_logger(), "%s",
+        _hwKillAwaitRelease ?
+        "Hardware kill active: the SB position applies once it is released." :
         "Hardware kill is latched: SB change ignored. Move SB Down to acknowledge.");
     } else if (operational_mode == 0) {
       // SB Down: disarm both ESP32 kill switch and Pixhawk
@@ -359,10 +369,11 @@ void BanyuTeleop::handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg
 void BanyuTeleop::latchHardwareKill()
 {
   _hwKillLatched = true;
+  _hwKillAwaitRelease = true;
   _currentOperationalMode = 0;
   RCLCPP_ERROR(this->get_logger(),
     "ESP32 reports a hardware kill (emergency input active): disarming. "
-    "Move SB Down to acknowledge before arming again.");
+    "The SB position applies again once it is released.");
   if (_gimbalOverrideActive) {
     if (!_mockAutoActive) {
       publishReleaseOverride();
@@ -378,7 +389,23 @@ void BanyuTeleop::latchHardwareKill()
     status_msg.data = 0;
     _killSwitchPublisher->publish(status_msg);
   }
-  writeKillCommand(0);
+}
+
+void BanyuTeleop::handleHardwareKillRelease()
+{
+  _hwKillAwaitRelease = false;
+  const bool rc_connected = _lastRcAt.nanoseconds() != 0 &&
+    (_steadyClock.now() - _lastRcAt).seconds() <= _rcTimeoutS;
+  if (!rc_connected) {
+    RCLCPP_ERROR(this->get_logger(),
+      "Hardware kill released but RC is lost: holding kill. "
+      "Move SB Down to acknowledge once RC is back.");
+    writeKillCommand(0);
+    return;
+  }
+  _hwKillLatched = false;
+  _killStateInitialized = false;  // the next RC message applies the current SB position
+  RCLCPP_WARN(this->get_logger(), "Hardware kill released: returning to the SB position.");
 }
 
 void BanyuTeleop::handleIndicatorLine(const std::string & line)
@@ -397,6 +424,10 @@ void BanyuTeleop::handleIndicatorLine(const std::string & line)
     std_msgs::msg::UInt8 msg;
     msg.data = static_cast<uint8_t>(reported);
     _killBoardPublisher->publish(msg);
+  }
+
+  if (_hwKillAwaitRelease && reported != 0) {
+    handleHardwareKillRelease();
   }
 
   // The board shows EMERGENCY for a software its2 too, so an emergency only means the hardware

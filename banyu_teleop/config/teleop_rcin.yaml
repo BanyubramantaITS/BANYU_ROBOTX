@@ -34,11 +34,13 @@ banyu_teleop:
     serial_port: "/dev/esp32_kill"   # udev symlink, tools/udev/99-banyu.rules
     serial_baud: 115200
     # The board reports its2 while its physical kill input is active: teleop then disarms and holds
-    # kill until SB Down. Set false only for land tests with the kill input unwired.
+    # kill until it is released, then returns to the current SB position (with RC lost at the
+    # release it holds kill until SB Down). Set false only for land tests with the input unwired.
     use_hardware_kill: true
     kill_report_timeout_s: 1.5     # no report for this long -> error log (kill not monitored)
     kill_report_grace_s: 0.3       # ignore reports this soon after a mode change
     indicator_resend_period_s: 1.0
+    rc_timeout_s: 3.0              # no RC with the SB channel for this long -> RC counts as lost
     kill_switch_board_topic: "/banyu/hardware/kill_switch_board"
 
     # Mock ESP32 Auto/Mission Mode (land testing)

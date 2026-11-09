@@ -79,8 +79,13 @@ Behaviour in `banyu_teleop` (`teleop_rcin.yaml`):
 
 - SB Up / Mid / Down → AUTO / MANUAL / EMERGENCY lamp, as before (arm, manual, disarm).
 - Board reports `its2` while SB is Mid or Up → **physical kill**: teleop publishes kill
-  (`/banyu/hardware/kill_switch` = 0, mission stops), disarms the Pixhawk and **holds** the kill.
-  Releasing the switch does not re-arm; move SB **Down** to acknowledge, then Mid/Up again.
+  (`/banyu/hardware/kill_switch` = 0, mission stops), disarms the Pixhawk and **holds** the kill
+  while the switch is pressed. Teleop keeps sending the SB mode meanwhile (the board ignores it),
+  so the report leaving `its2` shows the release. On release the vehicle **returns to the current
+  SB position** (Mid/Up re-arms at once, thrusters live; a stopped mission is not resumed). If no
+  RC with the SB channel arrived within `rc_timeout_s` (3 s), the kill stays held until SB
+  **Down**, then Mid/Up. The Pixhawk may keep streaming the last channels after the transmitter
+  is lost, so this check only catches RC that actually goes silent.
 - Board reports are published on `/banyu/hardware/kill_switch_board` (recorded in the bag).
 - No report for `kill_report_timeout_s` (1.5 s) → error log "hardware kill not monitored".
 - `use_hardware_kill: false` ignores the reports (land tests with the kill input unwired only).
