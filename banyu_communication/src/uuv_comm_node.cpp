@@ -34,13 +34,6 @@ UuvCommNode::UuvCommNode(const rclcpp::NodeOptions & options)
 : Node("uuv_comm_node", options)
 {
   heartbeat_rate_hz_ = declare_parameter<double>("heartbeat_rate_hz", 2.0);
-  {
-    std::stringstream modes(declare_parameter<std::string>("autonomy_mode", "GUIDED,ALT_HOLD"));
-    for (std::string mode; std::getline(modes, mode, ',');) {
-      if (!mode.empty()) {autonomy_modes_.push_back(mode);}
-    }
-    if (autonomy_modes_.empty()) {throw std::invalid_argument("autonomy_mode must name at least one FCU mode");}
-  }
   lifecycle_timeout_s_ = declare_parameter<double>("timing.lifecycle_timeout_s", 2.0);
   const auto lifecycle_topic = declare_parameter<std::string>(
     "topics.run_lifecycle", "/banyu/mission/run_lifecycle");
@@ -133,8 +126,6 @@ UuvCommNode::UuvCommNode(const rclcpp::NodeOptions & options)
   course_sub_ = create_subscription<rx_msgs::msg::Course>(
     "/system/mission/course", rclcpp::QoS(10).reliable(),
     std::bind(&UuvCommNode::courseCallback, this, _1));
-  state_sub_ = create_subscription<mavros_msgs::msg::State>(
-    "/mavros/state", 10, std::bind(&UuvCommNode::stateCallback, this, _1));
   gps_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
     "/mavros/global_position/global", rclcpp::SensorDataQoS(),
     std::bind(&UuvCommNode::gpsCallback, this, _1));
@@ -175,34 +166,20 @@ UuvCommNode::~UuvCommNode()
 uint8_t UuvCommNode::robotStateLocked() const
 {
   using rx_msgs::msg::RobotState;
-  const auto current_time = now();
-  const bool telemetry_fresh = state_received_ && vehicle_status_received_ &&
-    (current_time - last_state_time_).seconds() <= lifecycle_timeout_s_ &&
-    (current_time - last_status_time_).seconds() <= lifecycle_timeout_s_;
-  // MAV_STATE 6-8 (emergency, poweroff, termination) mean the vehicle cannot operate. CRITICAL (5)
-  // is a failsafe the vehicle can still navigate in; ArduSub reports it without a pilot joystick.
-  if (!telemetry_fresh || !state_.connected || !state_.armed || state_.system_status >= 6 ||
-    !vehicle_status_.armed || !vehicle_status_.fcu_connected ||
-    !vehicle_status_.fcu_status_fresh || vehicle_status_.authority == "FAILSAFE")
+  // The reported state is the kill switch status (SB or ESP32), whatever the FCU mode.
+  if (!vehicle_status_received_ ||
+    (now() - last_status_time_).seconds() > lifecycle_timeout_s_)
   {
     return RobotState::STATE_KILLED;
   }
-  if (vehicle_status_.operator_takeover) {
-    return RobotState::STATE_MANUAL;
+  switch (vehicle_status_.operational_mode) {
+    case 2:
+      return RobotState::STATE_AUTO;
+    case 1:
+      return RobotState::STATE_MANUAL;
+    default:
+      return RobotState::STATE_KILLED;
   }
-  if (!vehicle_status_.rc_fresh) {
-    return RobotState::STATE_KILLED;
-  }
-  const auto autonomous = [this](const std::string & mode) {
-      return std::find(autonomy_modes_.begin(), autonomy_modes_.end(), mode) != autonomy_modes_.end();
-    };
-  // AUTO in every mode of the run: GUIDED on the surface and the underwater mode (ALT_HOLD, or STABILIZE).
-  if (autonomous(state_.mode) && state_.mode == vehicle_status_.mode &&
-    lifecycleFreshLocked() && lifecycle_.autonomous_ready)
-  {
-    return RobotState::STATE_AUTO;
-  }
-  return RobotState::STATE_MANUAL;
 }
 
 bool UuvCommNode::lifecycleFreshLocked() const
@@ -325,17 +302,6 @@ void UuvCommNode::courseCallback(const rx_msgs::msg::Course::SharedPtr msg)
   course_ = *msg;
   pinger_freq_hz_ = msg->pinger_freq_hz;
   survey_ledger_->setCourse(msg->course_id, msg->pinger_freq_hz);
-}
-
-void UuvCommNode::stateCallback(const mavros_msgs::msg::State::SharedPtr msg)
-{
-  if (!msg) {
-    return;
-  }
-  std::lock_guard<std::mutex> lock(mutex_);
-  state_ = *msg;
-  state_received_ = true;
-  last_state_time_ = now();
 }
 
 void UuvCommNode::gpsCallback(const sensor_msgs::msg::NavSatFix::SharedPtr msg)

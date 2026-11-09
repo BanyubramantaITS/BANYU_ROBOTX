@@ -267,8 +267,6 @@ pipeline_guidance:
 
 uuv_comm_node:
   ros__parameters:
-    # Heartbeat STATE_AUTO in these FCU modes (the run's surface mode, then its underwater mode); = the mission's autonomy_mode.
-    autonomy_mode: "GUIDED,ALT_HOLD"
     survey:
       task2_tier: 2
       evidence_sources: ["pipeline_topology"]

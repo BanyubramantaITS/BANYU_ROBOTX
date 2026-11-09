@@ -116,7 +116,6 @@ protected:
     node_->courseCallback(nullptr);
     node_->evidenceCallback(nullptr);
     node_->depthCallback(nullptr);
-    node_->stateCallback(nullptr);
     node_->gpsCallback(nullptr);
     node_->poseCallback(nullptr);
     node_->velocityCallback(nullptr);
@@ -587,61 +586,19 @@ TEST_F(UuvCommNodeTest, HeartbeatResetsStaleVelocityAndPoseAndRecovers)
   EXPECT_NEAR(heartbeats_.back().heading_deg, 90.0F, 1e-4);
 }
 
-TEST_F(UuvCommNodeTest, AutoHeartbeatRequiresActualGuidedSafetyAndLifecycleReadiness)
+TEST_F(UuvCommNodeTest, HeartbeatStateIsTheKillSwitchStatus)
 {
-  auto state_pub = publisher<mavros_msgs::msg::State>("/mavros/state");
   auto status_pub = publisher<banyu_msgs::msg::VehicleStatus>("/banyu/vehicle_status");
-  mavros_msgs::msg::State state;
-  state.connected = true;
-  state.armed = true;
-  state.mode = "GUIDED";
-  state.system_status = 4;
   banyu_msgs::msg::VehicleStatus status;
-  status.armed = true;
-  status.fcu_connected = true;
-  status.fcu_status_fresh = true;
-  status.rc_fresh = true;
-  status.mode = "GUIDED";
-  state_pub->publish(state);
+  status.mode = "MANUAL";   // the FCU mode must not matter
+  status.operational_mode = 1;
   status_pub->publish(status);
   ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_MANUAL;}));
-  auto ready = lifecycle(banyu_msgs::msg::RunLifecycle::READY, 0, 0);
-  publishLifecycle(ready);
+  status.operational_mode = 2;
+  status_pub->publish(status);
   ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_AUTO;}));
-
-  status.rc_fresh = false;
+  status.operational_mode = 0;
   status_pub->publish(status);
-  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_KILLED;}));
-  status.rc_fresh = true;
-  status.operator_takeover = true;
-  status_pub->publish(status);
-  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_MANUAL;}));
-  status.operator_takeover = false;
-  status_pub->publish(status);
-  ready.revision = ++revision_;
-  ready.autonomous_ready = false;
-  ready.reason = "readiness revoked";
-  publishLifecycle(ready);
-  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_MANUAL;}));
-  ready.revision = ++revision_;
-  ready.autonomous_ready = true;
-  ready.reason = "readiness restored";
-  publishLifecycle(ready);
-  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_AUTO;}));
-
-  state.mode = "AUTO";
-  state_pub->publish(state);
-  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_MANUAL;}));
-  state.mode = "GUIDED";
-  state.armed = false;
-  state_pub->publish(state);
-  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_KILLED;}));
-  state.armed = true;
-  state.system_status = 5;
-  state_pub->publish(state);
-  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_AUTO;}));
-  state.system_status = 6;
-  state_pub->publish(state);
   ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_KILLED;}));
 }
 
@@ -704,33 +661,6 @@ TEST_F(UuvCommNodeTest, RejectsInvalidLifecycleConfiguration)
 TEST_F(UuvCommNodeTest, NullMessagePointersHandledSafelyWithoutCrash)
 {
   EXPECT_NO_THROW(callCallbacksWithNull());
-}
-
-TEST_F(UuvCommNodeTest, AutoHeartbeatHoldsInTheUnderwaterModeOfTheRun)
-{
-  // Task 2 flies GUIDED on the surface and ALT_HOLD under water: the heartbeat stays AUTO through both.
-  auto state_pub = publisher<mavros_msgs::msg::State>("/mavros/state");
-  auto status_pub = publisher<banyu_msgs::msg::VehicleStatus>("/banyu/vehicle_status");
-  mavros_msgs::msg::State state;
-  state.connected = true;
-  state.armed = true;
-  state.mode = "ALT_HOLD";
-  state.system_status = 4;
-  banyu_msgs::msg::VehicleStatus status;
-  status.armed = true;
-  status.fcu_connected = true;
-  status.fcu_status_fresh = true;
-  status.rc_fresh = true;
-  status.mode = "ALT_HOLD";
-  state_pub->publish(state);
-  status_pub->publish(status);
-  publishLifecycle(lifecycle(banyu_msgs::msg::RunLifecycle::READY, 0, 0));
-  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_AUTO;}));
-  state.mode = "STABILIZE";   // not a mode of this run
-  status.mode = "STABILIZE";
-  state_pub->publish(state);
-  status_pub->publish(status);
-  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_MANUAL;}));
 }
 
 TEST_F(UuvCommNodeTest, HeartbeatDepthIsTheCalibratedWaterDepth)

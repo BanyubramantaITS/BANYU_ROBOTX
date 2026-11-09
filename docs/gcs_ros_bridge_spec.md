@@ -62,7 +62,8 @@ so enum fields copy across unchanged.
 
 ## Vehicle-side behaviour the GCS can rely on (BANYU UUV, Issue #13)
 
-- Heartbeat at 2 Hz with GPS position, depth, attitude, `STATE_AUTO/MANUAL/KILLED` and
+- Heartbeat at 2 Hz with GPS position, depth, attitude, `STATE_AUTO/MANUAL/KILLED` (the kill switch
+  status: SB Up/Mid/Down or the ESP32 commands, not the FCU mode; KILLED if the status is stale) and
   authoritative `current_task` (`TASK_INFRA_SURVEY_REPAIR` during the run, `TASK_NONE` otherwise).
 - Holds position until a valid `CMD_RUN_START`; duplicate starts are ignored without restarting;
   commands for other vehicle types are ignored.

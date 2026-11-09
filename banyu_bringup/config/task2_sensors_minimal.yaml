@@ -46,6 +46,3 @@ ring_tracker:
   ros__parameters:
     pose_source: "dead_reckoning"
     progress_axis: "buoy_line"
-uuv_comm_node:
-  ros__parameters:
-    autonomy_mode: "GUIDED,STABILIZE"   # heartbeat STATE_AUTO under water too

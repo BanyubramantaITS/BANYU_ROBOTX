@@ -20,7 +20,6 @@
 #include <banyu_msgs/srv/trigger_pipeline_survey.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
-#include <mavros_msgs/msg/state.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rx_msgs/msg/command.hpp>
 #include <rx_msgs/msg/course.hpp>
@@ -54,7 +53,6 @@ private:
     const std::string & message, std::optional<uint32_t> expected_run_id = std::nullopt);
   void commandCallback(const rx_msgs::msg::Command::SharedPtr msg);
   void courseCallback(const rx_msgs::msg::Course::SharedPtr msg);
-  void stateCallback(const mavros_msgs::msg::State::SharedPtr msg);
   void gpsCallback(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
   void poseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
   void velocityCallback(const geometry_msgs::msg::TwistStamped::SharedPtr msg);
@@ -75,7 +73,6 @@ private:
   double lifecycle_timeout_s_;
   rx_msgs::msg::LatLng anchor_;
   double anchor_altitude_hae_m_;
-  mavros_msgs::msg::State state_;
   sensor_msgs::msg::NavSatFix gps_;
   rclcpp::Time last_gps_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_pose_time_{0, 0, RCL_ROS_TIME};
@@ -84,13 +81,9 @@ private:
   banyu_msgs::msg::VehicleStatus vehicle_status_;
   bool gps_received_{false};
   bool vehicle_status_received_{false};
-  bool state_received_{false};
   bool lifecycle_received_{false};
-  // FCU state and vehicle status are published on the ROS clock (sim time in the sim): their freshness is judged on it.
-  rclcpp::Time last_state_time_{0, 0, RCL_ROS_TIME};
+  // Vehicle status is published on the ROS clock (sim time in the sim): its freshness is judged on it.
   rclcpp::Time last_status_time_{0, 0, RCL_ROS_TIME};
-  // Modes in which the run is autonomous (mission autonomy_mode: surface mode, then the underwater mode).
-  std::vector<std::string> autonomy_modes_;
   // Calibrated water depth (Bar30, or the GPS surface proof) for the heartbeat; the EKF pose has no depth under water.
   // Last valid GPS fix: the heartbeat position while the fix is stale (always under water); the anchor only before any fix.
   bool has_last_fix_{false};
@@ -122,7 +115,6 @@ private:
   rclcpp::Publisher<banyu_msgs::msg::Task2SurveyProgress>::SharedPtr survey_progress_pub_;
   rclcpp::Subscription<rx_msgs::msg::Command>::SharedPtr command_sub_;
   rclcpp::Subscription<rx_msgs::msg::Course>::SharedPtr course_sub_;
-  rclcpp::Subscription<mavros_msgs::msg::State>::SharedPtr state_sub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_sub_;
