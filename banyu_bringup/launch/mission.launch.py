@@ -103,6 +103,14 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    waypoint_mission_arg = DeclareLaunchArgument(
+        name="waypoint_mission",
+        default_value="False",
+        description="Task 2: fly the waypoint navigation & communication test mission (task2_waypoint_mission.xml) "
+        "instead of the survey.",
+        choices=["True", "False"],
+    )
+
     scenario_args = [
         DeclareLaunchArgument(name=n, default_value="0.0", description="Simulation scenario, see main_launch.launch.py")
         for n in ("pipe_dx", "pipe_dy", "pipe_dyaw_deg", "buoy_error_x", "buoy_error_y")
@@ -207,6 +215,11 @@ def generate_launch_description():
         "'", banyu_bringup_share, "/config/task2_test_mission.yaml' if '", LaunchConfiguration("test_mission"),
         "'.lower() == 'true' else '", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"),
         "' + '.yaml'"])
+    # Waypoint test mission overlay, loaded last (a no-op re-load of the sensors overlay when off).
+    task2_waypoint_file = PythonExpression([
+        "'", banyu_bringup_share, "/config/task2_waypoint_mission.yaml' if '", LaunchConfiguration("waypoint_mission"),
+        "'.lower() == 'true' else '", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"),
+        "' + '.yaml'"])
     por_params = LaunchConfiguration("por_params_file")
     hardware_params = LaunchConfiguration("hardware_params_file")
 
@@ -257,6 +270,7 @@ def generate_launch_description():
             task2_site_file,
             task2_dive_file,
             task2_test_file,
+            task2_waypoint_file,
         ],
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -358,6 +372,7 @@ def generate_launch_description():
             task2_params,
             task2_sensors_file,
             task2_test_file,
+            task2_waypoint_file,
             {
                 "default_operational_mode": ParameterValue(
                     default_op_mode_expr,
@@ -399,7 +414,7 @@ def generate_launch_description():
         executable="uuv_comm_node",
         name="uuv_comm_node",
         parameters=[
-            task2_params, task2_tier_file, task2_sensors_file, task2_site_file, task2_test_file,
+            task2_params, task2_tier_file, task2_sensors_file, task2_site_file, task2_test_file, task2_waypoint_file,
             {"survey.gamble_red_positions": ParameterValue(LaunchConfiguration("gamble_red"), value_type=str)},
         ],
         output="screen",
@@ -419,7 +434,7 @@ def generate_launch_description():
         package="banyu_vehicle_execution",
         executable="vehicle_execution_node",
         name="vehicle_execution_node",
-        parameters=[task2_params, task2_sensors_file, task2_hydrophone_file, task2_test_file],
+        parameters=[task2_params, task2_sensors_file, task2_hydrophone_file, task2_test_file, task2_waypoint_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -528,6 +543,7 @@ def generate_launch_description():
             use_hydrophone_arg,
             dive_point_arg,
             test_mission_arg,
+            waypoint_mission_arg,
             task2_params_arg,
             por_params_arg,
             hardware_params_arg,

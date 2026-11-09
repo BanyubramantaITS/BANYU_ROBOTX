@@ -27,7 +27,7 @@ import rclpy
 from banyu_msgs.msg import RunLifecycle, VehicleStatus
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from rx_msgs.msg import Command, Course, Heartbeat, LatLng, PipelineBuoys, PipelineSurvey, VehicleType
+from rx_msgs.msg import Command, Course, Heartbeat, LatLng, PipelineBuoys, PipelineSurvey, ResourceDelivery, VehicleType
 from std_srvs.srv import Trigger
 
 SYSTEM_QOS = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
@@ -48,6 +48,7 @@ class TestWaypoint(Node):
         self.lifecycle = None
         self.heartbeat = None
         self.survey = None
+        self.delivery = None
         self.start_event = None
         self.started_at = time.time()
         self.course_pub = self.create_publisher(Course, '/system/mission/course', SYSTEM_QOS)
@@ -58,6 +59,8 @@ class TestWaypoint(Node):
         self.create_subscription(RunLifecycle, '/banyu/mission/run_lifecycle', self.on_lifecycle, LATCHED)
         self.create_subscription(Heartbeat, '/system/vehicle/uuv/heartbeat', self.on_heartbeat, SYSTEM_QOS)
         self.create_subscription(PipelineSurvey, '/system/vehicle/uuv/task2/pipeline_survey', self.on_survey,
+                                 LATCHED_10)
+        self.create_subscription(ResourceDelivery, '/system/vehicle/uuv/task2/delivery', self.on_delivery,
                                  LATCHED_10)
         self.course_on = False
         self.buoys_on = False
@@ -92,6 +95,16 @@ class TestWaypoint(Node):
         segments = ' '.join(SEGMENTS.get(s, str(s)) for s in msg.segments)
         self.log(f'PIPELINE SURVEY received: active buoy {msg.active_buoy_position.latitude:.7f}, '
                  f'{msg.active_buoy_position.longitude:.7f}, segments [{segments}]')
+
+    def on_delivery(self, msg):
+        if not self.expect_survey:
+            return
+        self.delivery = msg
+        colors = {0: 'ANY', 1: 'RED', 2: 'GREEN', 3: 'BLUE'}
+        res_col = colors.get(msg.resource_color, str(msg.resource_color))
+        circle_col = colors.get(msg.delivery_circle_color, str(msg.delivery_circle_color))
+        self.log(f'RESOURCE DELIVERY received (relayed to UAV): task {msg.task}, '
+                 f'resource {res_col}, circle {circle_col}')
 
     def tick(self):
         if self.course_on:

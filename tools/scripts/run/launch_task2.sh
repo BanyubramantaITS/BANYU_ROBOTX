@@ -45,6 +45,7 @@ DIVE_POINT="auto"
 DIVE_POINT_SET=false
 PIPE_DEPTH=""
 TEST_MISSION=false
+WAYPOINT_MISSION=false
 DEBUG=false
 RECORD=""                # empty = the target's default: on for --real, off for --sim
 RECORD_IMAGES=""
@@ -99,6 +100,12 @@ Simulation Options (--sim only):
                         The gps-gate options are rejected with --real.
 
 Both targets:
+  --waypoint-mission, -w
+                        Fly the Task 2 WAYPOINT test mission (task2_waypoint_mission.xml, waypoint_mission:=True).
+                        Tests GPS waypoint navigation on the surface (midpoint strategy between USV buoys) and
+                        inter-vehicle communication to UAV/GCS (PipelineSurvey + ResourceDelivery).
+                        Auto-starts on flicking SB Up (also accepts GCS CMD_RUN_START).
+                        No diving or underwater legs; stays safely on the surface.
   --test-mission        Fly the Task 2 TEST mission (task2_test_mission.xml, test_mission:=True) instead of the survey,
                         with the real midpoint strategy: after SB Up, the run start and the USV's two buoys (PipelineBuoys)
                         the AUV goes midway between the buoys by GPS (keeping clear of both), turns to face the end buoy,
@@ -235,6 +242,7 @@ while [[ $# -gt 0 ]]; do
     --allow-other-domain) ALLOW_OTHER_DOMAIN=true; shift ;;
     --no-rc) NO_RC=true; shift ;;
     --test-mission) TEST_MISSION=true; shift ;;
+    --waypoint-mission|-w) WAYPOINT_MISSION=true; shift ;;
     --debug) DEBUG=true; shift ;;
     --record) RECORD=true; shift ;;
     --no-record) RECORD=false; shift ;;
@@ -269,10 +277,22 @@ case "$DIVE_POINT" in
   auto|buoy|midpoint) ;;
   *) echo "Error: --dive-point must be auto, buoy or midpoint (got '$DIVE_POINT')." >&2; exit 1 ;;
 esac
+if [ "$TEST_MISSION" = true ] && [ "$WAYPOINT_MISSION" = true ]; then
+  echo "Error: --test-mission cannot be combined with --waypoint-mission." >&2; exit 1
+fi
+if [ "$WAYPOINT_MISSION" = true ] && [ "$SENSORS" = gamble ]; then
+  echo "Error: --waypoint-mission cannot be combined with --sensors gamble (both pick the mission tree)." >&2; exit 1
+fi
 if [ "$TEST_MISSION" = true ] && [ "$SENSORS" = gamble ]; then
   echo "Error: --test-mission cannot be combined with --sensors gamble (both pick the mission tree)." >&2; exit 1
 fi
-# The test mission flies the real midpoint strategy (task2_test_mission.yaml sets it too).
+# The test mission and waypoint mission fly the real midpoint strategy.
+if [ "$WAYPOINT_MISSION" = true ]; then
+  if [ "$DIVE_POINT_SET" = true ] && [ "$DIVE_POINT" != midpoint ]; then
+    echo "Error: --waypoint-mission always navigates midway between the buoys (--dive-point midpoint)." >&2; exit 1
+  fi
+  DIVE_POINT="midpoint"
+fi
 if [ "$TEST_MISSION" = true ]; then
   if [ "$DIVE_POINT_SET" = true ] && [ "$DIVE_POINT" != midpoint ]; then
     echo "Error: --test-mission always dives midway between the buoys (--dive-point midpoint)." >&2; exit 1
@@ -360,11 +380,13 @@ echo "Active Git Branch : $CURRENT_BRANCH"
 echo "Target Platform   : $([ "$TARGET" = "sim" ] && echo "Gazebo Simulation (SITL)" || echo "Real AUV Physical Hardware")"
 echo "use_gps           : $(TF $USE_GPS)"
 echo "Tier              : $([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && echo core || echo "$TIER")"
-echo "Mission           : $([ "$TEST_MISSION" = true ] && echo "TEST (midpoint by GPS, face the end buoy, 1 m dive, timed forward/backward legs, surface, Core report; task2_test_mission.yaml)" || echo "survey (banyu_mission.xml$([ "$SENSORS" = gamble ] && echo ", gamble tree"))")"
+echo "Mission           : $([ "$WAYPOINT_MISSION" = true ] && echo "WAYPOINT (midpoint GPS transit, align heading, send reports to UAV/GCS; task2_waypoint_mission.yaml)" || ([ "$TEST_MISSION" = true ] && echo "TEST (midpoint by GPS, face the end buoy, 1 m dive, timed forward/backward legs, surface, Core report; task2_test_mission.yaml)" || echo "survey (banyu_mission.xml$([ "$SENSORS" = gamble ] && echo ", gamble tree"))"))"
 [ "$TARGET" = real ] && echo "RC / mode switch   : $([ "$NO_RC" = true ] && echo "NO RC: mode from /banyu/trigger/cmd ('2' auto, '1' manual, '0' kill); MANUAL until set" || echo "TX16S, SB (teleop)")"
 echo "Detector debug    : $([ "$DEBUG" = true ] && echo "ON (windows where there is a display; topics /banyu/pipeline/debug/*)" || echo "off (--debug)")"
 echo "Sensors           : $SENSORS$([ "$SENSORS" = baro ] && echo " (Bar30 + ALT_HOLD; dive stops by camera at the pipe, order dead-reckoned)")$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")$([ "$SENSORS" = gamble ] && echo " (GPS to the dive point, timed dive and bobbing, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
-if [ "$TEST_MISSION" = true ]; then
+if [ "$WAYPOINT_MISSION" = true ]; then
+  echo "Dive point        : midpoint (navigates midway between the buoys on surface; no dive)"
+elif [ "$TEST_MISSION" = true ]; then
   echo "Dive point        : midpoint (midway between the buoys, facing the end buoy; start buoy only: inside it)"
 elif [ "$SENSORS" = gamble ]; then
   echo "Dive point        : $([ "$DIVE_POINT" = midpoint ] && echo "midpoint (midway between the buoys; start buoy only: inside it)" || echo "buoy (inside the start buoy, standoff from it)"); timed dive in place, no pipe"
@@ -388,12 +410,13 @@ echo "----------------------------------------------------------"
 # Name the run folder and save the overlay profiles the run loads next to the bag (record_mission.sh reads these).
 EFFECTIVE_TIER="$([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && echo core || echo "$TIER")"
 CONFIG_DIR="${REPO_DIR}/banyu_bringup/config"
-export BANYU_BAG_LABEL="task2_$([ "$TEST_MISSION" = true ] && echo test || echo "$EFFECTIVE_TIER")_${SENSORS}$([ "$TARGET" = sim ] && echo _sim)"
+export BANYU_BAG_LABEL="task2_$([ "$WAYPOINT_MISSION" = true ] && echo waypoint || ([ "$TEST_MISSION" = true ] && echo test || echo "$EFFECTIVE_TIER"))_${SENSORS}$([ "$TARGET" = sim ] && echo _sim)"
 BAG_OVERLAYS=("${CONFIG_DIR}/task2_tier_${EFFECTIVE_TIER}.yaml" "${CONFIG_DIR}/task2_sensors_${SENSORS}.yaml")
 [ "$TARGET" = real ] && BAG_OVERLAYS+=("${CONFIG_DIR}/hardware_params.yaml")
 [ "$DIVE_POINT" = midpoint ] && BAG_OVERLAYS+=("${CONFIG_DIR}/task2_dive_midpoint.yaml")
 [ "$USE_HYDROPHONE" = true ] && BAG_OVERLAYS+=("${CONFIG_DIR}/task2_hydrophone_on.yaml")
 [ "$TEST_MISSION" = true ] && BAG_OVERLAYS+=("${CONFIG_DIR}/task2_test_mission.yaml")
+[ "$WAYPOINT_MISSION" = true ] && BAG_OVERLAYS+=("${CONFIG_DIR}/task2_waypoint_mission.yaml")
 export BANYU_BAG_EXTRA_PARAMS="$(IFS=:; echo "${BAG_OVERLAYS[*]}")"
 if [ "$RECORD" = true ]; then
   BAG_ROOT="${BANYU_BAG_DIR:-$HOME/banyu_bags}"
@@ -420,10 +443,12 @@ if [ "$TARGET" = "sim" ]; then
   fi
 
   # Known issues: SITL's terminal spawner must use bash, and a surrounding tmux session
-  # breaks the sim_vehicle.py console/map windows.
+  # breaks the sim_vehicle.py console/map windows. Bind gz-transport to loopback so a
+  # laptop network change cannot stall /clock via multicast errors.
   export SITL_RITW_TERMINAL=bash
+  export GZ_IP="${GZ_IP:-127.0.0.1}"
   unset TMUX
-  ENV_PREFIX+=(SITL_RITW_TERMINAL=bash)
+  ENV_PREFIX+=(SITL_RITW_TERMINAL=bash GZ_IP="$GZ_IP")
 
   # Hybrid-GPU laptops: render Gazebo on the NVIDIA GPU, only when one is present.
   if command -v nvidia-smi &> /dev/null && nvidia-smi -L &> /dev/null; then
@@ -443,6 +468,7 @@ if [ "$TARGET" = "sim" ]; then
     use_hydrophone:="$(TF $USE_HYDROPHONE)"
     dive_point:="$DIVE_POINT"
     test_mission:="$(TF $TEST_MISSION)"
+    waypoint_mission:="$(TF $WAYPOINT_MISSION)"
     debug:="$(TF $DEBUG)"
     debug_topics:="$(TF $DEBUG)"
     gamble_red:="$GAMBLE_RED"
@@ -480,7 +506,12 @@ print('%.2f %.2f %.3f' % (d * math.cos(b), d * math.sin(b), r.uniform(-math.pi, 
   fi
   echo "  1. Wait for Gazebo Harmonic and MAVROS to connect (pose at 20-50 Hz)."
   echo "  2. Verify link: ros2 topic echo /mavros/state --once"
-  if [ "$TEST_MISSION" = true ]; then
+  if [ "$WAYPOINT_MISSION" = true ]; then
+  echo "  3. WAYPOINT test mission: course, prepare_autonomy, CMD_RUN_START in one command (the sim provider sends the"
+  echo "     world's two buoys like the USV, so give no LAT LON; the sim has no SB switch):"
+  echo "       ROS_DOMAIN_ID=40 ./tools/scripts/run/task2_test_waypoint.py --course-center 33.810313 -118.393866"
+  echo "  4. It goes midway between the buoys on the surface, aligns heading, and sends PipelineSurvey + ResourceDelivery (to UAV)."
+  elif [ "$TEST_MISSION" = true ]; then
   echo "  3. TEST mission: course, prepare_autonomy, CMD_RUN_START in one command (the sim provider sends the"
   echo "     world's two buoys like the USV, so give no LAT LON; the sim has no SB switch):"
   echo "       ROS_DOMAIN_ID=40 ./tools/scripts/run/task2_test_waypoint.py --course-center 33.810313 -118.393866"
@@ -574,6 +605,7 @@ else
     use_hydrophone:="$(TF $USE_HYDROPHONE)"
     dive_point:="$DIVE_POINT"
     test_mission:="$(TF $TEST_MISSION)"
+    waypoint_mission:="$(TF $WAYPOINT_MISSION)"
     debug:="$(TF $DEBUG)"
     debug_topics:="$(TF $DEBUG)"
     gamble_red:="$GAMBLE_RED"
@@ -595,7 +627,13 @@ else
   fi
   echo "  1. UUV side runs on ROS_DOMAIN_ID 40 (export ROS_DOMAIN_ID=40 in this shell and in"
   echo "     any shell you use to call services); the GCS side uses its own domain."
-  if [ "$TEST_MISSION" = true ]; then
+  if [ "$WAYPOINT_MISSION" = true ]; then
+  echo "  2. WAYPOINT test mission:"
+  echo "     - Flick SB Up (AUTO): starts automatically, waits for USV buoys, transits midway"
+  echo "       between buoys on the surface, aligns heading, and sends PipelineSurvey + ResourceDelivery (to UAV)."
+  echo "     - Or send buoys/start via script: ROS_DOMAIN_ID=40 ./tools/scripts/run/task2_test_waypoint.py <start LAT> <LON> --end <end LAT> <LON>"
+  echo "     - SB Mid/Down at any time takes over (MANUAL/KILL)."
+  elif [ "$TEST_MISSION" = true ]; then
   echo "  2. TEST mission: flick SB Up (AUTO). Then send the buoys; this also publishes the course, calls"
   echo "     prepare_autonomy and sends CMD_RUN_START (as the GCS would), and the buoys go out as the USV's"
   echo "     PipelineBuoys (start = active):"

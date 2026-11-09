@@ -118,6 +118,8 @@ private:
   // USV active buoy target: the run waits for it (WaitForBuoyTarget) and follows it until LockBuoyTarget runs.
   std::optional<banyu_msgs::msg::Task2BuoyTarget> buoy_target_;
   bool buoy_target_locked_{false};
+  bool auto_start_on_auto_{false};
+  uint8_t last_operational_mode_{0};
   double retry_dive_offset_m_{3.0};
   // Dive this far from the start buoy toward the other one (the pipe starts 1.5-2.5 m inside the buoys). The reported buoy is unchanged.
   double dive_offset_m_{0.0};

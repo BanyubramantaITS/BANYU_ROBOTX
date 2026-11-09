@@ -22,6 +22,7 @@ mkdir -p "$LOG_DIR"
 mavproxy.py --master="${MASTER_DEV}" \
   --logfile="${LOG_DIR}/$(date +%Y%m%d_%H%M%S).tlog" \
   --out="udp:${QGC_IP}:14550" \
+  --out="udp:192.168.0.180:14550" \
   --out=udp:127.0.0.1:14550 \
   --out=udp:127.0.0.1:14551 \
   --out=udp:127.0.0.1:14552 \

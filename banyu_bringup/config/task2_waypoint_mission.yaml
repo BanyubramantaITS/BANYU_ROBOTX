@@ -1,0 +1,31 @@
+# Task 2 waypoint test mission overlay (waypoint_mission:=True, launch_task2.sh --waypoint-mission):
+# Uses task2_waypoint_mission.xml instead of full survey or diving test.
+# Specifically tests GPS waypoint navigation on the surface (midpoint strategy between USV buoys)
+# and communication to the UAV/GCS (PipelineSurvey + ResourceDelivery).
+#
+# Auto-start on SB Up is enabled: flicking SB to AUTO starts the run automatically (also accepts GCS CMD_RUN_START).
+# No diving is performed; vehicle stays safely on the surface throughout.
+# STABILIZE on the surface, ALT_HOLD under water, commands as RC override sticks.
+banyu_mission:
+  ros__parameters:
+    autonomy_mode: "STABILIZE,ALT_HOLD"
+    mission:
+      strategy: "waypoint"
+      dive_point: "midpoint"
+      auto_start_on_auto: true
+      task2_tier: 3
+      test:
+        transit_timeout_s: 300.0
+vehicle_execution_node:
+  ros__parameters:
+    control:
+      autonomy_mode: "STABILIZE,ALT_HOLD"
+      output_mode: "rc_override"
+banyu_vehicle_status:
+  ros__parameters:
+    autonomy_mode: "STABILIZE,ALT_HOLD"
+uuv_comm_node:
+  ros__parameters:
+    autonomy_mode: "STABILIZE,ALT_HOLD"
+    survey:
+      task2_tier: 3

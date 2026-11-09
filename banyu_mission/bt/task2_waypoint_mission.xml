@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Task 2 waypoint test mission (mission.strategy waypoint; launch_task2.sh -w / - -waypoint-mission):
+     Checks surface waypoint GPS navigation and inter-vehicle communication (USV -> UUV -> UAV/GCS).
+     1. Starts on flick to AUTO (SB Up) or GCS CMD_RUN_START.
+     2. Stands by on surface and waits for USV buoys (WaitForBuoyTarget on rx_msgs/PipelineBuoys).
+     3. Navigates by GPS on the surface to the midpoint between buoys with keep-out (NavigateSurfaceGps).
+     4. Locks target and aligns heading toward the end buoy (LockBuoyTarget, AlignHeading).
+     5. Marks survey complete and surfaced (GiveUpSurvey, ConfirmSurfaceAction) without diving.
+     6. Publishes PipelineSurvey and ResourceDelivery (/system/vehicle/uuv/task2/delivery) to GCS/UAV.
+     7. Remains safely on the surface upon mission completion.
+-->
+<root BTCPP_format="4" main_tree_to_execute="Main">
+  <BehaviorTree ID="Main">
+    <ReactiveFallback name="mission_root">
+      <Sequence name="interrupt_sequence">
+        <AutonomyInterrupted />
+        <HandleAbortOrTeleop />
+      </Sequence>
+      <Sequence name="mission_phases">
+        <RequireMissionStarted />
+        <RequireVehicleReady />
+        <!-- Stand by on the surface until the USV's buoys arrive; abort to stop. -->
+        <WaitForBuoyTarget />
+        <!-- A transit that does not arrive in time ends there: the test goes on from where the vehicle is. -->
+        <ForceSuccess>
+          <Timeout msec="{test_transit_timeout_ms}">
+            <RetryUntilSuccessful num_attempts="-1">
+              <Fallback>
+                <NavigateSurfaceGps target_latitude="{target_latitude}"
+                  target_longitude="{target_longitude}"
+                  start_latitude="{start_latitude}" start_longitude="{start_longitude}"
+                  tolerance="{gps_tolerance}" keep_out_radius="{keep_out_radius}"
+                  start_buoy_latitude="{start_buoy_latitude}" start_buoy_longitude="{start_buoy_longitude}"
+                  end_buoy_latitude="{end_buoy_latitude}" end_buoy_longitude="{end_buoy_longitude}" />
+                <Sequence>
+                  <Sleep msec="1000" />
+                  <AlwaysFailure />
+                </Sequence>
+              </Fallback>
+            </RetryUntilSuccessful>
+          </Timeout>
+        </ForceSuccess>
+        <LockBuoyTarget />
+        <!-- Face the end buoy (the start to end buoy bearing), holding the GPS position. -->
+        <ForceSuccess>
+          <Timeout msec="60000">
+            <AlignHeading target_heading="{heading}" tolerance="{heading_tolerance}" />
+          </Timeout>
+        </ForceSuccess>
+        <!-- Mark survey complete and confirmed surfaced without diving -->
+        <GiveUpSurvey />
+        <ConfirmSurfaceAction />
+        <!-- Publish reports (PipelineSurvey + ResourceDelivery) for GCS and UAV -->
+        <Timeout msec="15000">
+          <PublishPipelineSurvey best_effort="true" timeout_s="15.0" />
+        </Timeout>
+      </Sequence>
+    </ReactiveFallback>
+  </BehaviorTree>
+</root>

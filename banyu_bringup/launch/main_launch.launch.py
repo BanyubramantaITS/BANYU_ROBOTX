@@ -167,6 +167,13 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    waypoint_mission_arg = DeclareLaunchArgument(
+        name="waypoint_mission",
+        default_value="False",
+        description="Task 2: fly the waypoint navigation & communication test mission (task2_waypoint_mission.xml).",
+        choices=["True", "False"],
+    )
+
     use_hydrophone_arg = DeclareLaunchArgument(
         name="use_hydrophone",
         default_value="False",
@@ -312,6 +319,7 @@ def generate_launch_description():
             "use_hydrophone": LaunchConfiguration("use_hydrophone"),
             "dive_point": LaunchConfiguration("dive_point"),
             "test_mission": LaunchConfiguration("test_mission"),
+            "waypoint_mission": LaunchConfiguration("waypoint_mission"),
             "gamble_red": LaunchConfiguration("gamble_red"),
             "site": LaunchConfiguration("site"),
             "pipe_dx": LaunchConfiguration("pipe_dx"),
@@ -443,6 +451,7 @@ def generate_launch_description():
             use_hydrophone_arg,
             dive_point_arg,
             test_mission_arg,
+            waypoint_mission_arg,
             debug_topics_arg,
             headless_arg,
             task2_params_arg,

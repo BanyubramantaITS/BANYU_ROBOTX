@@ -30,7 +30,8 @@ banyu_mission:
     mission:
       underwater_mode: "ALT_HOLD"   # second entry of autonomy_mode
       # A failed first dive or traverse surfaces, moves this far along the buoy line toward the other buoy and dives again.
-      strategy: "survey"   # survey, gamble (task2_gamble_mission.xml; sensors:=gamble) or test (task2_test_mission.xml; test_mission:=True)
+      strategy: "survey"   # survey, gamble (task2_gamble_mission.xml; sensors:=gamble), test (task2_test_mission.xml; test_mission:=True) or waypoint (task2_waypoint_mission.xml; waypoint_mission:=True)
+      auto_start_on_auto: false
       retry_dive_offset_m: 3.0
       # Dive point this far from the start buoy toward the other one (0 = at the buoy). The reported buoy position is unchanged.
       dive_offset_m: 0.0

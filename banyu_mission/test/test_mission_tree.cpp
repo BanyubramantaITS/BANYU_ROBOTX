@@ -138,6 +138,28 @@ TEST_F(MissionTest, TestMissionTreeLoads)
   }
 }
 
+TEST_F(MissionTest, LoadsTask2WaypointMission)
+{
+  auto node = std::make_shared<rclcpp::Node>("mission_tree_waypoint_mission_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get(), false);
+  BT::BehaviorTreeFactory factory;
+  banyu_mission::registerMissionNodes(factory, node, state);
+  const auto path = ament_index_cpp::get_package_share_directory("banyu_mission") + "/bt/task2_waypoint_mission.xml";
+  EXPECT_NO_THROW(factory.registerBehaviorTreeFromFile(path));
+  EXPECT_NO_THROW({auto tree = factory.createTree("Main", BT::Blackboard::create()); (void)tree;});
+  // Surface waypoint GPS navigation, align heading, and report (no diving, no timed legs).
+  const auto xml = readFile(path);
+  std::size_t previous = 0;
+  for (const auto * step : {"WaitForBuoyTarget", "NavigateSurfaceGps", "LockBuoyTarget", "AlignHeading",
+      "GiveUpSurvey", "ConfirmSurfaceAction", "PublishPipelineSurvey best_effort=\"true\""})
+  {
+    const auto current = xml.find(step, previous);
+    ASSERT_NE(current, std::string::npos) << step;
+    previous = current;
+  }
+  EXPECT_EQ(xml.find("TimedMove"), std::string::npos);
+}
+
 TEST_F(MissionTest, LoadsAndRegistersAllNodes)
 {
   auto node = std::make_shared<rclcpp::Node>("mission_tree_parser_test");

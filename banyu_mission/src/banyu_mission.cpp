@@ -41,15 +41,17 @@ class WaitUntil : public BT::StatefulActionNode
 public:
   WaitUntil(
     const std::string & name, const BT::NodeConfig & config,
-    std::function<BT::NodeStatus()> check)
-  : StatefulActionNode(name, config), check_(std::move(check)) {}
+    std::function<BT::NodeStatus()> check,
+    std::function<void()> on_halt = {})
+  : StatefulActionNode(name, config), check_(std::move(check)), on_halt_(std::move(on_halt)) {}
   static BT::PortsList providedPorts() {return {};}
   BT::NodeStatus onStart() override {return check_();}
   BT::NodeStatus onRunning() override {return check_();}
-  void onHalted() override {}
+  void onHalted() override {if (on_halt_) {on_halt_();}}
 
 private:
   std::function<BT::NodeStatus()> check_;
+  std::function<void()> on_halt_;
 };
 
 class MissionTreeLogger : public BT::StatusChangeLogger
@@ -172,6 +174,10 @@ void registerMissionNodes(
         if (watch->holding && (t - watch->last_active).seconds() < release_s) {return BT::NodeStatus::RUNNING;}
         watch->holding = false;
         return BT::NodeStatus::SUCCESS;
+      }),
+      std::function<void()>([watch]() {
+        std::lock_guard<std::mutex> lock(watch->mutex);
+        watch->holding = false;
       }));
   }
   // Ring recording on or off for the ring tracker (off while diving and backing up to the pipe's start).
@@ -235,6 +241,7 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
   const auto tier = declare_parameter<int>("mission.task2_tier", 2);
   if (tier < 2 || tier > 4) {throw std::invalid_argument("Invalid declared Task 2 tier");}
   task2_tier_ = static_cast<uint8_t>(tier);
+  auto_start_on_auto_ = declare_parameter<bool>("mission.auto_start_on_auto", false);
   const auto reset_services = declare_parameter<std::vector<std::string>>(
     "run.reset_services", {"/banyu/pipeline/reset_tracker", "/banyu/pipeline/reset_end"});
   if (mission_mode_ == "task2") {
@@ -737,6 +744,8 @@ std::string BanyuMission::xmlPath()
       task2_tree = "task2_gamble_mission.xml";
     } else if (strategy == "test") {
       task2_tree = "task2_test_mission.xml";
+    } else if (strategy == "waypoint") {
+      task2_tree = "task2_waypoint_mission.xml";
     }
   }
   const auto default_tree = ament_index_cpp::get_package_share_directory(
@@ -1073,6 +1082,58 @@ void BanyuMission::tickLoop(int tick_period_ms)
       }
       if (std::chrono::steady_clock::now() - lifecycle_published_at_ >=
         std::chrono::milliseconds(250)) {publishLifecycle();}
+      if (auto_start_on_auto_) {
+        const auto current_phase = run_->snapshot().phase;
+        const auto status = state_->snapshot();
+        const bool switched_to_auto = (last_operational_mode_ != 2 && status.operational_mode == 2);
+        last_operational_mode_ = status.operational_mode;
+
+        if (status.operational_mode == 2 && !status.hardware_kill_active) {
+          if ((current_phase == RunCoordinator::Phase::Idle ||
+               (switched_to_auto && (current_phase == RunCoordinator::Phase::Interrupted ||
+                                     current_phase == RunCoordinator::Phase::Failed ||
+                                     current_phase == RunCoordinator::Phase::Succeeded))) &&
+              initialized_ && mission_config_valid_.load() &&
+              status.fcu_connected && status.fcu_status_fresh && status.rc_fresh &&
+              !status.operator_takeover && status.gps_available)
+          {
+            if (run_->beginPreparation()) {
+              start_commands_.clear();
+              last_stop_sequence_ = 0;
+              execution_readiness_ = banyu_msgs::msg::ExecutionReadiness{};
+              execution_received_at_ = {};
+              preparation_hold_seen_ = false;
+              state_->prepareAutonomy();
+              preparation_tree_->haltTree();
+              preparation_started_ = std::chrono::steady_clock::now();
+              publishLifecycle();
+              RCLCPP_INFO(get_logger(), "Auto-start on SB Up: preparation began");
+            }
+          } else if (current_phase == RunCoordinator::Phase::Ready &&
+                     initialized_ && autonomousReady() && executionHolding())
+          {
+            const uint32_t auto_run_id = 1;
+            const uint32_t auto_cmd_seq = 1;
+            const auto result = run_->requestStart(auto_run_id, auto_cmd_seq, true);
+            if (result.disposition == RunCoordinator::Disposition::Accepted) {
+              initialization_started_ = std::chrono::steady_clock::now();
+              accepted_run_at_ = now();
+              survey_progress_ = banyu_msgs::msg::Task2SurveyProgress{};
+              survey_progress_received_at_ = {};
+              for (auto & consumer : reset_consumers_) {
+                consumer.client->prune_pending_requests();
+                consumer.future = {};
+                consumer.acknowledged = false;
+              }
+              last_fallback_time_ = rclcpp::Time(0, 0, get_clock()->get_clock_type());
+              buoy_target_locked_ = false;
+              applyBuoyTarget();
+              publishLifecycle(banyu_msgs::msg::RunLifecycle::START_ACCEPTED, result.reason, auto_run_id);
+              RCLCPP_INFO(get_logger(), "Auto-start on SB Up: run %u start accepted", auto_run_id);
+            }
+          }
+        }
+      }
     }
     if (state_->lifecycle() != MissionState::Lifecycle::Active) {
       started_log = false;
