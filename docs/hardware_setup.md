@@ -45,15 +45,11 @@ POR is finished. In Task 2 the front camera will feed YOLO object detection for 
 (model in training). Until that node exists, `sub_bringup.launch.py` still starts the front camera
 only for `mode:=por`; add it to `mode:=task2` together with the YOLO node.
 
-**Front camera orientation:** the image is rotated 90° (on the bench the ceiling is on the right
-edge), and the camera has no V4L2 rotate/flip control. Either mount it upright or rotate in the YOLO
-node right after decoding, before inference: `cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)`
-(C++ `cv::rotate`), well under 1 ms at 640x480. Re-check the direction once it is mounted, and
-prefer a `rotation` parameter (0/90/180/270) over hard-coding. The result is a 480x640 portrait
-frame; boxes and left/right decisions are then in the rotated frame. Bags record the raw sideways
-image, so apply the same rotation when building the training set. `front_camera_info.yaml` still
-holds the old Logitech C270 intrinsics: recalibrate (and rotate fx/fy, cx/cy) before using anything
-that needs them.
+**Front camera orientation:** the camera is now mounted upright (since 2026-11-10), so the image
+needs no rotation. Bags recorded before that hold a sideways image (ceiling on the right edge):
+rotate those 90° counter-clockwise (`check/yolo_test.sh --rotation 270`) if they go into a training
+set. `front_camera_info.yaml` still holds the old Logitech C270 intrinsics: recalibrate before using
+anything that needs them.
 Camera details: [`horus_camera.md`](horus_camera.md).
 
 ## 3. Kill switch (ESP32 indicator, `indikator_banyu.ino`)
@@ -229,7 +225,7 @@ Pi CPU. State on 2026-11-03:
 runtime/driver debs installed and the wheel in `~/Downloads`).
 
 Measured 2026-11-03 (640x640 input; throughput from `hailortcli run`, latency from
-`check/yolo_test.sh` on the live, rotated front camera, ~17-18 FPS end to end = camera limit):
+`check/yolo_test.sh` on the live front camera, then still mounted sideways, ~17-18 FPS end to end = camera limit):
 
 | Model | Hailo-8 throughput | Latency per frame | Output | Works with `yolo_test.sh` |
 |---|---|---|---|---|
@@ -252,11 +248,11 @@ the Pi:
    `hailomz compile yolov8s --ckpt best.onnx --hw-arch hailo8 --calib-path calib/ --classes <N>`.
    Use the Model Zoo / DFC release that matches HailoRT 4.24 (Model Zoo v2.18 and the DFC version in
    its release notes), or the HEF may not load. `calib/` = a few hundred front-camera frames from the
-   bags, **rotated the same way as at inference**.
+   bags (frames from before 2026-11-10 rotated upright first).
 4. Copy the `.hef` and a labels file (one class per line) to `~/yolo_models/` and check it:
    `check/yolo_test.sh --hef ~/yolo_models/team.hef --labels ~/yolo_models/team.txt --save /tmp/y.jpg`.
 
 The input is RGB, letterboxed with grey 114; the HEF output is per class
 `[ymin, xmin, ymax, xmax, score]` normalised to the letterboxed input (`check/yolo_test.py` shows
-the decoding). The YOLO ROS node does not exist yet; build it on the same pattern (rotate →
-letterbox → infer → decode) and give it a `rotation` parameter.
+the decoding). The YOLO ROS node does not exist yet; build it on the same pattern (letterbox →
+infer → decode).

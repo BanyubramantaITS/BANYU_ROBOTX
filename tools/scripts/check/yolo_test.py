@@ -2,12 +2,12 @@
 """Run a YOLO HEF on the Hailo-8 against the front camera (or an image) and report detections + FPS.
 
 The HEF must be a Hailo-compiled YOLO with on-chip NMS (Hailo Model Zoo yolov8/yolov11, or the
-team model compiled with the Hailo Dataflow Compiler). The camera frame is rotated first, as the
-YOLO node will do (the front camera is mounted 90 degrees off), then letterboxed to the HEF input.
+team model compiled with the Hailo Dataflow Compiler). The frame is optionally rotated (the front
+camera is mounted upright; frames from before 2026-11-10 are sideways), then letterboxed to the HEF input.
 
   check/yolo_test.sh                                  # ~/yolo_models/yolov8s.hef, live, 10 s
   check/yolo_test.sh --hef team.hef --labels team.txt --save /tmp/yolo.jpg
-  check/yolo_test.sh --image frame.jpg --rotation 0
+  check/yolo_test.sh --image old_frame.jpg --rotation 270
 
 Stop anything else streaming the camera first.
 """
@@ -60,9 +60,9 @@ def main():
     p.add_argument("--labels", help="one class name per line (default: COCO)")
     p.add_argument("--device", default="/dev/front_camera")
     p.add_argument("--image", help="run on this image instead of the camera")
-    p.add_argument("--rotation", type=int, default=270, choices=sorted(ROTATIONS),
-                   help="clockwise rotation applied before inference (default 270 = 90 counter-clockwise, "
-                        "the bench orientation; re-check once mounted)")
+    p.add_argument("--rotation", type=int, default=0, choices=sorted(ROTATIONS),
+                   help="clockwise rotation applied before inference (default 0: mounted upright; "
+                        "270 for frames from the old sideways mount)")
     p.add_argument("--seconds", type=float, default=10.0)
     p.add_argument("--conf", type=float, default=0.4)
     p.add_argument("--save", help="write the last annotated frame here")
