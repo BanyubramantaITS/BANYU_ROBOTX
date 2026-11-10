@@ -275,9 +275,8 @@ def generate_launch_description():
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
 
-    use_compressed_image = ParameterValue(
-        EqualsSubstitution(use_sim, "False"), value_type=bool
-    )
+    on_robot = ParameterValue(EqualsSubstitution(use_sim, "False"), value_type=bool)
+    use_compressed_image = on_robot
 
     por_detection = Node(
         package="banyu_detection",
@@ -356,6 +355,7 @@ def generate_launch_description():
             {
                 "use_gui": debug,
                 "use_compressed_image": use_compressed_image,
+                "apply_image_rotation": on_robot,
                 "publish_debug_images": ParameterValue(LaunchConfiguration("debug_topics"), value_type=bool),
             },
         ],

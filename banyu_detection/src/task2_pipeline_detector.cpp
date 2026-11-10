@@ -129,6 +129,8 @@ private:
     debug_rate_hz_ = declare_parameter<double>("debug_rate_hz", 5.0);
     debug_scale_ = declare_parameter<double>("debug_scale", 0.5);
     undistort_ = declare_parameter<bool>("undistort", true);
+    image_rotation_deg_ = declare_parameter<double>("image_rotation_deg", 0.0);
+    apply_image_rotation_ = declare_parameter<bool>("apply_image_rotation", true);
     image_topic_ = declare_parameter<std::string>("image_topic", "/front_camera/image_raw");
     use_compressed_image_ = declare_parameter<bool>("use_compressed_image", false);
     camera_info_topic_ = declare_parameter<std::string>("camera_info_topic", "/camera/camera_info");
@@ -378,6 +380,11 @@ private:
       return;
     }
     std::lock_guard<std::mutex> lock(camera_mutex_);
+    if (camera_width_ != msg->width || camera_height_ != msg->height || camera_cx_ != msg->k[2] ||
+      camera_cy_ != msg->k[5])
+    {
+      frame_maps_dirty_ = true;
+    }
     camera_width_ = msg->width;
     camera_height_ = msg->height;
     camera_cx_ = msg->k[2];
@@ -397,9 +404,56 @@ private:
       } else {
         cv::initUndistortRectifyMap(k, d, cv::Mat(), k, size, CV_32FC1, undistort_map_x_, undistort_map_y_);
       }
+      frame_maps_dirty_ = true;
       RCLCPP_INFO(get_logger(), "Bottom camera distortion (%s, %zu coefficients): undistorting each frame",
         msg->distortion_model.c_str(), msg->d.size());
     }
+  }
+
+  // One remap per frame: undistortion (when calibrated) followed by the mount rotation about the principal point,
+  // so camera_cx_/cy_ stay valid. Rotation is clockwise for positive degrees. Caller holds camera_mutex_.
+  void buildFrameMaps(const cv::Size & size)
+  {
+    frame_maps_dirty_ = false;
+    frame_maps_size_ = size;
+    frame_map_x_.release();
+    frame_map_y_.release();
+    frame_invalid_.release();
+    const bool undistorted = !undistort_map_x_.empty() && undistort_map_x_.size() == size;
+    const bool rotated = apply_image_rotation_ && std::abs(image_rotation_deg_) > 1e-3;
+    if (!rotated) {
+      if (undistorted) {
+        frame_map_x_ = undistort_map_x_;
+        frame_map_y_ = undistort_map_y_;
+      }
+      return;
+    }
+    cv::Mat base_x, base_y;
+    if (undistorted) {
+      base_x = undistort_map_x_;
+      base_y = undistort_map_y_;
+    } else {
+      cv::Mat xs(1, size.width, CV_32FC1), ys(size.height, 1, CV_32FC1);
+      for (int x = 0; x < size.width; ++x) {xs.at<float>(0, x) = static_cast<float>(x);}
+      for (int y = 0; y < size.height; ++y) {ys.at<float>(y, 0) = static_cast<float>(y);}
+      cv::repeat(xs, size.height, 1, base_x);
+      cv::repeat(ys, 1, size.width, base_y);
+    }
+    cv::Point2f center((size.width - 1) * 0.5f, (size.height - 1) * 0.5f);
+    if (camera_width_ == static_cast<uint32_t>(size.width) && camera_height_ == static_cast<uint32_t>(size.height) &&
+      camera_cx_ > 0.0 && camera_cx_ < size.width && camera_cy_ > 0.0 && camera_cy_ < size.height)
+    {
+      center = cv::Point2f(static_cast<float>(camera_cx_), static_cast<float>(camera_cy_));
+    }
+    const cv::Mat rotation = cv::getRotationMatrix2D(center, -image_rotation_deg_, 1.0);
+    cv::warpAffine(base_x, frame_map_x_, rotation, size, cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(-1));
+    cv::warpAffine(base_y, frame_map_y_, rotation, size, cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(-1));
+    // Corners the rotation brings in from outside the frame; slightly widened to cover the interpolated rim.
+    frame_invalid_ = (frame_map_x_ < 0) | (frame_map_x_ > size.width - 1) |
+      (frame_map_y_ < 0) | (frame_map_y_ > size.height - 1);
+    cv::dilate(frame_invalid_, frame_invalid_, cv::Mat::ones(5, 5, CV_8U));
+    RCLCPP_INFO(get_logger(), "Bottom camera rotated %.1f deg clockwise about (%.1f, %.1f)",
+      image_rotation_deg_, center.x, center.y);
   }
 
   void compressedImageCallback(const sensor_msgs::msg::CompressedImage::SharedPtr msg)
@@ -461,9 +515,16 @@ private:
       cv::Mat image = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8)->image;
       {
         std::lock_guard<std::mutex> lock(camera_mutex_);
-        if (!undistort_map_x_.empty() && undistort_map_x_.size() == image.size()) {
+        if (frame_maps_dirty_ || frame_maps_size_ != image.size()) {
+          buildFrameMaps(image.size());
+        }
+        if (!frame_map_x_.empty()) {
           cv::Mat straight;
-          cv::remap(image, straight, undistort_map_x_, undistort_map_y_, cv::INTER_LINEAR);
+          cv::remap(image, straight, frame_map_x_, frame_map_y_, cv::INTER_LINEAR);
+          // Fill the empty corners with the water's colour: black would put strong false edges on the frame.
+          if (!frame_invalid_.empty()) {
+            straight.setTo(cv::mean(straight, frame_invalid_ == 0), frame_invalid_);
+          }
           image = straight;
         }
       }
@@ -631,7 +692,8 @@ private:
             cv::FONT_HERSHEY_SIMPLEX, 0.55, ring_color, 2);
         }
 
-        const cv::Mat & shown_pipeline_mask = pipeline_mask.empty() ? edge_mask : pipeline_mask;
+        // pipeMask is 0/1: stretch to 0/255 or it shows black.
+        const cv::Mat shown_pipeline_mask = (pipeline_mask.empty() ? edge_mask : pipeline_mask) != 0;
         if (publish_debug_images_) {
           publishDebug(msg->header, image, annotated, shown_pipeline_mask, red_mask, green_mask);
         }
@@ -1248,6 +1310,13 @@ private:
   bool undistort_ {true};
   cv::Mat undistort_map_x_;
   cv::Mat undistort_map_y_;
+  double image_rotation_deg_ {0.0};
+  bool apply_image_rotation_ {true};
+  bool frame_maps_dirty_ {true};
+  cv::Size frame_maps_size_;
+  cv::Mat frame_map_x_;
+  cv::Mat frame_map_y_;
+  cv::Mat frame_invalid_;
   uint32_t camera_width_ {0};
   uint32_t camera_height_ {0};
   double camera_cx_ {0.0};

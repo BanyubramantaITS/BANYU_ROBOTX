@@ -25,6 +25,7 @@ Run the checks in this order. Each has a pass criterion; do not go to the next o
 |---|---|---|---|
 | 2.1 | Pipe diameter | Measure the competition pipe (or the handbook value) | `vehicle_execution_node.camera_heave.pipe_diameter_m` and the ring tracker's camera model set to it (sim: 0.0889 m, 3" Sch 40 PVC) |
 | 2.2 | HORUS T10 fisheye calibration (D6) | Checkerboard, `camera_calibration` with the fisheye (equidistant) model, at the resolution used in the run | `bottom_camera_info.yaml` has `distortion_model: equidistant` and the 4 coefficients (today it is a zero `plumb_bob` placeholder); reprojection error < 0.5 px; the detector logs that it undistorts |
+| 2.2a | Bottom camera mount rotation | Lay a pipe piece along the vehicle's nose-tail axis under the camera, watch `/banyu/pipeline/debug` (`launch_task2.sh --debug`) | The pipe runs straight up the image; otherwise adjust `task2_pipeline_detector.image_rotation_deg` (clockwise, today 45; the detector logs the angle) |
 | 2.3 | Field of view | From the calibration: hfov = 2 atan(width / (2 fx)) of the undistorted image | `camera_heave.hfov_rad` set to it (sim 1.047 rad) |
 | 2.4 | Range from the pipe width | Hold the camera over a pipe piece at 1.0, 1.6 and 2.5 m (in water: the refraction changes the fov) | The logged range is within 10% of the tape measure at each height |
 

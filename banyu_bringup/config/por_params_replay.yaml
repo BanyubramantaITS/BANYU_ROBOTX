@@ -239,7 +239,6 @@ por_detection:
     use_compressed_image: false
     camera_info_topic: "/camera/camera_info"
     max_distance_m: 20.0
-    use_gui: false
 
 vehicle_execution_node:
   ros__parameters:

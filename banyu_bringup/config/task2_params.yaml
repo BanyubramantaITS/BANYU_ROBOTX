@@ -125,10 +125,8 @@ task2_sim_provider:
 
 task2_pipeline_detector:
   ros__parameters:
-    use_gui: false                 # OpenCV windows (launch debug:=True; ignored without a display)
-    # Annotated frame and masks on <debug_topic_prefix>/{annotated,original,pipeline_mask,red_mask,green_mask}
-    # (launch debug_topics:=True). Only encoded while someone subscribes; the compressed ones are recorded.
-    publish_debug_images: false
+    # use_gui and publish_debug_images (annotated frame and masks on <debug_topic_prefix>/*) come from the launch file
+    # (debug:=True / debug_topics:=True), like apply_image_rotation (true on the robot, false in sim).
     debug_topic_prefix: "/banyu/pipeline/debug"
     debug_rate_hz: 5.0
     debug_scale: 0.5
@@ -138,6 +136,9 @@ task2_pipeline_detector:
     camera_info_topic: "/bottom_camera/camera_info"
     # Undistort each frame when camera_info has distortion (fisheye HORUS: equidistant model; sim --fisheye: Brown).
     undistort: true
+    # The real bottom camera is mounted turned: rotate each frame clockwise (deg) about the principal point.
+    # Launch sets apply_image_rotation false in sim, where the camera is mounted straight.
+    image_rotation_deg: 45.0
     observation_topic: "/banyu/pipeline/observation"
     ring_observation_topic: "/banyu/pipeline/ring_observation"
     # A light seen with no pipe in view: a steering cue for AcquirePipeline/SearchPipeline, never a ring record.
