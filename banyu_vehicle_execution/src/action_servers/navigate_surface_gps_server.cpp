@@ -139,6 +139,12 @@ MotionIntent NavigateSurfaceGpsServer::tick(
   }
   if (insideAny(Vec2{dx, dy}, moving_zones)) {waiting_for_moving = true;}
 
+  // Zones plus fixed surface obstacles (UAV buoy field); an obstacle around the dive point is the buoy driven to.
+  std::vector<Capsule> keep_out = zones;
+  for (const auto & o : telemetry.surfaceObstaclesAroundVehicle()) {
+    if (signedDistance(Vec2{dx, dy}, o) >= 0.0) {keep_out.push_back(o);}
+  }
+
   // Keep clear of the buoys on the way (a dive point inside a keep-out circle drops that circle unless the vehicle
   // itself is currently inside that buoy's keep-out circle).
   std::vector<std::pair<double, double>> obstacles;
@@ -156,13 +162,14 @@ MotionIntent NavigateSurfaceGpsServer::tick(
     }
   }
 
-  // Inside a zone (published on top of the vehicle, or a moving object arriving): leave along the shortest buoy-clear way
-  // first. If buoys block every exit, ignore the zone rather than risk colliding with a buoy.
+  // Inside a zone or obstacle circle (published on top of the vehicle, or a moving object arriving): leave along the
+  // shortest buoy-clear way first. If buoys block every exit, ignore the zone rather than risk colliding with a buoy.
   if (const auto exit = exitVector(
-      Vec2{0.0, 0.0}, zones, telemetry.zones.exit_clearance_m, obstacle_points, goal->keep_out_radius_m))
+      Vec2{0.0, 0.0}, keep_out, telemetry.zones.exit_clearance_m, obstacle_points, goal->keep_out_radius_m))
   {
     RCLCPP_WARN_THROTTLE(
-      node_->get_logger(), *node_->get_clock(), 2000, "Task 4: inside a keep-out zone, leaving %.1f m", exit->distance_m);
+      node_->get_logger(), *node_->get_clock(), 2000, "Inside a keep-out zone or obstacle, leaving %.1f m",
+      exit->distance_m);
     return zoneExitIntent(*exit, telemetry.zones.exit_speed_mps, 0.0);
   }
 
@@ -199,9 +206,10 @@ MotionIntent NavigateSurfaceGpsServer::tick(
   }
 
   auto [ax, ay] = keepOutAim({dx, dy}, obstacles, goal->keep_out_radius_m);
-  if (!zones.empty() && !inside_buoy) {
-    // Around a zone on the way while respecting buoy keep-out; with no clear way (boxed in) hold here rather than cross a buoy.
-    const auto aim = detourAim(Vec2{ax, ay}, zones, obstacle_points, goal->keep_out_radius_m);
+  if (!keep_out.empty() && !inside_buoy) {
+    // Around zones and obstacles on the way while respecting buoy keep-out; with no clear way (boxed in) hold here
+    // rather than cross a buoy.
+    const auto aim = detourAim(Vec2{ax, ay}, keep_out, obstacle_points, goal->keep_out_radius_m);
     ax = aim ? aim->x : 0.0;
     ay = aim ? aim->y : 0.0;
   }

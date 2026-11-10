@@ -173,6 +173,10 @@ void VehicleExecutionNode::initSubscribers()
     declare_parameter<std::string>("topics.task4_zones", "/banyu/task4/zones"),
     rclcpp::QoS(1).reliable().transient_local(),
     std::bind(&VehicleExecutionNode::handleZones, this, std::placeholders::_1));
+  surface_obstacles_sub_ = create_subscription<banyu_msgs::msg::SurfaceObstacles>(
+    declare_parameter<std::string>("topics.surface_obstacles", "/banyu/surface/obstacles"),
+    rclcpp::QoS(1).reliable().transient_local(),
+    std::bind(&VehicleExecutionNode::handleSurfaceObstacles, this, std::placeholders::_1));
 
   guidance_intent_sub_ = create_subscription<banyu_guidance::msg::VelocityIntent>(
     guidance_intent_topic, rclcpp::QoS(10),
@@ -1173,6 +1177,25 @@ void VehicleExecutionNode::handleZones(const banyu_msgs::msg::Task4Zones::Shared
   RCLCPP_INFO(
     get_logger(), "Task 4 zones (%s): %zu static, moving object %s", msg->last_event.c_str(),
     msg->static_latitude_deg.size(), msg->moving_active ? "active" : "none");
+}
+
+void VehicleExecutionNode::handleSurfaceObstacles(const banyu_msgs::msg::SurfaceObstacles::SharedPtr msg)
+{
+  std::vector<VehicleTelemetry::SurfaceObstacle> list;
+  const std::size_t count = std::min({msg->latitude_deg.size(), msg->longitude_deg.size(), msg->radius_m.size()});
+  for (std::size_t i = 0; i < count; ++i) {
+    if (!std::isfinite(msg->latitude_deg[i]) || !std::isfinite(msg->longitude_deg[i]) ||
+      !std::isfinite(msg->radius_m[i]) || msg->radius_m[i] <= 0.0)
+    {
+      continue;
+    }
+    list.push_back({msg->latitude_deg[i], msg->longitude_deg[i], msg->radius_m[i]});
+  }
+  auto & stored = telemetry_.surface_obstacles[msg->source];
+  if (stored.size() != list.size()) {
+    RCLCPP_INFO(get_logger(), "Surface obstacles from %s: %zu", msg->source.c_str(), list.size());
+  }
+  stored = std::move(list);
 }
 
 // Nobody is steering (no goal) but the vehicle sits on the surface inside a zone, e.g. in the buoy-target standby or

@@ -7,10 +7,12 @@
 #include <vector>
 
 #include "banyu_msgs/msg/active_buoy_fix.hpp"
+#include "banyu_msgs/msg/surface_obstacles.hpp"
 #include "banyu_msgs/msg/task2_buoy_target.hpp"
 #include "builtin_interfaces/msg/time.hpp"
 #include "rx_msgs/msg/course.hpp"
 #include "rx_msgs/msg/pipeline_buoys.hpp"
+#include "rx_msgs/msg/safe_passage.hpp"
 
 namespace banyu_communication
 {
@@ -66,9 +68,10 @@ public:
   // ENU bearing (0 = east, counter-clockwise) and distance from one WGS-84 point to another.
   static double enuBearing(const rx_msgs::msg::LatLng & from, const rx_msgs::msg::LatLng & to);
   static double distanceM(const rx_msgs::msg::LatLng & from, const rx_msgs::msg::LatLng & to);
+  // Finite WGS-84 position; (0, 0) means unset.
+  static bool validPoint(const rx_msgs::msg::LatLng & point);
 
 private:
-  bool validPoint(const rx_msgs::msg::LatLng & point) const;
   const rx_msgs::msg::LatLng & activePoint() const;
   const rx_msgs::msg::LatLng * otherPoint() const;
   double uncertainty() const;
@@ -81,6 +84,11 @@ private:
   uint64_t revision_{0};
   bool locked_{false};
 };
+
+// The UAV's Task 1 buoys (entry, exit and the whole field, duplicates merged) as surface obstacles of `radius_m`.
+// With a course boundary (3+ corners), buoys outside it are dropped: they belong to another course.
+banyu_msgs::msg::SurfaceObstacles safePassageObstacles(
+  const rx_msgs::msg::SafePassage & msg, const std::vector<rx_msgs::msg::LatLng> & boundary, double radius_m);
 
 }  // namespace banyu_communication
 

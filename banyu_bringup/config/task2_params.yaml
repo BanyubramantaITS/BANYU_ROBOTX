@@ -316,6 +316,10 @@ pipeline_buoys_node:
       longitude: -118.393392
       uncertainty_m: 3.0
       green_confirmed: false
+    # UAV Task 1 SafePassage buoy field -> surface obstacles the GPS transit detours round.
+    uav_buoys:
+      enabled: true
+      radius_m: 1.2                       # keep-out per buoy, same as the USV buoys (banyu_mission buoy_keep_out_m)
     topics:
       pipeline_buoys: "/system/vehicle/usv/task2/pipeline_buoys"
       course: "/system/mission/course"
@@ -323,6 +327,8 @@ pipeline_buoys_node:
       water_depth: "/banyu/vehicle/water_depth"
       buoy_target: "/banyu/task2/buoy_target"
       active_buoy_fix: "/banyu/task2/active_buoy_fix"
+      safe_passage: "/system/vehicle/uav/task1/safe_passage"
+      surface_obstacles: "/banyu/surface/obstacles"
 
 vehicle_execution_node:
   ros__parameters:
@@ -442,6 +448,8 @@ vehicle_execution_node:
       guidance_intent: "/banyu/guidance/velocity_intent"
       preview_target: "/banyu/execution/preview_target"
       mavros_target: "/mavros/setpoint_raw/local"
+      task4_zones: "/banyu/task4/zones"
+      surface_obstacles: "/banyu/surface/obstacles"   # NavigateSurfaceGps detours round these (UAV buoy field)
 
 pipeline_end_node:
   ros__parameters:

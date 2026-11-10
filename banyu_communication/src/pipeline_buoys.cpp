@@ -213,7 +213,7 @@ double PipelineBuoysTracker::distanceM(
   return std::hypot(east, north);
 }
 
-bool PipelineBuoysTracker::validPoint(const rx_msgs::msg::LatLng & point) const
+bool PipelineBuoysTracker::validPoint(const rx_msgs::msg::LatLng & point)
 {
   return std::isfinite(point.latitude) && std::isfinite(point.longitude) &&
          std::abs(point.latitude) <= 90.0 && std::abs(point.longitude) <= 180.0 &&
@@ -237,6 +237,32 @@ double PipelineBuoysTracker::uncertainty() const
 {
   return observation_->uncertainty_m > 0.0F ?
          static_cast<double>(observation_->uncertainty_m) : config_.default_uncertainty_m;
+}
+
+banyu_msgs::msg::SurfaceObstacles safePassageObstacles(
+  const rx_msgs::msg::SafePassage & msg, const std::vector<rx_msgs::msg::LatLng> & boundary, double radius_m)
+{
+  constexpr double kSameBuoyM = 0.5;
+  banyu_msgs::msg::SurfaceObstacles obstacles;
+  obstacles.header.stamp = msg.header.stamp;
+  obstacles.header.frame_id = "wgs84";
+  obstacles.source = "uav_safe_passage";
+  std::vector<rx_msgs::msg::LatLng> kept;
+  const auto add = [&](const rx_msgs::msg::LatLng & p) {
+      if (!PipelineBuoysTracker::validPoint(p)) {return;}
+      if (boundary.size() >= 3 && !PipelineBuoysTracker::insidePolygon(p, boundary)) {return;}
+      for (const auto & k : kept) {
+        if (PipelineBuoysTracker::distanceM(k, p) < kSameBuoyM) {return;}
+      }
+      kept.push_back(p);
+      obstacles.latitude_deg.push_back(p.latitude);
+      obstacles.longitude_deg.push_back(p.longitude);
+      obstacles.radius_m.push_back(radius_m);
+    };
+  add(msg.entry_position);
+  add(msg.exit_position);
+  for (const auto & buoy : msg.buoys) {add(buoy.position);}
+  return obstacles;
 }
 
 }  // namespace banyu_communication

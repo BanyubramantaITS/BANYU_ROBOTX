@@ -30,6 +30,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ActiveBuoyFix.msg"
   "msg/Task2BuoyTarget.msg"
   "msg/Task4Zones.msg"
+  "msg/SurfaceObstacles.msg"
   "msg/Task2SurveyEvidence.msg"
   "msg/WaterDepth.msg"
   "msg/Task2SurveyProgress.msg"

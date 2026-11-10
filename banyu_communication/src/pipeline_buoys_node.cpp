@@ -64,10 +64,20 @@ PipelineBuoysNode::PipelineBuoysNode(const rclcpp::NodeOptions & options)
     "topics.buoy_target", "/banyu/task2/buoy_target");
   const auto active_buoy_topic = declare_parameter<std::string>(
     "topics.active_buoy_fix", "/banyu/task2/active_buoy_fix");
+  const bool uav_buoys_enabled = declare_parameter<bool>("uav_buoys.enabled", true);
+  uav_buoy_radius_m_ = declare_parameter<double>("uav_buoys.radius_m", uav_buoy_radius_m_);
+  if (!std::isfinite(uav_buoy_radius_m_) || uav_buoy_radius_m_ <= 0.0) {
+    throw std::invalid_argument("uav_buoys.radius_m must be positive");
+  }
+  const auto safe_passage_topic = declare_parameter<std::string>(
+    "topics.safe_passage", "/system/vehicle/uav/task1/safe_passage");
+  const auto obstacles_topic = declare_parameter<std::string>(
+    "topics.surface_obstacles", "/banyu/surface/obstacles");
 
   const auto latched = rclcpp::QoS(1).reliable().transient_local();
   target_pub_ = create_publisher<banyu_msgs::msg::Task2BuoyTarget>(target_topic, latched);
   active_buoy_pub_ = create_publisher<banyu_msgs::msg::ActiveBuoyFix>(active_buoy_topic, latched);
+  obstacles_pub_ = create_publisher<banyu_msgs::msg::SurfaceObstacles>(obstacles_topic, latched);
 
   using std::placeholders::_1;
   // rx-sos spec: PipelineBuoys and Course use the plain default QoS (reliable, volatile, keep_last 10).
@@ -77,6 +87,12 @@ PipelineBuoysNode::PipelineBuoysNode(const rclcpp::NodeOptions & options)
   course_sub_ = create_subscription<rx_msgs::msg::Course>(
     course_topic, rclcpp::QoS(10).reliable(),
       std::bind(&PipelineBuoysNode::handleCourse, this, _1));
+  if (uav_buoys_enabled) {
+    // The UAV publishes SafePassage with the default QoS, only when its map changes.
+    safe_passage_sub_ = create_subscription<rx_msgs::msg::SafePassage>(
+      safe_passage_topic, rclcpp::QoS(10).reliable(),
+      std::bind(&PipelineBuoysNode::handleSafePassage, this, _1));
+  }
   lifecycle_sub_ = create_subscription<banyu_msgs::msg::RunLifecycle>(
     lifecycle_topic, latched, std::bind(&PipelineBuoysNode::handleLifecycle, this, _1));
   depth_sub_ = create_subscription<banyu_msgs::msg::WaterDepth>(
@@ -119,6 +135,22 @@ void PipelineBuoysNode::handleCourse(const rx_msgs::msg::Course::SharedPtr msg)
   std::lock_guard<std::mutex> lock(mutex_);
   tracker_.setCourse(*msg);
   pinger_freq_hz_ = msg->pinger_freq_hz;
+  course_boundary_ = msg->boundary;
+}
+
+void PipelineBuoysNode::handleSafePassage(const rx_msgs::msg::SafePassage::SharedPtr msg)
+{
+  if (!msg) {return;}
+  std::lock_guard<std::mutex> lock(mutex_);
+  safe_passage_ = *msg;
+  RCLCPP_INFO(get_logger(), "UAV SafePassage: %zu buoys in the field", msg->buoys.size());
+  publishObstaclesLocked();
+}
+
+void PipelineBuoysNode::publishObstaclesLocked()
+{
+  if (!safe_passage_) {return;}
+  obstacles_pub_->publish(safePassageObstacles(*safe_passage_, course_boundary_, uav_buoy_radius_m_));
 }
 
 void PipelineBuoysNode::handleLifecycle(const banyu_msgs::msg::RunLifecycle::SharedPtr msg)
@@ -185,6 +217,8 @@ void PipelineBuoysNode::publishTick()
 {
   std::lock_guard<std::mutex> lock(mutex_);
   if (tracker_.revision() != published_target_revision_) {publishTargetLocked();}
+  // Repeated so the bag holds it and a course change re-filters it.
+  publishObstaclesLocked();
   if (!liveLocked()) {return;}
   // The survey ledger only accepts a recently stamped buoy until its first ring pins it, so the
   // (unchanged) position is re-asserted with fresh stamps while the run is live.

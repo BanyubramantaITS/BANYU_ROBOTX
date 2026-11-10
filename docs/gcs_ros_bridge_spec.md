@@ -22,6 +22,7 @@ UUV (ROS domain 40) --DDS Router: /system/* only--> GCS (ROS domain 10) --bridge
 | `/system/vehicle/uuv/task4/incident_ack` (`IncidentAck`) | vehicle → RC | `RxReport.incident_ack` |
 | `/system/vehicle/uuv/task4/readiness` (`ReadinessReport`) | vehicle → RC | `RxReport.readiness` |
 | `/system/mission/status` (`MissionStatus`) | vehicle → GCS | not sent to RoboCommand (GCS display/log only) |
+| `/system/vehicle/uav/task1/safe_passage` (`SafePassage`, reliable, volatile) | UAV → UUV (forwarded to domain 40) | none here; the UUV's surface transit detours round the buoy field |
 
 All shared enum values (`RobotState`, `RxTask`, `VehicleType`, `TaskTier`, `Color`,
 `PipelineSegmentStatus`, ...) are numerically identical between `rx_msgs` and the protobuf schema,
@@ -59,6 +60,10 @@ so enum fields copy across unchanged.
    it, and the UUV rejects survey evidence without a course. Republish the last course about once per
    second until the run ends (reference: `gcs_ros_bridge.py`), like `PipelineBuoys`. The `rx_msgs`
    README still says "published once"; this is a **joint decision** to record there.
+6. **Forward and repeat the UAV buoy field.** The UAV publishes `SafePassage` only when its map
+   changes, so a UUV stack started after the UAV's Task 1 never sees it. Forward
+   `/system/vehicle/uav/task1/safe_passage` to the UUV domain and republish the last one about once
+   per second, like the course (or the UAV repeats it itself; a **joint decision**).
 
 ## Vehicle-side behaviour the GCS can rely on (BANYU UUV, Issue #13)
 

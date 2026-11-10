@@ -3,7 +3,9 @@
 
 #include <cstdint>
 #include <mutex>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include "banyu_communication/pipeline_buoys.hpp"
 #include "banyu_msgs/msg/active_buoy_fix.hpp"
@@ -18,7 +20,8 @@ namespace banyu_communication
 {
 
 // Receives the USV's Task 2 buoy feed (forwarded by the GCS) and provides the mission's
-// navigation target plus the run-tagged ActiveBuoyFix used by the survey report.
+// navigation target plus the run-tagged ActiveBuoyFix used by the survey report. Also turns the
+// UAV's Task 1 buoy field (SafePassage) into surface obstacles for the transit.
 class PipelineBuoysNode : public rclcpp::Node
 {
 public:
@@ -26,6 +29,8 @@ public:
 
 private:
   void handleBuoys(const rx_msgs::msg::PipelineBuoys::SharedPtr msg);
+  void handleSafePassage(const rx_msgs::msg::SafePassage::SharedPtr msg);
+  void publishObstaclesLocked();
   void handleCourse(const rx_msgs::msg::Course::SharedPtr msg);
   void handleLifecycle(const banyu_msgs::msg::RunLifecycle::SharedPtr msg);
   void handleDepth(const banyu_msgs::msg::WaterDepth::SharedPtr msg);
@@ -43,10 +48,15 @@ private:
   uint8_t phase_{banyu_msgs::msg::RunLifecycle::IDLE};
   std::string last_rejection_;
   uint64_t published_target_revision_{0};
+  double uav_buoy_radius_m_{1.2};
+  std::optional<rx_msgs::msg::SafePassage> safe_passage_;
+  std::vector<rx_msgs::msg::LatLng> course_boundary_;
 
   rclcpp::Publisher<banyu_msgs::msg::Task2BuoyTarget>::SharedPtr target_pub_;
   rclcpp::Publisher<banyu_msgs::msg::ActiveBuoyFix>::SharedPtr active_buoy_pub_;
+  rclcpp::Publisher<banyu_msgs::msg::SurfaceObstacles>::SharedPtr obstacles_pub_;
   rclcpp::Subscription<rx_msgs::msg::PipelineBuoys>::SharedPtr buoys_sub_;
+  rclcpp::Subscription<rx_msgs::msg::SafePassage>::SharedPtr safe_passage_sub_;
   rclcpp::Subscription<rx_msgs::msg::Course>::SharedPtr course_sub_;
   rclcpp::Subscription<banyu_msgs::msg::RunLifecycle>::SharedPtr lifecycle_sub_;
   rclcpp::Subscription<banyu_msgs::msg::WaterDepth>::SharedPtr depth_sub_;

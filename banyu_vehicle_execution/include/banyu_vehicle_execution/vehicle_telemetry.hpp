@@ -5,7 +5,9 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <string>
+#include <vector>
 
 #include "rclcpp/rclcpp.hpp"
 #include "banyu_msgs/msg/detection.hpp"
@@ -143,6 +145,27 @@ struct VehicleTelemetry
   {
     const double age = zones_moving_stamp.nanoseconds() != 0 ? (now - zones_moving_stamp).seconds() : 0.0;
     return zonesAround(zones, latitude_deg, longitude_deg, std::max(0.0, age));
+  }
+
+  // Fixed surface obstacles per source (e.g. the UAV's Task 1 buoy field); NavigateSurfaceGps detours round them.
+  struct SurfaceObstacle
+  {
+    double latitude_deg{0.0};
+    double longitude_deg{0.0};
+    double radius_m{0.0};
+  };
+  std::map<std::string, std::vector<SurfaceObstacle>> surface_obstacles{};
+
+  std::vector<Capsule> surfaceObstaclesAroundVehicle() const
+  {
+    std::vector<Capsule> discs;
+    for (const auto & [source, list] : surface_obstacles) {
+      for (const auto & o : list) {
+        const Vec2 c = enuOffset(latitude_deg, longitude_deg, o.latitude_deg, o.longitude_deg);
+        discs.push_back(Capsule{c, c, o.radius_m, false});
+      }
+    }
+    return discs;
   }
 
   // Known buoys as planar ENU offsets from the vehicle.

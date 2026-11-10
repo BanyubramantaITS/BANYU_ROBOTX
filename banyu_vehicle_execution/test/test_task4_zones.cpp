@@ -299,3 +299,30 @@ TEST_F(Task4NavigationTest, OldMovingObjectAlertKeepsItsAge)
   spin(0.0, 0.0, 40);
   EXPECT_NEAR(std::hypot(last_target_.velocity.x, last_target_.velocity.y), 0.0, 1e-6);
 }
+
+TEST_F(Task4NavigationTest, SteersAroundAUavBuoyButNotTheOneAtTheGoal)
+{
+  auto obstacles_pub = node_->create_publisher<banyu_msgs::msg::SurfaceObstacles>(
+    "/banyu/surface/obstacles", rclcpp::QoS(1).reliable().transient_local());
+  ASSERT_TRUE(sendGoal(30.0));
+
+  // A UAV-mapped buoy on the goal itself (it is the buoy driven to) changes nothing.
+  banyu_msgs::msg::SurfaceObstacles at_goal;
+  at_goal.source = "uav_safe_passage";
+  at_goal.latitude_deg = {0.0};
+  at_goal.longitude_deg = {degEast(30.0)};
+  at_goal.radius_m = {2.0};
+  obstacles_pub->publish(at_goal);
+  spin(0.0, 0.0, 40);
+  EXPECT_GT(last_target_.velocity.x, 0.3);
+  EXPECT_NEAR(last_target_.velocity.y, 0.0, 0.05);
+
+  // One just north of the line replaces that list: the vehicle swings south, the short way round it.
+  banyu_msgs::msg::SurfaceObstacles on_line = at_goal;
+  on_line.latitude_deg = {degNorth(0.5)};
+  on_line.longitude_deg = {degEast(15.0)};
+  obstacles_pub->publish(on_line);
+  spin(0.0, 0.0, 40);
+  EXPECT_LT(last_target_.velocity.y, -0.08);
+  EXPECT_GT(last_target_.velocity.x, 0.0);
+}

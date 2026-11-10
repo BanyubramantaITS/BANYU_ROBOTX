@@ -252,3 +252,27 @@ TEST(PipelineBuoysTracker, PolygonAndGeometryHelpers)
   EXPECT_NEAR(PipelineBuoysTracker::enuBearing(a, north), kPi / 2.0, 1e-6);
   EXPECT_NEAR(PipelineBuoysTracker::distanceM(a, north), 11.13, 0.05);
 }
+
+TEST(SafePassageObstacles, MergesEntryExitAndFieldInsideTheCourse)
+{
+  rx_msgs::msg::SafePassage msg;
+  msg.entry_position = point(33.8100, -118.3940);
+  // Exit not mapped yet: (0, 0) is unset.
+  rx_msgs::msg::BuoyDetection entry;
+  entry.position = point(33.8100, -118.3940);   // the entry buoy again
+  rx_msgs::msg::BuoyDetection red;
+  red.position = point(33.8102, -118.3938);
+  rx_msgs::msg::BuoyDetection far;
+  far.position = point(33.8200, -118.3940);     // outside the course
+  msg.buoys = {entry, red, far};
+
+  const auto obstacles = banyu_communication::safePassageObstacles(msg, course().boundary, 2.0);
+  EXPECT_EQ(obstacles.source, "uav_safe_passage");
+  ASSERT_EQ(obstacles.latitude_deg.size(), 2u);
+  ASSERT_EQ(obstacles.radius_m.size(), 2u);
+  EXPECT_DOUBLE_EQ(obstacles.latitude_deg[1], 33.8102);
+  EXPECT_DOUBLE_EQ(obstacles.radius_m[0], 2.0);
+
+  // Without a course nothing is filtered by position.
+  EXPECT_EQ(banyu_communication::safePassageObstacles(msg, {}, 2.0).latitude_deg.size(), 3u);
+}

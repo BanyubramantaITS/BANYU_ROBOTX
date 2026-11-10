@@ -23,6 +23,7 @@
 #include "banyu_msgs/msg/pipeline_ring_observation.hpp"
 #include "banyu_msgs/msg/detection.hpp"
 #include "banyu_msgs/msg/task4_zones.hpp"
+#include "banyu_msgs/msg/surface_obstacles.hpp"
 #include "banyu_guidance/msg/velocity_intent.hpp"
 
 #include "banyu_msgs/msg/pinger_observation.hpp"
@@ -85,6 +86,7 @@ private:
   void handlePipelineObs(const banyu_msgs::msg::PipelineObservation::SharedPtr msg);
   void handleRingObs(const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg);
   void handleZones(const banyu_msgs::msg::Task4Zones::SharedPtr msg);
+  void handleSurfaceObstacles(const banyu_msgs::msg::SurfaceObstacles::SharedPtr msg);
   MotionIntent zoneGuardIntent(const rclcpp::Time & now, bool & selected);
   void handleLightCue(const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg);
   void handleDetection(const banyu_msgs::msg::Detection::SharedPtr msg);
@@ -174,6 +176,7 @@ private:
   rclcpp::Subscription<banyu_msgs::msg::PipelineRingObservation>::SharedPtr light_cue_sub_;
   rclcpp::Subscription<banyu_msgs::msg::Detection>::SharedPtr detection_sub_;
   rclcpp::Subscription<banyu_msgs::msg::Task4Zones>::SharedPtr zones_sub_;
+  rclcpp::Subscription<banyu_msgs::msg::SurfaceObstacles>::SharedPtr surface_obstacles_sub_;
   // Idle on the surface (no goal) and a keep-out zone reaches the vehicle: move out and stay out.
   bool zone_guard_enabled_{true};
   double zone_surface_depth_m_{0.5};
