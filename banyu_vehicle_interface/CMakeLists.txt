@@ -14,6 +14,8 @@ find_package(std_srvs REQUIRED)
 find_package(banyu_msgs REQUIRED)
 find_package(mavros_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 
 add_library(vehicle_status_tracker src/vehicle_status_tracker.cpp)
 target_compile_features(vehicle_status_tracker PUBLIC cxx_std_17)
@@ -74,6 +76,11 @@ add_executable(sim_rc_deadman_node src/sim_rc_deadman_node.cpp)
 target_compile_features(sim_rc_deadman_node PUBLIC cxx_std_17)
 ament_target_dependencies(sim_rc_deadman_node rclcpp mavros_msgs)
 
+add_executable(zone_markers_node src/zone_markers_node.cpp)
+target_compile_features(zone_markers_node PUBLIC cxx_std_17)
+ament_target_dependencies(zone_markers_node
+  rclcpp banyu_msgs sensor_msgs geometry_msgs visualization_msgs)
+
 install(DIRECTORY include/
   DESTINATION include)
 
@@ -86,6 +93,7 @@ install(TARGETS
   esp32_trigger_node_bin
   esp32_serial_node_bin
   sim_rc_deadman_node
+  zone_markers_node
   EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
