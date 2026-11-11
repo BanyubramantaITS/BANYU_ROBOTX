@@ -111,6 +111,14 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    auto_start_arg = DeclareLaunchArgument(
+        name="auto_start",
+        default_value="True",
+        description="Task 2: False turns off the waypoint mission's start on SB Up (mission.auto_start_on_auto); the run "
+        "then starts only from prepare_autonomy and the GCS CMD_RUN_START.",
+        choices=["True", "False"],
+    )
+
     scenario_args = [
         DeclareLaunchArgument(name=n, default_value="0.0", description="Simulation scenario, see main_launch.launch.py")
         for n in ("pipe_dx", "pipe_dy", "pipe_dyaw_deg", "buoy_error_x", "buoy_error_y")
@@ -220,6 +228,11 @@ def generate_launch_description():
         "'", banyu_bringup_share, "/config/task2_waypoint_mission.yaml' if '", LaunchConfiguration("waypoint_mission"),
         "'.lower() == 'true' else '", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"),
         "' + '.yaml'"])
+    # Turns off the SB Up auto-start, loaded after the waypoint overlay (a no-op re-load of the sensors overlay when on).
+    task2_auto_start_file = PythonExpression([
+        "'", banyu_bringup_share, "/config/task2_no_auto_start.yaml' if '", LaunchConfiguration("auto_start"),
+        "'.lower() == 'false' else '", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"),
+        "' + '.yaml'"])
     por_params = LaunchConfiguration("por_params_file")
     hardware_params = LaunchConfiguration("hardware_params_file")
 
@@ -271,6 +284,7 @@ def generate_launch_description():
             task2_dive_file,
             task2_test_file,
             task2_waypoint_file,
+            task2_auto_start_file,
         ],
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -544,6 +558,7 @@ def generate_launch_description():
             dive_point_arg,
             test_mission_arg,
             waypoint_mission_arg,
+            auto_start_arg,
             task2_params_arg,
             por_params_arg,
             hardware_params_arg,

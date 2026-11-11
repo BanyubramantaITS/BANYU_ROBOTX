@@ -46,6 +46,7 @@ DIVE_POINT_SET=false
 PIPE_DEPTH=""
 TEST_MISSION=false
 WAYPOINT_MISSION=false
+AUTO_START=true
 DEBUG=false
 RECORD=""                # empty = the target's default: on for --real, off for --sim
 RECORD_IMAGES=""
@@ -115,6 +116,10 @@ Both targets:
                         banyu_bringup/config/task2_test_mission.yaml. Start it with
                         ./tools/scripts/run/task2_test_waypoint.py <start LAT LON> --end <end LAT LON>.
                         Implies --dive-point midpoint; not with --sensors gamble.
+  --no-auto-start       With --waypoint-mission: SB Up does not start the run (auto_start:=False). Start it like a real
+                        run: SB Up, prepare_autonomy, then RoboCommand's Run Start (GCS CMD_RUN_START), so the reports
+                        go to RoboCommand under its run. Example:
+                          ./tools/scripts/run/launch_task2.sh --real -w --no-auto-start
   --tier <t>            (see above) On --real the default is core, like sub_bringup.launch.py.
   --sensors <s>         full (default: Bar30 depth, ALT_HOLD under water, dive to the fixed inspection depth)
                         | baro (Bar30 + ALT_HOLD, but the dive stops by camera at the pipe, pipe-width standoff,
@@ -243,6 +248,7 @@ while [[ $# -gt 0 ]]; do
     --no-rc) NO_RC=true; shift ;;
     --test-mission) TEST_MISSION=true; shift ;;
     --waypoint-mission|-w) WAYPOINT_MISSION=true; shift ;;
+    --no-auto-start) AUTO_START=false; shift ;;
     --debug) DEBUG=true; shift ;;
     --record) RECORD=true; shift ;;
     --no-record) RECORD=false; shift ;;
@@ -282,6 +288,9 @@ if [ "$TEST_MISSION" = true ] && [ "$WAYPOINT_MISSION" = true ]; then
 fi
 if [ "$WAYPOINT_MISSION" = true ] && [ "$SENSORS" = gamble ]; then
   echo "Error: --waypoint-mission cannot be combined with --sensors gamble (both pick the mission tree)." >&2; exit 1
+fi
+if [ "$AUTO_START" = false ] && [ "$WAYPOINT_MISSION" != true ]; then
+  echo "Error: --no-auto-start needs --waypoint-mission (no other mission starts itself on SB Up)." >&2; exit 1
 fi
 if [ "$TEST_MISSION" = true ] && [ "$SENSORS" = gamble ]; then
   echo "Error: --test-mission cannot be combined with --sensors gamble (both pick the mission tree)." >&2; exit 1
@@ -381,6 +390,7 @@ echo "Target Platform   : $([ "$TARGET" = "sim" ] && echo "Gazebo Simulation (SI
 echo "use_gps           : $(TF $USE_GPS)"
 echo "Tier              : $([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && echo core || echo "$TIER")"
 echo "Mission           : $([ "$WAYPOINT_MISSION" = true ] && echo "WAYPOINT (midpoint GPS transit, align heading, send reports to UAV/GCS; task2_waypoint_mission.yaml)" || ([ "$TEST_MISSION" = true ] && echo "TEST (midpoint by GPS, face the end buoy, 1 m dive, timed forward/backward legs, surface, Core report; task2_test_mission.yaml)" || echo "survey (banyu_mission.xml$([ "$SENSORS" = gamble ] && echo ", gamble tree"))"))"
+[ "$WAYPOINT_MISSION" = true ] && echo "Run start         : $([ "$AUTO_START" = true ] && echo "SB Up starts the run itself (run 1; RoboCommand's Run Start is rejected; --no-auto-start)" || echo "prepare_autonomy + GCS CMD_RUN_START (RoboCommand's run); SB Up does not start it")"
 [ "$TARGET" = real ] && echo "RC / mode switch   : $([ "$NO_RC" = true ] && echo "NO RC: mode from /banyu/trigger/cmd ('2' auto, '1' manual, '0' kill); MANUAL until set" || echo "TX16S, SB (teleop)")"
 echo "Detector debug    : $([ "$DEBUG" = true ] && echo "ON (windows where there is a display; topics /banyu/pipeline/debug/*)" || echo "off (--debug)")"
 echo "Sensors           : $SENSORS$([ "$SENSORS" = baro ] && echo " (Bar30 + ALT_HOLD; dive stops by camera at the pipe, order dead-reckoned)")$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")$([ "$SENSORS" = gamble ] && echo " (GPS to the dive point, timed dive and bobbing, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
@@ -417,6 +427,7 @@ BAG_OVERLAYS=("${CONFIG_DIR}/task2_tier_${EFFECTIVE_TIER}.yaml" "${CONFIG_DIR}/t
 [ "$USE_HYDROPHONE" = true ] && BAG_OVERLAYS+=("${CONFIG_DIR}/task2_hydrophone_on.yaml")
 [ "$TEST_MISSION" = true ] && BAG_OVERLAYS+=("${CONFIG_DIR}/task2_test_mission.yaml")
 [ "$WAYPOINT_MISSION" = true ] && BAG_OVERLAYS+=("${CONFIG_DIR}/task2_waypoint_mission.yaml")
+[ "$AUTO_START" = false ] && BAG_OVERLAYS+=("${CONFIG_DIR}/task2_no_auto_start.yaml")
 export BANYU_BAG_EXTRA_PARAMS="$(IFS=:; echo "${BAG_OVERLAYS[*]}")"
 if [ "$RECORD" = true ]; then
   BAG_ROOT="${BANYU_BAG_DIR:-$HOME/banyu_bags}"
@@ -469,6 +480,7 @@ if [ "$TARGET" = "sim" ]; then
     dive_point:="$DIVE_POINT"
     test_mission:="$(TF $TEST_MISSION)"
     waypoint_mission:="$(TF $WAYPOINT_MISSION)"
+    auto_start:="$(TF $AUTO_START)"
     debug:="$(TF $DEBUG)"
     debug_topics:="$(TF $DEBUG)"
     gamble_red:="$GAMBLE_RED"
@@ -606,6 +618,7 @@ else
     dive_point:="$DIVE_POINT"
     test_mission:="$(TF $TEST_MISSION)"
     waypoint_mission:="$(TF $WAYPOINT_MISSION)"
+    auto_start:="$(TF $AUTO_START)"
     debug:="$(TF $DEBUG)"
     debug_topics:="$(TF $DEBUG)"
     gamble_red:="$GAMBLE_RED"
@@ -629,7 +642,12 @@ else
   echo "     any shell you use to call services); the GCS side uses its own domain."
   if [ "$WAYPOINT_MISSION" = true ]; then
   echo "  2. WAYPOINT test mission:"
-  echo "     - Flick SB Up (AUTO): starts automatically, waits for USV buoys, transits midway"
+  if [ "$AUTO_START" = false ]; then
+  echo "     - No auto-start: flick SB Up (AUTO), then ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger \"{}\""
+  echo "       and wait for READY; the run starts on RoboCommand's Run Start (GCS CMD_RUN_START). Buoys without the USV:"
+  echo "       ROS_DOMAIN_ID=40 ./tools/scripts/run/task2_test_waypoint.py <start LAT> <LON> --end <end LAT> <LON> --no-start --no-course"
+  fi
+  echo "     - $([ "$AUTO_START" = false ] && echo "After the start" || echo "Flick SB Up (AUTO): starts automatically,") waits for USV buoys, transits midway"
   echo "       between buoys on the surface, aligns heading, and sends PipelineSurvey + ResourceDelivery (to UAV)."
   echo "     - Or send buoys/start via script: ROS_DOMAIN_ID=40 ./tools/scripts/run/task2_test_waypoint.py <start LAT> <LON> --end <end LAT> <LON>"
   echo "     - SB Mid/Down at any time takes over (MANUAL/KILL)."

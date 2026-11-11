@@ -130,6 +130,14 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    auto_start_arg = DeclareLaunchArgument(
+        name="auto_start",
+        default_value="True",
+        description="Task 2: False turns off the waypoint mission's start on SB Up (mission.auto_start_on_auto); the run "
+        "then starts only from prepare_autonomy and the GCS CMD_RUN_START.",
+        choices=["True", "False"],
+    )
+
     use_hydrophone_arg = DeclareLaunchArgument(
         name="use_hydrophone",
         default_value="False",
@@ -351,6 +359,7 @@ def generate_launch_description():
             "dive_point": LaunchConfiguration("dive_point"),
             "test_mission": LaunchConfiguration("test_mission"),
             "waypoint_mission": LaunchConfiguration("waypoint_mission"),
+            "auto_start": LaunchConfiguration("auto_start"),
             "gamble_red": LaunchConfiguration("gamble_red"),
             "enable_esp32_trigger": LaunchConfiguration("enable_esp32_trigger"),
             "enable_esp32_bridge": LaunchConfiguration("enable_esp32_bridge"),
@@ -371,6 +380,7 @@ def generate_launch_description():
             dive_point_arg,
             test_mission_arg,
             waypoint_mission_arg,
+            auto_start_arg,
             debug_topics_arg,
             gamble_red_arg,
             use_gps_arg,

@@ -42,6 +42,16 @@ ROS_DOMAIN_ID=40 ./src/BANYU_ROBOTX/tools/scripts/run/launch_task2.sh --real --w
   ```bash
   ROS_DOMAIN_ID=40 ./src/BANYU_ROBOTX/tools/scripts/run/task2_test_waypoint.py <start LAT> <start LON> --end <end LAT> <end LON>
   ```
+- **Option C (started by RoboCommand, reports to RoboCommand):**
+  Options A and B start run 1 on the AUV itself, and RoboCommand's Run Start is then rejected (`NOT_READY` or
+  `RUN_CONFLICT`), so the reports belong to a run RoboCommand never declared. Launch with `--no-auto-start`
+  (`auto_start:=False`, overlay `task2_no_auto_start.yaml`): SB Up only arms the switch. Then call
+  `ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger "{}"`, wait for READY and press Run Start in
+  RoboCommand; the OCS forwards it as `CMD_RUN_START`. Without the USV, send only the buoys:
+  ```bash
+  ROS_DOMAIN_ID=40 ./src/BANYU_ROBOTX/tools/scripts/run/launch_task2.sh --real --waypoint-mission --no-auto-start
+  ROS_DOMAIN_ID=40 ./src/BANYU_ROBOTX/tools/scripts/run/task2_test_waypoint.py <start LAT> <start LON> --end <end LAT> <end LON> --no-start --no-course
+  ```
 
 ---
 
