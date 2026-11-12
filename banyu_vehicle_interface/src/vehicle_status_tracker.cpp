@@ -173,7 +173,9 @@ banyu_msgs::msg::VehicleStatus VehicleStatusTracker::status(const rclcpp::Time &
     result.authority = "OPERATOR";
   } else if (effective_mode == 1) {
     result.authority = "MANUAL";
-  } else if (effective_mode == 2 && modeInList(result.mode, config_.autonomy_mode)) {
+  } else if (effective_mode == 2 && (modeInList(result.mode, config_.autonomy_mode) ||
+    (!config_.standby_mode.empty() && result.mode == config_.standby_mode)))
+  {
     result.authority = "AUTONOMY";
   } else {
     result.authority = "MANUAL";

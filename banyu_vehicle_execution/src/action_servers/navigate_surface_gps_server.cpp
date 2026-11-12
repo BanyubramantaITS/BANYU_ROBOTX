@@ -112,6 +112,35 @@ MotionIntent NavigateSurfaceGpsServer::tick(
     goal->target_latitude_deg, goal->target_longitude_deg,
     dx, dy);
 
+  // Course fence: a goal near or past the boundary moves inside by the margin; one far outside is refused.
+  if (const auto fence = telemetry.fenceAroundVehicle(); !fence.empty()) {
+    const auto at_goal = fenceDistance(Vec2{dx, dy}, fence);
+    if (at_goal.clearance_m < -telemetry.fence_reject_outside_m) {
+      RCLCPP_ERROR(
+        node_->get_logger(), "Course fence: target %.0f m outside the course boundary, refused", -at_goal.clearance_m);
+      auto result = std::make_shared<Result>();
+      result->success = false;
+      result->reason = "Target outside the course boundary";
+      result->final_latitude_deg = telemetry.latitude_deg;
+      result->final_longitude_deg = telemetry.longitude_deg;
+      result->final_error_m = std::hypot(dx, dy);
+      active_handle_->abort(result);
+      coordinator_->faultGoal(GoalHandle{active_identity_});
+      active_handle_.reset();
+      active_identity_ = {};
+      return zeroIntent();
+    }
+    if (at_goal.clearance_m < telemetry.fence.margin_m) {
+      const Vec2 inside = pullInside(Vec2{dx, dy}, fence, telemetry.fence.margin_m);
+      RCLCPP_WARN_THROTTLE(
+        node_->get_logger(), *node_->get_clock(), 5000,
+        "Course fence: target %.1f m from the boundary (%s), moved %.1f m to %.1f m inside", std::abs(at_goal.clearance_m),
+        at_goal.clearance_m < 0.0 ? "outside" : "inside", length(inside - Vec2{dx, dy}), telemetry.fence.margin_m);
+      dx = inside.x;
+      dy = inside.y;
+    }
+  }
+
   // Buoys as ENU offsets from the vehicle.
   coordinator_->setBuoyKeepOut(
     goal->keep_out_latitude_deg, goal->keep_out_longitude_deg, goal->keep_out_radius_m);

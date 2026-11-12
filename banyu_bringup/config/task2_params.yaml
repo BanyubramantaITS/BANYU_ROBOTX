@@ -4,6 +4,10 @@ banyu_mission:
   ros__parameters:
     fallback_mode: "MANUAL"   # FCU mode commanded on abort/failure (DISARM = disarm, then MANUAL)
     autonomy_mode: "GUIDED,ALT_HOLD"   # surface mode, then the mode used under water (SetFcuMode)
+    # Mode armed and waited in from SB Up / prepare_autonomy until the USV buoys arrive (then the surface mode).
+    # MANUAL: no stabilization or depth hold, so the hull floats and keeps the link. Same in banyu_vehicle_status
+    # and vehicle_execution_node control.standby_mode. "" = wait in the surface mode.
+    standby_mode: "STABILIZE"
     topics:
       pipeline_observation: "/banyu/pipeline/observation"
       ring_observation: "/banyu/pipeline/ring_observation"
@@ -52,7 +56,7 @@ banyu_mission:
         max_hold_s: 600.0
       task2_tier: 2   # launch argument tier:= overrides this (core 2, advanced 3, disruptive 4)
       surface_depth_m: 0.0
-      surface_tolerance_m: 0.5
+      surface_tolerance_m: 0.2
       # The dive point must be on the buoy line: a transit that ends from the side (a detour around a buoy) stopped
       # 0.8 m off it with 1.0 m and the camera missed the first nodes. RTK GPS is far better than this; the limit on the
       # robot is the buoy position error (USV uncertainty_m), not the vehicle fix.
@@ -191,8 +195,9 @@ banyu_vehicle_status:
     rc_takeover_channel: 1   # 0-based /mavros/rc/in index: CH2 = forward stick (RCMAP_FORWARD 2)
     rc_takeover_threshold: 1700
     autonomy_mode: "GUIDED,ALT_HOLD"   # surface mode, then the mode used under water
+    standby_mode: "STABILIZE"   # banyu_mission standby_mode
     default_operational_mode: 0
-    kill_switch_timeout_s: 1.0
+    kill_switch_timeout_s: 2.5   # teleop republishes it per /mavros/rc/in, which arrives at ~2 Hz with 1.2 s gaps on the robot
     # bypass_rc (launch_task2.sh --no-rc): mode until the first /banyu/trigger/cmd ('2' = the software SB Up).
     bypass_operational_mode: 1
 
@@ -358,6 +363,7 @@ vehicle_execution_node:
       # GUIDED with the GPS on the surface, ALT_HOLD with RC override under water (no position needed):
       # see docs/task2_mode_experiments.md. banyu_mission, banyu_vehicle_status and this node must list the same modes.
       autonomy_mode: "GUIDED,ALT_HOLD"
+      standby_mode: "STABILIZE"   # banyu_mission standby_mode: neutral sticks (zero thrust) while waiting
       output_mode: "auto"
       # Surface GPS transit speed limit (NavigateSurfaceGps only). Faster pushes the hull and the GPS antenna under.
       nav_max_speed: 0.4
@@ -394,6 +400,18 @@ vehicle_execution_node:
     # 56/56 crossings; 0.9 closes the 3-3.4 m gaps and stalled 2-3 crossings.
     surface_obstacles:
       margin_m: 0.75
+    # Course fence from the GCS course boundary (/system/mission/course, Course.boundary). ArduSub's own fence only logs.
+    # Surfaced only (no position under water): NavigateSurfaceGps targets move margin_m inside, every goal's horizontal
+    # command loses its outward part near the edge and is pushed back in inside the margin, and with no goal running the
+    # idle guard drives back in. No fresh GPS fix on the surface while a fence is set: no horizontal motion.
+    fence:
+      margin_m: 3.0               # stay this far inside the boundary: GPS error, vehicle size, drift, an underwater leg
+      brake_m: 3.0                # outward speed fades out over this band before the margin
+      return_speed_mps: 0.4       # inward push inside the margin or outside the boundary
+      reject_outside_m: 20.0      # a target farther outside than this is refused (a typo), not pulled in
+      required: false             # true: no horizontal motion on the surface until a course boundary arrives
+      idle_guard: true
+      gps_timeout_s: 2.0
     # AcquirePipeline and SearchPipeline steer over a light seen with no pipe in view (the node sits on the pipe).
     light_cue:
       enabled: true
@@ -458,6 +476,7 @@ vehicle_execution_node:
       mavros_target: "/mavros/setpoint_raw/local"
       task4_zones: "/banyu/task4/zones"
       surface_obstacles: "/banyu/surface/obstacles"   # NavigateSurfaceGps detours round these (UAV buoy field)
+      course: "/system/mission/course"   # course boundary for the fence
 
 pipeline_end_node:
   ros__parameters:

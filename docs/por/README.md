@@ -125,6 +125,9 @@ Catatan sim:
      mempublikasikan kedalaman dan heading tanpa GPS. Tanpa `EK3_SRC2_YAW 1`, EKF kehilangan
      sumber heading begitu `nogps_odom_beacon` memilih source set 2.
    - `FS_EKF_ACTION 0`, `FS_GCS_ENABLE 0`.
+   - `FS_THR_ENABLE 1`: kalau link TX16S putus, ArduSub menetralkan stick setelah
+     `RC_FS_TIMEOUT` (1 s). Dengan `0`, nilai stick terakhir tetap dipakai dan thruster terus
+     berputar di MANUAL. Jangan `2` (SURFACE): di bawah air link selalu putus.
    - `MAV_GCS_SYSID 255` (sysid MAVROS), lihat §4.2.
    - **Batas daya thruster** `MOT_PWM_MIN 1300`, `MOT_PWM_MAX 1700` (50% dari 1100..1900):
      board power ESC tidak kuat menyuplai arus penuh thruster. Batas ini berlaku untuk semua
@@ -179,6 +182,7 @@ Pengaman:
 | `RC8_OPTION 213` (mount pitch), `RC7_OPTION 214` (mount yaw), `MNT1_RC_RATE 30` | SC (CH8) juga menggerakkan tilt mount kamera dengan laju 30°/s selama tidak di tengah: SC atas memiringkan kamera sampai -90°, SC bawah sampai +20°. Arah kamera depan saat misi jadi tergantung riwayat posisi SC | **Aman**: kamera depan fixed, tidak ada servo tilt. Kalau suatu saat dipasang mount, set `RC8_OPTION 0` |
 | `BARO2_DEVID 0` | Saat dump diambil, Bar30 belum dipasang (hanya baro internal). ALT_HOLD butuh Bar30 | Pasang Bar30 untuk run di air; cek `BARO2_DEVID` bukan 0 sebelum menyelam |
 | `FS_EKF_ACTION 1` | Berbeda dengan repo (`0`) | Ikuti `banyu_defaults.parm` |
+| `FS_THR_ENABLE 0` (dump 2026-11-06) | Link RC putus saat MANUAL: stick terakhir tetap dipakai, thruster terus berputar (hanya failsafe pilot input `FS_PILOT_INPUT 1` yang menetralkan setelah 3 s, dan itu di-reset oleh RC override/`MANUAL_CONTROL` dari GCS mana pun) | **Belum**: set `FS_THR_ENABLE 1` (ada di `banyu_defaults.parm`) |
 
 ### 4.3 Run dengan TX16S
 

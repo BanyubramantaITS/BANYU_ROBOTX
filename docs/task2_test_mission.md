@@ -18,6 +18,10 @@ mission (`banyu_mission.xml`) is unchanged; the test is selected only with `--te
 Steps 4 to 6 never stop the run: if one fails, the AUV still surfaces and reports. SB Mid or SB Down takes over at
 any time, as in every run.
 
+**Course fence:** the AUV stays `fence.margin_m` (3 m) inside the GCS course boundary on the surface and does not move on
+the surface until a course arrives (`fence.required: true`; see `docs/task2_waypoint_mission.md`). Under water there is
+no position, so nothing is enforced: the legs (~1.8 m) must stay shorter than the margin.
+
 Tuning: `banyu_bringup/config/task2_test_mission.yaml` (loaded last when `test_mission:=True`). Keep the forward leg well
 short of half the buoy spacing: the end buoy's mooring line is at the dive depth.
 
@@ -47,7 +51,8 @@ No transmitter: launch with `launch_task2.sh --real --test-mission --no-rc` and 
 tool (`ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '2'}"`; `'1'` manual, `'0'` kill). There
 is no stick takeover then: stop with `'0'`, the abort service or the physical kill switch.
 
-When the real GCS or USV is on the link, use `--no-course`, `--no-start`, or leave out the buoys.
+When the real GCS or USV is on the link, use `--no-start` or leave out the buoys; the tool leaves the course to the GCS
+by itself when one is on the topic (`--no-course` to never publish one).
 
 ## Simulation
 

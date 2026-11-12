@@ -11,6 +11,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "banyu_msgs/msg/detection.hpp"
+#include "banyu_vehicle_execution/course_fence.hpp"
 #include "banyu_vehicle_execution/task4_zones.hpp"
 
 namespace banyu_vehicle_execution
@@ -165,6 +166,16 @@ struct VehicleTelemetry
       }
     }
     return discs;
+  }
+
+  // Course boundary (GCS /system/mission/course); NavigateSurfaceGps keeps its goal inside it.
+  CourseFence fence;
+  // Goals farther than this outside the boundary are refused instead of pulled inside.
+  double fence_reject_outside_m{20.0};
+
+  std::vector<Vec2> fenceAroundVehicle() const
+  {
+    return fenceAround(fence, latitude_deg, longitude_deg);
   }
 
   // Known buoys as planar ENU offsets from the vehicle.

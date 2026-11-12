@@ -7,12 +7,34 @@ A specialized test mission designed specifically to verify **surface GPS waypoin
 | Step | What the AUV does | BT Node / Action |
 |---|---|---|
 | 1 | Starts automatically when **SB is flicked to AUTO (Up)**, or on GCS `CMD_RUN_START` / `prepare_autonomy` | `RequireMissionStarted`, `RequireVehicleReady` |
-| 2 | Stands by on the surface waiting for the USV's `rx_msgs/PipelineBuoys` | `WaitForBuoyTarget` |
+| 2 | Stands by on the surface in MANUAL (`standby_mode`) waiting for the USV's `rx_msgs/PipelineBuoys`, then switches to the surface mode | `WaitForBuoyTarget`, `SetFcuMode` |
 | 3 | Transits by GPS on the surface midway between the buoys (midpoint strategy), keeping clear of both buoys | `NavigateSurfaceGps` |
 | 4 | Aligns heading toward the end buoy, holding GPS position | `AlignHeading` |
 | 5 | Marks survey complete and surfaced (without diving) | `GiveUpSurvey`, `ConfirmSurfaceAction` |
 | 6 | Publishes the survey report and resource delivery (`rx_msgs/ResourceDelivery` on `/system/vehicle/uuv/task2/delivery`, relayed to UAV) | `PublishPipelineSurvey best_effort="true"` |
 | 7 | Mission succeeds and disarms thrusters, remaining safely floating on the surface | Success / Completion |
+
+## Course fence (staying inside the course)
+
+The AUV keeps itself inside the **GCS course boundary** (`rx_msgs/Course.boundary` on `/system/mission/course`).
+ArduSub's own fence only writes a log entry on a breach, so `vehicle_execution_node` does it:
+
+- a waypoint near or past the boundary is moved `fence.margin_m` (3 m) inside; one more than `fence.reject_outside_m`
+  (20 m) outside is refused (a typo) and the vehicle stays where it is,
+- every surface command loses its outward part over the last `fence.brake_m` (3 m) before the margin, and inside the
+  margin (or outside the boundary) the vehicle is pushed back in at up to `fence.return_speed_mps`; it can still slide
+  along the edge,
+- with no goal running (standby for the buoys) the idle guard drives it back in,
+- with no fresh GPS fix it does not move horizontally on the surface,
+- this mission sets `fence.required: true`: until a course arrives the AUV does not move on the surface.
+
+`task2_test_waypoint.py` publishes its own course (a 300 m square) only when no other course is on the topic; when the
+GCS sends one it uses that and says so. Its heartbeat lines show how far inside the boundary the AUV is. Tuning:
+`fence.*` in `banyu_bringup/config/task2_params.yaml`. Evidence after the run: `/system/mission/course` and the
+`Course fence` lines in `/rosout`.
+
+To test along the edge, give waypoints near it: the AUV goes to the midpoint of the two points you send (start and
+`--end`), so a run is one waypoint. Re-run the tool with new points for the next leg (SB Mid, then SB Up again).
 
 ---
 

@@ -83,7 +83,14 @@ public:
   // Flight mode used while autonomous ("GUIDED", or "ALT_HOLD" without a position estimate). The
   // autonomy_mode parameter may list a second, underwater mode ("GUIDED,ALT_HOLD"); this is the first.
   const std::string & autonomyMode() const {return primary_autonomy_mode_;}
-  // True for any listed autonomy mode.
+  // Mode the vehicle is armed and waits in before it moves (e.g. MANUAL: no stabilization or
+  // depth hold pushing the hull under); empty = autonomyMode(). Counts as an autonomy mode from
+  // prepareAutonomy() until the BT selects another mode (modeSelected), so a later switch to it
+  // still ends the run.
+  void setStandbyMode(std::string mode);
+  std::string standbyMode() const;
+  void modeSelected(const std::string & mode);
+  // True for any listed autonomy mode and the standby mode.
   bool autonomyModeAllowed(const std::string & mode) const;
   bool gpsAvailable() const;
   bool gpsRequired() const;
@@ -161,6 +168,9 @@ private:
   int rc_interrupt_threshold_ {1700};
   std::string autonomy_mode_ {"GUIDED"};          // as configured, possibly "GUIDED,ALT_HOLD"
   std::string primary_autonomy_mode_ {"GUIDED"};
+  std::string standby_mode_;
+  bool in_standby_ {false};
+  bool modeAllowedLocked(const std::string & mode) const;
   std::string autonomy_authority_;
   Lifecycle lifecycle_ {Lifecycle::Idle};
   double start_latitude_ {0.0};

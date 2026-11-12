@@ -14,6 +14,8 @@
         <RequireVehicleReady />
         <!-- No fallback to the configured coordinates: stand by on the surface until the USV's active buoy arrives. -->
         <WaitForBuoyTarget />
+        <!-- Waited in standby_mode (MANUAL: floats, no hold pushing the hull under); now the surface mode (no-op if the same). -->
+        <SetFcuMode mode="{surface_mode}" timeout_s="60" />
         <ForceSuccess>
           <Sequence name="surface_transit">
             <Timeout msec="180000">

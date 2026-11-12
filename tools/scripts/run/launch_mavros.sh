@@ -15,6 +15,8 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 WS_DIR="$(cd "${REPO_DIR}/../.." && pwd)"
 MAVROS_CONFIG="${REPO_DIR}/banyu_bringup/config/mavros_config.yaml"
+# Real AUV only: no param/mission plugins (their endless re-downloads saturated the Pi).
+MAVROS_REAL_CONFIG="${REPO_DIR}/banyu_bringup/config/mavros_config_real.yaml"
 
 TARGET="real"
 FCU_URL="udp://127.0.0.1:14551@"
@@ -30,6 +32,8 @@ mission stack is relaunched (launch_por.sh) for each profile.
 
 Target:
   --real, --hardware  (Default) Wall time, FCU via run_mavproxy.sh on 127.0.0.1:14551.
+                      Adds mavros_config_real.yaml: no param/waypoint/geofence/rallypoint
+                      plugins (no /mavros/param services on the robot).
   --sim, --gazebo     Sim time (Gazebo /clock), FCU via the SITL MAVProxy on 127.0.0.1:14551.
                       Restart MAVROS when the simulation is restarted (the clock resets).
 
@@ -79,6 +83,7 @@ echo "=========================================================="
 echo "Target            : $([ "$TARGET" = "sim" ] && echo "Simulation (sim time)" || echo "Real AUV (wall time)")"
 echo "FCU URL           : $FCU_URL"
 echo "ROS_DOMAIN_ID     : ${ROS_DOMAIN_ID:-0 (unset)}"
+[ "$TARGET" = "real" ] && echo "Plugins off       : param, waypoint, geofence, rallypoint (mavros_config_real.yaml)"
 if [[ "$FCU_URL" == udp://* ]]; then
   if pgrep -f "mavproxy" > /dev/null; then
     echo "MAVProxy          : RUNNING"
@@ -102,6 +107,9 @@ MAVROS_CMD=(
   "${MAVROS_PREFIX}/lib/mavros/mavros_node"
   --ros-args
   --params-file "$MAVROS_CONFIG"
+)
+[ "$TARGET" = "real" ] && MAVROS_CMD+=(--params-file "$MAVROS_REAL_CONFIG")
+MAVROS_CMD+=(
   -p "fcu_url:=${FCU_URL}"
   -p "use_sim_time:=${USE_SIM_TIME}"
   --log-level mavros.param:=error

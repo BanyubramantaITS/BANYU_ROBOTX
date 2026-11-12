@@ -8,10 +8,12 @@
 
 #include "banyu_msgs/action/navigate_surface_gps.hpp"
 #include "banyu_msgs/msg/task4_zones.hpp"
+#include "banyu_vehicle_execution/course_fence.hpp"
 #include "banyu_vehicle_execution/task4_zones.hpp"
 #include "banyu_vehicle_execution/vehicle_execution_node.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "mavros_msgs/msg/position_target.hpp"
+#include "rx_msgs/msg/course.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
 
@@ -157,6 +159,43 @@ TEST(Task4Geometry, TruncateStopsAtTheZoneEdge)
   EXPECT_FALSE(truncateAtZone({0.0, 10.0}, zones, 0.5).has_value());
 }
 
+TEST(CourseFenceGeometry, DistanceIsSignedAndPointsIntoTheCourse)
+{
+  // Clockwise 20 m square: the winding must not matter.
+  const std::vector<Vec2> square{{-20.0, -20.0}, {-20.0, 20.0}, {20.0, 20.0}, {20.0, -20.0}};
+  const auto inside = fenceDistance({18.0, 0.0}, square);
+  EXPECT_NEAR(inside.clearance_m, 2.0, 1e-9);
+  EXPECT_NEAR(inside.inward.x, -1.0, 1e-9);
+  const auto outside = fenceDistance({25.0, 0.0}, square);
+  EXPECT_NEAR(outside.clearance_m, -5.0, 1e-9);
+  EXPECT_NEAR(outside.inward.x, -1.0, 1e-9);
+  // A goal past a corner comes back inside by the margin on both sides.
+  const Vec2 pulled = pullInside({30.0, 30.0}, square, 3.0);
+  EXPECT_GE(fenceDistance(pulled, square).clearance_m, 3.0 - 1e-3);
+  EXPECT_LT(pulled.x, 17.1);
+  EXPECT_LT(pulled.y, 17.1);
+}
+
+TEST(CourseFenceGeometry, VelocityBrakesOutwardAndPushesBackIn)
+{
+  CourseFence fence;
+  fence.margin_m = 3.0;
+  fence.brake_m = 3.0;
+  fence.return_speed_mps = 0.4;
+  const FenceDistance far{10.0, {-1.0, 0.0}};
+  EXPECT_NEAR(fenceVelocity({1.0, 0.5}, far, fence).x, 1.0, 1e-9);
+  // Halfway through the brake band: half the outward speed, the sideways part kept.
+  const auto braking = fenceVelocity({1.0, 0.5}, FenceDistance{4.5, {-1.0, 0.0}}, fence);
+  EXPECT_NEAR(braking.x, 0.5, 1e-9);
+  EXPECT_NEAR(braking.y, 0.5, 1e-9);
+  // Inside the margin: pushed back in whatever was asked, sideways part kept.
+  const auto pushed = fenceVelocity({1.0, 0.5}, FenceDistance{1.0, {-1.0, 0.0}}, fence);
+  EXPECT_LT(pushed.x, -0.19);
+  EXPECT_NEAR(pushed.y, 0.5, 1e-9);
+  // Inward commands are never slowed.
+  EXPECT_NEAR(fenceVelocity({-0.8, 0.0}, FenceDistance{1.0, {-1.0, 0.0}}, fence).x, -0.8, 1e-9);
+}
+
 class Task4NavigationTest : public ::testing::Test
 {
 protected:
@@ -172,6 +211,7 @@ protected:
     pose_pub_ = node_->create_publisher<geometry_msgs::msg::PoseStamped>("/mavros/local_position/pose", rclcpp::SensorDataQoS());
     zones_pub_ = node_->create_publisher<banyu_msgs::msg::Task4Zones>(
       "/banyu/task4/zones", rclcpp::QoS(1).reliable().transient_local());
+    course_pub_ = node_->create_publisher<rx_msgs::msg::Course>("/system/mission/course", rclcpp::QoS(10).reliable());
     preview_sub_ = node_->create_subscription<mavros_msgs::msg::PositionTarget>(
       "/banyu/execution/preview_target", 10,
       [this](mavros_msgs::msg::PositionTarget::SharedPtr m) {last_target_ = *m;});
@@ -230,6 +270,22 @@ protected:
     zones_pub_->publish(zones);
   }
 
+  // Square course with its east edge `east_m` east of (0, 0).
+  void publishCourse(double east_m)
+  {
+    rx_msgs::msg::Course course;
+    course.course_id = "TEST";
+    for (const auto & [e, n] : std::vector<std::pair<double, double>>{
+        {-100.0, -100.0}, {east_m, -100.0}, {east_m, 100.0}, {-100.0, 100.0}, {-100.0, -100.0}})
+    {
+      rx_msgs::msg::LatLng p;
+      p.latitude = degNorth(n);
+      p.longitude = degEast(e);
+      course.boundary.push_back(p);
+    }
+    course_pub_->publish(course);
+  }
+
   bool sendGoal(double east_m)
   {
     NavAction::Goal goal;
@@ -250,6 +306,7 @@ protected:
   rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr gps_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
   rclcpp::Publisher<banyu_msgs::msg::Task4Zones>::SharedPtr zones_pub_;
+  rclcpp::Publisher<rx_msgs::msg::Course>::SharedPtr course_pub_;
   rclcpp::Subscription<mavros_msgs::msg::PositionTarget>::SharedPtr preview_sub_;
   rclcpp_action::Client<NavAction>::SharedPtr client_;
   mavros_msgs::msg::PositionTarget last_target_;
@@ -412,4 +469,38 @@ TEST(Task4Geometry, TrialBuoyFieldCrossingsStayClearWithDetourHysteresis)
       EXPECT_LE(travelled, 1.5 * length(goal - start)) << "direction " << dir << " offset " << off;
     }
   }
+}
+
+TEST_F(Task4NavigationTest, CourseFenceKeepsTheTransitInside)
+{
+  // Goal 30 m east, the boundary 20 m east: the goal is pulled 3 m (margin) inside the boundary.
+  publishCourse(20.0);
+  ASSERT_TRUE(sendGoal(30.0));
+  spin(0.0, 0.0, 40);
+  EXPECT_GT(last_target_.velocity.x, 0.3);
+  // Inside the margin (1 m from the boundary): driven back in, never further out.
+  spin(19.0, 0.0, 40);
+  EXPECT_LT(last_target_.velocity.x, -0.1);
+  // Outside the boundary: driven back in too.
+  spin(22.0, 0.0, 40);
+  EXPECT_LT(last_target_.velocity.x, -0.1);
+}
+
+TEST_F(Task4NavigationTest, IdleVehicleOutsideTheCourseFenceMovesBackIn)
+{
+  publishCourse(20.0);
+  spin(19.0, 0.0, 40);
+  EXPECT_LT(last_target_.velocity.x, -0.1);
+  // Well inside it stays put.
+  spin(0.0, 0.0, 20);
+  EXPECT_NEAR(last_target_.velocity.x, 0.0, 1e-6);
+}
+
+TEST_F(Task4NavigationTest, GoalFarOutsideTheCourseFenceIsRefused)
+{
+  publishCourse(20.0);
+  spin(0.0, 0.0, 10);
+  ASSERT_TRUE(sendGoal(100.0));
+  spin(0.0, 0.0, 40);
+  EXPECT_NEAR(last_target_.velocity.x, 0.0, 1e-6);
 }

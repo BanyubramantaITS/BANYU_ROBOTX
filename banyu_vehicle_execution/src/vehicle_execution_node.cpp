@@ -43,6 +43,7 @@ void VehicleExecutionNode::initParameters()
       autonomy_mode_ = autonomy_mode_.substr(0, comma);
     }
   }
+  standby_mode_ = declare_parameter<std::string>("control.standby_mode", "");
   output_mode_ = declare_parameter<std::string>("control.output_mode", "setpoint");
   if (output_mode_ != "setpoint" && output_mode_ != "rc_override" && output_mode_ != "auto") {
     throw std::invalid_argument("control.output_mode must be setpoint, rc_override or auto");
@@ -177,6 +178,9 @@ void VehicleExecutionNode::initSubscribers()
     declare_parameter<std::string>("topics.surface_obstacles", "/banyu/surface/obstacles"),
     rclcpp::QoS(1).reliable().transient_local(),
     std::bind(&VehicleExecutionNode::handleSurfaceObstacles, this, std::placeholders::_1));
+  course_sub_ = create_subscription<rx_msgs::msg::Course>(
+    declare_parameter<std::string>("topics.course", "/system/mission/course"), rclcpp::QoS(10).reliable(),
+    std::bind(&VehicleExecutionNode::handleCourse, this, std::placeholders::_1));
 
   guidance_intent_sub_ = create_subscription<banyu_guidance::msg::VelocityIntent>(
     guidance_intent_topic, rclcpp::QoS(10),
@@ -299,6 +303,21 @@ void VehicleExecutionNode::initActionServers()
     !(zone_buoy_clear_m >= 0.0) || !(zone_surface_hold_s >= 0.0) || !(zone_surface_depth_m_ > 0.0))
   {
     throw std::invalid_argument("zones margin, horizon, clearance, buoy clearance and hold must not be negative, speed and surface depth positive");
+  }
+  // Course fence (GCS course boundary): surface goals and commands stay fence.margin_m inside it.
+  auto & fence = telemetry_.fence;
+  fence.margin_m = declare_parameter<double>("fence.margin_m", fence.margin_m);
+  fence.brake_m = declare_parameter<double>("fence.brake_m", fence.brake_m);
+  fence.return_speed_mps = declare_parameter<double>("fence.return_speed_mps", fence.return_speed_mps);
+  telemetry_.fence_reject_outside_m =
+    declare_parameter<double>("fence.reject_outside_m", telemetry_.fence_reject_outside_m);
+  fence_required_ = declare_parameter<bool>("fence.required", fence_required_);
+  fence_guard_enabled_ = declare_parameter<bool>("fence.idle_guard", fence_guard_enabled_);
+  fence_gps_timeout_s_ = declare_parameter<double>("fence.gps_timeout_s", fence_gps_timeout_s_);
+  if (!(fence.margin_m >= 0.0) || !(fence.brake_m >= 0.0) || !(fence.return_speed_mps > 0.0) ||
+    !(telemetry_.fence_reject_outside_m >= 0.0) || !(fence_gps_timeout_s_ > 0.0))
+  {
+    throw std::invalid_argument("fence margin, brake and reject distance must not be negative, speed and GPS timeout positive");
   }
   LightCueConfig light_cue;
   light_cue.enabled = declare_parameter<bool>("light_cue.enabled", light_cue.enabled);
@@ -667,7 +686,7 @@ void VehicleExecutionNode::timerCallback()
         // Under water in STABILIZE the heave stick is thrust: every other action gets the learned buoyancy trim too.
         requested.linear_z += camera_heave_.bias();
       }
-      intent = arbiter_.selectOutput(handle, requested);
+      intent = applyFence(arbiter_.selectOutput(handle, requested), current_ros_time);
     } else {
       intent = zeroIntent();
     }
@@ -676,7 +695,11 @@ void VehicleExecutionNode::timerCallback()
   } else if (const auto guard_intent = zoneGuardIntent(current_ros_time, zone_guard_selected);
     zone_guard_selected && !safety_fault)
   {
-    intent = guard_intent;
+    intent = applyFence(guard_intent, current_ros_time);
+  } else if (const auto fence_intent = fenceGuardIntent(current_ros_time, zone_guard_selected);
+    zone_guard_selected && !safety_fault)
+  {
+    intent = fence_intent;
   } else if (readinessHoldAuthorized() && !safety_fault) {
     // RC override has no ArduSub position hold: neutral sticks while waiting for the start.
     if (rcModeActive()) {
@@ -910,14 +933,16 @@ void VehicleExecutionNode::handleStatus(const banyu_msgs::msg::VehicleStatus::Sh
 
 bool VehicleExecutionNode::modeAllowed(const std::string & mode) const
 {
-  return mode == autonomy_mode_ || (!underwater_mode_.empty() && mode == underwater_mode_);
+  return mode == autonomy_mode_ || (!underwater_mode_.empty() && mode == underwater_mode_) ||
+         (!standby_mode_.empty() && mode == standby_mode_);
 }
 
 bool VehicleExecutionNode::rcModeActive() const
 {
   // rc_override: sticks in every listed mode (e.g. "STABILIZE,ALT_HOLD": surface and under water).
   if (output_mode_ == "rc_override") {return modeAllowed(telemetry_.mode);}
-  return output_mode_ == "auto" && telemetry_.mode == underwater_mode_;
+  return output_mode_ == "auto" &&
+         (telemetry_.mode == underwater_mode_ || (!standby_mode_.empty() && telemetry_.mode == standby_mode_));
 }
 
 bool VehicleExecutionNode::setpointModeActive() const
@@ -1215,6 +1240,91 @@ MotionIntent VehicleExecutionNode::zoneGuardIntent(const rclcpp::Time & now, boo
   selected = true;
   RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Task 4: idle inside a keep-out zone, leaving %.1f m", exit->distance_m);
   return zoneExitIntent(*exit, telemetry_.zones.exit_speed_mps, 0.0);
+}
+
+void VehicleExecutionNode::handleCourse(const rx_msgs::msg::Course::SharedPtr msg)
+{
+  std::vector<double> lat;
+  std::vector<double> lon;
+  for (const auto & p : msg->boundary) {
+    if (!std::isfinite(p.latitude) || !std::isfinite(p.longitude) || std::abs(p.latitude) > 90.0 ||
+      std::abs(p.longitude) > 180.0)
+    {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000, "Course %s: invalid boundary point, ignored",
+        msg->course_id.c_str());
+      return;
+    }
+    lat.push_back(p.latitude);
+    lon.push_back(p.longitude);
+  }
+  if (lat.size() < 3) {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000, "Course %s: boundary has %zu points, no fence",
+      msg->course_id.c_str(), lat.size());
+    return;
+  }
+  auto & fence = telemetry_.fence;
+  if (msg->course_id != fence_course_id_ || lat != fence.latitude_deg || lon != fence.longitude_deg) {
+    RCLCPP_INFO(get_logger(), "Course fence %s: %zu boundary points, margin %.1f m", msg->course_id.c_str(), lat.size(),
+      fence.margin_m);
+  }
+  fence_course_id_ = msg->course_id;
+  fence.latitude_deg = std::move(lat);
+  fence.longitude_deg = std::move(lon);
+}
+
+MotionIntent VehicleExecutionNode::applyFence(const MotionIntent & intent, const rclcpp::Time & now)
+{
+  const auto & water = telemetry_.water_depth;
+  if (water.valid && water.depth_m > zone_surface_depth_m_) {return intent;}
+  auto held = intent;
+  held.linear_x = 0.0;
+  held.linear_y = 0.0;
+  if (!telemetry_.fence.any()) {
+    if (!fence_required_ || (intent.linear_x == 0.0 && intent.linear_y == 0.0)) {return intent;}
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Course fence required but no course received: holding");
+    return held;
+  }
+  const bool gps_fresh = telemetry_.gps_valid && (now - telemetry_.gps_stamp).seconds() <= fence_gps_timeout_s_;
+  const bool heading_valid = telemetry_.pose_valid || telemetry_.imu_valid;
+  if (!gps_fresh || !heading_valid) {
+    if (intent.linear_x != 0.0 || intent.linear_y != 0.0) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Course fence: no fresh GPS fix or heading, holding");
+    }
+    return held;
+  }
+  // Same heading as the RC override encoder.
+  const double heading = telemetry_.pose_valid ? telemetry_.yaw : telemetry_.imu_yaw;
+  const auto enu = intent.frame == IntentFrame::BodyFlu ? bodyFluToLocalEnu(intent, heading) :
+    std::optional<MotionIntent>(intent);
+  if (!enu) {return held;}
+  const auto d = fenceDistance(Vec2{0.0, 0.0}, telemetry_.fenceAroundVehicle());
+  const Vec2 v{enu->linear_x, enu->linear_y};
+  const Vec2 limited = fenceVelocity(v, d, telemetry_.fence);
+  if (length(limited - v) > 1e-3) {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Course fence: %.1f m %s the boundary, limiting the command",
+      std::abs(d.clearance_m), d.clearance_m < 0.0 ? "outside" : "inside");
+  }
+  return clampIntent(MotionIntent::localEnu(limited.x, limited.y, enu->linear_z, enu->yaw_rate), limits_)
+         .value_or(held);
+}
+
+// No goal running on the surface and the vehicle drifted into the fence margin (or out of the course): drive back in.
+MotionIntent VehicleExecutionNode::fenceGuardIntent(const rclcpp::Time & now, bool & selected)
+{
+  selected = false;
+  if (!fence_guard_enabled_ || !telemetry_.fence.any() || !telemetry_.gps_valid ||
+    (now - telemetry_.gps_stamp).seconds() > fence_gps_timeout_s_)
+  {
+    return zeroIntent();
+  }
+  const bool heading_valid = telemetry_.pose_valid || (rcModeActive() && telemetry_.imu_valid);
+  if (!heading_valid || (require_run_authorization_ && !runMotionAuthorized())) {return zeroIntent();}
+  const auto & water = telemetry_.water_depth;
+  if (water.valid && water.depth_m > zone_surface_depth_m_) {return zeroIntent();}
+  const auto d = fenceDistance(Vec2{0.0, 0.0}, telemetry_.fenceAroundVehicle());
+  if (d.clearance_m >= telemetry_.fence.margin_m) {return zeroIntent();}
+  selected = true;
+  return applyFence(zeroIntent(), now);
 }
 
 void VehicleExecutionNode::handlePipelineObs(

@@ -216,6 +216,7 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
     declare_parameter<std::string>("autonomy_mode", "GUIDED"),
     declare_parameter<std::string>("autonomy_authority", ""),
     mission_mode != "por");
+  state_->setStandbyMode(declare_parameter<std::string>("standby_mode", ""));
   declare_parameter<int>("groot_port", 1666);
   fallback_mode_ = declare_parameter<std::string>("fallback_mode", "MANUAL");
   set_mode_service_ = declare_parameter<std::string>("services.set_mode", "/mavros/set_mode");
@@ -1026,6 +1027,7 @@ void BanyuMission::initialize()
     "approach_timeout_ms",
     static_cast<unsigned>((2.0 * approach_max_descent / approach_rate + approach_hold_s + 20.0) * 1000.0));
   blackboard->set("underwater_mode", underwater_mode);
+  blackboard->set("surface_mode", state_->autonomyMode());
   blackboard->set("repair_depth", repair_depth_param > 0.0 ? repair_depth_param : inspection_depth);
   blackboard->set("repair_ring_tolerance", repair_ring_tolerance);
   blackboard->set("repair_step_timeout_ms", static_cast<unsigned>(repair_step_timeout_s * 1000.0));

@@ -24,6 +24,7 @@
 #include "banyu_msgs/msg/detection.hpp"
 #include "banyu_msgs/msg/task4_zones.hpp"
 #include "banyu_msgs/msg/surface_obstacles.hpp"
+#include "rx_msgs/msg/course.hpp"
 #include "banyu_guidance/msg/velocity_intent.hpp"
 
 #include "banyu_msgs/msg/pinger_observation.hpp"
@@ -88,6 +89,10 @@ private:
   void handleZones(const banyu_msgs::msg::Task4Zones::SharedPtr msg);
   void handleSurfaceObstacles(const banyu_msgs::msg::SurfaceObstacles::SharedPtr msg);
   MotionIntent zoneGuardIntent(const rclcpp::Time & now, bool & selected);
+  void handleCourse(const rx_msgs::msg::Course::SharedPtr msg);
+  // Course fence on every goal's command while surfaced; under water there is no position to check.
+  MotionIntent applyFence(const MotionIntent & intent, const rclcpp::Time & now);
+  MotionIntent fenceGuardIntent(const rclcpp::Time & now, bool & selected);
   void handleLightCue(const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg);
   void handleDetection(const banyu_msgs::msg::Detection::SharedPtr msg);
   void handleImu(const sensor_msgs::msg::Imu::SharedPtr msg);
@@ -116,6 +121,8 @@ private:
   std::string autonomy_mode_{"GUIDED"};
   // Second mode of a two-mode list ("GUIDED,ALT_HOLD"): the mode used under water, driven by RC override.
   std::string underwater_mode_;
+  // Mode the mission waits in before it moves (banyu_mission standby_mode), driven by RC override.
+  std::string standby_mode_;
   bool modeAllowed(const std::string & mode) const;
   bool rcModeActive() const;
   bool setpointModeActive() const;
@@ -178,6 +185,13 @@ private:
   // Idle on the surface (no goal) and a keep-out zone reaches the vehicle: move out and stay out.
   bool zone_guard_enabled_{true};
   double zone_surface_depth_m_{0.5};
+  rclcpp::Subscription<rx_msgs::msg::Course>::SharedPtr course_sub_;
+  // No course received: surface commands may not move horizontally when required.
+  bool fence_required_{false};
+  bool fence_guard_enabled_{true};
+  // Horizontal motion on the surface stops when the GPS fix is older than this (the fence cannot be checked).
+  double fence_gps_timeout_s_{2.0};
+  std::string fence_course_id_;
   rclcpp::Subscription<banyu_guidance::msg::VelocityIntent>::SharedPtr guidance_intent_sub_;
   rclcpp::Subscription<banyu_msgs::msg::PingerObservation>::SharedPtr pinger_obs_sub_;
   bool use_hydrophone_{false};
