@@ -58,12 +58,6 @@ banyu_mission:
       # robot is the buoy position error (USV uncertainty_m), not the vehicle fix.
       gps_tolerance_m: 0.4
       max_retries: 3
-      start_latitude: 33.810313
-      start_longitude: -118.393866
-      target_latitude: 33.8103130   # green (active) buoy, 3.8 m east of the spawn in main_world.world
-      target_longitude: -118.3938249
-      end_latitude: 33.8103130   # red buoy, 3.8 m west of the spawn
-      end_longitude: -118.3939071
       camera_name: "bottom_camera"
       acquire_timeout_s: 15.0
       traverse_timeout_s: 600.0

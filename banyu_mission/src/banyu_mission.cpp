@@ -791,11 +791,9 @@ void BanyuMission::initialize()
     "mission.end_latitude", std::numeric_limits<double>::quiet_NaN());
   const auto end_longitude = declare_parameter<double>(
     "mission.end_longitude", std::numeric_limits<double>::quiet_NaN());
+  // Optional: Task 2 takes its buoys only from the USV (WaitForBuoyTarget), so none are required at the start.
   mission_config_valid_ = state_->configureMissionCoordinates(
-    start_latitude, start_longitude, target_latitude, target_longitude, mission_mode != "por");
-  if (mission_mode == "por") {
-    mission_config_valid_ = true;
-  }
+    start_latitude, start_longitude, target_latitude, target_longitude, false);
   const auto positive = [this](double value) {return finite(value) && value > 0.0;};
   const auto nonnegative = [this](double value) {return finite(value) && value >= 0.0;};
   const auto gps_tolerance = declare_parameter<double>("mission.gps_tolerance_m", 3.0);
