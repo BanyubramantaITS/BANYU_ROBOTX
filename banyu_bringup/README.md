@@ -68,7 +68,7 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL (`sit
 | `record` | `True` / `False` | `True` (`sub_bringup`), `False` (`main_launch`) | Records the run to a rosbag, see [Mission Recording](#-mission-recording). In sim the bag uses sim time and includes the ground truth `/sim/ground_truth/odom` (POR). |
 | `record_images` | `True` / `False` | `True` (`sub_bringup`), `False` (`main_launch`) | Includes compressed camera images in the bag. Raw images are never recorded. |
 | `por_params_file` | path | `config/por_params_timed_safe.yaml` | POR profile. Profiles: `por_params_timed_safe.yaml`, `por_params_timed_fastest.yaml`, `por_params_replay.yaml` (see `docs/por/README.md` §2). One file serves RC and no-RC runs. |
-| `bypass_rc` | `True` / `False` | `False` | No transmitter: vehicle status (POR and Task 2) ignores RC freshness and takes the mode from the ESP32 trigger (`/banyu/trigger/cmd`: `'2'` auto, `'1'` manual, `'0'` kill; Task 2 starts MANUAL). Use with `enable_teleop:=False enable_esp32_trigger:=True`; `launch_por.sh --no-rc` and `launch_task2.sh --no-rc` set all three. |
+| `bypass_rc` | `True` / `False` | `False` | No transmitter: vehicle status (POR and Task 2) ignores RC freshness and takes the mode from the ESP32 trigger (`/banyu/trigger/command` service, or `/banyu/trigger/cmd`: `'2'` auto, `'1'` manual, `'0'` kill; Task 2 starts MANUAL). Use with `enable_teleop:=False enable_esp32_trigger:=True`; `launch_por.sh --no-rc` and `launch_task2.sh --no-rc` set all three. |
 | `replay_track` | `latest`, a name or a path | `latest` | Teach track flown by profiles with `use_replay: true` (newest `.csv` in `$BANYU_REPLAY_DIR`, default `~/banyu_replays`). See `docs/por/README.md` §4.8. |
 
 ---

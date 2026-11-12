@@ -363,6 +363,12 @@ void Esp32TriggerNode::handleSendCommand(
   }
 
   const bool ok = sendTrigger(request->command);
+  uint8_t mode = 0;
+  if (ok && hw_kill_latched_ && parseModeCommand(request->command, mode) && mode != 0) {
+    response->success = false;
+    response->message = "Ignored: the ESP32 kill switch is active";
+    return;
+  }
   response->success = ok;
   response->message = ok ? ("Command sent: " + request->command) : "Failed to write to serial port";
 }
@@ -389,6 +395,17 @@ void Esp32TriggerNode::recordCommandedMode(const std::string & cmd)
   if (hw_kill_latched_ && mode == 0) {
     hw_kill_latched_ = false;
     RCLCPP_WARN(get_logger(), "Hardware kill acknowledged by a '0' command; latch cleared.");
+  }
+  static const char * const kModeNames[] = {"KILL", "MANUAL", "AUTO"};
+  if (hw_kill_latched_) {
+    RCLCPP_WARN(
+      get_logger(), "Mode command '%u' (%s) ignored: the ESP32 kill switch is active. %s",
+      static_cast<unsigned>(mode),
+      kModeNames[mode], kill_release_to_manual_ ?
+      "Put it back in (MANUAL), then send the mode again." : "Send '0' to acknowledge first.");
+  } else {
+    RCLCPP_INFO(get_logger(), "Mode command '%u' received: %s", static_cast<unsigned>(mode),
+      kModeNames[mode]);
   }
   publishCommandedMode();
 }
