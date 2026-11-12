@@ -34,7 +34,7 @@ Run the checks in this order. Each has a pass criterion; do not go to the next o
 | # | Check | How | Pass |
 |---|---|---|---|
 | 3.1 | Depth datum at the surface | Float the vehicle, `prepare_autonomy` | `water_depth` 0.0 +- 0.1 m, `calibrated: true`; the datum is only taken before the run starts |
-| 3.2 | GPS at the surface and under water (surface proof) | At the pool edge or outdoors: watch `/mavros/global_position/global` while the vehicle dives to 0.5 m and comes back | Under water the fix goes away (`status.status` -1, or no messages for > 2 s); it comes back within 10-30 s of surfacing. **If the Pixhawk keeps publishing a valid fix under water, the GPS surface proof (`calibrated_depth_node gps_surface`, used after a Bar30 fault) is not valid: do not rely on it** |
+| 3.2 | GPS at the surface and under water (surface proof) | At the pool edge or outdoors: watch `/mavros/global_position/global` while the vehicle dives to 0.5 m and comes back | Under water the fix goes away (`status.status` -1, or no messages for > 2 s); it comes back within 10-30 s of surfacing. **If the Pixhawk keeps publishing a valid fix under water, the surface datum and the Bar30 health check (both gated by the fix) are not valid** |
 | 3.3 | Kill switch | SB Down in the water | Thrusters stop at once, Pixhawk disarms |
 
 ## 4. Pool, under water (tether or short runs)

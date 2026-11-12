@@ -115,9 +115,9 @@ def generate_launch_description():
     sensors_arg = DeclareLaunchArgument(
         name="sensors",
         default_value="full",
-        description="Task 2 sensor set: 'full' (Bar30 depth), 'baro' (Bar30 + ALT_HOLD, dive stopped by camera, order dead-reckoned) or 'minimal' (bottom camera, Pixhawk IMU/compass, "
-        "surface GPS; STABILIZE under water, heave from the camera).",
-        choices=["full", "baro", "minimal", "gamble"],
+        description="Task 2 sensor set (always the Bar30): 'full' (ALT_HOLD, dive to the fixed depth), 'baro' (ALT_HOLD, dive stopped by camera, "
+        "order dead-reckoned) or 'gamble' (Bar30 + surface GPS, timed dive, guessed light order).",
+        choices=["full", "baro", "gamble"],
     )
     pipe_depth_arg = DeclareLaunchArgument(
         name="pipe_depth",
@@ -400,8 +400,8 @@ def generate_launch_description():
         cmd=["ros2", "run", "banyu_bringup", "sim_gps_gate.py", "--ros-args",
              "-p", ["loss_depth_m:=", LaunchConfiguration("gps_loss_depth_m")],
              "-p", ["reacquire_delay_s:=", LaunchConfiguration("gps_reacquire_delay_s")],
-             # The world's depth for the gate: the SITL barometer, never the mission's water depth (which a depth fault or
-             # sensors:=minimal turns into the GPS surface proof, so the GPS would never come back).
+             # The world's depth for the gate: the SITL barometer, never the mission's water depth (invalid after a depth
+             # fault, so the GPS would never come back).
              "-p", "rel_alt_topic:=/mavros/global_position/rel_alt",
              "-p", "use_sim_time:=true"],
         name="sim_gps_gate",

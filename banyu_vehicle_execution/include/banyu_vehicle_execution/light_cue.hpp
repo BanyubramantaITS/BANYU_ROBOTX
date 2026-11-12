@@ -32,11 +32,10 @@ struct LightCueVelocity
   double sway{0.0};
 };
 
-// Down-positive depth for the gate: the depth sensor, or with none the integrated commanded heave.
+// Down-positive depth for the gate.
 inline std::optional<double> lightCueDepth(const VehicleTelemetry & t)
 {
-  if (!t.depth_free && t.depth_valid) {return t.depth_m;}
-  if (t.depth_free) {return t.heave_odom_m;}
+  if (t.depth_valid) {return t.depth_m;}
   return std::nullopt;
 }
 

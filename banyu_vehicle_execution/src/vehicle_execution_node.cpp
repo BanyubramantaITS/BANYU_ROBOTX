@@ -343,8 +343,6 @@ void VehicleExecutionNode::initActionServers()
     this, surface_action, this, depth_kp, max_depth_rate, require_calibrated_surface_depth_,
     declare_parameter<double>("control.surface_hold_time_s", 1.0), surface_depth_timeout_s_,
     declare_parameter<double>("control.surface_max_depth_m", 0.2));
-  use_pressure_depth_ = declare_parameter<bool>("control.use_pressure_depth", true);
-  telemetry_.depth_free = !use_pressure_depth_;
   camera_heave_enabled_ = declare_parameter<bool>("camera_heave.enabled", false);
   CameraHeaveConfig heave_config;
   heave_config.pipe_diameter_m = declare_parameter<double>("camera_heave.pipe_diameter_m", heave_config.pipe_diameter_m);
@@ -374,7 +372,7 @@ void VehicleExecutionNode::initActionServers()
       declare_parameter<double>("camera_descent.surge_mps", 0.0));
     // sensors:=baro: the Bar30 holds depth (ALT_HOLD) but the pipe depth is unknown, so the dive also stops by camera.
     const bool with_depth = declare_parameter<bool>("camera_descent.with_depth", false);
-    if (use_pressure_depth_ && with_depth) {
+    if (with_depth) {
       dive_server->setCameraDescentWithDepth(max_depth);
     }
   }
@@ -691,10 +689,6 @@ void VehicleExecutionNode::timerCallback()
     intent = zeroIntent();
   }
 
-  if (telemetry_.depth_free && !safety_fault) {
-    telemetry_.heave_odom_m -= intent.linear_z * dt;
-  }
-
   // Encode to PositionTarget and publish to preview sink
   try {
     auto target = encodeVelocityYawRate(intent, limits_);
@@ -786,7 +780,7 @@ void VehicleExecutionNode::handlePose(const geometry_msgs::msg::PoseStamped::Sha
     msg->pose.orientation.z, msg->pose.orientation.w);
 
   // If depth is not received from rel_alt, fall back to -pos_z
-  if (!telemetry_.depth_valid && use_pressure_depth_) {
+  if (!telemetry_.depth_valid) {
     telemetry_.depth_m = -telemetry_.pos_z;
   }
 }
@@ -802,7 +796,6 @@ void VehicleExecutionNode::handleGps(const sensor_msgs::msg::NavSatFix::SharedPt
 
 void VehicleExecutionNode::handleRelAlt(const std_msgs::msg::Float64::SharedPtr msg)
 {
-  if (!use_pressure_depth_) {return;}
   const auto receipt = steady_clock_.now();
   const double current_depth = std::isfinite(msg->data) ? -msg->data : 0.0;
   telemetry_.depth_samples_since_last_tick.push_back(current_depth);

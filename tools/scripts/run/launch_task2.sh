@@ -124,11 +124,9 @@ Both targets:
   --sensors <s>         full (default: Bar30 depth, ALT_HOLD under water, dive to the fixed inspection depth)
                         | baro (Bar30 + ALT_HOLD, but the dive stops by camera at the pipe, pipe-width standoff,
                         dive point 1.5 m inside the start buoy, ring order dead-reckoned along the buoy line)
-                        | minimal (bottom camera, Pixhawk
-                        IMU/compass and RTK GPS at the surface only: STABILIZE under water, heave from the camera,
-                        surface proven by a GPS fix; no depth sensor is used for any decision)
-                        | gamble (Pixhawk and surface GPS only: go midway between the buoys, short timed dive and bobbing,
-                        surface, report the start buoy with a RANDOM light order; no camera, no pipe, no repair).
+                        | gamble (Pixhawk, Bar30 and surface GPS: go midway between the buoys, short timed dive and
+                        bobbing, surface, report the start buoy with a RANDOM light order; no camera, no pipe, no repair).
+                        Every profile uses the Bar30 for depth; a Bar30 fault makes the depth invalid for the run.
                         Dives at the midpoint unless --dive-point buoy is given (--dive-point auto).
   --no-rc               --real: no transmitter. Teleop off, esp32_trigger_node on, bypass_rc:=True: the mode is
                         set in software instead of SB (MANUAL until the first command):
@@ -174,7 +172,7 @@ Any other argument is passed through to ros2 launch (e.g. task2_params_file:=/pa
 Examples:
   ./tools/scripts/run/launch_task2.sh --sim
   ./tools/scripts/run/launch_task2.sh --sim --headless --tier disruptive --gps-gate --gps-loss-depth 0.2
-  ./tools/scripts/run/launch_task2.sh --sim --sensors minimal --pipe-depth 8
+  ./tools/scripts/run/launch_task2.sh --sim --sensors baro --pipe-depth 8
   ./tools/scripts/run/launch_task2.sh --sim --sensors baro --pipe-depth 3 --hydrophone
   ./tools/scripts/run/launch_task2.sh --real --dry-run
   ./tools/scripts/run/launch_task2.sh --real --test-mission
@@ -236,7 +234,7 @@ while [[ $# -gt 0 ]]; do
       [ $# -ge 2 ] || { echo "Error: --gamble-red needs positions, e.g. 2,3 or 3." >&2; exit 1; }
       GAMBLE_RED="$2"; shift 2 ;;
     --sensors)
-      [ $# -ge 2 ] || { echo "Error: --sensors needs a value (full|baro|minimal|gamble)." >&2; exit 1; }
+      [ $# -ge 2 ] || { echo "Error: --sensors needs a value (full|baro|gamble)." >&2; exit 1; }
       SENSORS="$2"; shift 2 ;;
     --hydrophone) USE_HYDROPHONE=true; shift ;;
     --dive-point)
@@ -276,8 +274,8 @@ case "$TIER" in
   *) echo "Error: --tier must be core, advanced or disruptive (got '$TIER')." >&2; exit 1 ;;
 esac
 case "$SENSORS" in
-  full|baro|minimal|gamble) ;;
-  *) echo "Error: --sensors must be full, baro, minimal or gamble (got '$SENSORS')." >&2; exit 1 ;;
+  full|baro|gamble) ;;
+  *) echo "Error: --sensors must be full, baro or gamble (got '$SENSORS')." >&2; exit 1 ;;
 esac
 case "$DIVE_POINT" in
   auto|buoy|midpoint) ;;
@@ -393,7 +391,7 @@ echo "Mission           : $([ "$WAYPOINT_MISSION" = true ] && echo "WAYPOINT (mi
 [ "$WAYPOINT_MISSION" = true ] && echo "Run start         : $([ "$AUTO_START" = true ] && echo "SB Up starts the run itself (run 1; RoboCommand's Run Start is rejected; --no-auto-start)" || echo "prepare_autonomy + GCS CMD_RUN_START (RoboCommand's run); SB Up does not start it")"
 [ "$TARGET" = real ] && echo "RC / mode switch   : $([ "$NO_RC" = true ] && echo "NO RC: mode from /banyu/trigger/cmd ('2' auto, '1' manual, '0' kill); MANUAL until set" || echo "TX16S, SB (teleop)")"
 echo "Detector debug    : $([ "$DEBUG" = true ] && echo "ON (windows where there is a display; topics /banyu/pipeline/debug/*)" || echo "off (--debug)")"
-echo "Sensors           : $SENSORS$([ "$SENSORS" = baro ] && echo " (Bar30 + ALT_HOLD; dive stops by camera at the pipe, order dead-reckoned)")$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")$([ "$SENSORS" = gamble ] && echo " (GPS to the dive point, timed dive and bobbing, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
+echo "Sensors           : $SENSORS$([ "$SENSORS" = baro ] && echo " (Bar30 + ALT_HOLD; dive stops by camera at the pipe, order dead-reckoned)")$([ "$SENSORS" = gamble ] && echo " (GPS to the dive point, timed dive and bobbing, Bar30 surfacing, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
 if [ "$WAYPOINT_MISSION" = true ]; then
   echo "Dive point        : midpoint (navigates midway between the buoys on surface; no dive)"
 elif [ "$TEST_MISSION" = true ]; then

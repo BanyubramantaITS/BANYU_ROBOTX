@@ -97,9 +97,9 @@ def generate_launch_description():
     sensors_arg = DeclareLaunchArgument(
         name="sensors",
         default_value="full",
-        description="Task 2 sensor set: 'full' (Bar30 depth, ALT_HOLD), 'baro' (Bar30 + ALT_HOLD, dive stopped by camera, order dead-reckoned) or 'minimal' (bottom camera, IMU/compass, "
-        "surface GPS; STABILIZE under water, heave from the camera).",
-        choices=["full", "baro", "minimal", "gamble"],
+        description="Task 2 sensor set (always the Bar30): 'full' (ALT_HOLD, dive to the fixed depth), 'baro' (ALT_HOLD, dive stopped by camera, "
+        "order dead-reckoned) or 'gamble' (Bar30 + surface GPS, timed dive, guessed light order).",
+        choices=["full", "baro", "gamble"],
     )
 
     dive_point_arg = DeclareLaunchArgument(

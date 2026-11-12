@@ -2,7 +2,6 @@
 
 #include <cmath>
 #include <chrono>
-#include <stdexcept>
 
 namespace banyu_vehicle_execution
 {
@@ -35,14 +34,6 @@ CalibratedDepthNode::CalibratedDepthNode(const rclcpp::NodeOptions & options)
   const auto fix_topic = declare_parameter<std::string>(
     "topics.gps_fix", "/mavros/global_position/global");
   gps_surface_timeout_s_ = declare_parameter<double>("gps_surface_timeout_s", 2.0);
-  // "pressure": datum minus rel_alt (Bar30). "gps_surface": no depth sensor; depth is 0 while a GPS fix proves the
-  // surface and unknown under water.
-  const auto depth_source = declare_parameter<std::string>("depth_source", "pressure");
-  if (depth_source != "pressure" && depth_source != "gps_surface") {
-    throw std::invalid_argument("depth_source must be pressure or gps_surface");
-  }
-  gps_surface_only_ = depth_source == "gps_surface";
-  gps_source_id_ = declare_parameter<std::string>("gps_source_id", "gps_surface");
   health_enabled_ = declare_parameter<bool>("health.enabled", true);
   DepthHealthMonitor::Config health_config;
   health_config.silent_s = declare_parameter<double>("health.silent_s", health_config.silent_s);
@@ -78,20 +69,20 @@ CalibratedDepthNode::CalibratedDepthNode(const rclcpp::NodeOptions & options)
 
   RCLCPP_INFO(
     get_logger(),
-    "CalibratedDepthNode initialized: source='%s', datum='%s', auto_calibrate=%d, depth_source=%s",
-    source_id_.c_str(), datum_.c_str(), auto_calibrate_at_start_, depth_source.c_str());
+    "CalibratedDepthNode initialized: source='%s', datum='%s', auto_calibrate=%d",
+    source_id_.c_str(), datum_.c_str(), auto_calibrate_at_start_);
 }
 
-bool CalibratedDepthNode::usingGpsSurface() const
+bool CalibratedDepthNode::depthFaulted() const
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  return gps_surface_only_ || !health_.healthy();
+  return !health_.healthy();
 }
 
 std::string CalibratedDepthNode::depthHealth() const
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  return gps_surface_only_ ? "DISABLED" : DepthHealthMonitor::name(health_.fault());
+  return DepthHealthMonitor::name(health_.fault());
 }
 
 void CalibratedDepthNode::handleCommand(const mavros_msgs::msg::PositionTarget::SharedPtr msg)
@@ -100,19 +91,19 @@ void CalibratedDepthNode::handleCommand(const mavros_msgs::msg::PositionTarget::
   if (msg) {health_.setCommandedHeave(msg->velocity.z);}
 }
 
-void CalibratedDepthNode::publishGpsSurfaceDepth()
+void CalibratedDepthNode::publishInvalidDepth(const rclcpp::Time & stamp)
 {
   banyu_msgs::msg::WaterDepth depth_msg;
-  depth_msg.header.stamp = now();
+  depth_msg.header.stamp = stamp;
   depth_msg.header.frame_id = "base_link";
   depth_msg.run_id = run_id_;
   depth_msg.epoch = epoch_;
   depth_msg.depth_m = 0.0;
-  depth_msg.valid = gpsAtSurface();
-  depth_msg.calibrated = depth_msg.valid;
+  depth_msg.valid = false;
+  depth_msg.calibrated = calibrated_;
   depth_msg.datum = datum_;
-  depth_msg.source_id = gps_source_id_;
-  depth_msg.calibration_id = gps_calibration_id_;
+  depth_msg.source_id = source_id_;
+  depth_msg.calibration_id = calibration_id_;
   depth_pub_->publish(depth_msg);
 }
 
@@ -120,21 +111,21 @@ void CalibratedDepthNode::onTimer()
 {
   std::lock_guard<std::mutex> lock(mutex_);
   const bool active = current_phase_ >= banyu_msgs::msg::RunLifecycle::ACTIVE;
-  if (!gps_surface_only_ && health_enabled_ && active && !gpsAtSurface()) {
+  if (health_enabled_ && active && !gpsAtSurface()) {
     health_.check(now().seconds());
   }
   if (health_.fault() != reported_fault_) {
     reported_fault_ = health_.fault();
     RCLCPP_ERROR(
-      get_logger(), "Depth sensor fault %s: depth from the GPS surface proof only for the rest of the run",
+      get_logger(), "Depth sensor fault %s: depth invalid for the rest of the run",
       DepthHealthMonitor::name(reported_fault_).c_str());
   }
-  if (gps_surface_only_ || !health_.healthy()) {
-    publishGpsSurfaceDepth();
+  if (!health_.healthy()) {
+    publishInvalidDepth(now());
   }
   if (++health_ticks_ % 10 == 0) {
     std_msgs::msg::String health;
-    health.data = gps_surface_only_ ? "DISABLED" : DepthHealthMonitor::name(health_.fault());
+    health.data = DepthHealthMonitor::name(health_.fault());
     health_pub_->publish(health);
   }
 }
@@ -230,32 +221,20 @@ void CalibratedDepthNode::handleRelAlt(const std_msgs::msg::Float64::SharedPtr m
   std::lock_guard<std::mutex> lock(mutex_);
   const auto current_stamp = now();
   if (!msg || !std::isfinite(msg->data)) {
-    banyu_msgs::msg::WaterDepth invalid_msg;
-    invalid_msg.header.stamp = current_stamp;
-    invalid_msg.header.frame_id = "base_link";
-    invalid_msg.run_id = run_id_;
-    invalid_msg.epoch = epoch_;
-    invalid_msg.depth_m = 0.0;
-    invalid_msg.valid = false;
-    invalid_msg.calibrated = calibrated_;
-    invalid_msg.datum = datum_;
-    invalid_msg.source_id = source_id_;
-    invalid_msg.calibration_id = calibration_id_;
-    depth_pub_->publish(invalid_msg);
+    publishInvalidDepth(current_stamp);
     return;
   }
 
   last_rel_alt_ = msg->data;
   last_rel_alt_time_ = current_stamp;
   rel_alt_received_ = true;
-  if (gps_surface_only_) {return;}  // logged by MAVROS, never used
   // Watched only under water: at the surface the GPS fix is the proof, and the sim barometer jumps at arming.
   if (health_enabled_ && current_phase_ >= banyu_msgs::msg::RunLifecycle::ACTIVE && !gpsAtSurface()) {
     health_.addSample(-msg->data, current_stamp.seconds());
   } else {
     health_.restartSamples();
   }
-  if (!health_.healthy()) {return;}  // the timer publishes the GPS surface depth
+  if (!health_.healthy()) {return;}  // the timer publishes the invalid depth
 
   // Refresh the datum at the surface before every run, not only the first one.
   // Before the run starts a valid GPS fix is surface proof stronger than the barometer band: the datum follows the barometer

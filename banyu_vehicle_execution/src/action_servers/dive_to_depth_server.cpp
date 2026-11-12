@@ -73,8 +73,7 @@ MotionIntent DiveToDepthServer::cameraDescentTick(
   const bool heading_valid = telemetry.pose_valid || telemetry.imu_valid;
   const double yaw = telemetry.pose_valid ? telemetry.yaw : telemetry.imu_yaw;
   const double heading_err = heading_valid ? normalizeAngle(goal.target_heading_rad - yaw) : 0.0;
-  const bool measured = !telemetry.depth_free && telemetry.depth_valid;
-  const double depth = measured ? telemetry.depth_m : telemetry.heave_odom_m;
+  const double depth = telemetry.depth_m;
 
   auto feedback = std::make_shared<Feedback>();
   feedback->stamp = now;
@@ -96,7 +95,7 @@ MotionIntent DiveToDepthServer::cameraDescentTick(
     active_identity_ = {};
     return zeroIntent();
   }
-  const bool too_deep = measured && camera_with_depth_ && !pipe && depth >= camera_max_depth_m_;
+  const bool too_deep = !pipe && depth >= camera_max_depth_m_;
   if (elapsed_s_ >= camera_max_time_s_ || too_deep) {
     auto result = std::make_shared<Result>();
     result->success = false;
@@ -126,9 +125,6 @@ MotionIntent DiveToDepthServer::tick(
     return zeroIntent();
   }
   const auto goal = active_handle_->get_goal();
-  if (telemetry.depth_free) {
-    return cameraDescentTick(telemetry, now, dt, *goal);
-  }
   if (camera_with_depth_) {
     // Wait for a depth sample: it is the floor of the descent.
     return telemetry.depth_valid ? cameraDescentTick(telemetry, now, dt, *goal) : zeroIntent();
