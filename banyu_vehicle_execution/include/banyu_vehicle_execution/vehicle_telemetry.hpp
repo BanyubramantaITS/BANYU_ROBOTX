@@ -152,6 +152,8 @@ struct VehicleTelemetry
     double radius_m{0.0};
   };
   std::map<std::string, std::vector<SurfaceObstacle>> surface_obstacles{};
+  // Added to every surface obstacle radius: GPS error between the reporting vehicle and this one, plus the hull.
+  double surface_obstacle_margin_m{0.75};
 
   std::vector<Capsule> surfaceObstaclesAroundVehicle() const
   {
@@ -159,7 +161,7 @@ struct VehicleTelemetry
     for (const auto & [source, list] : surface_obstacles) {
       for (const auto & o : list) {
         const Vec2 c = enuOffset(latitude_deg, longitude_deg, o.latitude_deg, o.longitude_deg);
-        discs.push_back(Capsule{c, c, o.radius_m, false});
+        discs.push_back(Capsule{c, c, o.radius_m + surface_obstacle_margin_m, false});
       }
     }
     return discs;

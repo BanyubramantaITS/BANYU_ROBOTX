@@ -281,6 +281,11 @@ void VehicleExecutionNode::initActionServers()
   const int acquire_confirm_frames = declare_parameter<int>("control.acquire_confirm_frames", 5);
   // Task 4: keep-out zone avoidance of the surfaced vehicle (RoboCommand zones from /banyu/task4/zones).
   telemetry_.zones.margin_m = declare_parameter<double>("zones.margin_m", telemetry_.zones.margin_m);
+  telemetry_.surface_obstacle_margin_m = declare_parameter<double>(
+    "surface_obstacles.margin_m", telemetry_.surface_obstacle_margin_m);
+  if (!(telemetry_.surface_obstacle_margin_m >= 0.0)) {
+    throw std::invalid_argument("surface_obstacles.margin_m must not be negative");
+  }
   telemetry_.zones.horizon_s = declare_parameter<double>("zones.horizon_s", telemetry_.zones.horizon_s);
   telemetry_.zones.exit_clearance_m =
     declare_parameter<double>("zones.exit_clearance_m", telemetry_.zones.exit_clearance_m);

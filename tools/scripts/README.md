@@ -10,7 +10,7 @@ Hardware context: [`docs/hardware_setup.md`](../../docs/hardware_setup.md).
 | `check/` | Health checks and bench tests (read-only, PASS/FAIL) | `check_devices.sh`, `test_hardware.sh` (+ `.py`), `rtk_status.sh`, `gps_receiver.py`, `yolo_test.sh` (+ `.py`), `check_pixhawk_params.py`, `check_thrust_limit.py`, `task2_score_run.py` (scores a Task 2 sim run from Gazebo ground truth) |
 | `debug/` | Drive one device by hand | `front_camera.sh`, `bottom_camera.sh`, `camera.sh`, `kill_lamp.sh`, `esp32_kill_cmd.py`, `mock_esp32.py`, `reset_pixhawk_usb.sh` |
 | `move/` | Movement tests on the real AUV: one manoeuvre, then disarm ([`docs/movement_tests.md`](../../docs/movement_tests.md)) | `dive.sh`, `forward.sh`, `backward.sh`, `sway.sh`, `yaw.sh`, `waypoint.sh`, `where.sh` (all wrap `auv_move.py`) |
-| `sim/` | Simulation only: Task 2 sim runs and experiments | `task2_sim_e2e.sh` (one run, mock GCS), `task2_sim_batch.sh` (one run per light seed, scored), `task2_sim_cleanup.sh`, `gps_loss_mode_experiment.py` |
+| `sim/` | Simulation only: Task 2 sim runs and experiments | `task2_sim_e2e.sh` (one run, mock GCS), `task2_sim_batch.sh` (one run per light seed, scored), `task2_sim_cleanup.sh`, `gps_loss_mode_experiment.py`, `surface_field_replay.py` (UAV buoy field replay through the surface planner) |
 | `setup/` | One-time installation on a computer | `rtk_setup.sh`, `fix_rtk_rover.sh` (teammate script, vendored), `yolo_setup.sh` (Hailo-8) |
 | `por/` | Proof of Readiness (finished; kept for reference) | `launch_por.sh`, `dead_thruster_por.py`, `por_hsv_tuner.py`, `por_teach_extract.py`, `por_track_stretch.py`, `por_path_compare.py` |
 

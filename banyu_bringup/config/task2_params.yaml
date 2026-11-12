@@ -321,6 +321,9 @@ pipeline_buoys_node:
     uav_buoys:
       enabled: true
       radius_m: 1.2                       # keep-out per buoy, same as the USV buoys (banyu_mission buoy_keep_out_m)
+      # The UAV's map drops buoys for minutes (2026-11-12: two of six for ~9 min): remember each one reported.
+      merge_m: 1.0                        # a report this close to a remembered buoy is that buoy (jitter max 0.26 m)
+      forget_s: 0.0                       # drop a buoy not reported this long; 0 = keep until the course changes
     topics:
       pipeline_buoys: "/system/vehicle/usv/task2/pipeline_buoys"
       course: "/system/mission/course"
@@ -385,6 +388,12 @@ vehicle_execution_node:
       surface_depth_m: 0.5        # the idle guard acts only at or above this depth
       dive_point_buoy_clear_m: 1.5  # a dive point shifted out of a zone stays this far from both buoys (buoy_standoff_m)
       surface_hold_timeout_s: 60.0  # Surface: wait at depth this long in all while the surfacing point is inside a zone
+    # Fixed surface obstacles (UAV buoy field): added to each radius for NavigateSurfaceGps. Both fixes are plain GPS
+    # (no RTK on 2026-11-10, 20 s stationary spread p90 0.33 m), so the UAV's and our positions can disagree by ~1 m.
+    # Replay of the 2026-11-12 field with 1 m receiver bias: 0.75 kept >= 0.88 m from every buoy centre and reached
+    # 56/56 crossings; 0.9 closes the 3-3.4 m gaps and stalled 2-3 crossings.
+    surface_obstacles:
+      margin_m: 0.75
     # AcquirePipeline and SearchPipeline steer over a light seen with no pipe in view (the node sits on the pipe).
     light_cue:
       enabled: true

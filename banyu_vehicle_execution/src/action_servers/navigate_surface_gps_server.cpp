@@ -48,6 +48,14 @@ std::pair<double, double> keepOutAim(
   return aim;
 }
 
+std::pair<double, double> latLonAt(double ref_lat, double ref_lon, Vec2 offset)
+{
+  constexpr double kEarthRadius = 6378137.0;
+  constexpr double kRadToDeg = 180.0 / M_PI;
+  const double lat = ref_lat + offset.y / kEarthRadius * kRadToDeg;
+  return {lat, ref_lon + offset.x / (kEarthRadius * std::cos((lat + ref_lat) * 0.5 / kRadToDeg)) * kRadToDeg};
+}
+
 MotionIntent zoneExitIntent(const Exit & exit, double max_speed_mps, double yaw_rate)
 {
   const double speed = std::clamp(0.5 + exit.distance_m, 0.2, std::max(0.2, max_speed_mps));
@@ -66,6 +74,11 @@ NavigateSurfaceGpsServer::NavigateSurfaceGpsServer(
   nav_kp_(nav_kp), nav_max_speed_(nav_max_speed),
   yaw_kp_(yaw_kp), max_yaw_rate_(max_yaw_rate)
 {
+}
+
+void NavigateSurfaceGpsServer::onGoalStarted()
+{
+  detour_point_.reset();
 }
 
 bool NavigateSurfaceGpsServer::validateGoal(const Goal & goal, std::string & reason)
@@ -208,10 +221,29 @@ MotionIntent NavigateSurfaceGpsServer::tick(
   auto [ax, ay] = keepOutAim({dx, dy}, obstacles, goal->keep_out_radius_m);
   if (!keep_out.empty() && !inside_buoy) {
     // Around zones and obstacles on the way while respecting buoy keep-out; with no clear way (boxed in) hold here
-    // rather than cross a buoy.
-    const auto aim = detourAim(Vec2{ax, ay}, keep_out, obstacle_points, goal->keep_out_radius_m);
+    // rather than cross a buoy. A detour point already chosen is kept while it stays valid.
+    const Vec2 target{ax, ay};
+    double fresh_length = 0.0;
+    auto aim = detourAim(target, keep_out, obstacle_points, goal->keep_out_radius_m, &fresh_length);
+    if (detour_point_) {
+      const Vec2 point = enuOffset(
+        telemetry.latitude_deg, telemetry.longitude_deg, detour_point_->first, detour_point_->second);
+      if (keepDetourPoint(
+          point, target, detourObstacles(target, keep_out, obstacle_points, goal->keep_out_radius_m),
+          aim ? std::optional<double>(fresh_length) : std::nullopt))
+      {
+        aim = point;
+      } else {
+        detour_point_.reset();
+      }
+    }
+    if (aim && !detour_point_ && length(*aim - target) > 1e-6) {
+      detour_point_ = latLonAt(telemetry.latitude_deg, telemetry.longitude_deg, *aim);
+    }
     ax = aim ? aim->x : 0.0;
     ay = aim ? aim->y : 0.0;
+  } else {
+    detour_point_.reset();
   }
   if (std::hypot(ax, ay) < 1e-3) {return zeroIntent();}
   const double bearing = std::atan2(ay, ax);

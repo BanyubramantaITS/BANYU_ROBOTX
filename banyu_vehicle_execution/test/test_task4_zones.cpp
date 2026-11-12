@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -325,4 +326,90 @@ TEST_F(Task4NavigationTest, SteersAroundAUavBuoyButNotTheOneAtTheGoal)
   spin(0.0, 0.0, 40);
   EXPECT_LT(last_target_.velocity.y, -0.08);
   EXPECT_GT(last_target_.velocity.x, 0.0);
+}
+
+TEST(Task4Geometry, DetourReportsThePathLength)
+{
+  const std::vector<Capsule> zones{circle(5.0, 0.0, 2.0)};
+  double length_m = 0.0;
+  ASSERT_TRUE(detourAim({0.0, 10.0}, zones, {}, 0.0, &length_m).has_value());
+  EXPECT_DOUBLE_EQ(length_m, 10.0);
+  ASSERT_TRUE(detourAim({10.0, 0.0}, zones, {}, 0.0, &length_m).has_value());
+  EXPECT_GT(length_m, 10.0);
+  EXPECT_LT(length_m, 14.0);
+}
+
+TEST(Task4Geometry, KeepDetourPointUntilReachedBlockedOrClearlyBeaten)
+{
+  const std::vector<Capsule> zones{circle(5.0, 0.0, 2.0)};
+  const Vec2 goal{10.0, 0.0};
+  const Vec2 left{5.0, 2.6};
+  // The other side is no shorter: keep it.
+  EXPECT_TRUE(keepDetourPoint(left, goal, zones, 10.6));
+  // A fresh plan shorter by more than the switch gain wins.
+  EXPECT_FALSE(keepDetourPoint(left, goal, zones, 7.0));
+  // No fresh plan (boxed in): keep the point while it is still valid.
+  EXPECT_TRUE(keepDetourPoint(left, goal, zones, std::nullopt));
+  // Reached, inside an obstacle, or no longer in clear view.
+  EXPECT_FALSE(keepDetourPoint({0.3, 0.1}, goal, zones, std::nullopt));
+  EXPECT_FALSE(keepDetourPoint({5.0, 1.0}, goal, zones, std::nullopt));
+  EXPECT_FALSE(keepDetourPoint({10.0, 0.5}, goal, zones, std::nullopt));
+}
+
+// The UAV's Task 1 buoy field of the 2026-11-12 trial (ENU m), 1.2 m keep-out plus the 0.75 m surface obstacle margin.
+// Crossing it north/south and east/west with the position jittering by the GPS noise measured on the water
+// (+-0.2 m): every crossing arrives, never comes within 1.5 m of a buoy centre and does not dither (path at most 1.5
+// times the straight line).
+TEST(Task4Geometry, TrialBuoyFieldCrossingsStayClearWithDetourHysteresis)
+{
+  const std::vector<Vec2> field{{-0.2, 0.0}, {3.4, 9.0}, {7.1, 2.2}, {7.1, 5.3}, {0.2, 8.6}, {7.1, 8.7}};
+  const double radius = 1.2 + 0.75;
+  for (int dir = 0; dir < 4; ++dir) {
+    for (double off = -3.0; off <= 3.0; off += 1.5) {
+      const double c = off + 3.5;
+      Vec2 pos = dir == 0 ? Vec2{c, -9.0} : dir == 1 ? Vec2{c, 18.0} : dir == 2 ? Vec2{-10.0, c + 1.0} : Vec2{17.0, c + 1.0};
+      const Vec2 goal = dir == 0 ? Vec2{c, 18.0} : dir == 1 ? Vec2{c, -9.0} : dir == 2 ? Vec2{17.0, c + 1.0} :
+        Vec2{-10.0, c + 1.0};
+      std::optional<Vec2> committed;
+      double min_clear = 1e9;
+      double travelled = 0.0;
+      const Vec2 start = pos;
+      bool arrived = false;
+      for (int step = 0; step < 600 && !arrived; ++step) {
+        const Vec2 measured = pos + Vec2{0.2 * std::sin(step * 0.7), 0.2 * std::cos(step * 1.3)};
+        std::vector<Capsule> discs;
+        for (const auto & b : field) {discs.push_back(circle(b.x - measured.x, b.y - measured.y, radius));}
+        const Vec2 target = goal - measured;
+        // As the server: inside a disc (the jitter carried the fix across its edge), leave it first.
+        if (const auto exit = exitVector(Vec2{}, discs, 0.5)) {
+          pos = pos + exit->direction * 0.2;
+          travelled += 0.2;
+          continue;
+        }
+        double fresh = 0.0;
+        auto aim = detourAim(target, discs, {}, 0.0, &fresh);
+        if (committed && keepDetourPoint(*committed - measured, target, discs, aim ? std::optional<double>(fresh) :
+          std::nullopt))
+        {
+          aim = *committed - measured;
+        } else {
+          committed.reset();
+        }
+        if (aim && !committed && length(*aim - target) > 1e-6) {
+          committed = measured + *aim;
+        }
+        // Boxed in: hold, as the server does.
+        const double len = aim ? length(*aim) : 0.0;
+        if (len > 1e-6) {
+          pos = pos + *aim * (std::min(0.2, len) / len);
+          travelled += std::min(0.2, len);
+        }
+        for (const auto & b : field) {min_clear = std::min(min_clear, length(pos - b));}
+        arrived = length(goal - pos) < 0.4;
+      }
+      EXPECT_TRUE(arrived) << "direction " << dir << " offset " << off;
+      EXPECT_GE(min_clear, 1.5) << "direction " << dir << " offset " << off;
+      EXPECT_LE(travelled, 1.5 * length(goal - start)) << "direction " << dir << " offset " << off;
+    }
+  }
 }

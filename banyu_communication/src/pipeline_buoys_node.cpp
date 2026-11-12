@@ -69,6 +69,8 @@ PipelineBuoysNode::PipelineBuoysNode(const rclcpp::NodeOptions & options)
   if (!std::isfinite(uav_buoy_radius_m_) || uav_buoy_radius_m_ <= 0.0) {
     throw std::invalid_argument("uav_buoys.radius_m must be positive");
   }
+  uav_field_ = UavBuoyField(
+    declare_parameter<double>("uav_buoys.merge_m", 1.0), declare_parameter<double>("uav_buoys.forget_s", 0.0));
   const auto safe_passage_topic = declare_parameter<std::string>(
     "topics.safe_passage", "/system/vehicle/uav/task1/safe_passage");
   const auto obstacles_topic = declare_parameter<std::string>(
@@ -136,21 +138,36 @@ void PipelineBuoysNode::handleCourse(const rx_msgs::msg::Course::SharedPtr msg)
   tracker_.setCourse(*msg);
   pinger_freq_hz_ = msg->pinger_freq_hz;
   course_boundary_ = msg->boundary;
+  // Another course's buoy field is not this one's.
+  if (msg->course_id != course_id_) {
+    if (!course_id_.empty() && uav_field_.size() > 0) {
+      RCLCPP_INFO(get_logger(), "Course %s: UAV buoy field cleared", msg->course_id.c_str());
+    }
+    uav_field_.clear();
+    course_id_ = msg->course_id;
+  }
 }
 
 void PipelineBuoysNode::handleSafePassage(const rx_msgs::msg::SafePassage::SharedPtr msg)
 {
   if (!msg) {return;}
   std::lock_guard<std::mutex> lock(mutex_);
-  safe_passage_ = *msg;
-  RCLCPP_INFO(get_logger(), "UAV SafePassage: %zu buoys in the field", msg->buoys.size());
+  safe_passage_received_ = true;
+  const auto before = uav_field_.size();
+  uav_field_.update(*msg, course_boundary_, now().seconds());
+  if (uav_field_.size() != before) {
+    RCLCPP_INFO(
+      get_logger(), "UAV SafePassage: %zu buoys in the message, %zu remembered", msg->buoys.size(), uav_field_.size());
+  }
   publishObstaclesLocked();
 }
 
 void PipelineBuoysNode::publishObstaclesLocked()
 {
-  if (!safe_passage_) {return;}
-  obstacles_pub_->publish(safePassageObstacles(*safe_passage_, course_boundary_, uav_buoy_radius_m_));
+  if (!safe_passage_received_) {return;}
+  auto obstacles = uav_field_.obstacles(course_boundary_, uav_buoy_radius_m_, now().seconds());
+  obstacles.header.stamp = now();
+  obstacles_pub_->publish(obstacles);
 }
 
 void PipelineBuoysNode::handleLifecycle(const banyu_msgs::msg::RunLifecycle::SharedPtr msg)

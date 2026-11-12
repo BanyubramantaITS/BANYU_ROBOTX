@@ -90,6 +90,34 @@ private:
 banyu_msgs::msg::SurfaceObstacles safePassageObstacles(
   const rx_msgs::msg::SafePassage & msg, const std::vector<rx_msgs::msg::LatLng> & boundary, double radius_m);
 
+// The UAV's buoy field remembered across SafePassage messages. The UAV's map drops buoys for minutes while the buoys
+// stay put (trial 2026-11-12: two of six missing for about 9 min), so a buoy is kept until it has not been reported
+// for `forget_s` (0 = kept until clear()). A report within `merge_m` of a remembered buoy moves it there.
+class UavBuoyField
+{
+public:
+  explicit UavBuoyField(double merge_m = 1.0, double forget_s = 0.0);
+
+  void update(const rx_msgs::msg::SafePassage & msg, const std::vector<rx_msgs::msg::LatLng> & boundary, double now_s);
+  void clear() {buoys_.clear();}
+  std::size_t size() const {return buoys_.size();}
+  // Remembered buoys inside `boundary` (any with fewer than 3 corners) as obstacles of `radius_m`.
+  banyu_msgs::msg::SurfaceObstacles obstacles(
+    const std::vector<rx_msgs::msg::LatLng> & boundary, double radius_m, double now_s) const;
+
+private:
+  struct Buoy
+  {
+    rx_msgs::msg::LatLng position;
+    double last_seen_s{0.0};
+  };
+  bool expired(const Buoy & buoy, double now_s) const {return forget_s_ > 0.0 && now_s - buoy.last_seen_s > forget_s_;}
+
+  double merge_m_;
+  double forget_s_;
+  std::vector<Buoy> buoys_;
+};
+
 }  // namespace banyu_communication
 
 #endif  // BANYU_COMMUNICATION__PIPELINE_BUOYS_HPP_
