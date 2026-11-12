@@ -62,6 +62,19 @@ side changes per sweep instead of 30-70) and three crossings never arrived.
 - Unit tests: `UavBuoyField` (the trial's dropout and jitter), `keepDetourPoint`, and crossings of the trial field
   (`TrialBuoyFieldCrossingsStayClearWithDetourHysteresis`).
 
+## Gazebo check (2026-11-12)
+
+`task2_sim_e2e.sh --tier core --no-gate --launch-arg --spawn 0 -16 0` with
+`tools/sos_integration/mock_uav_safe_passage.py --domain 40 --north -8`: the trial field 8 m south of the dive point
+(the midpoint, at the GPS home), its top buoy right on the straight line, and that buoy plus one more dropped from the
+messages once `NavigateSurfaceGps` started. `pipeline_buoys_node` kept all six; the transit went round the west end
+of the field in one sweep (21.4 m for 16 m straight), passed 2.25-6.6 m from the buoy centres (keep-out 1.95 m) and
+3.35 m from the dropped one on the line, ended 0.43 m from the dive point (`NavigateSurfaceGps` and `AlignHeading`
+SUCCESS).
+
+The sim uses the UUV domain (40): `launch_task2.sh --sim`, `launch_mavros.sh --sim` and `task2_sim_e2e.sh` now set
+`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, so a sim on a laptop on the robot's network cannot reach the real MAVROS.
+
 ## Still open
 
 - No real-water autonomous transit is in the data yet: the next trial bag with a `NavigateSurfaceGps` goal running

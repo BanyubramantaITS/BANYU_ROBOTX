@@ -375,6 +375,9 @@ fi
 if [ -f "${WS_DIR}/install/setup.bash" ]; then
   source "${WS_DIR}/install/setup.bash"
 fi
+# The sim uses the UUV domain (40): with subnet discovery it would join a real UUV on the same network, and the sim's
+# setpoints and RC overrides would reach the real MAVROS. Keep every sim process on this machine.
+if [ "$TARGET" = "sim" ]; then export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST; fi
 
 mavros_count() { pgrep -x mavros_node | wc -l; }
 
@@ -386,6 +389,7 @@ echo "=========================================================="
 echo "Active Git Branch : $CURRENT_BRANCH"
 echo "Target Platform   : $([ "$TARGET" = "sim" ] && echo "Gazebo Simulation (SITL)" || echo "Real AUV Physical Hardware")"
 echo "use_gps           : $(TF $USE_GPS)"
+[ "$TARGET" = "sim" ] && echo "DDS discovery     : localhost only (sim; a UUV on this network is not reached)"
 echo "Tier              : $([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && echo core || echo "$TIER")"
 echo "Mission           : $([ "$WAYPOINT_MISSION" = true ] && echo "WAYPOINT (midpoint GPS transit, align heading, send reports to UAV/GCS; task2_waypoint_mission.yaml)" || ([ "$TEST_MISSION" = true ] && echo "TEST (midpoint by GPS, face the end buoy, 1 m dive, timed forward/backward legs, surface, Core report; task2_test_mission.yaml)" || echo "survey (banyu_mission.xml$([ "$SENSORS" = gamble ] && echo ", gamble tree"))"))"
 [ "$WAYPOINT_MISSION" = true ] && echo "Run start         : $([ "$AUTO_START" = true ] && echo "SB Up starts the run itself (run 1; RoboCommand's Run Start is rejected; --no-auto-start)" || echo "prepare_autonomy + GCS CMD_RUN_START (RoboCommand's run); SB Up does not start it")"

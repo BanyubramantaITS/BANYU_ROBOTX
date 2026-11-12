@@ -27,6 +27,8 @@ done
 mkdir -p "$OUT"
 source /opt/ros/jazzy/setup.bash && source "${WS_DIR}/install/setup.bash"
 export ROS_DOMAIN_ID=40
+# Domain 40 is also the real UUV's: keep this run (mock GCS, service calls, the sim) on this machine.
+export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 echo "start $(date +%T) tier=$TIER" > "$OUT/progress.txt"
 # The mock GCS course boundary is centred on the sim's GPS home.
 if [[ " ${LAUNCH_ARGS[*]} " == *" marina_bay "* ]]; then GCS_ARGS+=(--home-lat 1.2816 --home-lon 103.8636); fi

@@ -62,6 +62,9 @@ fi
 if [ -f "${WS_DIR}/install/setup.bash" ]; then
   source "${WS_DIR}/install/setup.bash"
 fi
+# The sim uses the UUV domain (40): with subnet discovery it would join a real UUV on the same network, and the sim's
+# setpoints and RC overrides would reach the real MAVROS. Keep every sim process on this machine.
+if [ "$TARGET" = "sim" ]; then export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST; fi
 
 MAVROS_PREFIX="$(ros2 pkg prefix mavros 2>/dev/null || true)"
 if [ -z "$MAVROS_PREFIX" ]; then

@@ -7,8 +7,10 @@ NavigateSurfaceGps goal is running, the buoys listed in --drop leave the message
 minutes on the trial: the UUV must keep avoiding them. There are no physical buoys: the clearance is judged from the
 UUV's GPS track. On exit (--timeout or Ctrl-C) a summary is printed and written as JSON to --out.
 
-Run in the UUV domain (40) with ROS sourced, before the run starts:
-  ROS_DOMAIN_ID=40 tools/sos_integration/mock_uav_safe_passage.py --north -8 --out /tmp/uav_field.json
+Run in the UUV domain (40) with ROS sourced, before the run starts. --domain joins it without ROS_DOMAIN_ID in the
+environment, so task2_sim_cleanup.sh (which stops every process carrying ROS_DOMAIN_ID=40) leaves it running across
+the e2e runner's relaunches. Keep discovery on this machine: a real UUV on the network would get the field.
+  ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST tools/sos_integration/mock_uav_safe_passage.py --domain 40 --out /tmp/f.json
 """
 import argparse
 import json
@@ -18,6 +20,7 @@ import time
 
 import rclpy
 from banyu_msgs.action import NavigateSurfaceGps
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from rx_msgs.msg import BuoyDetection, LatLng, SafePassage
@@ -107,14 +110,15 @@ def main():
     ap.add_argument('--topic', default='/system/vehicle/uav/task1/safe_passage')
     ap.add_argument('--timeout', type=float, default=900.0, help='stop after this many seconds')
     ap.add_argument('--out', default='', help='write the summary JSON here')
+    ap.add_argument('--domain', type=int, default=None, help='ROS domain (default: ROS_DOMAIN_ID)')
     a = ap.parse_args()
-    rclpy.init()
+    rclpy.init(domain_id=a.domain) if a.domain is not None else rclpy.init()
     node = MockUav(a)
     end = time.monotonic() + a.timeout
     try:
         while rclpy.ok() and time.monotonic() < end:
             rclpy.spin_once(node, timeout_sec=0.2)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     s = node.summary()
     print(json.dumps({k: v for k, v in s.items() if k != 'track'}))
