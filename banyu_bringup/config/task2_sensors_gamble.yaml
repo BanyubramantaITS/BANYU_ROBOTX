@@ -1,5 +1,5 @@
-# Task 2 overlay for sensors:=gamble: RTK GPS at the surface and the Pixhawk only. GPS to the dive point (launch_task2.sh: midpoint
-# between the USV's two buoys unless --dive-point buoy; only the start buoy: inside it), a short timed dive and bobbing in STABILIZE, surface by a GPS fix, report the start
+# Task 2 overlay for sensors:=gamble: RTK GPS at the surface, the Pixhawk and the Bar30. GPS to the dive point (launch_task2.sh: midpoint
+# between the USV's two buoys unless --dive-point buoy; only the start buoy: inside it), a short timed dive and bobbing in STABILIZE, surface by the Bar30, report the start
 # buoy with a random light order.
 # mission.launch.py loads it after the params and tier files.
 banyu_mission:
@@ -15,13 +15,9 @@ vehicle_execution_node:
   ros__parameters:
     control:
       autonomy_mode: "GUIDED,STABILIZE"
-      use_pressure_depth: false
     # Small commands stay small thrusts: the offset is just past RC3_DZ (30). 0.05 m/s commanded sinks at about 0.75 m/s in the sim.
     rc_override:
       deadzone_z_pwm: 31
-calibrated_depth_node:
-  ros__parameters:
-    depth_source: "gps_surface"
 uuv_comm_node:
   ros__parameters:
     autonomy_mode: "GUIDED,STABILIZE"

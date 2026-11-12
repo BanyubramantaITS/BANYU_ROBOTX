@@ -4,7 +4,7 @@
 #   tools/scripts/sim/task2_sim_batch.sh --out <dir> [--tier core|advanced|disruptive] [--seeds "2 1 5 9"] [--headless] [--random-spawn]
 #                                    [--opts "<launch_task2.sh options>"]
 # --random-spawn spawns the UUV at a random place 10-20 m from the buoys (spawn seed = the light seed of the run).
-# --opts passes launch_task2.sh options to every run, e.g. --opts "--sensors minimal --pipe-depth 8 --visibility 1".
+# --opts passes launch_task2.sh options to every run, e.g. --opts "--sensors baro --pipe-depth 8 --visibility 1".
 # Each run is scored from Gazebo ground truth by task2_score_run.py (PASS/FAIL and points).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT=""; TIER="core"; SEEDS="2 1 5 9"; MODE="--gui"; SPAWN=(); OPTS=""

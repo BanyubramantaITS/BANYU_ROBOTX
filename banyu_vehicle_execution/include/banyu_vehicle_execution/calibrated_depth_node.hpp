@@ -28,8 +28,8 @@ public:
   uint32_t runId() const;
   uint64_t epoch() const;
   void calibrateDatum(double surface_rel_alt);
-  // True when the depth published comes from the GPS surface proof, not the pressure sensor.
-  bool usingGpsSurface() const;
+  // True once the pressure sensor faulted during the run: depth is published invalid until the next run.
+  bool depthFaulted() const;
   std::string depthHealth() const;
 
 private:
@@ -40,9 +40,7 @@ private:
   // can jump after arming.
   bool gpsAtSurface() const;
   void handleCommand(const mavros_msgs::msg::PositionTarget::SharedPtr msg);
-  // Depth-free mode (no depth sensor, or the depth sensor failed): depth 0 while a fresh GPS fix proves the surface,
-  // invalid (unknown) otherwise.
-  void publishGpsSurfaceDepth();
+  void publishInvalidDepth(const rclcpp::Time & stamp);
   void onTimer();
 
   mutable std::mutex mutex_;
@@ -69,9 +67,6 @@ private:
 
   bool isNearSurface(double alt) const;
 
-  bool gps_surface_only_{false};
-  std::string gps_source_id_{"gps_surface"};
-  std::string gps_calibration_id_{"gps_fix_surface"};
   bool health_enabled_{true};
   DepthHealthMonitor health_;
   DepthHealthMonitor::Fault reported_fault_{DepthHealthMonitor::Fault::kNone};

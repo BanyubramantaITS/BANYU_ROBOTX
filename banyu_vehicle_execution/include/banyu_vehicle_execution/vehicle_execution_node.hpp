@@ -149,8 +149,6 @@ private:
   uint64_t revoked_epoch_{0};
   bool require_calibrated_surface_depth_{false};
   double surface_depth_timeout_s_{0.5};
-  // No depth sensor: rel_alt and the EKF height are never used as a depth.
-  bool use_pressure_depth_{true};
   // Heave from the pipe's apparent width for the actions that hold the vehicle over the pipe.
   bool camera_heave_enabled_{false};
   CameraHeave camera_heave_;

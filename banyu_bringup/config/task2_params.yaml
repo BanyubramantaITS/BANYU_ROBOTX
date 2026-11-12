@@ -274,7 +274,7 @@ uuv_comm_node:
       task2_tier: 2
       evidence_sources: ["pipeline_topology"]
       buoy_sources: ["usv_pipeline_buoys", "uuv_buoy_localizer", "gcs_buoy_observer"]
-      depth_sources: ["pressure_depth", "gps_surface"]
+      depth_sources: ["pressure_depth"]
       gamble_order: false   # sensors:=gamble: a best-effort report with no RED seen gets one RED by chance
       # survey.gamble_red_positions (where that RED may go) comes only from the launch argument gamble_red (launch_task2.sh --gamble-red,
       # default "2,3"): a value in this file would win over the launch argument (launch_ros loads files after dicts).
@@ -340,12 +340,10 @@ vehicle_execution_node:
       # Water depth is datum minus EKF baro altitude, which drifts ~0.2-0.4 m over a dive;
       # 0.5 m matches the GPS surface tolerance used elsewhere in this file.
       surface_max_depth_m: 0.5
-      # No depth (no Bar30, or it failed): rise at this rate until a GPS fix proves the surface, for at most this long
-      # (maximum depth 15 m at 0.25 m/s, plus margin).
+      # No valid depth (Bar30 fault): rise at this rate for at most this long (maximum depth 15 m at 0.25 m/s, plus margin).
+      # The fault holds for the rest of the run, so the goal ends at the time limit.
       surface_blind_rise_rate_mps: 0.25
       surface_blind_timeout_s: 120.0
-      # false: no depth sensor; rel_alt and the EKF height are never a depth (sensors:=minimal).
-      use_pressure_depth: true
       require_run_authorization: true
       run_lifecycle_timeout_s: 1.0
       # /mavros/local_position/pose age limit (readiness hold and every action). On the robot QGC's stream request
@@ -396,7 +394,7 @@ vehicle_execution_node:
       kp_surge: 0.3
       max_speed_mps: 0.2
       budget_s: 15.0       # steering time per goal, so a false light (fish, reflection) cannot hold the search
-    # Heave from the pipe's apparent width (sensors:=minimal): range = diameter / (width x 2 tan(hfov / 2)).
+    # Heave from the pipe's apparent width (sensors:=baro): range = diameter / (width x 2 tan(hfov / 2)).
     # Diameter: 3" Schedule 40 PVC in the sim (measure the real pipe). hfov: the sim bottom camera (re-calibrate the HORUS).
     camera_heave:
       enabled: false
@@ -434,7 +432,7 @@ vehicle_execution_node:
       deadzone_z_pwm: 50
       deadzone_yaw_pwm: 20
     surface:
-      depth_sources: ["pressure_depth", "gps_surface"]
+      depth_sources: ["pressure_depth"]
     topics:
       water_depth: "/banyu/vehicle/water_depth"
       run_lifecycle: "/banyu/mission/run_lifecycle"
@@ -468,11 +466,9 @@ pipeline_end_node:
     end_topic: "/banyu/pipeline/end"
 calibrated_depth_node:
   ros__parameters:
-    # "pressure" (Bar30) or "gps_surface" (no depth sensor: depth 0 while a GPS fix proves the surface, else unknown).
-    depth_source: "pressure"
-    gps_source_id: "gps_surface"
+    # Depth is always the Bar30. A fresh GPS fix this recent proves the surface (datum before the run; no health check).
     gps_surface_timeout_s: 2.0
-    # Bar30 health under water during the run; a fault switches to the GPS surface proof for the rest of the run.
+    # Bar30 health under water during the run; a fault makes the depth invalid for the rest of the run.
     health:
       enabled: true
       silent_s: 3.0
