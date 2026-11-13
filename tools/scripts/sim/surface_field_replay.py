@@ -4,8 +4,11 @@
 The log has one line per change of the obstacle set (docs/task2_results/20261112_uav_safe_passage.log, from the
 2026-11-12 trial). Results and the parameter choice: docs/task2_surface_planning_trial.md.
 Variants: obstacle memory (keep buoys that drop out of a message), planning margin added to each disc, and committing
-to a detour waypoint (hysteresis). True buoys are the clusters seen in most messages; GPS error is an AR(1) process
-matched to the Nov 10 stationary statistics (20 s spread p90 0.33 m) plus an optional UAV/UUV receiver bias.
+to a detour waypoint (hysteresis). True buoys are the largest message (the first one, 8 of the 9 real buoys; the
+UAV never reported the ninth); --truth clusters takes the clusters seen in most messages instead (6, the earlier
+assumption). GPS error is an AR(1) process matched to the Nov 10 stationary statistics (20 s spread p90 0.33 m) plus an
+optional UAV/UUV receiver bias. --skip N starts the UUV's memory after the first N messages: the UAV publishes only on
+a change of its map, with volatile QoS, so a UUV stack started after the first message never hears it.
 """
 import argparse
 import math
@@ -117,6 +120,8 @@ def main():
     parser.add_argument('log', nargs='?', default=DEFAULT_LOG, help='obstacle log (default: the 2026-11-12 trial)')
     parser.add_argument('--margins', default='0,0.3,0.6,0.75,0.9', help='surface_obstacles.margin_m values to compare')
     parser.add_argument('--bias', default='0,1.0,1.5', help='UAV/UUV GPS receiver bias magnitudes, m')
+    parser.add_argument('--truth', choices=('largest', 'clusters'), default='largest', help='where the true buoys come from')
+    parser.add_argument('--skip', type=int, default=0, help='obstacle messages the UUV missed at the start')
     args = parser.parse_args()
     margins = [float(m) for m in args.margins.split(',')]
     biases = [(b / math.sqrt(2), b / math.sqrt(2)) for b in (float(x) for x in args.bias.split(','))]
@@ -135,7 +140,10 @@ def main():
                     break
             else:
                 clusters.append({'m': p, 'n': 1, 'pts': [p]})
-    truth = [c['m'] for c in clusters if c['n'] >= len(stream) / 2]
+    if args.truth == 'clusters':
+        truth = [c['m'] for c in clusters if c['n'] >= len(stream) / 2]
+    else:
+        truth = max((pts for _, pts, _ in stream), key=len)
     print(f'{len(stream)} obstacle messages, true buoys {len(truth)}: ' + ' '.join(f'({x:.1f},{y:.1f})' for x, y in truth))
 
     t_first, t_last = stream[0][0], stream[-1][0]
@@ -143,7 +151,9 @@ def main():
     plain_sets = []
     memory_sets = []
     merged = []
-    for ts, pts, r in stream:
+    for i, (ts, pts, r) in enumerate(stream):
+        if i < args.skip:
+            pts = []
         plain_sets.append([(p, r) for p in pts])
         for p in pts:  # newest position wins for a merged buoy
             for i, q in enumerate(merged):
@@ -237,7 +247,7 @@ def main():
         return False, min_clear, 240.0, flips
 
     # Crossings of the field in four directions, offsets every 1 m, at several moments of the stream
-    # (including the minutes when two real buoys were missing from the messages).
+    # (including the minutes when real buoys were missing from the messages).
     xs = [p[0] for p in truth]
     ys = [p[1] for p in truth]
     cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
@@ -245,7 +255,8 @@ def main():
     for off in range(-6, 7, 2):
         scenarios += [((cx + off, cy - 14), (cx + off, cy + 14)), ((cx + off, cy + 14), (cx + off, cy - 14)),
                       ((cx - 14, cy + off), (cx + 14, cy + off)), ((cx + 14, cy + off), (cx - 14, cy + off))]
-    starts = [t_first + 5, t_first + 520]   # all six buoys / two of them missing from the messages
+    # The first message (8 buoys) / the 5-buoy minutes / the 6-buoy minutes.
+    starts = [t_first + 5, t_first + 520, t_last - 10]
     variants = {'baseline (no memory, margin, commit)': (False, 0.0, False)}
     for m in margins:
         variants[f'memory+margin{m:g}'] = (True, m, False)

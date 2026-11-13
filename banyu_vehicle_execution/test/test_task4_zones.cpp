@@ -413,20 +413,22 @@ TEST(Task4Geometry, KeepDetourPointUntilReachedBlockedOrClearlyBeaten)
   EXPECT_FALSE(keepDetourPoint({10.0, 0.5}, goal, zones, std::nullopt));
 }
 
-// The UAV's Task 1 buoy field of the 2026-11-12 trial (ENU m), 1.2 m keep-out plus the 0.75 m surface obstacle margin.
+// The UAV's Task 1 buoy field of the 2026-11-12 trial (ENU m, its first message: 8 of the 9 buoys), 1.2 m keep-out
+// plus the 0.75 m surface obstacle margin.
 // Crossing it north/south and east/west with the position jittering by the GPS noise measured on the water
 // (+-0.2 m): every crossing arrives, never comes within 1.5 m of a buoy centre and does not dither (path at most 1.5
 // times the straight line).
 TEST(Task4Geometry, TrialBuoyFieldCrossingsStayClearWithDetourHysteresis)
 {
-  const std::vector<Vec2> field{{-0.2, 0.0}, {3.4, 9.0}, {7.1, 2.2}, {7.1, 5.3}, {0.2, 8.6}, {7.1, 8.7}};
+  const std::vector<Vec2> field{{0.0, 0.0}, {3.9, -4.6}, {3.2, 8.9}, {7.1, 2.3}, {7.0, 5.3}, {11.5, 8.0}, {0.1, 8.5},
+    {7.0, 8.8}};
   const double radius = 1.2 + 0.75;
   for (int dir = 0; dir < 4; ++dir) {
-    for (double off = -3.0; off <= 3.0; off += 1.5) {
+    for (double off = -4.5; off <= 6.0; off += 1.5) {
       const double c = off + 3.5;
-      Vec2 pos = dir == 0 ? Vec2{c, -9.0} : dir == 1 ? Vec2{c, 18.0} : dir == 2 ? Vec2{-10.0, c + 1.0} : Vec2{17.0, c + 1.0};
-      const Vec2 goal = dir == 0 ? Vec2{c, 18.0} : dir == 1 ? Vec2{c, -9.0} : dir == 2 ? Vec2{17.0, c + 1.0} :
-        Vec2{-10.0, c + 1.0};
+      Vec2 pos = dir == 0 ? Vec2{c, -12.0} : dir == 1 ? Vec2{c, 18.0} : dir == 2 ? Vec2{-10.0, c} : Vec2{20.0, c};
+      const Vec2 goal = dir == 0 ? Vec2{c, 18.0} : dir == 1 ? Vec2{c, -12.0} : dir == 2 ? Vec2{20.0, c} :
+        Vec2{-10.0, c};
       std::optional<Vec2> committed;
       double min_clear = 1e9;
       double travelled = 0.0;

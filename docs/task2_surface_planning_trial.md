@@ -23,11 +23,14 @@ GPS on the water (Nov 10, 35 000 fixes):
 
 UAV buoy field (Nov 12):
 
-- Six physical buoys; each reported position jitters 0.1 m rms (0.26 m max).
-- The field in the messages changes size (5, 6, 8 buoys): two real buoys were missing for about 9 min, and two
-  others appeared once and never again. The entry/exit fields swap or are (0, 0) for most messages.
+- The field has 9 physical buoys. The best message is the first one (09:31:49): 8 of them (the ninth was never
+  reported). Every later message holds a subset: 5 buoys at 09:39 (B2, B4, B7 missing), then 6 from 09:48 (B2, B5
+  missing). B2 (1.280771, 103.855216, the south end, also that message's exit) is in the first message only.
+  Each reported position jitters 0.1 m rms (0.26 m max). The entry/exit fields swap or are (0, 0) for most messages.
+- The UAV publishes only when its map changes (nothing between 09:31:49 and 09:39:17) with volatile QoS: a UUV stack
+  started after the first message never hears B2, and lacks B4 and B7 until 09:48.
 - The obstacle list was replaced by each message, so a dropped buoy stopped being an obstacle.
-- Neighbouring buoys are 3.0-3.7 m apart: with 1.2 m discs the gaps between them are 0.65-1.3 m, and the planner
+- Neighbouring buoys are 3.0-3.8 m apart: with 1.2 m discs the gaps between them are 0.65-1.3 m, and the planner
   (vehicle as a point) would thread them.
 
 ## Replay
@@ -35,7 +38,9 @@ UAV buoy field (Nov 12):
 `tools/scripts/sim/surface_field_replay.py` replays the recorded stream through a port of the planner (`detourAim`,
 the exit from a disc, the speed law), with a 1 s velocity lag and GPS error matched to the Nov 10 numbers plus a
 UAV/UUV receiver bias. 56 crossings of the field in four directions, half of them during the minutes when two
-buoys were missing. `min clear` is the distance from the hull centre to the nearest true buoy centre.
+buoys were missing. `min clear` is the distance from the hull centre to the nearest true buoy centre. This first table
+took the six clusters seen in most messages as the true buoys (now `--truth clusters`; the script has since added a
+third start time, so it runs 84 crossings).
 
 | Variant | 0 m bias: reached / min clear | 1.0 m bias | 1.5 m bias |
 |---|---|---|---|
@@ -49,6 +54,28 @@ buoys were missing. `min clear` is the distance from the hull centre to the near
 
 With margin 0.9 and no hysteresis the planner dithered between the two sides of nearly touching discs (about 450
 side changes per sweep instead of 30-70) and three crossings never arrived.
+
+### With the 8-buoy field (2026-11-13)
+
+The table above took the true buoys as the six clusters seen in most messages. Re-run with the first message as the
+truth (`--truth largest`, the default now): 84 crossings (B2 and B5 widen the field), starting during the 8-, 5- and
+6-buoy messages.
+
+| Variant | 0 m bias: reached / min clear | 1.0 m bias | 1.5 m bias |
+|---|---|---|---|
+| Before (no memory, no margin, no hysteresis) | 84/84, 0.14 m | 84/84, 0.03 m | 84/84, 0.01 m |
+| Memory + margin 0.6 + hysteresis | 84/84, 1.22 m | 84/84, 0.86 m | 84/84, 0.48 m |
+| Memory + margin 0.75 | 84/84, 1.51 m | 84/84, 0.75 m | 84/84, 0.24 m |
+| **Memory + margin 0.75 + hysteresis** | **84/84, 1.67 m** | **84/84, 0.92 m** | **84/84, 0.57 m** |
+| Memory + margin 0.9 + hysteresis | 83/84, 1.79 m | 82/84, 1.13 m | 82/84, 0.58 m |
+| Memory + margin 1.0 + hysteresis | 80/84, 1.79 m | 80/84, 1.14 m | 80/84, 0.78 m |
+
+The tuning holds: 0.75 m is still the largest margin that reaches every crossing (from 0.9 m the planner boxes
+itself in against the denser field). Missing the first message is what breaks it: `--skip 1` (the UUV never hears
+B2, and B4/B7 only from 09:48) gives 0.02-0.04 m minimum clearance with every variant. **Start the UUV stack (its
+`pipeline_buoys_node`) before the UAV maps the field**, or ask the UAV team to republish the full map periodically or
+with transient_local durability (a transient_local subscriber would not match their volatile publisher, so this end
+cannot fix it alone). The ninth buoy is never reported, so nothing here avoids it.
 
 ## Changes
 
@@ -75,7 +102,26 @@ SUCCESS).
 The sim uses the UUV domain (40): `launch_task2.sh --sim`, `launch_mavros.sh --sim` and `task2_sim_e2e.sh` now set
 `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, so a sim on a laptop on the robot's network cannot reach the real MAVROS.
 
+## Gazebo check with the 8-buoy field (2026-11-13)
+
+`mock_uav_safe_passage.py --domain 41 --north -8` (the trial's first message, then its 5- and 6-buoy subsets once
+`NavigateSurfaceGps` runs) and `task2_sim_e2e.sh --tier core --no-gate --launch-arg --spawn --launch-arg 0
+--launch-arg -22 --launch-arg 1.5708`: B2 lies on the straight line 5 m ahead of the spawn, and B6-B1-B7 (with B4 and
+B5) form a wall of overlapping discs between it and the dive point.
+
+- The transit drove through B2 (0.27 m from its centre). `pipeline_buoys_node` had all 8 buoys, then cleared them
+  when the first course arrived (a new `course_id` cleared the field, also the first one after startup); the later
+  messages never hold B2 again. On the course the UAV maps the field before the GCS sends the Task 2 course, so this
+  would have dropped the first message there too. Fixed: only a change from one known course to another clears the
+  field (the boundary already filters it at publish). Test: `FirstCourseKeepsTheUavFieldHeardBeforeIt`.
+- It then stopped at y = -6 in front of the wall and swung between x = -1 and +0.9 for the rest of the run (68.7 m of
+  track, 6.1 m short of the dive point when the run was stopped) instead of going round one end. Not yet rerun with
+  the fix: the run started knowing only 5 buoys, so whether the dithering remains with all 8 known is still open.
+
 ## Still open
+
+- Rerun the 8-buoy Gazebo check with the course fix; if the transit still dithers in front of the B6-B1-B7 wall,
+  look at `keepDetourPoint` (the detour point leaves clear view behind the wall's corner).
 
 - No real-water autonomous transit is in the data yet: the next trial bag with a `NavigateSurfaceGps` goal running
   gives the tracking error (and the real receiver bias, by driving past a buoy the UAV reports). Re-run the replay with

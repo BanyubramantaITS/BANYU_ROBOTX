@@ -138,12 +138,15 @@ void PipelineBuoysNode::handleCourse(const rx_msgs::msg::Course::SharedPtr msg)
   tracker_.setCourse(*msg);
   pinger_freq_hz_ = msg->pinger_freq_hz;
   course_boundary_ = msg->boundary;
-  // Another course's buoy field is not this one's.
+  // Another course's buoy field is not this one's. The first course keeps the field heard before it: the UAV maps it
+  // once, before the run, and its later messages never hold every buoy again (the boundary filters it at publish).
   if (msg->course_id != course_id_) {
-    if (!course_id_.empty() && uav_field_.size() > 0) {
-      RCLCPP_INFO(get_logger(), "Course %s: UAV buoy field cleared", msg->course_id.c_str());
+    if (!course_id_.empty()) {
+      if (uav_field_.size() > 0) {
+        RCLCPP_INFO(get_logger(), "Course %s: UAV buoy field cleared", msg->course_id.c_str());
+      }
+      uav_field_.clear();
     }
-    uav_field_.clear();
     course_id_ = msg->course_id;
   }
 }

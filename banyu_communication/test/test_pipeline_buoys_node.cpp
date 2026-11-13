@@ -4,9 +4,12 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "banyu_communication/pipeline_buoys_node.hpp"
+#include "banyu_msgs/msg/surface_obstacles.hpp"
+#include "rx_msgs/msg/safe_passage.hpp"
 #include "rx_msgs/msg/vehicle_type.hpp"
 
 using namespace std::chrono_literals;
@@ -51,13 +54,23 @@ protected:
     fix_sub_ = peer_->create_subscription<banyu_msgs::msg::ActiveBuoyFix>(
       "/banyu/task2/active_buoy_fix", latched,
       [this](banyu_msgs::msg::ActiveBuoyFix::SharedPtr msg) {fixes_.push_back(*msg);});
+    safe_passage_pub_ = peer_->create_publisher<rx_msgs::msg::SafePassage>(
+      "/system/vehicle/uav/task1/safe_passage", rclcpp::QoS(10).reliable());
+    obstacles_sub_ = peer_->create_subscription<banyu_msgs::msg::SurfaceObstacles>(
+      "/banyu/surface/obstacles", latched,
+      [this](banyu_msgs::msg::SurfaceObstacles::SharedPtr msg) {obstacles_ = msg->latitude_deg.size();});
 
-    rx_msgs::msg::Course course;
-    course.course_id = "ITSN-SIM-A";
-    course.pinger_freq_hz = 25000;
     // Course is volatile: publish only once the node's reader has matched.
     for (int i = 0; i < 200 && course_pub_->get_subscription_count() == 0; ++i) {spinFor(10ms);}
     ASSERT_GT(course_pub_->get_subscription_count(), 0u);
+    if (send_course_) {publishCourse("ITSN-SIM-A");}
+  }
+
+  void publishCourse(const std::string & course_id)
+  {
+    rx_msgs::msg::Course course;
+    course.course_id = course_id;
+    course.pinger_freq_hz = 25000;
     course_pub_->publish(course);
     spinFor(200ms);
   }
@@ -136,8 +149,41 @@ protected:
   rclcpp::Subscription<banyu_msgs::msg::ActiveBuoyFix>::SharedPtr fix_sub_;
   std::vector<banyu_msgs::msg::Task2BuoyTarget> targets_;
   std::vector<banyu_msgs::msg::ActiveBuoyFix> fixes_;
+  rclcpp::Publisher<rx_msgs::msg::SafePassage>::SharedPtr safe_passage_pub_;
+  rclcpp::Subscription<banyu_msgs::msg::SurfaceObstacles>::SharedPtr obstacles_sub_;
+  std::optional<std::size_t> obstacles_;
   uint64_t revision_{0};
+  bool send_course_{true};
 };
+
+// The UAV maps its field before the GCS sends the course.
+class PipelineBuoysNodeNoCourseTest : public PipelineBuoysNodeTest
+{
+protected:
+  PipelineBuoysNodeNoCourseTest() {send_course_ = false;}
+};
+
+TEST_F(PipelineBuoysNodeNoCourseTest, FirstCourseKeepsTheUavFieldHeardBeforeIt)
+{
+  rx_msgs::msg::SafePassage field;
+  for (int i = 0; i < 8; ++i) {
+    rx_msgs::msg::BuoyDetection buoy;
+    buoy.position.latitude = 33.8102 + i * 0.00003;
+    buoy.position.longitude = -118.3938;
+    field.buoys.push_back(buoy);
+  }
+  for (int i = 0; i < 200 && safe_passage_pub_->get_subscription_count() == 0; ++i) {spinFor(10ms);}
+  safe_passage_pub_->publish(field);
+  ASSERT_TRUE(spinUntil([this]() {return obstacles_ == 8u;}));
+
+  publishCourse("ITSN-SIM-A");
+  spinFor(300ms);
+  EXPECT_EQ(obstacles_, 8u);
+
+  // Another course's field is not this one's.
+  publishCourse("PRACTICE");
+  ASSERT_TRUE(spinUntil([this]() {return obstacles_ == 0u;}));
+}
 
 TEST_F(PipelineBuoysNodeTest, PublishesTargetBeforeTheRunAndEvidenceDuringIt)
 {

@@ -279,16 +279,20 @@ TEST(SafePassageObstacles, MergesEntryExitAndFieldInsideTheCourse)
   EXPECT_EQ(banyu_communication::safePassageObstacles(msg, {}, 2.0).latitude_deg.size(), 3u);
 }
 
-// The field the UAV reported on 2026-11-12 (Singapore trial): six buoys, then minutes with two of them missing.
-rx_msgs::msg::SafePassage trialField(bool all, double jitter_deg = 0.0)
+// The field the UAV reported on 2026-11-12 (Singapore trial): 8 buoys in the first message, then 5 for minutes
+// (B2, B4, B7 missing), then 6 (B2, B5 missing).
+enum class TrialMessage {First, FiveBuoys, SixBuoys};
+
+rx_msgs::msg::SafePassage trialField(TrialMessage which, double jitter_deg = 0.0)
 {
   rx_msgs::msg::SafePassage msg;
-  msg.entry_position = point(1.280812 + jitter_deg, 103.855180);
-  const std::vector<std::pair<double, double>> field = {{1.280860, 103.855244}, {1.280833, 103.855245},
-    {1.280891, 103.855244}, {1.280892, 103.855210}, {1.280888, 103.855182}};
+  msg.entry_position = point(1.280812 + jitter_deg, 103.855181);
+  const std::vector<std::pair<double, double>> field = {{1.280812, 103.855181}, {1.280892, 103.855210},
+    {1.280771, 103.855216}, {1.280833, 103.855245}, {1.280860, 103.855244}, {1.280884, 103.855284},
+    {1.280888, 103.855182}, {1.280891, 103.855244}};
   for (std::size_t i = 0; i < field.size(); ++i) {
-    // The two dropped buoys of the trial (B4, B7 there): 3.0 and 3.4 m from their neighbours.
-    if (!all && (i == 1 || i == 2)) {continue;}
+    if (which == TrialMessage::FiveBuoys && (i == 2 || i == 4 || i == 7)) {continue;}
+    if (which == TrialMessage::SixBuoys && (i == 2 || i == 5)) {continue;}
     rx_msgs::msg::BuoyDetection b;
     b.position = point(field[i].first + jitter_deg, field[i].second);
     msg.buoys.push_back(b);
@@ -299,15 +303,16 @@ rx_msgs::msg::SafePassage trialField(bool all, double jitter_deg = 0.0)
 TEST(UavBuoyField, KeepsBuoysTheUavDropsAndMergesJitter)
 {
   banyu_communication::UavBuoyField field(1.0, 0.0);
-  field.update(trialField(true), {}, 0.0);
-  EXPECT_EQ(field.size(), 6u);
-  // The same field 0.2 m north (the trial's jitter) is the same six buoys.
-  field.update(trialField(true, 0.0000018), {}, 1.0);
-  EXPECT_EQ(field.size(), 6u);
-  // Two buoys missing from the message for ~9 min: still obstacles.
-  field.update(trialField(false), {}, 540.0);
-  const auto obstacles = field.obstacles({}, 1.2, 541.0);
-  EXPECT_EQ(obstacles.latitude_deg.size(), 6u);
+  field.update(trialField(TrialMessage::First), {}, 0.0);
+  EXPECT_EQ(field.size(), 8u);
+  // The same field 0.2 m north (the trial's jitter) is the same eight buoys.
+  field.update(trialField(TrialMessage::First, 0.0000018), {}, 1.0);
+  EXPECT_EQ(field.size(), 8u);
+  // The later messages never hold all eight again: every buoy stays an obstacle.
+  field.update(trialField(TrialMessage::FiveBuoys), {}, 448.0);
+  field.update(trialField(TrialMessage::SixBuoys), {}, 1001.0);
+  const auto obstacles = field.obstacles({}, 1.2, 1002.0);
+  EXPECT_EQ(obstacles.latitude_deg.size(), 8u);
   EXPECT_EQ(obstacles.source, "uav_safe_passage");
   EXPECT_DOUBLE_EQ(obstacles.radius_m.front(), 1.2);
   field.clear();
@@ -317,12 +322,12 @@ TEST(UavBuoyField, KeepsBuoysTheUavDropsAndMergesJitter)
 TEST(UavBuoyField, ForgetsBuoysNotReportedForForgetS)
 {
   banyu_communication::UavBuoyField field(1.0, 60.0);
-  field.update(trialField(true), {}, 0.0);
-  field.update(trialField(false), {}, 30.0);
-  EXPECT_EQ(field.obstacles({}, 1.2, 50.0).latitude_deg.size(), 6u);
-  EXPECT_EQ(field.obstacles({}, 1.2, 70.0).latitude_deg.size(), 4u);
-  field.update(trialField(false), {}, 70.0);
-  EXPECT_EQ(field.size(), 4u);
+  field.update(trialField(TrialMessage::First), {}, 0.0);
+  field.update(trialField(TrialMessage::FiveBuoys), {}, 30.0);
+  EXPECT_EQ(field.obstacles({}, 1.2, 50.0).latitude_deg.size(), 8u);
+  EXPECT_EQ(field.obstacles({}, 1.2, 70.0).latitude_deg.size(), 5u);
+  field.update(trialField(TrialMessage::FiveBuoys), {}, 70.0);
+  EXPECT_EQ(field.size(), 5u);
 }
 
 TEST(UavBuoyField, FiltersByTheCourseBoundaryAtPublish)
