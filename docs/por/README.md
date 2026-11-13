@@ -126,12 +126,12 @@ Catatan sim:
      sumber heading begitu `nogps_odom_beacon` memilih source set 2.
    - `FS_EKF_ACTION 0`, `FS_GCS_ENABLE 0`.
    - `MAV_GCS_SYSID 255` (sysid MAVROS), lihat §4.2.
-   - **Batas daya thruster** `MOT_PWM_MIN 1300`, `MOT_PWM_MAX 1700` (50% dari 1100..1900):
-     board power ESC tidak kuat menyuplai arus penuh thruster. Batas ini berlaku untuk semua
-     mode (MANUAL dari TX16S, ALT_HOLD + RC override POR, GUIDED Task 2) karena dipotong di
-     mixer ArduSub. 60% = `1260 1740`, 70% = `1220 1780`; naikkan hanya setelah arus board
-     diukur. `MOT_PWM_TYPE` harus 0 (DShot/8/9 membuat ArduSub mengabaikan batas ini).
-     **QGC Motor Test tidak dibatasi** (PWM mentah): jangan geser slider melewati batas.
+   - **Rentang daya thruster** `MOT_PWM_MIN 1100`, `MOT_PWM_MAX 1900` (penuh): sejak board
+     power ESC diganti (2026-11-13); dengan batas 50% (`1300 1700`) dua thruster vertikal hampir
+     tidak bisa menyelam. Rentang ini berlaku untuk semua mode (MANUAL dari TX16S, ALT_HOLD + RC
+     override POR, GUIDED Task 2) karena dipotong di mixer ArduSub. Untuk membatasi lagi:
+     50% = `1300 1700`, 60% = `1260 1740`, 70% = `1220 1780`. `MOT_PWM_TYPE` harus 0
+     (DShot/8/9 membuat ArduSub mengabaikan rentang ini). QGC Motor Test memakai PWM mentah.
      `launch_por.sh` tidak memeriksa batas ini. Untuk mengecek nilai di Pixhawk, jalankan
      `tools/scripts/check/check_thrust_limit.py` manual setelah `run_mavproxy.sh` (lewat port 14552).
    - Cek juga `FS_EKF_THRESH` dan `ARMING_CHECK` (tidak diatur file ini).
