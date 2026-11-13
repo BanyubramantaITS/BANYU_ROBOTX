@@ -1004,6 +1004,38 @@ void BanyuMission::initialize()
   blackboard->set("test_depth_kp", test_depth_kp);
   blackboard->set("test_max_depth_speed_mps", test_max_depth_speed);
   blackboard->set("test_transit_timeout_ms", static_cast<unsigned>(test_transit_timeout * 1000.0));
+  // Gamble (mission.strategy gamble, task2_gamble_mission.xml): dive to a Bar30 depth, then timed surge, sway
+  // and yaw legs out and back holding that depth.
+  const auto gamble_depth = declare_parameter<double>("mission.gamble.depth_m", 1.0);
+  const auto gamble_dive_timeout = declare_parameter<double>("mission.gamble.dive_timeout_s", 40.0);
+  const auto gamble_settle = declare_parameter<double>("mission.gamble.settle_s", 3.0);
+  const auto gamble_depth_kp = declare_parameter<double>("mission.gamble.depth_kp", 0.7);
+  const auto gamble_max_depth_speed = declare_parameter<double>("mission.gamble.max_depth_speed_mps", 0.3);
+  const auto gamble_surge_duration = declare_parameter<double>("mission.gamble.surge_duration_s", 5.0);
+  const auto gamble_surge_speed = declare_parameter<double>("mission.gamble.surge_speed_mps", 0.3);
+  const auto gamble_sway_duration = declare_parameter<double>("mission.gamble.sway_duration_s", 5.0);
+  const auto gamble_sway_speed = declare_parameter<double>("mission.gamble.sway_speed_mps", 0.2);
+  const auto gamble_yaw_duration = declare_parameter<double>("mission.gamble.yaw_duration_s", 5.0);
+  const auto gamble_yaw_rate = declare_parameter<double>("mission.gamble.yaw_rate_rad_s", 0.3);
+  mission_config_valid_ = mission_config_valid_ && nonnegative(gamble_depth) && positive(gamble_dive_timeout) &&
+    nonnegative(gamble_settle) && positive(gamble_depth_kp) && positive(gamble_max_depth_speed) &&
+    nonnegative(gamble_surge_duration) && nonnegative(gamble_surge_speed) &&
+    nonnegative(gamble_sway_duration) && nonnegative(gamble_sway_speed) &&
+    nonnegative(gamble_yaw_duration) && nonnegative(gamble_yaw_rate);
+  blackboard->set("gamble_depth_m", gamble_depth);
+  blackboard->set("gamble_dive_timeout_s", gamble_dive_timeout);
+  blackboard->set("gamble_settle_s", gamble_settle);
+  blackboard->set("gamble_depth_kp", gamble_depth_kp);
+  blackboard->set("gamble_max_depth_speed_mps", gamble_max_depth_speed);
+  blackboard->set("gamble_surge_duration_s", gamble_surge_duration);
+  blackboard->set("gamble_forward_mps", gamble_surge_speed);
+  blackboard->set("gamble_backward_mps", -gamble_surge_speed);
+  blackboard->set("gamble_sway_duration_s", gamble_sway_duration);
+  blackboard->set("gamble_sway_left_mps", gamble_sway_speed);
+  blackboard->set("gamble_sway_right_mps", -gamble_sway_speed);
+  blackboard->set("gamble_yaw_duration_s", gamble_yaw_duration);
+  blackboard->set("gamble_yaw_left_rad_s", gamble_yaw_rate);
+  blackboard->set("gamble_yaw_right_rad_s", -gamble_yaw_rate);
   blackboard->set("heading_tolerance", heading_tolerance);
   blackboard->set("inspection_depth", inspection_depth);
   blackboard->set("depth_tolerance", depth_tolerance);

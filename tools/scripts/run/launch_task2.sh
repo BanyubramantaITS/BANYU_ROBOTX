@@ -127,8 +127,10 @@ Both targets:
                         | minimal (bottom camera, Pixhawk
                         IMU/compass and RTK GPS at the surface only: STABILIZE under water, heave from the camera,
                         surface proven by a GPS fix; no depth sensor is used for any decision)
-                        | gamble (Pixhawk and surface GPS only: go midway between the buoys, short timed dive and bobbing,
-                        surface, report the start buoy with a RANDOM light order; no camera, no pipe, no repair).
+                        | gamble (Bar30, Pixhawk and surface GPS: go midway between the buoys, dive to a Bar30 depth,
+                        timed forward/backward, sway and yaw legs at that depth, surface, report the start buoy with a
+                        RANDOM light order; no camera, no pipe, no repair. Depth and legs: mission.gamble.* in
+                        banyu_bringup/config/task2_sensors_gamble.yaml).
                         Dives at the midpoint unless --dive-point buoy is given (--dive-point auto).
   --no-rc               --real: no transmitter. Teleop off, esp32_trigger_node on, bypass_rc:=True: the mode is
                         set in software instead of SB (MANUAL until the first command):
@@ -393,13 +395,13 @@ echo "Mission           : $([ "$WAYPOINT_MISSION" = true ] && echo "WAYPOINT (mi
 [ "$WAYPOINT_MISSION" = true ] && echo "Run start         : $([ "$AUTO_START" = true ] && echo "SB Up starts the run itself (run 1; RoboCommand's Run Start is rejected; --no-auto-start)" || echo "prepare_autonomy + GCS CMD_RUN_START (RoboCommand's run); SB Up does not start it")"
 [ "$TARGET" = real ] && echo "RC / mode switch   : $([ "$NO_RC" = true ] && echo "NO RC: mode from /banyu/trigger/cmd ('2' auto, '1' manual, '0' kill); MANUAL until set" || echo "TX16S, SB (teleop)")"
 echo "Detector debug    : $([ "$DEBUG" = true ] && echo "ON (windows where there is a display; topics /banyu/pipeline/debug/*)" || echo "off (--debug)")"
-echo "Sensors           : $SENSORS$([ "$SENSORS" = baro ] && echo " (Bar30 + ALT_HOLD; dive stops by camera at the pipe, order dead-reckoned)")$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")$([ "$SENSORS" = gamble ] && echo " (GPS to the dive point, timed dive and bobbing, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
+echo "Sensors           : $SENSORS$([ "$SENSORS" = baro ] && echo " (Bar30 + ALT_HOLD; dive stops by camera at the pipe, order dead-reckoned)")$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")$([ "$SENSORS" = gamble ] && echo " (GPS to the dive point, Bar30 dive + timed surge/sway/yaw legs, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
 if [ "$WAYPOINT_MISSION" = true ]; then
   echo "Dive point        : midpoint (navigates midway between the buoys on surface; no dive)"
 elif [ "$TEST_MISSION" = true ]; then
   echo "Dive point        : midpoint (midway between the buoys, facing the end buoy; start buoy only: inside it)"
 elif [ "$SENSORS" = gamble ]; then
-  echo "Dive point        : $([ "$DIVE_POINT" = midpoint ] && echo "midpoint (midway between the buoys; start buoy only: inside it)" || echo "buoy (inside the start buoy, standoff from it)"); timed dive in place, no pipe"
+  echo "Dive point        : $([ "$DIVE_POINT" = midpoint ] && echo "midpoint (midway between the buoys; start buoy only: inside it)" || echo "buoy (inside the start buoy, standoff from it)"); dive and legs from there, no pipe"
 else
   echo "Dive point        : $([ "$DIVE_POINT" = midpoint ] && echo "midpoint (midway between the buoys)" || echo "buoy (inside the start buoy, standoff from it)"); both back up to the pipe's start, then survey forward"
 fi

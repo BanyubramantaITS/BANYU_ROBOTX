@@ -1,29 +1,47 @@
-# Task 2 overlay for sensors:=gamble: RTK GPS at the surface and the Pixhawk only. GPS to the dive point (launch_task2.sh: midpoint
-# between the USV's two buoys unless --dive-point buoy; only the start buoy: inside it), a short timed dive and bobbing in STABILIZE, surface by a GPS fix, report the start
-# buoy with a random light order.
-# mission.launch.py loads it after the params and tier files.
+# Task 2 overlay for sensors:=gamble: RTK GPS at the surface, the Bar30 and the Pixhawk. GPS to the dive point (launch_task2.sh:
+# midpoint between the USV's two buoys unless --dive-point buoy; only the start buoy: inside it), dive to mission.gamble.depth_m in
+# ALT_HOLD, timed forward/backward, sway and yaw legs holding that depth, surface, report the start buoy with a random light order.
+# mission.launch.py loads it after the params and tier files: the values below are the ones the run uses.
 banyu_mission:
   ros__parameters:
-    autonomy_mode: "GUIDED,STABILIZE"
+    autonomy_mode: "GUIDED,ALT_HOLD"
     mission:
       strategy: "gamble"
-      underwater_mode: "STABILIZE"
+      underwater_mode: "ALT_HOLD"
+      depth_tolerance_m: 0.2    # the dive ends once within this of gamble.depth_m for 0.5 s
+      gamble:
+        depth_m: 1.0              # depth of the dive and of every leg (Bar30, calibrated at the surface)
+        dive_timeout_s: 40.0      # the dive ends after this even if the depth was not reached
+        settle_s: 3.0             # hold still at depth before the first leg and between legs
+        depth_kp: 0.7
+        max_depth_speed_mps: 0.3  # fastest climb/sink the depth hold commands
+        # Each pair goes out and back: forward then backward, sway left then right, yaw left then right.
+        # Distance per leg ~ duration x speed (5 s x 0.3 m/s ~ 1.5 m). 0 s skips the pair.
+        surge_duration_s: 5.0
+        surge_speed_mps: 0.3
+        sway_duration_s: 5.0
+        sway_speed_mps: 0.2
+        yaw_duration_s: 5.0
+        yaw_rate_rad_s: 0.3       # 5 s x 0.3 rad/s ~ 86 deg each way
 banyu_vehicle_status:
   ros__parameters:
-    autonomy_mode: "GUIDED,STABILIZE"
+    autonomy_mode: "GUIDED,ALT_HOLD"
 vehicle_execution_node:
   ros__parameters:
     control:
-      autonomy_mode: "GUIDED,STABILIZE"
-      use_pressure_depth: false
-    # Small commands stay small thrusts: the offset is just past RC3_DZ (30). 0.05 m/s commanded sinks at about 0.75 m/s in the sim.
-    rc_override:
-      deadzone_z_pwm: 31
+      autonomy_mode: "GUIDED,ALT_HOLD"
+    # The surge and sway legs keep the heading the vehicle had when the leg started.
+    timed_move:
+      heading_hold:
+        enabled: true
+        kp: 1.0
+        max_yaw_rate_rad_s: 0.3
+        deadband_rad: 0.02
 calibrated_depth_node:
   ros__parameters:
-    depth_source: "gps_surface"
+    depth_source: "pressure"
 uuv_comm_node:
   ros__parameters:
-    autonomy_mode: "GUIDED,STABILIZE"
+    autonomy_mode: "GUIDED,ALT_HOLD"
     survey:
       gamble_order: true

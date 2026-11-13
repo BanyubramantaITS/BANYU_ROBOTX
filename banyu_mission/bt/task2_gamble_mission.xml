@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Task 2 gamble strategy (sensors:=gamble): GPS to the dive point (midpoint of the USV's two buoys by default, or the start buoy), a short timed dive and bobbing,
-     then surface by GPS fix and report the buoy with a random light order. No camera, no pipe, no repair: heartbeat and start buoy
-     points, the order by chance. Every underwater step is bounded by time; a failed step never stops the report. -->
+<!-- Task 2 gamble strategy (sensors:=gamble): GPS to the dive point (midpoint of the USV's two buoys by default, or the start buoy),
+     dive to mission.gamble.depth_m on the Bar30, timed forward/backward, sway and yaw legs at that depth, then surface and report
+     the buoy with a random light order. No camera, no pipe, no repair: heartbeat and start buoy points, the order by chance.
+     Every underwater step is bounded by time; a failed step never stops the report. -->
 <root BTCPP_format="4" main_tree_to_execute="Main">
   <BehaviorTree ID="Main">
     <ReactiveFallback name="mission_root">
@@ -32,30 +33,77 @@
             <AlignHeading target_heading="{heading}" tolerance="{heading_tolerance}" />
           </Sequence>
         </ForceSuccess>
+        <!-- Every leg holds gamble_depth_m on the Bar30 and goes out and back, so the vehicle ends near the dive point.
+             A leg with duration 0 is skipped. -->
         <ForceSuccess>
-          <Sequence name="short_dive_and_bobbing">
+          <Sequence name="dive_and_moves">
             <SetFcuMode mode="{underwater_mode}" />
-          <TimedMove name="dive" segment_name="dive" duration_s="4.0" speed_x_mps="0.0" speed_y_mps="0.0" speed_z_mps="-0.05"
-            yaw_rate_rad_s="0.0" use_baro_depth="false" target_depth_m="0.0" depth_kp="0.0" max_depth_speed_mps="0.0"
-            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
-          <TimedMove name="bob_up_1" segment_name="bob_up_1" duration_s="1.5" speed_x_mps="0.0" speed_y_mps="0.0" speed_z_mps="0.0"
-            yaw_rate_rad_s="0.0" use_baro_depth="false" target_depth_m="0.0" depth_kp="0.0" max_depth_speed_mps="0.0"
-            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
-          <TimedMove name="bob_down_1" segment_name="bob_down_1" duration_s="1.0" speed_x_mps="0.0" speed_y_mps="0.0" speed_z_mps="-0.05"
-            yaw_rate_rad_s="0.0" use_baro_depth="false" target_depth_m="0.0" depth_kp="0.0" max_depth_speed_mps="0.0"
-            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
-          <TimedMove name="bob_up_2" segment_name="bob_up_2" duration_s="1.5" speed_x_mps="0.0" speed_y_mps="0.0" speed_z_mps="0.0"
-            yaw_rate_rad_s="0.0" use_baro_depth="false" target_depth_m="0.0" depth_kp="0.0" max_depth_speed_mps="0.0"
-            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
-          <TimedMove name="bob_down_2" segment_name="bob_down_2" duration_s="1.0" speed_x_mps="0.0" speed_y_mps="0.0" speed_z_mps="-0.05"
-            yaw_rate_rad_s="0.0" use_baro_depth="false" target_depth_m="0.0" depth_kp="0.0" max_depth_speed_mps="0.0"
-            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
-          <TimedMove name="bob_up_3" segment_name="bob_up_3" duration_s="1.5" speed_x_mps="0.0" speed_y_mps="0.0" speed_z_mps="0.0"
-            yaw_rate_rad_s="0.0" use_baro_depth="false" target_depth_m="0.0" depth_kp="0.0" max_depth_speed_mps="0.0"
-            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
-          <TimedMove name="bob_down_3" segment_name="bob_down_3" duration_s="1.0" speed_x_mps="0.0" speed_y_mps="0.0" speed_z_mps="-0.05"
-            yaw_rate_rad_s="0.0" use_baro_depth="false" target_depth_m="0.0" depth_kp="0.0" max_depth_speed_mps="0.0"
-            use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            <TimedMove name="dive" segment_name="dive" duration_s="{gamble_dive_timeout_s}"
+              speed_x_mps="0.0" speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="0.0"
+              use_baro_depth="true" target_depth_m="{gamble_depth_m}" depth_kp="{gamble_depth_kp}"
+              max_depth_speed_mps="{gamble_max_depth_speed_mps}"
+              check_depth_reached="true" depth_tolerance_m="{depth_tolerance}"
+              use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            <TimedMove name="settle" segment_name="settle" duration_s="{gamble_settle_s}"
+              speed_x_mps="0.0" speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="0.0"
+              use_baro_depth="true" target_depth_m="{gamble_depth_m}" depth_kp="{gamble_depth_kp}"
+              max_depth_speed_mps="{gamble_max_depth_speed_mps}"
+              use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            <TimedMove name="forward" segment_name="forward" duration_s="{gamble_surge_duration_s}"
+              speed_x_mps="{gamble_forward_mps}" speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="0.0"
+              use_baro_depth="true" target_depth_m="{gamble_depth_m}" depth_kp="{gamble_depth_kp}"
+              max_depth_speed_mps="{gamble_max_depth_speed_mps}"
+              use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            <TimedMove name="pause_1" segment_name="pause_1" duration_s="{gamble_settle_s}"
+              speed_x_mps="0.0" speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="0.0"
+              use_baro_depth="true" target_depth_m="{gamble_depth_m}" depth_kp="{gamble_depth_kp}"
+              max_depth_speed_mps="{gamble_max_depth_speed_mps}"
+              use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            <TimedMove name="backward" segment_name="backward" duration_s="{gamble_surge_duration_s}"
+              speed_x_mps="{gamble_backward_mps}" speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="0.0"
+              use_baro_depth="true" target_depth_m="{gamble_depth_m}" depth_kp="{gamble_depth_kp}"
+              max_depth_speed_mps="{gamble_max_depth_speed_mps}"
+              use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            <TimedMove name="pause_2" segment_name="pause_2" duration_s="{gamble_settle_s}"
+              speed_x_mps="0.0" speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="0.0"
+              use_baro_depth="true" target_depth_m="{gamble_depth_m}" depth_kp="{gamble_depth_kp}"
+              max_depth_speed_mps="{gamble_max_depth_speed_mps}"
+              use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            <TimedMove name="sway_left" segment_name="sway_left" duration_s="{gamble_sway_duration_s}"
+              speed_x_mps="0.0" speed_y_mps="{gamble_sway_left_mps}" speed_z_mps="0.0" yaw_rate_rad_s="0.0"
+              use_baro_depth="true" target_depth_m="{gamble_depth_m}" depth_kp="{gamble_depth_kp}"
+              max_depth_speed_mps="{gamble_max_depth_speed_mps}"
+              use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            <TimedMove name="pause_3" segment_name="pause_3" duration_s="{gamble_settle_s}"
+              speed_x_mps="0.0" speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="0.0"
+              use_baro_depth="true" target_depth_m="{gamble_depth_m}" depth_kp="{gamble_depth_kp}"
+              max_depth_speed_mps="{gamble_max_depth_speed_mps}"
+              use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            <TimedMove name="sway_right" segment_name="sway_right" duration_s="{gamble_sway_duration_s}"
+              speed_x_mps="0.0" speed_y_mps="{gamble_sway_right_mps}" speed_z_mps="0.0" yaw_rate_rad_s="0.0"
+              use_baro_depth="true" target_depth_m="{gamble_depth_m}" depth_kp="{gamble_depth_kp}"
+              max_depth_speed_mps="{gamble_max_depth_speed_mps}"
+              use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            <TimedMove name="pause_4" segment_name="pause_4" duration_s="{gamble_settle_s}"
+              speed_x_mps="0.0" speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="0.0"
+              use_baro_depth="true" target_depth_m="{gamble_depth_m}" depth_kp="{gamble_depth_kp}"
+              max_depth_speed_mps="{gamble_max_depth_speed_mps}"
+              use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            <TimedMove name="yaw_left" segment_name="yaw_left" duration_s="{gamble_yaw_duration_s}"
+              speed_x_mps="0.0" speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="{gamble_yaw_left_rad_s}"
+              use_baro_depth="true" target_depth_m="{gamble_depth_m}" depth_kp="{gamble_depth_kp}"
+              max_depth_speed_mps="{gamble_max_depth_speed_mps}"
+              use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            <TimedMove name="pause_5" segment_name="pause_5" duration_s="{gamble_settle_s}"
+              speed_x_mps="0.0" speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="0.0"
+              use_baro_depth="true" target_depth_m="{gamble_depth_m}" depth_kp="{gamble_depth_kp}"
+              max_depth_speed_mps="{gamble_max_depth_speed_mps}"
+              use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
+            <TimedMove name="yaw_right" segment_name="yaw_right" duration_s="{gamble_yaw_duration_s}"
+              speed_x_mps="0.0" speed_y_mps="0.0" speed_z_mps="0.0" yaw_rate_rad_s="{gamble_yaw_right_rad_s}"
+              use_baro_depth="true" target_depth_m="{gamble_depth_m}" depth_kp="{gamble_depth_kp}"
+              max_depth_speed_mps="{gamble_max_depth_speed_mps}"
+              use_imu_yaw_cap="false" target_yaw_delta_rad="0.0" />
           </Sequence>
         </ForceSuccess>
         <GiveUpSurvey />

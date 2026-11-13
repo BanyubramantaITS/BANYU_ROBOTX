@@ -1,16 +1,19 @@
 # Task 2: gamble strategy (`--sensors gamble`)
 
-A fallback for when the camera or the Bar30 cannot be used: the UUV goes midway between the buoys (or to the start buoy) by GPS, makes a short timed dive and bobs up and
-down, surfaces, and reports the start buoy with a **guessed** light order. It does not look for the pipe, does not read the lights and does
-not repair. Sim tested only.
+A fallback for when the camera cannot be used: the UUV goes midway between the buoys (or to the start buoy) by GPS, dives to a set
+depth on the Bar30, flies timed forward/backward, sway and yaw legs at that depth, surfaces, and reports the start buoy with a **guessed**
+light order. It does not look for the pipe, does not read the lights and does not repair. Needs the Bar30 (since 2026-11-13; before
+that it made a timed dive and bobbed in STABILIZE with no depth sensor).
 
 ## Flow
 
 BT: `banyu_mission/bt/task2_gamble_mission.xml`; parameters: `banyu_bringup/config/task2_sensors_gamble.yaml`.
 
 1. Wait on the surface for the buoy positions (USV `PipelineBuoys`; no fallback to the YAML coordinates), navigate midway between the start and end buoys by GPS (GUIDED, `dive_point: midpoint` as in the test mission, keeping `buoy_keep_out_m` clear of both), then align the heading. With only the start buoy it goes `buoy_standoff_m` inside it. The `dive_point` launch argument (`--dive-point`) defaults to `auto`, which is midpoint for `sensors:=gamble`; `--dive-point buoy` goes `buoy_standoff_m` inside the start buoy instead.
-2. Switch to STABILIZE; dive 4 s, then bob three times (1.5 s no thrust, 1 s down). Time and thrust only, no depth sensor.
-3. Rise until a fresh GPS fix proves the surface (`calibrated_depth_node depth_source: gps_surface`, `Surface` blind rise).
+2. Switch to ALT_HOLD and dive to `mission.gamble.depth_m` on the Bar30 (ends within `depth_tolerance_m` for 0.5 s, or after
+   `dive_timeout_s`), settle, then fly forward and back, sway left and right, yaw left and right, each leg timed and holding the
+   depth, with `settle_s` between legs. The surge and sway legs hold the heading the leg started with (`timed_move.heading_hold`).
+3. Surface (Bar30 depth, a GPS fix as the second proof).
 4. Send the best-effort Core survey: the active buoy position and one RED at the chosen position, GREEN for the rest.
 
 A failed navigation or dive does not stop the report: the tree still surfaces and reports.
@@ -33,8 +36,9 @@ report order), so the physical node depends on which buoy is active. Values othe
 |---|---|
 | RTK GPS | Navigation to the buoy midpoint, proof of the surface |
 | Pixhawk compass | Heading |
-| Pixhawk IMU | Attitude (STABILIZE) |
-| Bottom camera, Bar30, hydrophone, DVL | Not used for any decision |
+| Pixhawk IMU | Attitude (ALT_HOLD) |
+| Bar30 | Dive depth and depth hold, surfacing |
+| Bottom camera, hydrophone, DVL | Not used for any decision |
 
 It also needs the communications link: the active buoy from the USV or UAV, and the report to RoboCommand.
 
@@ -55,6 +59,8 @@ of those tiers require the repair.
 
 ## Sim results
 
+The runs below are from the earlier timed-dive-and-bobbing version (no Bar30).
+
 Gazebo, Core tier, random spawn, judged from Gazebo ground truth; 5 runs, mission about 60-70 s from the navigation start. The first 5 runs went to the start buoy (before the 2026-11-07 change to the midpoint). Midpoint (default `dive_point:=auto`), Core, random spawn, seed 1: target midway between the buoys, `NavigateSurfaceGps` and `AlignHeading` SUCCESS, report GREEN, RED, GREEN, GREEN with node 2 damaged: 200 points.
 
 | Run | Report | RED node | Points |
@@ -71,7 +77,10 @@ the default now comes from the same value through the launch argument. Unit test
 ## Check before using it on the robot
 
 1. **Active buoy:** the robot must be told which buoy is active. Without it, it stands by on the surface after the run start (no fallback to the YAML coordinates) until the operator aborts.
-2. **Depth:** time and thrust only; the real response differs from the sim (the sim sinks at about 0.75 m/s on 0.05 commanded). Test in a pool first, for hitting the bottom or not sinking at all.
-3. **Surface proof:** it trusts a fresh fix on `/mavros/global_position/global`. The sim cuts the GPS under water; on a real Pixhawk this topic may keep publishing with no GPS, and the report could be sent under water. Check in the pool.
+2. **Depth and legs:** all in `banyu_bringup/config/task2_sensors_gamble.yaml` (`mission.gamble.*`; the overlay wins over
+   `task2_params.yaml`). Distance per leg is about duration x speed and every pair goes out and back. Keep the legs shorter than the
+   distance to the buoys' mooring lines and inside the course fence: nothing is enforced under water (no position).
+3. **Bar30:** with no fresh calibrated depth the dive commands no vertical motion and times out at `dive_timeout_s`; check the Bar30
+   on the surface before the run.
 4. **POR:** `TimedMove.action` gained `run_id` and `epoch` (Task 2 refuses goals with no run identity). Unit tests pass; POR was not re-run in the sim.
 5. **Rules:** the report says the lights were surveyed when they were not, and the handbook's 150 points read "UUV must survey the pipeline and report". Ask the organisers before relying on it.

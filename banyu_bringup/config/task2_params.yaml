@@ -85,6 +85,20 @@ banyu_mission:
         depth_kp: 0.7
         max_depth_speed_mps: 0.3
         transit_timeout_s: 300.0
+      # strategy gamble only (sensors:=gamble): dive to depth_m on the Bar30, then forward/backward, sway left/right and
+      # yaw left/right legs at that depth, settle_s between legs. A duration of 0 skips that pair of legs.
+      gamble:
+        depth_m: 1.0
+        dive_timeout_s: 40.0
+        settle_s: 3.0
+        depth_kp: 0.7
+        max_depth_speed_mps: 0.3
+        surge_duration_s: 5.0
+        surge_speed_mps: 0.3
+        sway_duration_s: 5.0
+        sway_speed_mps: 0.2
+        yaw_duration_s: 5.0
+        yaw_rate_rad_s: 0.3
 
 task2_sim_provider:
   ros__parameters:
