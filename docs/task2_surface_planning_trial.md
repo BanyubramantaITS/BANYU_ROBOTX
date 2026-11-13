@@ -115,13 +115,19 @@ B5) form a wall of overlapping discs between it and the dive point.
   would have dropped the first message there too. Fixed: only a change from one known course to another clears the
   field (the boundary already filters it at publish). Test: `FirstCourseKeepsTheUavFieldHeardBeforeIt`.
 - It then stopped at y = -6 in front of the wall and swung between x = -1 and +0.9 for the rest of the run (68.7 m of
-  track, 6.1 m short of the dive point when the run was stopped) instead of going round one end. Not yet rerun with
-  the fix: the run started knowing only 5 buoys, so whether the dithering remains with all 8 known is still open.
+  track, 6.1 m short of the dive point when the run was stopped) instead of going round one end.
+- The same scenario closed loop through `vehicle_execution_node` (test
+  `EightBuoyTrialFieldTransitGoesRoundAndArrives`: commanded velocity with a 1 s lag, GPS jitter +-0.2 m): with all 8
+  buoys known, as the fix keeps them, it goes round the wall and arrives (28.5 m for 22 m straight, closest 2.05 m
+  from a buoy centre). Fed what the Gazebo run got (5 buoys, B4 and B7 added while it was in the gap, no B2) the same
+  node passes 0.34 m from B2 and wanders 41 m: the dithering came from the field the clear left, not the tuning.
 
 ## Still open
 
-- Rerun the 8-buoy Gazebo check with the course fix; if the transit still dithers in front of the B6-B1-B7 wall,
-  look at `keepDetourPoint` (the detour point leaves clear view behind the wall's corner).
+- Rerun the 8-buoy Gazebo check with the course fix (the closed-loop node test arrives; Gazebo adds the real
+  vehicle dynamics).
+- A field that grows mid-transit (buoys the UUV never heard, added by a late message) still makes the planner wander
+  through the gap it was already in.
 
 - No real-water autonomous transit is in the data yet: the next trial bag with a `NavigateSurfaceGps` goal running
   gives the tracking error (and the real receiver bias, by driving past a buoy the UAV reports). Re-run the replay with

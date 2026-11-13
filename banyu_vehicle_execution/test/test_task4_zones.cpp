@@ -385,6 +385,65 @@ TEST_F(Task4NavigationTest, SteersAroundAUavBuoyButNotTheOneAtTheGoal)
   EXPECT_GT(last_target_.velocity.x, 0.0);
 }
 
+// The Gazebo check of docs/task2_surface_planning_trial.md, closed loop through the node: the trial's 8-buoy field
+// 8 m south of the dive point, the vehicle 22 m south with B2 on the line ahead and the B6-B1-B7 wall before the goal.
+// The vehicle follows the commanded velocity with a 1 s lag, 4x faster than wall time, GPS jittering +-0.2 m.
+TEST_F(Task4NavigationTest, EightBuoyTrialFieldTransitGoesRoundAndArrives)
+{
+  const std::vector<Vec2> field{{-3.7, -12.4}, {-0.47, -3.5}, {0.19, -16.97}, {3.42, -10.06}, {3.31, -7.06},
+    {7.76, -4.39}, {-3.59, -3.94}, {3.31, -3.61}};
+  node_->set_parameters({rclcpp::Parameter("control.nav_max_speed", 0.4),
+      rclcpp::Parameter("surface_obstacles.margin_m", 0.75)});
+  auto obstacles_pub = node_->create_publisher<banyu_msgs::msg::SurfaceObstacles>(
+    "/banyu/surface/obstacles", rclcpp::QoS(1).reliable().transient_local());
+  banyu_msgs::msg::SurfaceObstacles obstacles;
+  obstacles.source = "uav_safe_passage";
+  for (const auto & b : field) {
+    obstacles.latitude_deg.push_back(degNorth(b.y));
+    obstacles.longitude_deg.push_back(degEast(b.x));
+    obstacles.radius_m.push_back(1.2);
+  }
+  obstacles_pub->publish(obstacles);
+
+  Vec2 pos{0.0, -22.0};
+  Vec2 vel{0.0, 0.0};
+  NavAction::Goal goal;
+  goal.target_latitude_deg = 0.0;
+  goal.target_longitude_deg = 0.0;
+  goal.tolerance_m = 0.4;
+  auto future = client_->async_send_goal(goal);
+  for (int i = 0; i < 200 && future.wait_for(0ms) != std::future_status::ready; ++i) {
+    feed(pos.x, pos.y);
+    rclcpp::spin_some(node_);
+    std::this_thread::sleep_for(10ms);
+  }
+  ASSERT_TRUE(future.get() != nullptr);
+
+  constexpr double kSpeedup = 4.0;
+  double min_clear = 1e9;
+  double travelled = 0.0;
+  auto last = std::chrono::steady_clock::now();
+  int step = 0;
+  while (length(pos) > 0.6 && step < 9000) {
+    const Vec2 jitter{0.2 * std::sin(step * 0.07), 0.2 * std::cos(step * 0.13)};
+    feed(pos.x + jitter.x, pos.y + jitter.y);
+    rclcpp::spin_some(node_);
+    std::this_thread::sleep_for(10ms);
+    const auto now = std::chrono::steady_clock::now();
+    const double dt = kSpeedup * std::chrono::duration<double>(now - last).count();
+    last = now;
+    const Vec2 cmd{last_target_.velocity.x, last_target_.velocity.y};
+    vel = vel + (cmd - vel) * std::min(1.0, dt);
+    pos = pos + vel * dt;
+    travelled += length(vel) * dt;
+    for (const auto & b : field) {min_clear = std::min(min_clear, length(pos - b));}
+    ++step;
+  }
+  EXPECT_LE(length(pos), 0.6) << "stopped at (" << pos.x << ", " << pos.y << ") after " << travelled << " m";
+  EXPECT_GE(min_clear, 1.5);
+  EXPECT_LE(travelled, 1.6 * 22.0);
+}
+
 TEST(Task4Geometry, DetourReportsThePathLength)
 {
   const std::vector<Capsule> zones{circle(5.0, 0.0, 2.0)};
