@@ -107,8 +107,8 @@ def main():
             self.surfaced_since = None
             self.pending = None
             self.cli = self.create_client(ParamSetV2, "/mavros/param/set")
-            # sensors:=minimal: the mission has no depth topic from the barometer; the world's depth for the gate then
-            # comes straight from the SITL barometer (rel_alt), which the mission never reads.
+            # The world's depth for the gate straight from the SITL barometer (rel_alt): the mission's water depth goes
+            # invalid after a depth fault.
             rel_alt_topic = self.declare_parameter("rel_alt_topic", "").value
             if rel_alt_topic and rel_alt_topic != "none":
                 from std_msgs.msg import Float64

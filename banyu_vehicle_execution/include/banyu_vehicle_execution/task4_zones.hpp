@@ -204,14 +204,10 @@ inline std::optional<Exit> exitVector(
   return best_exit;
 }
 
-// Where to steer to reach `goal` from the origin without entering a zone or buoy keep-out disc: the goal when the
-// straight line is clear, else the first waypoint of the shortest path through points around the zone/buoy ends and
-// flanks (1.25 x radius out). Empty when the goal cannot be reached around the obstacles.
-inline std::optional<Vec2> detourAim(
-  Vec2 goal, const std::vector<Capsule> & zones,
-  const std::vector<Vec2> & buoys = {}, double buoy_keep_out_m = 0.0)
+// Zones plus the buoy keep-out discs, except a buoy whose disc holds the goal (the buoy driven to).
+inline std::vector<Capsule> detourObstacles(
+  Vec2 goal, const std::vector<Capsule> & zones, const std::vector<Vec2> & buoys, double buoy_keep_out_m)
 {
-  const Vec2 origin{0.0, 0.0};
   std::vector<Capsule> all_obstacles = zones;
   if (buoy_keep_out_m > 0.0) {
     for (const auto & b : buoys) {
@@ -220,7 +216,23 @@ inline std::optional<Vec2> detourAim(
       }
     }
   }
-  if (segmentClear(origin, goal, all_obstacles)) {return goal;}
+  return all_obstacles;
+}
+
+// Where to steer to reach `goal` from the origin without entering a zone or buoy keep-out disc: the goal when the
+// straight line is clear, else the first waypoint of the shortest path through points around the zone/buoy ends and
+// flanks (1.25 x radius out). Empty when the goal cannot be reached around the obstacles. `path_length_m` gets the
+// length of the whole path.
+inline std::optional<Vec2> detourAim(
+  Vec2 goal, const std::vector<Capsule> & zones,
+  const std::vector<Vec2> & buoys = {}, double buoy_keep_out_m = 0.0, double * path_length_m = nullptr)
+{
+  const Vec2 origin{0.0, 0.0};
+  const auto all_obstacles = detourObstacles(goal, zones, buoys, buoy_keep_out_m);
+  if (segmentClear(origin, goal, all_obstacles)) {
+    if (path_length_m) {*path_length_m = length(goal);}
+    return goal;
+  }
   constexpr double kFlank = 1.25;
   const Vec2 path = goal - origin;
   const double path_len = length(path);
@@ -265,9 +277,25 @@ inline std::optional<Vec2> detourAim(
     }
   }
   if (!std::isfinite(dist[n - 1])) {return std::nullopt;}
+  if (path_length_m) {*path_length_m = dist[n - 1];}
   std::size_t step = n - 1;
   while (prev[step] != 0 && prev[step] != n) {step = prev[step];}
   return nodes[step];
+}
+
+// Detour hysteresis: keep steering at the detour point chosen on an earlier tick while it is still ahead (beyond
+// `reach_m`), outside every obstacle and in clear view, unless a fresh plan (`fresh_length_m`, empty when there is none)
+// is shorter by more than `switch_gain_m`. Replanning from scratch every tick flips between the two sides of a buoy
+// pair as the GPS fix and the reported field jitter, and with closely spaced inflated discs it dithers in place
+// (replay of the 2026-11-12 trial field).
+inline bool keepDetourPoint(
+  Vec2 point, Vec2 goal, const std::vector<Capsule> & obstacles, std::optional<double> fresh_length_m,
+  double reach_m = 0.5, double switch_gain_m = 2.0)
+{
+  if (length(point) <= reach_m || insideAny(point, obstacles) || !segmentClear(Vec2{}, point, obstacles)) {
+    return false;
+  }
+  return !fresh_length_m || length(point) + length(goal - point) < *fresh_length_m + switch_gain_m;
 }
 
 // Dive point inside a static zone: the nearest point outside every zone and at least `buoy_clear_m` from each buoy,

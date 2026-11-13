@@ -4,12 +4,14 @@
 Stands in for the GCS and the USV on the AUV's domain, so after SB Up (auto) one command starts the run:
 
   1. waits until /banyu/vehicle_status reports SB Up (operational_mode 2),
-  2. publishes the GCS course (a square around the buoys, ~1 Hz) unless --no-course,
+  2. publishes the GCS course (a square around the buoys, ~1 Hz) unless --no-course or another course (the real GCS
+     geofence) is already on /system/mission/course: the AUV keeps its surface moves inside that course boundary,
   3. calls /banyu/mission/prepare_autonomy, waits for READY and sends CMD_RUN_START (as the GCS does) unless --no-start,
   4. publishes the buoys as the USV's rx_msgs/PipelineBuoys (~1 Hz): LAT LON = the start (active) buoy A, --end LAT LON =
      the end buoy B. With both the AUV dives midway between them facing the end buoy (the real midpoint strategy);
      with the start buoy only it dives inside it. Nothing is published without LAT LON (the USV sends them),
-  5. prints the run lifecycle and the UUV heartbeat, then the PipelineSurvey the AUV sends after surfacing.
+  5. prints the run lifecycle and the UUV heartbeat (with its distance inside the course boundary), then the
+     PipelineSurvey the AUV sends after surfacing.
 
 The link drops while the AUV is under water; the tool keeps going and shows the report once it is back.
 In the sim leave out LAT LON: task2_sim_provider.py publishes the world's two buoys, as the USV does.
@@ -58,6 +60,9 @@ class TestWaypoint(Node):
         self.create_subscription(VehicleStatus, '/banyu/vehicle_status', self.on_status, 10)
         self.create_subscription(RunLifecycle, '/banyu/mission/run_lifecycle', self.on_lifecycle, LATCHED)
         self.create_subscription(Heartbeat, '/system/vehicle/uuv/heartbeat', self.on_heartbeat, SYSTEM_QOS)
+        self.create_subscription(Course, '/system/mission/course', self.on_course, SYSTEM_QOS)
+        self.course = None
+        self.gcs_course = None
         self.create_subscription(PipelineSurvey, '/system/vehicle/uuv/task2/pipeline_survey', self.on_survey,
                                  LATCHED_10)
         self.create_subscription(ResourceDelivery, '/system/vehicle/uuv/task2/delivery', self.on_delivery,
@@ -85,6 +90,31 @@ class TestWaypoint(Node):
 
     def on_heartbeat(self, msg):
         self.heartbeat = msg
+
+    def on_course(self, msg):
+        # Ours carries --course-id; anything else is the real GCS, whose boundary the AUV must keep to.
+        if msg.course_id != self.args.course_id or not self.course_on:
+            if self.gcs_course is None or self.gcs_course.course_id != msg.course_id:
+                self.log(f'GCS course {msg.course_id}: {len(msg.boundary)} boundary points (the AUV fence)')
+            self.gcs_course = msg
+            if self.course_on:
+                self.course_on = False
+                self.log('stopped publishing our course: the GCS course replaces it')
+        self.course = msg
+
+    def fence_text(self, lat, lon):
+        if self.course is None or len(self.course.boundary) < 3:
+            return 'no course boundary (the AUV has no fence)'
+        m_lat, m_lon = 111320.0, 111320.0 * math.cos(math.radians(lat))
+        pts = [((p.longitude - lon) * m_lon, (p.latitude - lat) * m_lat) for p in self.course.boundary]
+        inside, best = False, float('inf')
+        for (ax, ay), (bx, by) in zip(pts, pts[1:] + pts[:1]):
+            if (ay > 0) != (by > 0) and 0 < (bx - ax) * (0 - ay) / (by - ay) + ax:
+                inside = not inside
+            dx, dy = bx - ax, by - ay
+            t = max(0.0, min(1.0, -(ax * dx + ay * dy) / (dx * dx + dy * dy))) if dx or dy else 0.0
+            best = min(best, math.hypot(ax + t * dx, ay + t * dy))
+        return f'{best:.1f} m {"inside" if inside else "OUTSIDE"} the boundary of {self.course.course_id}'
 
     def on_survey(self, msg):
         # The topic is latched: the report of an earlier run arrives as soon as we subscribe.
@@ -223,13 +253,22 @@ class TestWaypoint(Node):
             self.log('ERROR: SB never went to AUTO (Up); nothing was started')
             return 1
         self.log('SB Up (AUTO)')
-        if self.args.course:
+        if self.args.course and self.gcs_course is not None:
+            self.log(f'not publishing a course: using the GCS course {self.gcs_course.course_id}')
+        elif self.args.course:
             self.course_on = True
             self.publish_course()
-            self.log(f'publishing course {self.args.course_id} ({self.args.half_size_m:.0f} m square)')
+            self.log(f'publishing course {self.args.course_id} ({self.args.half_size_m:.0f} m square): the AUV fence '
+                     f'until a GCS course arrives')
             self.spin_for(2.0)
-        if self.args.start and not self.prepare_and_start():
-            return 1
+        if self.args.start:
+            # The waypoint mission (mission.auto_start_on_auto) starts itself on SB Up: a second prepare is refused.
+            live = (RunLifecycle.PREPARING, RunLifecycle.READY, RunLifecycle.INITIALIZING, RunLifecycle.ACTIVE)
+            if self.wait_until(lambda: self.lifecycle is not None and self.lifecycle.phase in live, 3.0,
+                               lambda: 'checking for a run started on SB Up...'):
+                self.log('run already started on SB Up (auto-start): not preparing or starting it again')
+            elif not self.prepare_and_start():
+                return 1
         self.expect_survey = True
         if self.args.lat is not None:
             self.buoys_on = True
@@ -242,7 +281,8 @@ class TestWaypoint(Node):
             if self.heartbeat is not None and time.time() - last_hb >= self.args.heartbeat_every_s:
                 hb = self.heartbeat
                 self.log(f'UUV heartbeat: {hb.position.latitude:.7f}, {hb.position.longitude:.7f}, '
-                         f'depth {hb.depth_m:.2f} m, heading {hb.heading_deg:.0f} deg, task {hb.current_task}')
+                         f'depth {hb.depth_m:.2f} m, heading {hb.heading_deg:.0f} deg, task {hb.current_task}, '
+                         f'{self.fence_text(hb.position.latitude, hb.position.longitude)}')
                 last_hb = time.time()
             if self.lifecycle is not None and self.lifecycle.phase in (
                     RunLifecycle.FAILED, RunLifecycle.INTERRUPTED):

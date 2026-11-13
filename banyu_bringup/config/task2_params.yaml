@@ -4,6 +4,10 @@ banyu_mission:
   ros__parameters:
     fallback_mode: "MANUAL"   # FCU mode commanded on abort/failure (DISARM = disarm, then MANUAL)
     autonomy_mode: "GUIDED,ALT_HOLD"   # surface mode, then the mode used under water (SetFcuMode)
+    # Mode armed and waited in from SB Up / prepare_autonomy until the USV buoys arrive (then the surface mode).
+    # MANUAL: no stabilization or depth hold, so the hull floats and keeps the link. Same in banyu_vehicle_status
+    # and vehicle_execution_node control.standby_mode. "" = wait in the surface mode.
+    standby_mode: "STABILIZE"
     topics:
       pipeline_observation: "/banyu/pipeline/observation"
       ring_observation: "/banyu/pipeline/ring_observation"
@@ -52,7 +56,7 @@ banyu_mission:
         max_hold_s: 600.0
       task2_tier: 2   # launch argument tier:= overrides this (core 2, advanced 3, disruptive 4)
       surface_depth_m: 0.0
-      surface_tolerance_m: 0.5
+      surface_tolerance_m: 0.2
       # The dive point must be on the buoy line: a transit that ends from the side (a detour around a buoy) stopped
       # 0.8 m off it with 1.0 m and the camera missed the first nodes. RTK GPS is far better than this; the limit on the
       # robot is the buoy position error (USV uncertainty_m), not the vehicle fix.
@@ -199,8 +203,9 @@ banyu_vehicle_status:
     rc_takeover_channel: 1   # 0-based /mavros/rc/in index: CH2 = forward stick (RCMAP_FORWARD 2)
     rc_takeover_threshold: 1700
     autonomy_mode: "GUIDED,ALT_HOLD"   # surface mode, then the mode used under water
+    standby_mode: "STABILIZE"   # banyu_mission standby_mode
     default_operational_mode: 0
-    kill_switch_timeout_s: 1.0
+    kill_switch_timeout_s: 2.5   # teleop republishes it per /mavros/rc/in, which arrives at ~2 Hz with 1.2 s gaps on the robot
     # bypass_rc (launch_task2.sh --no-rc): mode until the first /banyu/trigger/cmd ('2' = the software SB Up).
     bypass_operational_mode: 1
 
@@ -282,7 +287,7 @@ uuv_comm_node:
       task2_tier: 2
       evidence_sources: ["pipeline_topology"]
       buoy_sources: ["usv_pipeline_buoys", "uuv_buoy_localizer", "gcs_buoy_observer"]
-      depth_sources: ["pressure_depth", "gps_surface"]
+      depth_sources: ["pressure_depth"]
       gamble_order: false   # sensors:=gamble: a best-effort report with no RED seen gets one RED by chance
       # survey.gamble_red_positions (where that RED may go) comes only from the launch argument gamble_red (launch_task2.sh --gamble-red,
       # default "2,3"): a value in this file would win over the launch argument (launch_ros loads files after dicts).
@@ -329,6 +334,9 @@ pipeline_buoys_node:
     uav_buoys:
       enabled: true
       radius_m: 1.2                       # keep-out per buoy, same as the USV buoys (banyu_mission buoy_keep_out_m)
+      # The UAV's map drops buoys for minutes (2026-11-12: two of six for ~9 min): remember each one reported.
+      merge_m: 1.0                        # a report this close to a remembered buoy is that buoy (jitter max 0.26 m)
+      forget_s: 0.0                       # drop a buoy not reported this long; 0 = keep until the course changes
     topics:
       pipeline_buoys: "/system/vehicle/usv/task2/pipeline_buoys"
       course: "/system/mission/course"
@@ -348,12 +356,10 @@ vehicle_execution_node:
       # Water depth is datum minus EKF baro altitude, which drifts ~0.2-0.4 m over a dive;
       # 0.5 m matches the GPS surface tolerance used elsewhere in this file.
       surface_max_depth_m: 0.5
-      # No depth (no Bar30, or it failed): rise at this rate until a GPS fix proves the surface, for at most this long
-      # (maximum depth 15 m at 0.25 m/s, plus margin).
+      # No valid depth (Bar30 fault): rise at this rate for at most this long (maximum depth 15 m at 0.25 m/s, plus margin).
+      # The fault holds for the rest of the run, so the goal ends at the time limit.
       surface_blind_rise_rate_mps: 0.25
       surface_blind_timeout_s: 120.0
-      # false: no depth sensor; rel_alt and the EKF height are never a depth (sensors:=minimal).
-      use_pressure_depth: true
       require_run_authorization: true
       run_lifecycle_timeout_s: 1.0
       # /mavros/local_position/pose age limit (readiness hold and every action). On the robot QGC's stream request
@@ -365,6 +371,7 @@ vehicle_execution_node:
       # GUIDED with the GPS on the surface, ALT_HOLD with RC override under water (no position needed):
       # see docs/task2_mode_experiments.md. banyu_mission, banyu_vehicle_status and this node must list the same modes.
       autonomy_mode: "GUIDED,ALT_HOLD"
+      standby_mode: "STABILIZE"   # banyu_mission standby_mode: neutral sticks (zero thrust) while waiting
       output_mode: "auto"
       # Surface GPS transit speed limit (NavigateSurfaceGps only). Faster pushes the hull and the GPS antenna under.
       nav_max_speed: 0.4
@@ -395,6 +402,24 @@ vehicle_execution_node:
       surface_depth_m: 0.5        # the idle guard acts only at or above this depth
       dive_point_buoy_clear_m: 1.5  # a dive point shifted out of a zone stays this far from both buoys (buoy_standoff_m)
       surface_hold_timeout_s: 60.0  # Surface: wait at depth this long in all while the surfacing point is inside a zone
+    # Fixed surface obstacles (UAV buoy field): added to each radius for NavigateSurfaceGps. Both fixes are plain GPS
+    # (no RTK on 2026-11-10, 20 s stationary spread p90 0.33 m), so the UAV's and our positions can disagree by ~1 m.
+    # Replay of the 2026-11-12 field with 1 m receiver bias: 0.75 kept >= 0.88 m from every buoy centre and reached
+    # 56/56 crossings; 0.9 closes the 3-3.4 m gaps and stalled 2-3 crossings.
+    surface_obstacles:
+      margin_m: 0.75
+    # Course fence from the GCS course boundary (/system/mission/course, Course.boundary). ArduSub's own fence only logs.
+    # Surfaced only (no position under water): NavigateSurfaceGps targets move margin_m inside, every goal's horizontal
+    # command loses its outward part near the edge and is pushed back in inside the margin, and with no goal running the
+    # idle guard drives back in. No fresh GPS fix on the surface while a fence is set: no horizontal motion.
+    fence:
+      margin_m: 3.0               # stay this far inside the boundary: GPS error, vehicle size, drift, an underwater leg
+      brake_m: 3.0                # outward speed fades out over this band before the margin
+      return_speed_mps: 0.4       # inward push inside the margin or outside the boundary
+      reject_outside_m: 20.0      # a target farther outside than this is refused (a typo), not pulled in
+      required: false             # true: no horizontal motion on the surface until a course boundary arrives
+      idle_guard: true
+      gps_timeout_s: 2.0
     # AcquirePipeline and SearchPipeline steer over a light seen with no pipe in view (the node sits on the pipe).
     light_cue:
       enabled: true
@@ -404,7 +429,7 @@ vehicle_execution_node:
       kp_surge: 0.3
       max_speed_mps: 0.2
       budget_s: 15.0       # steering time per goal, so a false light (fish, reflection) cannot hold the search
-    # Heave from the pipe's apparent width (sensors:=minimal): range = diameter / (width x 2 tan(hfov / 2)).
+    # Heave from the pipe's apparent width (sensors:=baro): range = diameter / (width x 2 tan(hfov / 2)).
     # Diameter: 3" Schedule 40 PVC in the sim (measure the real pipe). hfov: the sim bottom camera (re-calibrate the HORUS).
     camera_heave:
       enabled: false
@@ -442,7 +467,7 @@ vehicle_execution_node:
       deadzone_z_pwm: 50
       deadzone_yaw_pwm: 20
     surface:
-      depth_sources: ["pressure_depth", "gps_surface"]
+      depth_sources: ["pressure_depth"]
     topics:
       water_depth: "/banyu/vehicle/water_depth"
       run_lifecycle: "/banyu/mission/run_lifecycle"
@@ -459,6 +484,7 @@ vehicle_execution_node:
       mavros_target: "/mavros/setpoint_raw/local"
       task4_zones: "/banyu/task4/zones"
       surface_obstacles: "/banyu/surface/obstacles"   # NavigateSurfaceGps detours round these (UAV buoy field)
+      course: "/system/mission/course"   # course boundary for the fence
 
 pipeline_end_node:
   ros__parameters:
@@ -476,11 +502,9 @@ pipeline_end_node:
     end_topic: "/banyu/pipeline/end"
 calibrated_depth_node:
   ros__parameters:
-    # "pressure" (Bar30) or "gps_surface" (no depth sensor: depth 0 while a GPS fix proves the surface, else unknown).
-    depth_source: "pressure"
-    gps_source_id: "gps_surface"
+    # Depth is always the Bar30. A fresh GPS fix this recent proves the surface (datum before the run; no health check).
     gps_surface_timeout_s: 2.0
-    # Bar30 health under water during the run; a fault switches to the GPS surface proof for the rest of the run.
+    # Bar30 health under water during the run; a fault makes the depth invalid for the rest of the run.
     health:
       enabled: true
       silent_s: 3.0

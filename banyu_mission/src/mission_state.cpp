@@ -222,6 +222,7 @@ void MissionState::prepareAutonomy()
 {
   std::lock_guard<std::mutex> lock(mutex_);
   autonomy_engaged_ = false;
+  in_standby_ = true;
 }
 
 bool MissionState::acceptRun(uint32_t run_id, uint64_t epoch)
@@ -360,7 +361,7 @@ bool MissionState::autonomyInterrupted() const
   }
 
   if (autonomy_engaged_) {
-    const bool mode_ok = (modeInList(value.mode, autonomy_mode_) &&
+    const bool mode_ok = (modeAllowedLocked(value.mode) &&
       (autonomy_authority_.empty() || value.authority == autonomy_authority_));
     const bool op_mode_ok = !status_received_ ||
       (value.operational_mode == 2 && !value.hardware_kill_active);
@@ -389,7 +390,7 @@ bool MissionState::vehicleReady() const
     return false;
   }
   const bool mode_ok = !autonomy_engaged_ ||
-    (value.armed && modeInList(value.mode, autonomy_mode_) &&
+    (value.armed && modeAllowedLocked(value.mode) &&
     (autonomy_authority_.empty() || value.authority == autonomy_authority_));
   return value.fcu_connected && value.fcu_status_fresh && value.rc_fresh &&
          !value.operator_takeover && mode_ok;
@@ -398,7 +399,31 @@ bool MissionState::vehicleReady() const
 bool MissionState::autonomyModeAllowed(const std::string & mode) const
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  return modeInList(mode, autonomy_mode_);
+  return modeAllowedLocked(mode);
+}
+
+bool MissionState::modeAllowedLocked(const std::string & mode) const
+{
+  return modeInList(mode, autonomy_mode_) ||
+         (in_standby_ && !standby_mode_.empty() && mode == standby_mode_);
+}
+
+void MissionState::modeSelected(const std::string & mode)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (mode != standby_mode_) {in_standby_ = false;}
+}
+
+void MissionState::setStandbyMode(std::string mode)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  standby_mode_ = std::move(mode);
+}
+
+std::string MissionState::standbyMode() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return standby_mode_.empty() ? primary_autonomy_mode_ : standby_mode_;
 }
 
 bool MissionState::gpsAvailable() const {return snapshot().gps_available;}

@@ -26,6 +26,7 @@ public:
     int rc_takeover_channel{4};
     int rc_takeover_threshold{1700};
     std::string autonomy_mode{"GUIDED"};
+    std::string standby_mode;   // banyu_mission standby_mode: also an autonomy mode
     int default_operational_mode{0};
     // Run without a transmitter: RC counts as fresh, there is no operator takeover, and
     // the vehicle is AUTONOMOUS (bypass_operational_mode) unless a FRESH kill_switch

@@ -265,4 +265,55 @@ banyu_msgs::msg::SurfaceObstacles safePassageObstacles(
   return obstacles;
 }
 
+UavBuoyField::UavBuoyField(double merge_m, double forget_s)
+: merge_m_(merge_m), forget_s_(forget_s)
+{
+  if (!std::isfinite(merge_m_) || merge_m_ <= 0.0 || !std::isfinite(forget_s_) || forget_s_ < 0.0) {
+    throw std::invalid_argument("uav_buoys.merge_m must be positive and uav_buoys.forget_s not negative");
+  }
+}
+
+void UavBuoyField::update(
+  const rx_msgs::msg::SafePassage & msg, const std::vector<rx_msgs::msg::LatLng> & boundary, double now_s)
+{
+  const auto reported = safePassageObstacles(msg, boundary, 1.0);
+  for (std::size_t i = 0; i < reported.latitude_deg.size(); ++i) {
+    rx_msgs::msg::LatLng p;
+    p.latitude = reported.latitude_deg[i];
+    p.longitude = reported.longitude_deg[i];
+    Buoy * nearest = nullptr;
+    double nearest_m = merge_m_;
+    for (auto & b : buoys_) {
+      const double d = PipelineBuoysTracker::distanceM(b.position, p);
+      if (d < nearest_m) {
+        nearest_m = d;
+        nearest = &b;
+      }
+    }
+    if (nearest) {
+      *nearest = Buoy{p, now_s};
+    } else {
+      buoys_.push_back(Buoy{p, now_s});
+    }
+  }
+  buoys_.erase(
+    std::remove_if(buoys_.begin(), buoys_.end(), [&](const Buoy & b) {return expired(b, now_s);}), buoys_.end());
+}
+
+banyu_msgs::msg::SurfaceObstacles UavBuoyField::obstacles(
+  const std::vector<rx_msgs::msg::LatLng> & boundary, double radius_m, double now_s) const
+{
+  banyu_msgs::msg::SurfaceObstacles obstacles;
+  obstacles.header.frame_id = "wgs84";
+  obstacles.source = "uav_safe_passage";
+  for (const auto & b : buoys_) {
+    if (expired(b, now_s)) {continue;}
+    if (boundary.size() >= 3 && !PipelineBuoysTracker::insidePolygon(b.position, boundary)) {continue;}
+    obstacles.latitude_deg.push_back(b.position.latitude);
+    obstacles.longitude_deg.push_back(b.position.longitude);
+    obstacles.radius_m.push_back(radius_m);
+  }
+  return obstacles;
+}
+
 }  // namespace banyu_communication

@@ -11,6 +11,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "banyu_msgs/msg/detection.hpp"
+#include "banyu_vehicle_execution/course_fence.hpp"
 #include "banyu_vehicle_execution/task4_zones.hpp"
 
 namespace banyu_vehicle_execution
@@ -107,10 +108,7 @@ struct VehicleTelemetry
   double pipeline_confidence{0.0};
   double pipeline_width{std::numeric_limits<double>::quiet_NaN()};
 
-  // Depth-free mode: no depth sensor. heave_odom_m integrates the commanded heave (down positive) so actions can make
-  // relative vertical moves; camera_range_m is the range to the pipe from its apparent width.
-  bool depth_free{false};
-  double heave_odom_m{0.0};
+  // Range to the pipe from its apparent width.
   bool camera_range_valid{false};
   double camera_range_m{0.0};
 
@@ -155,6 +153,8 @@ struct VehicleTelemetry
     double radius_m{0.0};
   };
   std::map<std::string, std::vector<SurfaceObstacle>> surface_obstacles{};
+  // Added to every surface obstacle radius: GPS error between the reporting vehicle and this one, plus the hull.
+  double surface_obstacle_margin_m{0.75};
 
   std::vector<Capsule> surfaceObstaclesAroundVehicle() const
   {
@@ -162,10 +162,20 @@ struct VehicleTelemetry
     for (const auto & [source, list] : surface_obstacles) {
       for (const auto & o : list) {
         const Vec2 c = enuOffset(latitude_deg, longitude_deg, o.latitude_deg, o.longitude_deg);
-        discs.push_back(Capsule{c, c, o.radius_m, false});
+        discs.push_back(Capsule{c, c, o.radius_m + surface_obstacle_margin_m, false});
       }
     }
     return discs;
+  }
+
+  // Course boundary (GCS /system/mission/course); NavigateSurfaceGps keeps its goal inside it.
+  CourseFence fence;
+  // Goals farther than this outside the boundary are refused instead of pulled inside.
+  double fence_reject_outside_m{20.0};
+
+  std::vector<Vec2> fenceAroundVehicle() const
+  {
+    return fenceAround(fence, latitude_deg, longitude_deg);
   }
 
   // Known buoys as planar ENU offsets from the vehicle.

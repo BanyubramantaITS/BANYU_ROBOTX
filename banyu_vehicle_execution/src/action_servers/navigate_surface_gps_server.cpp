@@ -48,6 +48,14 @@ std::pair<double, double> keepOutAim(
   return aim;
 }
 
+std::pair<double, double> latLonAt(double ref_lat, double ref_lon, Vec2 offset)
+{
+  constexpr double kEarthRadius = 6378137.0;
+  constexpr double kRadToDeg = 180.0 / M_PI;
+  const double lat = ref_lat + offset.y / kEarthRadius * kRadToDeg;
+  return {lat, ref_lon + offset.x / (kEarthRadius * std::cos((lat + ref_lat) * 0.5 / kRadToDeg)) * kRadToDeg};
+}
+
 MotionIntent zoneExitIntent(const Exit & exit, double max_speed_mps, double yaw_rate)
 {
   const double speed = std::clamp(0.5 + exit.distance_m, 0.2, std::max(0.2, max_speed_mps));
@@ -66,6 +74,11 @@ NavigateSurfaceGpsServer::NavigateSurfaceGpsServer(
   nav_kp_(nav_kp), nav_max_speed_(nav_max_speed),
   yaw_kp_(yaw_kp), max_yaw_rate_(max_yaw_rate)
 {
+}
+
+void NavigateSurfaceGpsServer::onGoalStarted()
+{
+  detour_point_.reset();
 }
 
 bool NavigateSurfaceGpsServer::validateGoal(const Goal & goal, std::string & reason)
@@ -98,6 +111,35 @@ MotionIntent NavigateSurfaceGpsServer::tick(
     telemetry.latitude_deg, telemetry.longitude_deg,
     goal->target_latitude_deg, goal->target_longitude_deg,
     dx, dy);
+
+  // Course fence: a goal near or past the boundary moves inside by the margin; one far outside is refused.
+  if (const auto fence = telemetry.fenceAroundVehicle(); !fence.empty()) {
+    const auto at_goal = fenceDistance(Vec2{dx, dy}, fence);
+    if (at_goal.clearance_m < -telemetry.fence_reject_outside_m) {
+      RCLCPP_ERROR(
+        node_->get_logger(), "Course fence: target %.0f m outside the course boundary, refused", -at_goal.clearance_m);
+      auto result = std::make_shared<Result>();
+      result->success = false;
+      result->reason = "Target outside the course boundary";
+      result->final_latitude_deg = telemetry.latitude_deg;
+      result->final_longitude_deg = telemetry.longitude_deg;
+      result->final_error_m = std::hypot(dx, dy);
+      active_handle_->abort(result);
+      coordinator_->faultGoal(GoalHandle{active_identity_});
+      active_handle_.reset();
+      active_identity_ = {};
+      return zeroIntent();
+    }
+    if (at_goal.clearance_m < telemetry.fence.margin_m) {
+      const Vec2 inside = pullInside(Vec2{dx, dy}, fence, telemetry.fence.margin_m);
+      RCLCPP_WARN_THROTTLE(
+        node_->get_logger(), *node_->get_clock(), 5000,
+        "Course fence: target %.1f m from the boundary (%s), moved %.1f m to %.1f m inside", std::abs(at_goal.clearance_m),
+        at_goal.clearance_m < 0.0 ? "outside" : "inside", length(inside - Vec2{dx, dy}), telemetry.fence.margin_m);
+      dx = inside.x;
+      dy = inside.y;
+    }
+  }
 
   // Buoys as ENU offsets from the vehicle.
   coordinator_->setBuoyKeepOut(
@@ -208,10 +250,29 @@ MotionIntent NavigateSurfaceGpsServer::tick(
   auto [ax, ay] = keepOutAim({dx, dy}, obstacles, goal->keep_out_radius_m);
   if (!keep_out.empty() && !inside_buoy) {
     // Around zones and obstacles on the way while respecting buoy keep-out; with no clear way (boxed in) hold here
-    // rather than cross a buoy.
-    const auto aim = detourAim(Vec2{ax, ay}, keep_out, obstacle_points, goal->keep_out_radius_m);
+    // rather than cross a buoy. A detour point already chosen is kept while it stays valid.
+    const Vec2 target{ax, ay};
+    double fresh_length = 0.0;
+    auto aim = detourAim(target, keep_out, obstacle_points, goal->keep_out_radius_m, &fresh_length);
+    if (detour_point_) {
+      const Vec2 point = enuOffset(
+        telemetry.latitude_deg, telemetry.longitude_deg, detour_point_->first, detour_point_->second);
+      if (keepDetourPoint(
+          point, target, detourObstacles(target, keep_out, obstacle_points, goal->keep_out_radius_m),
+          aim ? std::optional<double>(fresh_length) : std::nullopt))
+      {
+        aim = point;
+      } else {
+        detour_point_.reset();
+      }
+    }
+    if (aim && !detour_point_ && length(*aim - target) > 1e-6) {
+      detour_point_ = latLonAt(telemetry.latitude_deg, telemetry.longitude_deg, *aim);
+    }
     ax = aim ? aim->x : 0.0;
     ay = aim ? aim->y : 0.0;
+  } else {
+    detour_point_.reset();
   }
   if (std::hypot(ax, ay) < 1e-3) {return zeroIntent();}
   const double bearing = std::atan2(ay, ax);

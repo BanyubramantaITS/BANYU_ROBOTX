@@ -122,7 +122,7 @@ MotionIntent SurfaceServer::tick(
     if (blind_s_ >= blind_timeout_s_) {
       auto result = std::make_shared<Result>();
       result->success = false;
-      result->reason = "Surface not proven by a GPS fix within the blind rise time";
+      result->reason = "No valid depth within the blind rise time";
       result->final_depth_m = depth_m;
       result->final_error_m = goal->target_depth_m - depth_m;
       abortActiveWithResult(result);

@@ -19,7 +19,10 @@ BT::NodeStatus SetFcuModeNode::onStart()
   getInput("mode", mode_);
   getInput("timeout_s", timeout_s_);
   started_ = std::chrono::steady_clock::now();
-  if (state_->snapshot().mode == mode_) {return BT::NodeStatus::SUCCESS;}
+  if (state_->snapshot().mode == mode_) {
+    state_->modeSelected(mode_);
+    return BT::NodeStatus::SUCCESS;
+  }
   sendRequest();
   return BT::NodeStatus::RUNNING;
 }
@@ -29,6 +32,7 @@ BT::NodeStatus SetFcuModeNode::onRunning()
   const auto now = std::chrono::steady_clock::now();
   if (state_->snapshot().mode == mode_) {
     RCLCPP_INFO(node_->get_logger(), "flight mode is %s", mode_.c_str());
+    state_->modeSelected(mode_);
     return BT::NodeStatus::SUCCESS;
   }
   if (std::chrono::duration<double>(now - started_).count() > timeout_s_) {

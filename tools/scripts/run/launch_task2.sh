@@ -107,6 +107,8 @@ Both targets:
                         inter-vehicle communication to UAV/GCS (PipelineSurvey + ResourceDelivery).
                         Auto-starts on flicking SB Up (also accepts GCS CMD_RUN_START).
                         No diving or underwater legs; stays safely on the surface.
+                        With --waypoint-mission or --test-mission the GCS course boundary is required: the AUV does not
+                        move on the surface until it arrives, then stays fence.margin_m inside it (task2_params.yaml).
   --test-mission        Fly the Task 2 TEST mission (task2_test_mission.xml, test_mission:=True) instead of the survey,
                         with the real midpoint strategy: after SB Up, the run start and the USV's two buoys (PipelineBuoys)
                         the AUV goes midway between the buoys by GPS (keeping clear of both), turns to face the end buoy,
@@ -124,13 +126,11 @@ Both targets:
   --sensors <s>         full (default: Bar30 depth, ALT_HOLD under water, dive to the fixed inspection depth)
                         | baro (Bar30 + ALT_HOLD, but the dive stops by camera at the pipe, pipe-width standoff,
                         dive point 1.5 m inside the start buoy, ring order dead-reckoned along the buoy line)
-                        | minimal (bottom camera, Pixhawk
-                        IMU/compass and RTK GPS at the surface only: STABILIZE under water, heave from the camera,
-                        surface proven by a GPS fix; no depth sensor is used for any decision)
                         | gamble (Bar30, Pixhawk and surface GPS: go midway between the buoys, dive to a Bar30 depth,
                         timed forward/backward, sway and yaw legs at that depth, surface, report the start buoy with a
                         RANDOM light order; no camera, no pipe, no repair. Depth and legs: mission.gamble.* in
                         banyu_bringup/config/task2_sensors_gamble.yaml).
+                        Every profile uses the Bar30 for depth; a Bar30 fault makes the depth invalid for the run.
                         Dives at the midpoint unless --dive-point buoy is given (--dive-point auto).
   --no-rc               --real: no transmitter. Teleop off, esp32_trigger_node on, bypass_rc:=True: the mode is
                         set in software instead of SB (MANUAL until the first command):
@@ -176,7 +176,7 @@ Any other argument is passed through to ros2 launch (e.g. task2_params_file:=/pa
 Examples:
   ./tools/scripts/run/launch_task2.sh --sim
   ./tools/scripts/run/launch_task2.sh --sim --headless --tier disruptive --gps-gate --gps-loss-depth 0.2
-  ./tools/scripts/run/launch_task2.sh --sim --sensors minimal --pipe-depth 8
+  ./tools/scripts/run/launch_task2.sh --sim --sensors baro --pipe-depth 8
   ./tools/scripts/run/launch_task2.sh --sim --sensors baro --pipe-depth 3 --hydrophone
   ./tools/scripts/run/launch_task2.sh --real --dry-run
   ./tools/scripts/run/launch_task2.sh --real --test-mission
@@ -238,7 +238,7 @@ while [[ $# -gt 0 ]]; do
       [ $# -ge 2 ] || { echo "Error: --gamble-red needs positions, e.g. 2,3 or 3." >&2; exit 1; }
       GAMBLE_RED="$2"; shift 2 ;;
     --sensors)
-      [ $# -ge 2 ] || { echo "Error: --sensors needs a value (full|baro|minimal|gamble)." >&2; exit 1; }
+      [ $# -ge 2 ] || { echo "Error: --sensors needs a value (full|baro|gamble)." >&2; exit 1; }
       SENSORS="$2"; shift 2 ;;
     --hydrophone) USE_HYDROPHONE=true; shift ;;
     --dive-point)
@@ -278,8 +278,8 @@ case "$TIER" in
   *) echo "Error: --tier must be core, advanced or disruptive (got '$TIER')." >&2; exit 1 ;;
 esac
 case "$SENSORS" in
-  full|baro|minimal|gamble) ;;
-  *) echo "Error: --sensors must be full, baro, minimal or gamble (got '$SENSORS')." >&2; exit 1 ;;
+  full|baro|gamble) ;;
+  *) echo "Error: --sensors must be full, baro or gamble (got '$SENSORS')." >&2; exit 1 ;;
 esac
 case "$DIVE_POINT" in
   auto|buoy|midpoint) ;;
@@ -379,6 +379,9 @@ fi
 if [ -f "${WS_DIR}/install/setup.bash" ]; then
   source "${WS_DIR}/install/setup.bash"
 fi
+# The sim uses the UUV domain (40): with subnet discovery it would join a real UUV on the same network, and the sim's
+# setpoints and RC overrides would reach the real MAVROS. Keep every sim process on this machine.
+if [ "$TARGET" = "sim" ]; then export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST; fi
 
 mavros_count() { pgrep -x mavros_node | wc -l; }
 
@@ -390,12 +393,13 @@ echo "=========================================================="
 echo "Active Git Branch : $CURRENT_BRANCH"
 echo "Target Platform   : $([ "$TARGET" = "sim" ] && echo "Gazebo Simulation (SITL)" || echo "Real AUV Physical Hardware")"
 echo "use_gps           : $(TF $USE_GPS)"
+[ "$TARGET" = "sim" ] && echo "DDS discovery     : localhost only (sim; a UUV on this network is not reached)"
 echo "Tier              : $([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && echo core || echo "$TIER")"
 echo "Mission           : $([ "$WAYPOINT_MISSION" = true ] && echo "WAYPOINT (midpoint GPS transit, align heading, send reports to UAV/GCS; task2_waypoint_mission.yaml)" || ([ "$TEST_MISSION" = true ] && echo "TEST (midpoint by GPS, face the end buoy, 1 m dive, timed forward/backward legs, surface, Core report; task2_test_mission.yaml)" || echo "survey (banyu_mission.xml$([ "$SENSORS" = gamble ] && echo ", gamble tree"))"))"
 [ "$WAYPOINT_MISSION" = true ] && echo "Run start         : $([ "$AUTO_START" = true ] && echo "SB Up starts the run itself (run 1; RoboCommand's Run Start is rejected; --no-auto-start)" || echo "prepare_autonomy + GCS CMD_RUN_START (RoboCommand's run); SB Up does not start it")"
 [ "$TARGET" = real ] && echo "RC / mode switch   : $([ "$NO_RC" = true ] && echo "NO RC: mode from /banyu/trigger/cmd ('2' auto, '1' manual, '0' kill); MANUAL until set" || echo "TX16S, SB (teleop)")"
 echo "Detector debug    : $([ "$DEBUG" = true ] && echo "ON (windows where there is a display; topics /banyu/pipeline/debug/*)" || echo "off (--debug)")"
-echo "Sensors           : $SENSORS$([ "$SENSORS" = baro ] && echo " (Bar30 + ALT_HOLD; dive stops by camera at the pipe, order dead-reckoned)")$([ "$SENSORS" = minimal ] && echo " (camera + IMU/compass + surface GPS; STABILIZE under water, no depth sensor)")$([ "$SENSORS" = gamble ] && echo " (GPS to the dive point, Bar30 dive + timed surge/sway/yaw legs, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
+echo "Sensors           : $SENSORS$([ "$SENSORS" = baro ] && echo " (Bar30 + ALT_HOLD; dive stops by camera at the pipe, order dead-reckoned)")$([ "$SENSORS" = gamble ] && echo " (GPS to the dive point, Bar30 dive + timed surge/sway/yaw legs, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
 if [ "$WAYPOINT_MISSION" = true ]; then
   echo "Dive point        : midpoint (navigates midway between the buoys on surface; no dive)"
 elif [ "$TEST_MISSION" = true ]; then
@@ -406,6 +410,8 @@ else
   echo "Dive point        : $([ "$DIVE_POINT" = midpoint ] && echo "midpoint (midway between the buoys)" || echo "buoy (inside the start buoy, standoff from it)"); both back up to the pipe's start, then survey forward"
 fi
 echo "Surface transit   : keeps clear of both buoys (mission.buoy_keep_out_m)"
+echo "Course fence      : surface moves stay fence.margin_m (3 m) inside the GCS course boundary (/system/mission/course)$({ [ "$WAYPOINT_MISSION" = true ] || [ "$TEST_MISSION" = true ]; } && echo "; REQUIRED: no surface motion until it arrives")"
+echo "                    (surface only: no position under water; ArduSub's own fence only logs)"
 echo "Task 4 zones      : RoboCommand keep-out zones / moving object are avoided on the surface (docs/task4.md; tools/scripts/run/task4_command.py)"
 echo "Hydrophone        : $([ "$USE_HYDROPHONE" = true ] && echo "ON (opt-in; pinger data used by SearchPipeline)" || echo "OFF (none fitted; start buoy from the USV PipelineBuoys only)")"
 if [ "$TARGET" = real ] && [ "$USE_HYDROPHONE" = true ]; then
@@ -535,8 +541,8 @@ print('%.2f %.2f %.3f' % (d * math.cos(b), d * math.sin(b), r.uniform(-math.pi, 
   echo "  3. Prepare autonomy: ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger \"{}\""
   echo "  4. The run does NOT start from /banyu/mission/start. It starts only when the GCS sends"
   echo "     CMD_RUN_START on /system/mission/command."
-  echo "     After the start the UUV stands by on the surface until the USV's PipelineBuoys gives the active"
-  echo "     buoy (no fallback to the YAML coordinates); abort to stop."
+  echo "     After the start the UUV stands by on the surface in MANUAL (standby_mode: floats, no hold) until the"
+  echo "     USV's PipelineBuoys gives the active buoy (no fallback to the YAML coordinates); abort to stop."
   fi
   echo "     Hydrophone $([ "$USE_HYDROPHONE" = true ] && echo ON || echo "OFF: /banyu/pinger/observation has no publisher")."
   [ "$DEBUG" = true ] && echo "     Detector view: windows, or ros2 run rqt_image_view rqt_image_view /banyu/pipeline/debug/annotated"
@@ -652,13 +658,16 @@ else
   echo "     - $([ "$AUTO_START" = false ] && echo "After the start" || echo "Flick SB Up (AUTO): starts automatically,") waits for USV buoys, transits midway"
   echo "       between buoys on the surface, aligns heading, and sends PipelineSurvey + ResourceDelivery (to UAV)."
   echo "     - Or send buoys/start via script: ROS_DOMAIN_ID=40 ./tools/scripts/run/task2_test_waypoint.py <start LAT> <LON> --end <end LAT> <LON>"
+  echo "       (it leaves the course to the GCS when one is on the link and prints the distance inside the boundary)"
+  echo "     - The GCS course boundary is the fence: the AUV does not move on the surface until it arrives."
   echo "     - SB Mid/Down at any time takes over (MANUAL/KILL)."
   elif [ "$TEST_MISSION" = true ]; then
   echo "  2. TEST mission: flick SB Up (AUTO). Then send the buoys; this also publishes the course, calls"
   echo "     prepare_autonomy and sends CMD_RUN_START (as the GCS would), and the buoys go out as the USV's"
   echo "     PipelineBuoys (start = active):"
   echo "       ROS_DOMAIN_ID=40 ./tools/scripts/run/task2_test_waypoint.py <start LAT> <LON> --end <end LAT> <LON>"
-  echo "     (real GCS/USV on the link? add --no-course / --no-start, or leave out the buoys)"
+  echo "     (real GCS/USV on the link? the tool leaves the course to the GCS; add --no-start, or leave out the buoys)"
+  echo "     The course boundary is the fence: no surface motion until it arrives; none is enforced under water."
   echo "  3. The AUV goes midway between the buoys by GPS, faces the end buoy, dives to mission.test.depth_m,"
   echo "     flies the timed forward and backward legs, surfaces and sends the Core PipelineSurvey; the tool"
   echo "     prints it when the link is back."
@@ -667,8 +676,8 @@ else
   echo "  2. Prepare autonomy: ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger \"{}\""
   echo "  3. The run does NOT start from /banyu/mission/start. It starts only when the GCS sends"
   echo "     CMD_RUN_START on /system/mission/command."
-  echo "  4. After the start the UUV stands by on the surface until the USV's PipelineBuoys gives the active"
-  echo "     buoy (no fallback to the YAML coordinates). Not coming? Abort:"
+  echo "  4. After the start the UUV stands by on the surface in MANUAL (standby_mode: floats, no hold) until the"
+  echo "     USV's PipelineBuoys gives the active buoy (no fallback to the YAML coordinates). Not coming? Abort:"
   echo "     There is no hydrophone: the active buoy comes only from PipelineBuoys (GREEN indicator)."
   fi
   [ "$DEBUG" = true ] && echo "  Detector view: ROS_DOMAIN_ID=40 ros2 run rqt_image_view rqt_image_view /banyu/pipeline/debug/annotated"

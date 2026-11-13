@@ -5,6 +5,8 @@
 # Starts the sim headless and MAVROS (run/launch_mavros.sh --sim) (up to 3 tries: Gazebo sometimes never finishes loading), calls prepare_autonomy,
 # sends the course and run-start from the mock GCS, records rings with their Gazebo ground truth, writes
 # <dir>/{progress.txt,sim.log,mavros.log,mock_gcs.jsonl,rings.jsonl} and stops everything it started.
+# Runs on ROS_DOMAIN_ID ${TASK2_SIM_DOMAIN:-41}, never the real UUV's 40: a sim (and its mock GCS run start) on the robot's
+# domain joins the real vehicle's graph over the network.
 # (no set -u: the ROS setup scripts use unset variables)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
@@ -26,7 +28,9 @@ done
 [ -n "$OUT" ] || { echo "--out is required" >&2; exit 1; }
 mkdir -p "$OUT"
 source /opt/ros/jazzy/setup.bash && source "${WS_DIR}/install/setup.bash"
-export ROS_DOMAIN_ID=40
+export ROS_DOMAIN_ID="${TASK2_SIM_DOMAIN:-41}"
+# Not the real UUV's domain (40), and no discovery beyond this machine either.
+export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 echo "start $(date +%T) tier=$TIER" > "$OUT/progress.txt"
 # The mock GCS course boundary is centred on the sim's GPS home.
 if [[ " ${LAUNCH_ARGS[*]} " == *" marina_bay "* ]]; then GCS_ARGS+=(--home-lat 1.2816 --home-lon 103.8636); fi
@@ -37,7 +41,7 @@ for RUN in 1 2 3; do
   for ATTEMPT in 1 2 3; do
     "${SCRIPT_DIR}/../run/launch_task2.sh" --sim "$MODE" --no-clean --tier "$TIER" "${GATE[@]}" "${LAUNCH_ARGS[@]}" \
       > "$OUT/sim.log" 2>&1 &
-    # No launch file starts MAVROS; the cleanup stops it with the rest of the domain-40 processes.
+    # No launch file starts MAVROS; the cleanup stops it with the rest of the sim domain's processes.
     "${SCRIPT_DIR}/../run/launch_mavros.sh" --sim > "$OUT/mavros.log" 2>&1 &
     for _ in $(seq 1 30); do
       sleep 6

@@ -21,6 +21,8 @@
         <RequireVehicleReady />
         <!-- Stand by on the surface until the USV's buoys arrive; abort to stop. -->
         <WaitForBuoyTarget />
+        <!-- Waited in standby_mode (MANUAL: floats, no hold pushing the hull under); now the surface mode (no-op if the same). -->
+        <SetFcuMode mode="{surface_mode}" timeout_s="60" />
         <!-- A transit that does not arrive in time ends there: the test goes on from where the vehicle is. -->
         <ForceSuccess>
           <Timeout msec="{test_transit_timeout_ms}">

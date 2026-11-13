@@ -49,6 +49,13 @@ FS_EKF_ACTION 0
 # Mission abort and failure fallback (fallback_mode, Task 2: MANUAL) is managed onboard by banyu_mission.
 FS_GCS_ENABLE 0
 
+# RC failsafe: 1 = neutral sticks once no receiver frame arrives for RC_FS_TIMEOUT (1 s).
+# With 0 ArduSub keeps the last stick values when the TX16S link drops, so a MANUAL drive
+# keeps thrusting. Never 2 (SURFACE): the link is always lost under water, which would end
+# every GUIDED dive. Does not block arming (AP_Arming::rc_arm_checks skips during failsafe);
+# MAVROS RC override (POR ALT_HOLD) counts as RC input and clears it.
+FS_THR_ENABLE 1
+
 # GCS sysid allowed to send RC override / MANUAL_CONTROL. MAVROS uses system_id 255
 # (mavros_config.yaml); any other value makes ArduSub ignore every POR stick command.
 MAV_GCS_SYSID 255

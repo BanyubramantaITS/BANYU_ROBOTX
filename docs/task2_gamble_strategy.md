@@ -13,7 +13,8 @@ BT: `banyu_mission/bt/task2_gamble_mission.xml`; parameters: `banyu_bringup/conf
 2. Switch to ALT_HOLD and dive to `mission.gamble.depth_m` on the Bar30 (ends within `depth_tolerance_m` for 0.5 s, or after
    `dive_timeout_s`), settle, then fly forward and back, sway left and right, yaw left and right, each leg timed and holding the
    depth, with `settle_s` between legs. The surge and sway legs hold the heading the leg started with (`timed_move.heading_hold`).
-3. Surface (Bar30 depth, a GPS fix as the second proof).
+3. Rise to the surface by the Bar30 depth (`Surface`). After a Bar30 fault the depth is invalid and `Surface` rises blind
+   (`control.surface_blind_rise_rate_mps`) until its time limit.
 4. Send the best-effort Core survey: the active buoy position and one RED at the chosen position, GREEN for the rest.
 
 A failed navigation or dive does not stop the report: the tree still surfaces and reports.
@@ -34,11 +35,12 @@ report order), so the physical node depends on which buoy is active. Values othe
 
 | Sensor | Used for |
 |---|---|
-| RTK GPS | Navigation to the buoy midpoint, proof of the surface |
+| RTK GPS | Navigation to the buoy midpoint |
+| Bar30 | Depth for surfacing |
 | Pixhawk compass | Heading |
 | Pixhawk IMU | Attitude (ALT_HOLD) |
 | Bar30 | Dive depth and depth hold, surfacing |
-| Bottom camera, hydrophone, DVL | Not used for any decision |
+| Bottom camera, hydrophone | Not used for any decision |
 
 It also needs the communications link: the active buoy from the USV or UAV, and the report to RoboCommand.
 

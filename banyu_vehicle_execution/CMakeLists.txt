@@ -18,6 +18,7 @@ find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(unique_identifier_msgs REQUIRED)
+find_package(rx_msgs REQUIRED)
 
 add_library(${PROJECT_NAME}
   src/command_encoder.cpp
@@ -49,7 +50,8 @@ ament_target_dependencies(${PROJECT_NAME}
   geometry_msgs
   sensor_msgs
   std_msgs
-  unique_identifier_msgs)
+  unique_identifier_msgs
+  rx_msgs)
 
 add_executable(vehicle_execution_node src/main.cpp)
 target_compile_features(vehicle_execution_node PUBLIC cxx_std_17)
@@ -63,7 +65,8 @@ ament_target_dependencies(vehicle_execution_node
   geometry_msgs
   sensor_msgs
   std_msgs
-  unique_identifier_msgs)
+  unique_identifier_msgs
+  rx_msgs)
 
 install(DIRECTORY include/ DESTINATION include)
 
@@ -102,7 +105,8 @@ ament_export_dependencies(
   geometry_msgs
   sensor_msgs
   std_msgs
-  unique_identifier_msgs)
+  unique_identifier_msgs
+  rx_msgs)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
@@ -119,13 +123,14 @@ if(BUILD_TESTING)
     geometry_msgs
     sensor_msgs
     std_msgs
-    unique_identifier_msgs)
+    unique_identifier_msgs
+    rx_msgs)
 
   ament_add_gtest(test_task4_zones test/test_task4_zones.cpp ENV ROS_DOMAIN_ID=42)
   target_link_libraries(test_task4_zones ${PROJECT_NAME})
   target_compile_features(test_task4_zones PUBLIC cxx_std_17)
   target_include_directories(test_task4_zones PRIVATE include)
-  ament_target_dependencies(test_task4_zones rclcpp rclcpp_action banyu_msgs mavros_msgs geometry_msgs sensor_msgs)
+  ament_target_dependencies(test_task4_zones rclcpp rclcpp_action banyu_msgs mavros_msgs geometry_msgs sensor_msgs rx_msgs)
 
   ament_add_gtest(test_run_authorization test/test_run_authorization.cpp)
   target_link_libraries(test_run_authorization ${PROJECT_NAME})

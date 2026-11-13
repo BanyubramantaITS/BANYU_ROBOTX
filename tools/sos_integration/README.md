@@ -11,6 +11,7 @@ These are test tools, not part of the vehicle software. Interface spec: `docs/gc
 | `sim_supervisor.py` | ROS, domain 40 | Sim-only neutral supervisor RC (`/sim/supervisor_rc`) and lifecycle/course/command/buoy log |
 | `mock_gcs.py` | ROS, domain 10 | ROS-only GCS and UAV stand-in for Task 2: scripted `rx_msgs/Command`s (`run-start`, `uav-go`, `delivery:RED:GREEN`, `mission-done`, `command_seq` always increasing), logs the UUV's survey and `ResourceDelivery`, relays it to the UAV as `CMD_DELIVERY`, echoes it as a mock UAV, and checks it against `--expect-*` (exit code 0 = pass) |
 | `mock_usv.py` | ROS, domain 10 (or 40) | Stand-in for the USV's Task 2 `rx_msgs/PipelineBuoys` feed (staged buoy A, then both) |
+| `mock_uav_safe_passage.py` | ROS, domain 40 | Sim stand-in for the UAV's Task 1 `rx_msgs/SafePassage` buoy field (the 2026-11-12 trial's first message, 8 buoys; publishes the later 5- and 6-buoy subsets mid-transit like the real UAV); prints the UUV's closest clearance per buoy |
 | `rc_host_scenario.py` | ROS + robocommand-rx-ui-itsn | Presses the RoboCommand host console's buttons: course, two runs, End run, GCS `new_run`, **Reset run ID & seq**; screenshots and JSONL |
 
 The GCS venv needs PyYAML for `rclpy` (`pip install pyyaml`); numpy is taken from the system.

@@ -18,6 +18,8 @@
         <RequireVehicleReady />
         <!-- Stand by on the surface until the USV's buoys arrive; abort to stop. -->
         <WaitForBuoyTarget />
+        <!-- Waited in standby_mode (MANUAL: floats, no hold pushing the hull under); now the surface mode (no-op if the same). -->
+        <SetFcuMode mode="{surface_mode}" timeout_s="60" />
         <!-- A transit that does not arrive in time ends there: the test goes on from where the
         vehicle is. -->
         <ForceSuccess>
@@ -83,6 +85,10 @@
         </ForceSuccess>
         <GiveUpSurvey />
         <Surface target_depth="{surface_depth}" depth_tolerance="{surface_tolerance}" />
+        <!-- Back to the surface mode (STABILIZE): no depth hold pushing the hull under. -->
+        <ForceSuccess>
+          <SetFcuMode mode="{surface_mode}" timeout_s="10" />
+        </ForceSuccess>
         <ConfirmSurfaceAction />
         <Timeout msec="15000">
           <PublishPipelineSurvey best_effort="true" timeout_s="15.0" />

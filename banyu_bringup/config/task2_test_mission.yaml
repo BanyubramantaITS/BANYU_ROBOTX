@@ -4,8 +4,9 @@
 # buoy, dives to mission.test.depth_m, flies timed forward (toward the end buoy) and backward legs holding that depth,
 # surfaces and sends the best-effort Core survey. With only the start buoy it dives buoy_standoff_m inside it, like the
 # real run. mission.launch.py loads it last.
-# No GUIDED anywhere (this AUV gets no position hold from ArduSub): STABILIZE on the surface (floats, needs no position),
-# ALT_HOLD under water, every command as RC override sticks. The four nodes must list the same modes.
+# No GUIDED anywhere (this AUV gets no position hold from ArduSub): waits for the buoys in MANUAL (task2_params.yaml
+# standby_mode: the hull floats and keeps the link), STABILIZE driving on the surface, ALT_HOLD under water, every command
+# as RC override sticks. The four nodes must list the same modes.
 banyu_mission:
   ros__parameters:
     autonomy_mode: "STABILIZE,ALT_HOLD"
@@ -29,6 +30,9 @@ vehicle_execution_node:
     control:
       autonomy_mode: "STABILIZE,ALT_HOLD"
       output_mode: "rc_override"
+    # Venue trial: never move on the surface without the GCS course boundary (task2_params.yaml fence.*).
+    fence:
+      required: true
     # The legs keep the heading the vehicle had when the leg started.
     timed_move:
       heading_hold:

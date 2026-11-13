@@ -49,7 +49,9 @@ private:
   std::string last_rejection_;
   uint64_t published_target_revision_{0};
   double uav_buoy_radius_m_{1.2};
-  std::optional<rx_msgs::msg::SafePassage> safe_passage_;
+  bool safe_passage_received_{false};
+  UavBuoyField uav_field_;
+  std::string course_id_;
   std::vector<rx_msgs::msg::LatLng> course_boundary_;
 
   rclcpp::Publisher<banyu_msgs::msg::Task2BuoyTarget>::SharedPtr target_pub_;

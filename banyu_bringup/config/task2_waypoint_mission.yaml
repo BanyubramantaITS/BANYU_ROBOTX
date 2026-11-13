@@ -5,7 +5,8 @@
 #
 # Auto-start on SB Up is enabled: flicking SB to AUTO starts the run automatically (also accepts GCS CMD_RUN_START).
 # No diving is performed; vehicle stays safely on the surface throughout.
-# STABILIZE on the surface, ALT_HOLD under water, commands as RC override sticks.
+# Waits for the buoys in MANUAL (task2_params.yaml standby_mode: the hull floats and keeps the link), STABILIZE driving
+# on the surface, ALT_HOLD under water, commands as RC override sticks.
 banyu_mission:
   ros__parameters:
     autonomy_mode: "STABILIZE,ALT_HOLD"
@@ -21,6 +22,9 @@ vehicle_execution_node:
     control:
       autonomy_mode: "STABILIZE,ALT_HOLD"
       output_mode: "rc_override"
+    # Venue trial: never move on the surface without the GCS course boundary (task2_params.yaml fence.*).
+    fence:
+      required: true
 banyu_vehicle_status:
   ros__parameters:
     autonomy_mode: "STABILIZE,ALT_HOLD"

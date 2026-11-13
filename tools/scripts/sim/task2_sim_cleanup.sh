@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # SIMULATION ONLY: stop every process of a Task 2 sim run. `ros2 launch` leaves banyu_mission, gz,
 # mavros_node and ardusub alive after SIGINT, and a stale banyu_mission holds the Groot2 port and kills
-# the next run. Everything started for the sim carries ROS_DOMAIN_ID=40 in its environment (the UUV domain).
-case "$1" in -h|--help) sed -n 2,4p "$0"; exit 0 ;; esac
+# the next run. Everything started for the sim carries ROS_DOMAIN_ID=$TASK2_SIM_DOMAIN (default 41, not the real UUV's 40)
+# in its environment.
+case "$1" in -h|--help) sed -n 2,5p "$0"; exit 0 ;; esac
 me=$$
-mark='ROS_DOMAIN_ID=40'
+mark="ROS_DOMAIN_ID=${TASK2_SIM_DOMAIN:-41}"
 sig() {
   for d in /proc/[0-9]*; do
     pid=${d#/proc/}
