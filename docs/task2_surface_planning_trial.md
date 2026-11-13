@@ -121,11 +121,17 @@ B5) form a wall of overlapping discs between it and the dive point.
   buoys known, as the fix keeps them, it goes round the wall and arrives (28.5 m for 22 m straight, closest 2.05 m
   from a buoy centre). Fed what the Gazebo run got (5 buoys, B4 and B7 added while it was in the gap, no B2) the same
   node passes 0.34 m from B2 and wanders 41 m: the dithering came from the field the clear left, not the tuning.
+- Gazebo rerun with the fix (same setup): `pipeline_buoys_node` kept all 8 buoys through the course and the run start
+  while the mock sent only the 5- and 6-buoy subsets. The transit went east of B2 (2.06 m from its centre), through
+  the B7-B5 gap (1.95 m from B5, the keep-out edge) and round to the dive point, about 27 m for 22 m straight, in one
+  sweep with no dithering; `NavigateSurfaceGps`, `AlignHeading`, `DiveToDepth` and `AcquirePipeline` SUCCESS. Closest
+  approach per buoy (m): B0 7.56, B1 2.45, B2 2.06, B3 2.14, B4 2.61, B5 1.95, B6 4.20, B7 2.39.
 
 ## Still open
 
-- Rerun the 8-buoy Gazebo check with the course fix (the closed-loop node test arrives; Gazebo adds the real
-  vehicle dynamics).
+- The B7-B5 gap (4.5 m between centres) is passable at the keep-out edge: with a real receiver bias near 1 m the
+  hull passes about 1 m from B5. The next trial's measured bias decides whether the planner should treat such a gap
+  as closed.
 - A field that grows mid-transit (buoys the UUV never heard, added by a late message) still makes the planner wander
   through the gap it was already in.
 
