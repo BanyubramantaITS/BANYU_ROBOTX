@@ -60,7 +60,7 @@ banyu_mission:
       # The dive point must be on the buoy line: a transit that ends from the side (a detour around a buoy) stopped
       # 0.8 m off it with 1.0 m and the camera missed the first nodes. RTK GPS is far better than this; the limit on the
       # robot is the buoy position error (USV uncertainty_m), not the vehicle fix.
-      gps_tolerance_m: 0.4
+      gps_tolerance_m: 0.3
       max_retries: 3
       camera_name: "bottom_camera"
       acquire_timeout_s: 15.0
