@@ -48,7 +48,9 @@ ROS_DOMAIN_ID=40 ./tools/scripts/run/task2_test_waypoint.py <start LAT> <start L
 5. prints the lifecycle, the UUV heartbeat (position, depth) and the `PipelineSurvey` when the AUV sends it.
 
 No transmitter: launch with `launch_task2.sh --real --test-mission --no-rc` and send the software SB Up before the
-tool (`ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '2'}"`; `'1'` manual, `'0'` kill). There
+tool (`ros2 service call /banyu/trigger/command banyu_msgs/srv/TriggerCommand "{command: '2'}"`; `'1'` manual, `'0'`
+kill; the reply says whether it was taken. `ros2 topic pub --once` often exits before discovery on the Pi and the
+command is lost). There
 is no stick takeover then: stop with `'0'`, the abort service or the physical kill switch.
 
 When the real GCS or USV is on the link, use `--no-start` or leave out the buoys; the tool leaves the course to the GCS

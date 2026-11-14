@@ -190,8 +190,8 @@ class TestWaypoint(Node):
         if s is None:
             return 'waiting for /banyu/vehicle_status (stack running? ROS_DOMAIN_ID 40?)'
         mode = {0: 'KILL (SB Down)', 1: 'MANUAL (SB Mid)', 2: 'AUTO (SB Up)'}.get(s.operational_mode, '?')
-        return (f"waiting for SB Up (no RC: ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "
-                f"\"{{data: '2'}}\"): switch {mode}, armed {s.armed}, FCU mode {s.mode}, rc_fresh {s.rc_fresh}, "
+        return (f"waiting for SB Up (no RC: ros2 service call /banyu/trigger/command banyu_msgs/srv/TriggerCommand "
+                f"\"{{command: '2'}}\"): switch {mode}, armed {s.armed}, FCU mode {s.mode}, rc_fresh {s.rc_fresh}, "
                 f"gps {s.gps_valid and s.gps_fresh}")
 
     def auto_ready(self):
