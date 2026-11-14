@@ -25,7 +25,7 @@ banyu_teleop:
     # Prepare autonomy (SH = CH5 = index 4, momentary: released -100 % ~1000, pressed +100 % ~2000):
     # a press while SB is Up calls prepare_service (Task 2 depth datum + run window); ignored with SB
     # Mid/Down, and the mission rejects it during a run. -1 disables. Keep RC5_OPTION 0 on the Pixhawk.
-    prepare_channel: 4
+    prepare_channel: 6
     prepare_service: "/banyu/mission/prepare_autonomy"
 
     # 3-position switch band thresholds (shared by mode and kill switches).
@@ -37,28 +37,28 @@ banyu_teleop:
 
     # ESP32 kill-switch indicator (indikator_banyu.ino): lines its0 manual / its1 auto /
     # its2 emergency, mapped from operational_mode and resent every indicator_resend_period_s.
-    serial_port: "/dev/esp32_kill"   # udev symlink, tools/udev/99-banyu.rules
+    serial_port: "/dev/esp32_kill" # udev symlink, tools/udev/99-banyu.rules
     serial_baud: 115200
     # The board reports its2 while its physical kill input is active: teleop then disarms and holds
     # kill until it is released, then returns to the current SB position (with RC lost at the
     # release it holds kill until SB Down). Set false only for land tests with the input unwired.
     use_hardware_kill: true
-    kill_report_timeout_s: 1.5     # no report for this long -> error log (kill not monitored)
-    kill_report_grace_s: 0.3       # ignore reports this soon after a mode change
+    kill_report_timeout_s: 1.5 # no report for this long -> error log (kill not monitored)
+    kill_report_grace_s: 0.3 # ignore reports this soon after a mode change
     indicator_resend_period_s: 1.0
-    rc_timeout_s: 3.0              # no RC with the SB channel for this long -> RC counts as lost
+    rc_timeout_s: 3.0 # no RC with the SB channel for this long -> RC counts as lost
     kill_switch_board_topic: "/banyu/hardware/kill_switch_board"
 
     # Automatic light control on AUX output (MAV_CMD_DO_SET_SERVO = 183)
     # Turns ON in Manual (SB Mid) or Autonomous (SB Up), and OFF on Disarm/Kill (SB Down/disarm).
     light_enabled: true
-    light_channel: 9               # AUX 1 / SERVO 9 (1-based instance)
-    light_on_pwm: 1900.0           # PWM value for full brightness
-    light_off_pwm: 1100.0          # PWM value for off
+    light_channel: 9 # AUX 1 / SERVO 9 (1-based instance)
+    light_on_pwm: 1900.0 # PWM value for full brightness
+    light_off_pwm: 1100.0 # PWM value for off
     command_service: "/mavros/cmd/command"
 
     # Mock ESP32 Auto/Mission Mode (land testing)
-    enable_mock_auto: false   # land test only: SB Up spins all thrusters; never true for a mission
+    enable_mock_auto: false # land test only: SB Up spins all thrusters; never true for a mission
     mock_auto_flight_mode: "MANUAL"
     mock_auto_publish_rate_hz: 20.0
     mock_auto_forward_pwm: 1540
