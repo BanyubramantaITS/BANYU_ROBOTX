@@ -134,8 +134,10 @@ Both targets:
                         Dives at the midpoint unless --dive-point buoy is given (--dive-point auto).
   --no-rc               --real: no transmitter. Teleop off, esp32_trigger_node on, bypass_rc:=True: the mode is
                         set in software instead of SB (MANUAL until the first command):
-                          ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '2'}"   (= SB Up)
-                          ... "{data: '1'}" = SB Mid (Pixhawk MANUAL, armed), "{data: '0'}" = SB Down
+                          ros2 service call /banyu/trigger/command banyu_msgs/srv/TriggerCommand "{command: '2'}"
+                          (= SB Up; the reply says whether it was taken. Not 'topic pub --once': on the
+                          loaded Pi it often exits before discovery and the command is lost.)
+                          ... "{command: '1'}" = SB Mid (Pixhawk MANUAL, armed), "{command: '0'}" = SB Down
                           (Pixhawk MANUAL, disarmed); '2' leaves the Pixhawk mode to the mission.
                         Without RC there is no stick takeover: stop with '0', the abort service or the
                         physical kill switch.
@@ -399,7 +401,7 @@ echo "use_gps           : $(TF $USE_GPS)"
 echo "Tier              : $([ "$TARGET" = real ] && [ "$TIER_SET" != true ] && echo core || echo "$TIER")"
 echo "Mission           : $([ "$WAYPOINT_MISSION" = true ] && echo "WAYPOINT (midpoint GPS transit, align heading, send reports to UAV/GCS; task2_waypoint_mission.yaml)" || ([ "$TEST_MISSION" = true ] && echo "TEST (midpoint by GPS, face the end buoy, 1 m dive, timed forward/backward legs, surface, Core report; task2_test_mission.yaml)" || echo "survey (banyu_mission.xml$([ "$SENSORS" = gamble ] && echo ", gamble tree"))"))"
 [ "$WAYPOINT_MISSION" = true ] && echo "Run start         : $([ "$AUTO_START" = true ] && echo "SB Up starts the run itself (run 1; RoboCommand's Run Start is rejected; --no-auto-start)" || echo "prepare_autonomy + GCS CMD_RUN_START (RoboCommand's run); SB Up does not start it")"
-[ "$TARGET" = real ] && echo "RC / mode switch   : $([ "$NO_RC" = true ] && echo "NO RC: mode from /banyu/trigger/cmd ('2' auto, '1' manual, '0' kill); MANUAL until set" || echo "TX16S, SB (teleop)")"
+[ "$TARGET" = real ] && echo "RC / mode switch   : $([ "$NO_RC" = true ] && echo "NO RC: mode from the /banyu/trigger/command service ('2' auto, '1' manual, '0' kill); MANUAL until set" || echo "TX16S, SB (teleop)")"
 echo "Detector debug    : $([ "$DEBUG" = true ] && echo "ON (windows where there is a display; topics /banyu/pipeline/debug/*)" || echo "off (--debug)")"
 echo "Sensors           : $SENSORS$([ "$SENSORS" = baro ] && echo " (Bar30 + ALT_HOLD; dive stops by camera at the pipe, order dead-reckoned)")$([ "$SENSORS" = gamble ] && echo " (GPS to the dive point, Bar30 dive + timed surge/sway/yaw legs, GUESSED light order, RED at position ${GAMBLE_RED}; no survey is done)")"
 if [ "$WAYPOINT_MISSION" = true ]; then
@@ -644,9 +646,10 @@ else
   echo "Operator Instructions (Task 2, real AUV):"
   if [ "$NO_RC" = true ]; then
   echo "  NO RC: wherever these steps say SB, use (ROS_DOMAIN_ID=40):"
-  echo "    SB Up   : ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String \"{data: '2'}\""
-  echo "    SB Mid  : ... \"{data: '1'}\" (Pixhawk MANUAL, armed)    SB Down: ... \"{data: '0'}\" (MANUAL, disarmed)"
-  echo "    No stick takeover without RC. Physical kill switch: send '0' to acknowledge before '2' again."
+  echo "    SB Up   : ros2 service call /banyu/trigger/command banyu_msgs/srv/TriggerCommand \"{command: '2'}\""
+  echo "    SB Mid  : ... \"{command: '1'}\" (Pixhawk MANUAL, armed)    SB Down: ... \"{command: '0'}\" (MANUAL, disarmed)"
+  echo "    Check the reply (success: true). Do not use 'topic pub --once': it often loses the command."
+  echo "    No stick takeover without RC. Physical kill switch: back in = MANUAL; send '2' again for AUTO."
   fi
   echo "  1. UUV side runs on ROS_DOMAIN_ID 40 (export ROS_DOMAIN_ID=40 in this shell and in"
   echo "     any shell you use to call services); the GCS side uses its own domain."
