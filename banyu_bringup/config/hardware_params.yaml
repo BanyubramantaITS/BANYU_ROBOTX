@@ -34,8 +34,15 @@ bottom_camera:
     camera_name: "bottom_camera"
     camera_info_url: "package://banyu_bringup/config/bottom_camera_info.yaml"
 
-# Physical AUV camera mounting overrides (applied when use_sim == False): update ring_tracker camera geometry to match
-# the physical bottom-camera mounting on the sub. The buoys come only from the USV (PipelineBuoys), never from here.
+# Physical AUV overrides (applied when use_sim == False): pool depths and the bottom-camera mounting for ring_tracker.
+# The buoys come only from the USV (PipelineBuoys), never from here.
+banyu_mission:
+  ros__parameters:
+    mission:
+      # Real pool depths; task2_params.yaml keeps the sim world's 12.5 / 13.9.
+      inspection_depth_m: 2.5
+      repair_depth_m: 3.0
+
 ring_tracker:
   ros__parameters:
     camera_height_m: 1.7
