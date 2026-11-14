@@ -2,7 +2,7 @@
 # RC transmitter (TX16S) teleop: RC switch handling for the BANYU ROV.
 # Thrust is driven natively by ArduSub via RCMAP; this node handles
 # arm/disarm, flight-mode, the ESP32 kill switch, and mock auto/mission mode.
-# Note: SF switch is unmapped. Pixhawk arm/disarm is unified with ESP32 kill switch on SB.
+# Pixhawk arm/disarm is unified with ESP32 kill switch on SB; SH (momentary) prepares autonomy.
 banyu_teleop:
   ros__parameters:
     rc_topic: "/mavros/rc/in"
@@ -21,6 +21,12 @@ banyu_teleop:
     # 1500 (Mid) = manual(1), automatically arms Pixhawk, allows gimbals & SC flight mode changes.
     # 2000 (Down)= kill/disarmed(0), disarms both ESP32 kill switch and Pixhawk.
     kill_channel: 5
+
+    # Prepare autonomy (SH = CH5 = index 4, momentary: released -100 % ~1000, pressed +100 % ~2000):
+    # a press while SB is Up calls prepare_service (Task 2 depth datum + run window); ignored with SB
+    # Mid/Down, and the mission rejects it during a run. -1 disables. Keep RC5_OPTION 0 on the Pixhawk.
+    prepare_channel: 4
+    prepare_service: "/banyu/mission/prepare_autonomy"
 
     # 3-position switch band thresholds (shared by mode and kill switches).
     switch_low_threshold: 1200.0

@@ -9,6 +9,7 @@
 #include <mavros_msgs/srv/set_mode.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/u_int8.hpp>
+#include <std_srvs/srv/trigger.hpp>
 
 #include <boost/asio.hpp>
 
@@ -50,6 +51,8 @@ private:
   void handleModeSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg);
   void handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg);
   void handleGimbalInput(const mavros_msgs::msg::RCIn::SharedPtr & msg);
+  void handlePrepareSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg);
+  void requestPrepareAutonomy();
   bool isGimbalDeflected(const mavros_msgs::msg::RCIn::SharedPtr & msg) const;
   void publishNeutralGimbalOverride();
   void publishReleaseOverride();
@@ -83,6 +86,7 @@ private:
   rclcpp::Client<mavros_msgs::srv::CommandBool>::SharedPtr _armingClient;
   rclcpp::Client<mavros_msgs::srv::CommandLong>::SharedPtr _commandClient;
   rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr _setModeClient;
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr _prepareClient;
   rclcpp::TimerBase::SharedPtr _mockAutoTimer;
   rclcpp::TimerBase::SharedPtr _indicatorTimer;
 
@@ -108,6 +112,14 @@ private:
   double _switchLowThreshold = 1200.0;
   double _switchHighThreshold = 1750.0;
   double _gimbalDeadband = 50.0;
+
+  // Momentary SH: a press (low -> high) with SB Up calls the mission's prepare_autonomy.
+  int _prepareChannel = 4;
+  std::string _prepareService = "/banyu/mission/prepare_autonomy";
+  bool _prepareSwitchInitialized = false;
+  bool _prepareSwitchPressed = false;
+  bool _preparePending = false;
+  rclcpp::Time _prepareRequestedAt{0, 0, RCL_STEADY_TIME};
 
   std::string _serialDevice = "/dev/esp32_kill";
   int _serialBaud = 115200;

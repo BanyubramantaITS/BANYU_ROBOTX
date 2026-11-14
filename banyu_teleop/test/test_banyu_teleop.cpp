@@ -8,6 +8,7 @@
 #include <mavros_msgs/srv/command_long.hpp>
 #include <mavros_msgs/srv/set_mode.hpp>
 #include <std_msgs/msg/u_int8.hpp>
+#include <std_srvs/srv/trigger.hpp>
 
 #include "banyu_teleop/banyu_teleop.hpp"
 #include "banyu_teleop/esp32_indicator.hpp"
@@ -537,7 +538,8 @@ TEST_F(BanyuTeleopTest, GimbalInputRejectedInAutonomousMode)
   EXPECT_EQ(last_override.channels[1], 1500);
   EXPECT_EQ(last_override.channels[2], 1500);
   EXPECT_EQ(last_override.channels[3], 1500);
-  EXPECT_EQ(last_override.channels[4], 1500);
+  // Switch channels (SH CH5, SB CH6, SC CH8) are never overridden.
+  EXPECT_EQ(last_override.channels[4], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
   EXPECT_EQ(last_override.channels[5], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
   EXPECT_EQ(last_override.channels[7], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
 
@@ -881,4 +883,65 @@ TEST_F(BanyuTeleopTest, AutomaticLightControlWithOperationalModeAndDisarm)
   EXPECT_EQ(light_calls.back().first, 9.0f);
   EXPECT_EQ(light_calls.back().second, 1100.0f);
   EXPECT_FALSE(teleop->isLightOn());
+}
+
+TEST_F(BanyuTeleopTest, ShPressPreparesAutonomyOnlyWithSbUp)
+{
+  const std::string service = "/test_sh/prepare_autonomy";
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"serial_port", "none"},
+    {"prepare_channel", 4},
+    {"prepare_service", service},
+  });
+  auto teleop = std::make_shared<banyu_teleop::BanyuTeleop>(options);
+
+  int calls = 0;
+  auto prepare = test_node_->create_service<std_srvs::srv::Trigger>(
+    service,
+    [&](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+    std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+      ++calls;
+      response->success = true;
+    });
+
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(test_node_);
+  exec.add_node(teleop);
+  auto spin = [&]() {
+      for (int i = 0; i < 20; ++i) {
+        exec.spin_some();
+        std::this_thread::sleep_for(10ms);
+      }
+    };
+  // SB is CH6 (index 5), SH is CH5 (index 4).
+  auto rc = [&](uint16_t sb, uint16_t sf) {
+      auto msg = std::make_shared<mavros_msgs::msg::RCIn>();
+      msg->channels = {1500, 1500, 1500, 1500, sf, sb, 1500, 1500};
+      teleop->rcinCallback(msg);
+      spin();
+    };
+  const uint16_t up = 1000, mid = 1500, released = 1000, pressed = 2000;
+  spin();
+
+  // SH already held at startup is not a press.
+  rc(up, pressed);
+  rc(up, pressed);
+  EXPECT_EQ(calls, 0);
+
+  // A press with SB Mid is rejected.
+  rc(mid, released);
+  rc(mid, pressed);
+  EXPECT_EQ(calls, 0);
+
+  // A press with SB Up calls once; holding does not repeat.
+  rc(up, released);
+  rc(up, pressed);
+  rc(up, pressed);
+  EXPECT_EQ(calls, 1);
+
+  // Release and press again calls again.
+  rc(up, released);
+  rc(up, pressed);
+  EXPECT_EQ(calls, 2);
 }

@@ -352,6 +352,8 @@ for path in sys.argv[1:3]:
 teleop = yaml.safe_load(open(sys.argv[3]))["banyu_teleop"]["ros__parameters"]
 switches = {"SB (kill/arm)": teleop.get("kill_channel", 5) + 1,
             "SC (flight mode)": teleop.get("mode_channel", 7) + 1}
+if teleop.get("prepare_channel", 4) >= 0:
+    switches["SH (prepare)"] = teleop.get("prepare_channel", 4) + 1
 for name, ch in switches.items():
     for key in ("channel_forward", "channel_lateral", "channel_throttle", "channel_yaw"):
         if rc.get(key) == ch:
@@ -651,7 +653,7 @@ else
   if [ "$WAYPOINT_MISSION" = true ]; then
   echo "  2. WAYPOINT test mission:"
   if [ "$AUTO_START" = false ]; then
-  echo "     - No auto-start: flick SB Up (AUTO), then ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger \"{}\""
+  echo "     - No auto-start: flick SB Up (AUTO), then press SH$([ "$NO_RC" = true ] && echo " (no RC: ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger \"{}\")")"
   echo "       and wait for READY; the run starts on RoboCommand's Run Start (GCS CMD_RUN_START). Buoys without the USV:"
   echo "       ROS_DOMAIN_ID=40 ./tools/scripts/run/task2_test_waypoint.py <start LAT> <LON> --end <end LAT> <LON> --no-start --no-course"
   fi
@@ -673,7 +675,13 @@ else
   echo "     prints it when the link is back."
   echo "     SB Mid/Down at any time takes over (MANUAL/KILL)."
   else
+  if [ "$NO_RC" = true ]; then
   echo "  2. Prepare autonomy: ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger \"{}\""
+  else
+  echo "  2. Prepare autonomy, vehicle floating free: SB Up, then press SH (ignored unless SB is Up, and"
+  echo "     during a run). Result in the banyu_teleop log; the service call still works:"
+  echo "       ros2 service call /banyu/mission/prepare_autonomy std_srvs/srv/Trigger \"{}\""
+  fi
   echo "  3. The run does NOT start from /banyu/mission/start. It starts only when the GCS sends"
   echo "     CMD_RUN_START on /system/mission/command."
   echo "  4. After the start the UUV stands by on the surface in MANUAL (standby_mode: floats, no hold) until the"

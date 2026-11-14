@@ -54,6 +54,8 @@ void BanyuTeleop::declareParameters()
   this->declare_parameter<double>("switch_low_threshold", 1200.0);
   this->declare_parameter<double>("switch_high_threshold", 1750.0);
   this->declare_parameter<double>("gimbal_deadband", 50.0);
+  this->declare_parameter<int>("prepare_channel", 4);
+  this->declare_parameter<std::string>("prepare_service", "/banyu/mission/prepare_autonomy");
 
   this->declare_parameter<std::string>("kill_switch_board_topic",
     "/banyu/hardware/kill_switch_board");
@@ -105,6 +107,8 @@ void BanyuTeleop::declareParameters()
   this->get_parameter("switch_low_threshold", _switchLowThreshold);
   this->get_parameter("switch_high_threshold", _switchHighThreshold);
   this->get_parameter("gimbal_deadband", _gimbalDeadband);
+  this->get_parameter("prepare_channel", _prepareChannel);
+  this->get_parameter("prepare_service", _prepareService);
 
   this->get_parameter("kill_switch_board_topic", _killBoardTopic);
   this->get_parameter("serial_port", _serialDevice);
@@ -144,8 +148,9 @@ void BanyuTeleop::declareParameters()
 
   RCLCPP_INFO(this->get_logger(), "RC input: %s", _rcTopic.c_str());
   RCLCPP_INFO(
-    this->get_logger(), "Switches - mode (SC):%d kill/arm (SB):%d (low<%.0f, high>%.0f)",
-    _modeChannel, _killChannel, _switchLowThreshold, _switchHighThreshold);
+    this->get_logger(),
+    "Switches - mode (SC):%d kill/arm (SB):%d prepare (SH):%d (low<%.0f, high>%.0f)",
+    _modeChannel, _killChannel, _prepareChannel, _switchLowThreshold, _switchHighThreshold);
   warnOnSwitchChannelOverlap();
 }
 
@@ -157,7 +162,8 @@ void BanyuTeleop::warnOnSwitchChannelOverlap()
     {"pitch", _pitchChannel}, {"roll", _rollChannel}, {"throttle", _throttleChannel},
     {"yaw", _yawChannel}, {"forward", _forwardChannel}, {"lateral", _lateralChannel}};
   const std::pair<const char *, int> switches[] = {
-    {"kill/arm (SB)", _killChannel}, {"flight mode (SC)", _modeChannel}};
+    {"kill/arm (SB)", _killChannel}, {"flight mode (SC)", _modeChannel},
+    {"prepare (SH)", _prepareChannel}};
   for (const auto & [switch_name, switch_index] : switches) {
     for (const auto & [stick_name, stick_channel] : sticks) {
       if (switch_index + 1 == stick_channel) {
@@ -188,6 +194,7 @@ void BanyuTeleop::initCommunication()
   _armingClient = this->create_client<mavros_msgs::srv::CommandBool>("/mavros/cmd/arming");
   _commandClient = this->create_client<mavros_msgs::srv::CommandLong>(_commandService);
   _setModeClient = this->create_client<mavros_msgs::srv::SetMode>("/mavros/set_mode");
+  _prepareClient = this->create_client<std_srvs::srv::Trigger>(_prepareService);
 }
 
 void BanyuTeleop::stateCallback(const mavros_msgs::msg::State::SharedPtr msg)
@@ -539,7 +546,69 @@ void BanyuTeleop::rcinCallback(const mavros_msgs::msg::RCIn::SharedPtr msg)
   handleKillSwitch(msg);
   handleModeSwitch(msg);
   handleGimbalInput(msg);
+  handlePrepareSwitch(msg);
   _prevOperationalMode = _currentOperationalMode;
+}
+
+void BanyuTeleop::handlePrepareSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg)
+{
+  if (_prepareChannel < 0 || static_cast<size_t>(_prepareChannel) >= msg->channels.size()) {
+    return;
+  }
+  const uint16_t pwm = msg->channels[_prepareChannel];
+  bool pressed = _prepareSwitchPressed;
+  if (pwm > _switchHighThreshold) {
+    pressed = true;
+  } else if (pwm < _switchLowThreshold) {
+    pressed = false;
+  }
+  // Only a press seen from released counts: SH held at startup does nothing.
+  const bool press = _prepareSwitchInitialized && pressed && !_prepareSwitchPressed;
+  _prepareSwitchPressed = pressed;
+  _prepareSwitchInitialized = true;
+  if (!press) {
+    return;
+  }
+  if (_currentOperationalMode != 2) {
+    RCLCPP_WARN(this->get_logger(),
+      "SH prepare rejected: SB is not Up (operational_mode %u). Flick SB Up first.",
+      _currentOperationalMode);
+    return;
+  }
+  requestPrepareAutonomy();
+}
+
+void BanyuTeleop::requestPrepareAutonomy()
+{
+  // A request with no answer for this long is treated as lost (mission restarted).
+  constexpr double kPrepareResponseTimeoutS = 5.0;
+  if (_preparePending &&
+    (_steadyClock.now() - _prepareRequestedAt).seconds() < kPrepareResponseTimeoutS)
+  {
+    RCLCPP_WARN(this->get_logger(), "SH prepare ignored: the previous request is still pending.");
+    return;
+  }
+  if (!_prepareClient->service_is_ready()) {
+    RCLCPP_WARN(this->get_logger(), "SH prepare rejected: %s is not available.",
+      _prepareService.c_str());
+    return;
+  }
+  _preparePending = true;
+  _prepareRequestedAt = _steadyClock.now();
+  RCLCPP_INFO(this->get_logger(), "SH pressed with SB Up: calling %s", _prepareService.c_str());
+  // The mission itself rejects a preparation during a run, or without RC, GPS or FCU.
+  _prepareClient->async_send_request(
+    std::make_shared<std_srvs::srv::Trigger::Request>(),
+    [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+      _preparePending = false;
+      const auto response = future.get();
+      if (response->success) {
+        RCLCPP_INFO(this->get_logger(), "SH prepare accepted: %s", response->message.c_str());
+      } else {
+        RCLCPP_WARN(this->get_logger(), "SH prepare rejected by the mission: %s",
+          response->message.c_str());
+      }
+    });
 }
 
 void BanyuTeleop::startMockAutoMode()
@@ -605,7 +674,7 @@ void BanyuTeleop::mockAutoTimerCallback()
 bool BanyuTeleop::isSwitchChannel(int chan_1indexed) const
 {
   const int idx = chan_1indexed - 1;
-  return idx == _modeChannel || idx == _killChannel;
+  return idx == _modeChannel || idx == _killChannel || idx == _prepareChannel;
 }
 
 void BanyuTeleop::publishMockAutoOutputs()
