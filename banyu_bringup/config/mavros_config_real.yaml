@@ -1,0 +1,24 @@
+# Real AUV overlay on mavros_config.yaml (launch_mavros.sh --real loads it after that file).
+#
+# On the Pi the param plugin never completes the 991-parameter download: it re-sent
+# PARAM_REQUEST_LIST every 10 s (~90 PARAM_VALUE/s), and waypoint/geofence/rallypoint
+# re-requested their lists. That kept mavros_node above one core and starved the stack
+# (1 s gaps in /banyu/vehicle_status, 10-50 s arm and mode calls). Nothing on the robot uses
+# these plugins; only the sim scripts set parameters through /mavros/param/set.
+/**:
+  ros__parameters:
+    plugin_denylist:
+      - actuator_control
+      - ftp
+      - hil
+      - altitude
+      - debug_value
+      - image_pub
+      - px4flow
+      - vibration
+      - vision_speed_estimate
+      - wheel_odometry
+      - param
+      - waypoint
+      - geofence
+      - rallypoint

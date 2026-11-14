@@ -53,7 +53,12 @@ MotionIntent CenterOnRingServer::tick(
   }
 
   const auto goal = active_handle_->get_goal();
-  const bool visible = telemetry.ring_obs_valid && telemetry.ring_visible;
+  // Centre on a ring of the requested colour only: the detector reports a neighbouring GREEN ring when the RED one has
+  // slipped out of view, and descending on that one never repairs anything.
+  const uint8_t wanted = goal->ring_color == "red" ? 1 : (goal->ring_color == "green" ? 2 :
+    (goal->ring_color == "blue" ? 3 : 0));
+  const bool visible = telemetry.ring_obs_valid && telemetry.ring_visible &&
+    (wanted == 0 || telemetry.ring_color == wanted);
   const double offset_x = visible ? telemetry.ring_offset_x : 0.0;
   const double offset_y = visible ? telemetry.ring_offset_y : 0.0;
   const double alignment_error = visible ? std::hypot(offset_x, offset_y) : 1.0;

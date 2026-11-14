@@ -5,9 +5,12 @@
 #include <banyu_msgs/msg/pipeline_ring_observation.hpp>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <image_transport/image_transport.hpp>
 #include <limits>
 #include <mutex>
 #include <opencv2/highgui.hpp>
+#include <opencv2/calib3d.hpp>
 #include <opencv2/imgproc.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/image_encodings.hpp>
@@ -19,6 +22,12 @@
 #include <vector>
 
 #include "banyu_detection/pipeline_vision.hpp"
+
+// A ring found only by colour thresholds (no bright light) is weaker evidence than a lit one (0.9): in the dark half of a
+// flash it can be the green-olive water. Consumers that read the flash code ask for more than this.
+constexpr float kFallbackRingConfidenceMax = 0.8F;
+// A light seen with no pipe in view: lower than an on-pipe light, it is only a steering cue.
+constexpr float kLightCueConfidence = 0.6F;
 
 namespace task2_pipeline_detector
 {
@@ -57,6 +66,8 @@ public:
       rclcpp::SensorDataQoS());
     ring_observation_pub_ = create_publisher<banyu_msgs::msg::PipelineRingObservation>(
       ring_observation_topic_, rclcpp::SensorDataQoS());
+    light_cue_pub_ = create_publisher<banyu_msgs::msg::PipelineRingObservation>(
+      light_cue_topic_, rclcpp::SensorDataQoS());
 
     if (image_topic_.empty()) {
       throw std::invalid_argument("image_topic must not be empty");
@@ -77,14 +88,29 @@ public:
         std::bind(&Task2PipelineDetector::cameraInfoCallback, this, std::placeholders::_1));
     }
 
+    // OpenCV windows abort the node without a display (the Pi over SSH): use the debug topics there.
+    const char * display = std::getenv("DISPLAY");
+    const char * wayland = std::getenv("WAYLAND_DISPLAY");
+    if (use_gui_ && (!display || !*display) && (!wayland || !*wayland)) {
+      RCLCPP_WARN(get_logger(), "use_gui: no display, windows disabled (publish_debug_images shows the same views)");
+      use_gui_ = false;
+    }
     if (use_gui_) {
       createSlider();
     }
+    if (publish_debug_images_) {
+      debug_annotated_pub_ = image_transport::create_publisher(this, debug_topic_prefix_ + "/annotated");
+      debug_original_pub_ = image_transport::create_publisher(this, debug_topic_prefix_ + "/original");
+      debug_pipeline_mask_pub_ = image_transport::create_publisher(this, debug_topic_prefix_ + "/pipeline_mask");
+      debug_red_mask_pub_ = image_transport::create_publisher(this, debug_topic_prefix_ + "/red_mask");
+      debug_green_mask_pub_ = image_transport::create_publisher(this, debug_topic_prefix_ + "/green_mask");
+    }
 
     RCLCPP_INFO(
-      get_logger(), "task2_pipeline_detector listening on %s (GUI: %s)",
+      get_logger(), "task2_pipeline_detector listening on %s (GUI: %s, debug topics: %s)",
       (use_compressed_image_ ? image_topic_ + "/compressed" : image_topic_).c_str(),
-      use_gui_ ? "enabled" : "disabled");
+      use_gui_ ? "enabled" : "disabled",
+      publish_debug_images_ ? (debug_topic_prefix_ + "/*").c_str() : "disabled");
   }
 
   ~Task2PipelineDetector() override
@@ -98,6 +124,13 @@ private:
   void declareParameters()
   {
     use_gui_ = declare_parameter<bool>("use_gui", false);
+    publish_debug_images_ = declare_parameter<bool>("publish_debug_images", false);
+    debug_topic_prefix_ = declare_parameter<std::string>("debug_topic_prefix", "/banyu/pipeline/debug");
+    debug_rate_hz_ = declare_parameter<double>("debug_rate_hz", 5.0);
+    debug_scale_ = declare_parameter<double>("debug_scale", 0.5);
+    undistort_ = declare_parameter<bool>("undistort", true);
+    image_rotation_deg_ = declare_parameter<double>("image_rotation_deg", 0.0);
+    apply_image_rotation_ = declare_parameter<bool>("apply_image_rotation", true);
     image_topic_ = declare_parameter<std::string>("image_topic", "/front_camera/image_raw");
     use_compressed_image_ = declare_parameter<bool>("use_compressed_image", false);
     camera_info_topic_ = declare_parameter<std::string>("camera_info_topic", "/camera/camera_info");
@@ -108,6 +141,8 @@ private:
     ring_observation_topic_ = declare_parameter<std::string>(
       "ring_observation_topic",
       "/banyu/pipeline/ring_observation");
+    light_cue_topic_ = declare_parameter<std::string>(
+      "light_cue_topic", "/banyu/pipeline/light_cue");
 
     const auto rect = declare_parameter<std::vector<int64_t>>("probe_rect", std::vector<int64_t>{});
     if (rect.size() == 4) {
@@ -345,10 +380,80 @@ private:
       return;
     }
     std::lock_guard<std::mutex> lock(camera_mutex_);
+    if (camera_width_ != msg->width || camera_height_ != msg->height || camera_cx_ != msg->k[2] ||
+      camera_cy_ != msg->k[5])
+    {
+      frame_maps_dirty_ = true;
+    }
     camera_width_ = msg->width;
     camera_height_ = msg->height;
     camera_cx_ = msg->k[2];
     camera_cy_ = msg->k[5];
+    // A lens with distortion (the fisheye HORUS, or the sim's distorted camera): undistort each frame with the
+    // calibration so the pipe edges are straight and the pinhole range model holds. Maps are built once per size.
+    const bool distorted = std::any_of(msg->d.begin(), msg->d.end(), [](double v) {return std::abs(v) > 1e-6;});
+    if (undistort_ && distorted && (undistort_map_x_.empty() ||
+      undistort_map_x_.cols != static_cast<int>(msg->width) || undistort_map_x_.rows != static_cast<int>(msg->height)))
+    {
+      const cv::Mat k(3, 3, CV_64F, const_cast<double *>(msg->k.data()));
+      const cv::Mat d(1, static_cast<int>(msg->d.size()), CV_64F, const_cast<double *>(msg->d.data()));
+      const cv::Size size(static_cast<int>(msg->width), static_cast<int>(msg->height));
+      if (msg->distortion_model == "equidistant" && msg->d.size() >= 4) {
+        cv::fisheye::initUndistortRectifyMap(k, d.colRange(0, 4), cv::Mat(), k, size, CV_32FC1,
+          undistort_map_x_, undistort_map_y_);
+      } else {
+        cv::initUndistortRectifyMap(k, d, cv::Mat(), k, size, CV_32FC1, undistort_map_x_, undistort_map_y_);
+      }
+      frame_maps_dirty_ = true;
+      RCLCPP_INFO(get_logger(), "Bottom camera distortion (%s, %zu coefficients): undistorting each frame",
+        msg->distortion_model.c_str(), msg->d.size());
+    }
+  }
+
+  // One remap per frame: undistortion (when calibrated) followed by the mount rotation about the principal point,
+  // so camera_cx_/cy_ stay valid. Rotation is clockwise for positive degrees. Caller holds camera_mutex_.
+  void buildFrameMaps(const cv::Size & size)
+  {
+    frame_maps_dirty_ = false;
+    frame_maps_size_ = size;
+    frame_map_x_.release();
+    frame_map_y_.release();
+    frame_invalid_.release();
+    const bool undistorted = !undistort_map_x_.empty() && undistort_map_x_.size() == size;
+    const bool rotated = apply_image_rotation_ && std::abs(image_rotation_deg_) > 1e-3;
+    if (!rotated) {
+      if (undistorted) {
+        frame_map_x_ = undistort_map_x_;
+        frame_map_y_ = undistort_map_y_;
+      }
+      return;
+    }
+    cv::Mat base_x, base_y;
+    if (undistorted) {
+      base_x = undistort_map_x_;
+      base_y = undistort_map_y_;
+    } else {
+      cv::Mat xs(1, size.width, CV_32FC1), ys(size.height, 1, CV_32FC1);
+      for (int x = 0; x < size.width; ++x) {xs.at<float>(0, x) = static_cast<float>(x);}
+      for (int y = 0; y < size.height; ++y) {ys.at<float>(y, 0) = static_cast<float>(y);}
+      cv::repeat(xs, size.height, 1, base_x);
+      cv::repeat(ys, 1, size.width, base_y);
+    }
+    cv::Point2f center((size.width - 1) * 0.5f, (size.height - 1) * 0.5f);
+    if (camera_width_ == static_cast<uint32_t>(size.width) && camera_height_ == static_cast<uint32_t>(size.height) &&
+      camera_cx_ > 0.0 && camera_cx_ < size.width && camera_cy_ > 0.0 && camera_cy_ < size.height)
+    {
+      center = cv::Point2f(static_cast<float>(camera_cx_), static_cast<float>(camera_cy_));
+    }
+    const cv::Mat rotation = cv::getRotationMatrix2D(center, -image_rotation_deg_, 1.0);
+    cv::warpAffine(base_x, frame_map_x_, rotation, size, cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(-1));
+    cv::warpAffine(base_y, frame_map_y_, rotation, size, cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(-1));
+    // Corners the rotation brings in from outside the frame; slightly widened to cover the interpolated rim.
+    frame_invalid_ = (frame_map_x_ < 0) | (frame_map_x_ > size.width - 1) |
+      (frame_map_y_ < 0) | (frame_map_y_ > size.height - 1);
+    cv::dilate(frame_invalid_, frame_invalid_, cv::Mat::ones(5, 5, CV_8U));
+    RCLCPP_INFO(get_logger(), "Bottom camera rotated %.1f deg clockwise about (%.1f, %.1f)",
+      image_rotation_deg_, center.x, center.y);
   }
 
   void compressedImageCallback(const sensor_msgs::msg::CompressedImage::SharedPtr msg)
@@ -361,6 +466,33 @@ private:
     }
   }
 
+  // Same views as the windows, rate limited and scaled; nothing is encoded without a subscriber.
+  void publishDebug(
+    const std_msgs::msg::Header & header, const cv::Mat & original, const cv::Mat & annotated,
+    const cv::Mat & pipeline_mask, const cv::Mat & red_mask, const cv::Mat & green_mask)
+  {
+    const auto stamp = now();
+    if (debug_rate_hz_ > 0.0 && last_debug_publish_.nanoseconds() != 0 &&
+      (stamp - last_debug_publish_).seconds() < 1.0 / debug_rate_hz_)
+    {
+      return;
+    }
+    last_debug_publish_ = stamp;
+    const double scale = (debug_scale_ > 0.0 && debug_scale_ <= 1.0) ? debug_scale_ : 1.0;
+    const auto send = [&header, scale](image_transport::Publisher & pub, const cv::Mat & image,
+        const std::string & encoding) {
+        if (pub.getNumSubscribers() == 0 || image.empty()) {return;}
+        cv::Mat scaled;
+        cv::resize(image, scaled, cv::Size(), scale, scale, cv::INTER_AREA);
+        pub.publish(cv_bridge::CvImage(header, encoding, scaled).toImageMsg());
+      };
+    send(debug_annotated_pub_, annotated, "bgr8");
+    send(debug_original_pub_, original, "bgr8");
+    send(debug_pipeline_mask_pub_, pipeline_mask, "mono8");
+    send(debug_red_mask_pub_, red_mask, "mono8");
+    send(debug_green_mask_pub_, green_mask, "mono8");
+  }
+
   void imageCallback(const sensor_msgs::msg::Image::SharedPtr msg)
   {
     const uint64_t sequence = ++frame_sequence_;
@@ -370,6 +502,7 @@ private:
 
     banyu_msgs::msg::PipelineObservation observation = makeLostObservation(*msg, sequence);
     banyu_msgs::msg::PipelineRingObservation ring = makeLostRingObservation(*msg, sequence);
+    banyu_msgs::msg::PipelineRingObservation light_cue = makeLostRingObservation(*msg, sequence);
 
     try {
       if (msg->data.empty() || msg->width == 0 || msg->height == 0) {
@@ -379,13 +512,30 @@ private:
         throw std::runtime_error("unsupported image encoding: " + msg->encoding);
       }
 
-      const cv::Mat image = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8)->image;
+      cv::Mat image = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8)->image;
+      {
+        std::lock_guard<std::mutex> lock(camera_mutex_);
+        if (frame_maps_dirty_ || frame_maps_size_ != image.size()) {
+          buildFrameMaps(image.size());
+        }
+        if (!frame_map_x_.empty()) {
+          cv::Mat straight;
+          cv::remap(image, straight, frame_map_x_, frame_map_y_, cv::INTER_LINEAR);
+          // Fill the empty corners with the water's colour: black would put strong false edges on the frame.
+          if (!frame_invalid_.empty()) {
+            straight.setTo(cv::mean(straight, frame_invalid_ == 0), frame_invalid_);
+          }
+          image = straight;
+        }
+      }
       if (image.empty() || image.cols <= 0 || image.rows <= 0) {
         throw std::runtime_error("converted image is empty");
       }
 
       // Primary: edge-pair pipe fitting from pipeline_vision
-      const cv::Mat edge_mask = banyu_detection::pipeMask(image, probe_rect_);
+      float pipe_width_px = 0.0f;
+      const cv::Mat edge_mask = banyu_detection::pipeMask(image, probe_rect_, &pipe_width_px);
+      observation.width = std::numeric_limits<float>::quiet_NaN();
       const auto ahead_fit = banyu_detection::fitPipe(edge_mask,
           banyu_detection::aheadBand(image.rows));
       const auto ahead_centroid = banyu_detection::pipeCentroid(edge_mask);
@@ -406,6 +556,7 @@ private:
         } else {
           observation.offset_y = 0.0f;
         }
+        if (pipe_width_px > 0.0f) {observation.width = pipe_width_px / image.cols;}
         const int inliers = cv::countNonZero(edge_mask);
         observation.confidence = std::clamp(static_cast<float>(inliers / 300.0f), 0.35f, 1.0f);
         pipeline_detected = true;
@@ -448,37 +599,8 @@ private:
       const auto lights = banyu_detection::detectLights(image, lights_mask);
       bool light_found = false;
 
-      if (!lights.empty()) {
-        const banyu_detection::Light * chosen = nullptr;
-        for (const auto & l : lights) {
-          if (l.colour == banyu_detection::Light::kRed) {
-            chosen = &l;
-            break;
-          }
-        }
-        if (!chosen) {
-          for (const auto & l : lights) {
-            if (l.colour == banyu_detection::Light::kBlue) {
-              chosen = &l;
-              break;
-            }
-          }
-        }
-        if (!chosen) {
-          chosen = &lights.front();
-        }
-
-        ring.visible = true;
-        ring.color = (chosen->colour == banyu_detection::Light::kRed) ?
-          banyu_msgs::msg::PipelineRingObservation::COLOR_RED :
-          ((chosen->colour == banyu_detection::Light::kBlue) ?
-          banyu_msgs::msg::PipelineRingObservation::COLOR_BLUE :
-          banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN);
-        ring.confidence = 0.9f;
-        ring.offset_x = std::clamp(static_cast<float>(normalizedX(chosen->x, image.cols)), -1.0f,
-            1.0f);
-        ring.offset_y = std::clamp(static_cast<float>(normalizedY(chosen->y, image.rows)), -1.0f,
-            1.0f);
+      if (const auto * chosen = pickLight(lights)) {
+        fillLight(ring, *chosen, image, 0.9f);
         light_found = true;
       }
 
@@ -498,19 +620,29 @@ private:
         if (found_red) {
           ring.visible = true;
           ring.color = static_cast<uint8_t>(best_red.color);
-          ring.confidence = static_cast<float>(best_red.confidence);
+          ring.confidence = std::min(static_cast<float>(best_red.confidence), kFallbackRingConfidenceMax);
           ring.offset_x = static_cast<float>(normalizedX(best_red.center.x, image.cols));
           ring.offset_y = static_cast<float>(normalizedY(best_red.center.y, image.rows));
         } else if (found_green) {
           ring.visible = true;
           ring.color = static_cast<uint8_t>(best_green.color);
-          ring.confidence = static_cast<float>(best_green.confidence);
+          ring.confidence = std::min(static_cast<float>(best_green.confidence), kFallbackRingConfidenceMax);
           ring.offset_x = static_cast<float>(normalizedX(best_green.center.x, image.cols));
           ring.offset_y = static_cast<float>(normalizedY(best_green.center.y, image.rows));
         }
       }
 
-      if (use_gui_) {
+      // No pipe in view: a RED or GREEN light anywhere in the image is a cue to steer over (the node sits on the pipe). It
+      // has its own topic so an unconfirmed light (a fish, a reflection) never reaches the ring tracker.
+      if (!pipeline_detected) {
+        const auto anywhere = banyu_detection::detectLights(
+          image, cv::Mat(image.size(), CV_8U, cv::Scalar(255)));
+        if (const auto * cue = pickCueLight(anywhere)) {
+          fillLight(light_cue, *cue, image, kLightCueConfidence);
+        }
+      }
+
+      if (use_gui_ || publish_debug_images_) {
         cv::Mat annotated = image.clone();
         if (observation.status == banyu_msgs::msg::PipelineObservation::TRACKED) {
           const double vx = pipeline.line[0];
@@ -560,12 +692,19 @@ private:
             cv::FONT_HERSHEY_SIMPLEX, 0.55, ring_color, 2);
         }
 
-        cv::imshow("Original Frame", image);
-        cv::imshow("Pipeline Mask", pipeline_mask.empty() ? edge_mask : pipeline_mask);
-        if (!red_mask.empty()) {cv::imshow("Red Ring Mask", red_mask);}
-        if (!green_mask.empty()) {cv::imshow("Green Ring Mask", green_mask);}
-        cv::imshow("Annotated", annotated);
-        cv::waitKey(1);
+        // pipeMask is 0/1: stretch to 0/255 or it shows black.
+        const cv::Mat shown_pipeline_mask = (pipeline_mask.empty() ? edge_mask : pipeline_mask) != 0;
+        if (publish_debug_images_) {
+          publishDebug(msg->header, image, annotated, shown_pipeline_mask, red_mask, green_mask);
+        }
+        if (use_gui_) {
+          cv::imshow("Original Frame", image);
+          cv::imshow("Pipeline Mask", shown_pipeline_mask);
+          if (!red_mask.empty()) {cv::imshow("Red Ring Mask", red_mask);}
+          if (!green_mask.empty()) {cv::imshow("Green Ring Mask", green_mask);}
+          cv::imshow("Annotated", annotated);
+          cv::waitKey(1);
+        }
       }
     } catch (const cv_bridge::Exception & error) {
       observation.status = banyu_msgs::msg::PipelineObservation::INVALID;
@@ -586,6 +725,45 @@ private:
 
     observation_pub_->publish(observation);
     ring_observation_pub_->publish(ring);
+    light_cue_pub_->publish(light_cue);
+  }
+
+  // RED first (the damaged node), then BLUE, then any.
+  static const banyu_detection::Light * pickLight(const std::vector<banyu_detection::Light> & lights)
+  {
+    for (const auto colour : {banyu_detection::Light::kRed, banyu_detection::Light::kBlue}) {
+      for (const auto & l : lights) {
+        if (l.colour == colour) {return &l;}
+      }
+    }
+    return lights.empty() ? nullptr : &lights.front();
+  }
+
+  // Before the repair a node is lit only RED or GREEN: any other colour is not a node.
+  static const banyu_detection::Light * pickCueLight(const std::vector<banyu_detection::Light> & lights)
+  {
+    for (const auto colour : {banyu_detection::Light::kRed, banyu_detection::Light::kGreen}) {
+      for (const auto & l : lights) {
+        if (l.colour == colour) {return &l;}
+      }
+    }
+    return nullptr;
+  }
+
+  void fillLight(
+    banyu_msgs::msg::PipelineRingObservation & out, const banyu_detection::Light & light,
+    const cv::Mat & image, float confidence) const
+  {
+    out.visible = true;
+    out.color = (light.colour == banyu_detection::Light::kRed) ?
+      banyu_msgs::msg::PipelineRingObservation::COLOR_RED :
+      ((light.colour == banyu_detection::Light::kBlue) ?
+      banyu_msgs::msg::PipelineRingObservation::COLOR_BLUE :
+      banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN);
+    out.confidence = confidence;
+    out.offset_x = std::clamp(static_cast<float>(normalizedX(light.x, image.cols)), -1.0f, 1.0f);
+    out.offset_y = std::clamp(static_cast<float>(normalizedY(light.y, image.rows)), -1.0f, 1.0f);
+    out.size = std::clamp(light.size / static_cast<float>(image.cols), 0.0f, 1.0f);
   }
 
   static bool isSupportedEncoding(const std::string & encoding)
@@ -610,6 +788,7 @@ private:
     observation.offset_x = unavailable;
     observation.offset_y = unavailable;
     observation.heading_error_rad = unavailable;
+    observation.width = unavailable;
     observation.confidence = 0.0F;
     return observation;
   }
@@ -1047,8 +1226,19 @@ private:
   bool use_camera_info_ {true};
   std::string observation_topic_;
   std::string ring_observation_topic_;
+  std::string light_cue_topic_;
 
   bool use_gui_ {false};
+  bool publish_debug_images_ {false};
+  std::string debug_topic_prefix_;
+  double debug_rate_hz_ {5.0};
+  double debug_scale_ {0.5};
+  rclcpp::Time last_debug_publish_ {0, 0, RCL_ROS_TIME};
+  image_transport::Publisher debug_annotated_pub_;
+  image_transport::Publisher debug_original_pub_;
+  image_transport::Publisher debug_pipeline_mask_pub_;
+  image_transport::Publisher debug_red_mask_pub_;
+  image_transport::Publisher debug_green_mask_pub_;
   int gray_threshold_ {170};
   int hsv_value_threshold_ {150};
   int hsv_saturation_max_ {125};
@@ -1113,9 +1303,20 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_sub_;
   rclcpp::Publisher<banyu_msgs::msg::PipelineObservation>::SharedPtr observation_pub_;
   rclcpp::Publisher<banyu_msgs::msg::PipelineRingObservation>::SharedPtr ring_observation_pub_;
+  rclcpp::Publisher<banyu_msgs::msg::PipelineRingObservation>::SharedPtr light_cue_pub_;
 
   uint64_t frame_sequence_ {0};
   mutable std::mutex camera_mutex_;
+  bool undistort_ {true};
+  cv::Mat undistort_map_x_;
+  cv::Mat undistort_map_y_;
+  double image_rotation_deg_ {0.0};
+  bool apply_image_rotation_ {true};
+  bool frame_maps_dirty_ {true};
+  cv::Size frame_maps_size_;
+  cv::Mat frame_map_x_;
+  cv::Mat frame_map_y_;
+  cv::Mat frame_invalid_;
   uint32_t camera_width_ {0};
   uint32_t camera_height_ {0};
   double camera_cx_ {0.0};

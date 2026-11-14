@@ -6,6 +6,22 @@ This is the single maintained document for [Issue #13: integrate the RobotX SoS 
 
 **Verdict:** the UUV ⇄ GCS ⇄ RoboCommand communication path is verified end to end in simulation against the GCS team's `GcsReporter` and RoboCommand's official schemas and test client. A full simulated Task 2 run, started by RoboCommand, delivered a correct `PipelineSurvey` to RoboCommand (§0). What remains is hardware/field work and joint decisions (real DDS Router/two-machine test, GCS-side bridge, Task 4 scope, pinger use).
 
+## 0a. Update — November 3, 2026: `rx_msgs` sync to `0a968ad`
+
+Three upstream commits since `a2a1ccc`: `cc7d9fa` (QoS), `198d208` (latest RoboCommand), `0a968ad` (`Waypoints`).
+
+| Change | UUV impact | Action |
+|---|---|---|
+| `Course` (and every `/system` topic) uses the plain default QoS: reliable, volatile, keep_last 10 | The latched course subscriptions in `uuv_comm_node`, `pipeline_buoys_node` and `survey_evidence_node` were incompatible with a volatile publisher: no course from the real GCS, so no survey report. The sim missed it because `mock_gcs.py` and `dds_relay.py` published latched | Subscriptions are `QoS(10).reliable()`. `mock_gcs.py`, `dds_relay.py`, `gcs_ros_bridge.py`, the sim provider, `mock_usv.py`, `sim_supervisor.py` and the test fixtures follow the spec; the mock GCS and the reference bridge repeat the course about 1 Hz |
+| `Heartbeat.uav_registration`; `Course.uav_transit_area`, `uav_geofence_max_altitude_hae_m` | UAV only; the message layout changed, so the workspace must be rebuilt to talk to a GCS on the new `rx_msgs` | Rebuilt; no UUV code change |
+| The USV publishes `CMD_MISSION_DONE` (target `TYPE_UAV`) on `/system/mission/command` | None: `uuv_comm_node` and `banyu_mission` drop commands not for `TYPE_UUV`/`TYPE_UNKNOWN` | — |
+| `CMD_TASK4_MOVING_OBJECT` carries `radius_m` (keep-out, 5 m default) | Only matters once Task 4 moves (still the ACK-only stub) | — |
+| `Waypoints` (USV → UAV) | None | — |
+
+UUV publishers of the one-shot reports (`PipelineSurvey`, `ResourceDelivery`) stay transient_local: compatible with a volatile GCS subscriber, and a late transient_local reader still gets the report.
+
+**Joint item for the GCS team:** `Course` is volatile but the `rx_msgs` README still says it is "published once before the run". A UUV node that starts after it never receives it. Ask the GCS to repeat it about 1 Hz (bridge spec requirement 5).
+
 ## 0. Update — October 11, 2026
 
 Scope decisions from the UUV team: Task 2 is attempted at the **Disruptive** tier; Task 4 is **undecided** (keep the ACK-only stub); use of the acoustic pinger on the robot is **undecided**. (`pinger_localization` already turns hydrophone TDOA arrivals into `/banyu/pinger/observation` and `SearchPipeline` steers on it, but nothing filters on the course's pinger frequency yet.)
@@ -19,6 +35,7 @@ Scope decisions from the UUV team: Task 2 is attempted at the **Disruptive** tie
 | Action goals | Task 2 action nodes read run context from an unpublished topic; every goal was `(0, 0)` and rejected | Use `topics.run_lifecycle` |
 | Simulation clock | No `/clock` bridge and `SetUseSimTime` does not reach launched nodes; sim-stamped camera vs wall-time nodes dropped every observation; MAVROS stamped zero | `/clock` bridge, `SetParameter(use_sim_time)` only with `use_sim:=True`, MAVROS from the same condition |
 | Telemetry rate | MAVProxy default 4 Hz pose vs 1 s readiness window | `--streamrate=10` |
+| Telemetry rate (robot) | QGC's stream request cuts the pose to ~3 Hz (gaps to 0.7 s); the 0.5 s hold limit dropped READY at random | Task 2 `control.pose_timeout_s` 1.0, `timing.readiness_pose_timeout_s` 2.0; RC override hold needs no pose |
 | Mission BT | Single-pass traversal; acquisition without retry; no traversal bound | Loop until `PipelineEnded`, retry acquisition via search, `mission.traverse_timeout_s` |
 | Pipeline loss | One dropped frame aborted following; reacquire surges random-walked the vehicle off the pipe | Loss only after `pipeline_timeout_s` without a tracked frame; search retraces before sweeping |
 | Readiness | Lost readiness only said `AUTONOMY_READINESS_LOST`; busy-executor clock lag made fresh poses look future-stamped | Reason names the failing input; 0.5 s future-skew tolerance |

@@ -7,8 +7,12 @@
 
 #include "banyu_msgs/msg/run_lifecycle.hpp"
 #include "banyu_msgs/msg/water_depth.hpp"
+#include "banyu_vehicle_execution/depth_health_monitor.hpp"
+#include "mavros_msgs/msg/position_target.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/msg/nav_sat_fix.hpp"
 #include "std_msgs/msg/float64.hpp"
+#include "std_msgs/msg/string.hpp"
 
 namespace banyu_vehicle_execution
 {
@@ -24,10 +28,20 @@ public:
   uint32_t runId() const;
   uint64_t epoch() const;
   void calibrateDatum(double surface_rel_alt);
+  // True once the pressure sensor faulted during the run: depth is published invalid until the next run.
+  bool depthFaulted() const;
+  std::string depthHealth() const;
 
 private:
   void handleRelAlt(const std_msgs::msg::Float64::SharedPtr msg);
   void handleLifecycle(const banyu_msgs::msg::RunLifecycle::SharedPtr msg);
+  void handleFix(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
+  // A fresh GPS fix proves the vehicle is at the surface (the antenna does not work under water); the barometer alone
+  // can jump after arming.
+  bool gpsAtSurface() const;
+  void handleCommand(const mavros_msgs::msg::PositionTarget::SharedPtr msg);
+  void publishInvalidDepth(const rclcpp::Time & stamp);
+  void onTimer();
 
   mutable std::mutex mutex_;
   std::string source_id_;
@@ -46,12 +60,25 @@ private:
   double last_rel_alt_{0.0};
   rclcpp::Time last_rel_alt_time_{0, 0, RCL_ROS_TIME};
   bool rel_alt_received_{false};
+  double gps_surface_timeout_s_{2.0};
+  bool fix_received_{false};
+  bool fix_valid_{false};
+  rclcpp::Time fix_time_{0, 0, RCL_ROS_TIME};
 
   bool isNearSurface(double alt) const;
 
+  bool health_enabled_{true};
+  DepthHealthMonitor health_;
+  DepthHealthMonitor::Fault reported_fault_{DepthHealthMonitor::Fault::kNone};
+  unsigned health_ticks_{0};
+
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr rel_alt_sub_;
   rclcpp::Subscription<banyu_msgs::msg::RunLifecycle>::SharedPtr lifecycle_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr fix_sub_;
+  rclcpp::Subscription<mavros_msgs::msg::PositionTarget>::SharedPtr command_sub_;
   rclcpp::Publisher<banyu_msgs::msg::WaterDepth>::SharedPtr depth_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr health_pub_;
+  rclcpp::TimerBase::SharedPtr timer_;
 };
 
 }  // namespace banyu_vehicle_execution

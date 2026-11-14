@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Teach & replay (mission.use_replay): fly a manually driven track recorded in a bag
-     (tools/scripts/por_teach_extract.py), then surface. The recorded sticks are replayed
+     (tools/scripts/por/por_teach_extract.py), then surface. The recorded sticks are replayed
      open loop; depth and heading follow the recording on the Bar30 and IMU. -->
 <root BTCPP_format="4" main_tree_to_execute="Main">
   <BehaviorTree ID="Main">

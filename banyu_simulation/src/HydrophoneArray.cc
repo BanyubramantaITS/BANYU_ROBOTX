@@ -1,6 +1,8 @@
 // Sim stand-in for the UUV's hydrophone array (Gazebo has no acoustics). Attached to the vehicle
 // model; once per ping it publishes the first-arrival time at each hydrophone from the true
 // vehicle and pinger poses, as gz.msgs.Float_V (bridged to ros_gz_interfaces/Float32Array).
+// The real array only resolves the pinger's azimuth, not its range or elevation, so the arrivals
+// are those of a far-field plane wave along the horizontal (body xy) bearing to the pinger.
 //
 //   <plugin filename="BanyuHydrophoneArray" name="banyu::HydrophoneArray">
 //     <pinger_model>pinger_green</pinger_model>   (only the active buoy's pinger pings)
@@ -19,7 +21,8 @@
 // way (acoustic_shadow.hpp). A shadowed hydrophone also hears a weaker, diffracted wave, so its
 // threshold pick lands late: half-normal, sigma shadow_pick_delay, about one carrier cycle.
 // ponytail: shadow_pick_delay is uncalibrated; measure pick lateness behind the real hull.
-// Multipath is deliberately left out. Nothing is published while any hydrophone is out of the water.
+// Multipath is deliberately left out. Nothing is published while any hydrophone is out of the water
+// or while the pinger is straight above or below the array (azimuth undefined).
 
 #include <cmath>
 #include <random>
@@ -92,7 +95,12 @@ public:
     const gz::math::Pose3d vehicle = gz::sim::worldPose(vehicle_, _ecm);
     const gz::math::Vector3d source = gz::sim::worldPose(pinger_, _ecm).CoordPositionAdd(offset_);
 
-    const gz::math::Vector3d source_body = vehicle.Rot().RotateVectorReverse(source - vehicle.Pos());
+    // Azimuth only: a distant virtual source along the bearing, in the array plane.
+    gz::math::Vector3d azimuth = vehicle.Rot().RotateVectorReverse(source - vehicle.Pos());
+    azimuth.Z() = 0.0;
+    if (azimuth.Length() < 1e-3)
+      return;
+    const gz::math::Vector3d source_body = azimuth.Normalized() * kFarFieldRange;
 
     std::vector<double> arrivals;
     for (size_t i = 0; i < hydrophones_.size(); ++i) {
@@ -115,6 +123,7 @@ public:
 
 private:
   static constexpr double kSoundSpeed = 1500.0;
+  static constexpr double kFarFieldRange = 1000.0;  // m; wavefront curvature across the array is negligible
   gz::sim::Entity vehicle_{gz::sim::kNullEntity};
   gz::sim::Entity pinger_{gz::sim::kNullEntity};
   std::string pinger_name_;

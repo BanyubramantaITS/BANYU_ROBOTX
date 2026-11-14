@@ -5,6 +5,8 @@
 #include <memory>
 #include <stdexcept>
 
+#include "banyu_vehicle_execution/task4_zones.hpp"
+
 namespace banyu_vehicle_execution
 {
 
@@ -50,14 +52,25 @@ bool SurfaceServer::validateGoal(const Goal & goal, std::string & reason)
   return true;
 }
 
+void SurfaceServer::setBlindRise(double rate_mps, double timeout_s)
+{
+  if (!std::isfinite(rate_mps) || rate_mps < 0.0 || !std::isfinite(timeout_s) || timeout_s < 0.0) {
+    throw std::invalid_argument("Surface blind rise rate and timeout must not be negative");
+  }
+  blind_rise_rate_ = rate_mps;
+  blind_timeout_s_ = timeout_s;
+}
+
 void SurfaceServer::onGoalStarted()
 {
+  blind_s_ = 0.0;
   last_valid_depth_time_ = std::chrono::steady_clock::now();
   hold_active_ = false;
+  zone_hold_s_ = 0.0;
 }
 
 MotionIntent SurfaceServer::tick(
-  const VehicleTelemetry & telemetry, const rclcpp::Time & now, double /*dt*/)
+  const VehicleTelemetry & telemetry, const rclcpp::Time & now, double dt)
 {
   if (!active_handle_) {
     return zeroIntent();
@@ -67,6 +80,18 @@ MotionIntent SurfaceServer::tick(
     return zeroIntent();
   }
   const auto goal = active_handle_->get_goal();
+  // Surfacing point (the last fix) inside a Task 4 zone: stay at depth until it clears, within the time limit. With a GPS
+  // fix the vehicle is already on the surface and there is nothing to wait for.
+  if (goal->hold_for_zones && !telemetry.gps_valid && telemetry.zones.any() &&
+    telemetry.gps_stamp.nanoseconds() != 0 && zone_hold_s_ < zone_hold_timeout_s_ &&
+    insideAny(Vec2{0.0, 0.0}, telemetry.zonesAroundVehicle(now)))
+  {
+    zone_hold_s_ += std::max(0.0, dt);
+    RCLCPP_INFO_THROTTLE(
+      node_->get_logger(), *node_->get_clock(), 5000,
+      "Task 4: surfacing point inside a keep-out zone, holding at depth (%.0f s)", zone_hold_s_);
+    return zeroIntent();
+  }
   const auto steady_now = std::chrono::steady_clock::now();
   const auto & water = telemetry.water_depth;
   const double depth_m = require_calibrated_depth_ ? water.depth_m : telemetry.depth_m;
@@ -91,6 +116,20 @@ MotionIntent SurfaceServer::tick(
     !water.source_id.empty() && !water.calibration_id.empty();
   const bool depth_fresh = source_fresh && receipt_fresh &&
     (!require_calibrated_depth_ || calibrated);
+  if (!depth_fresh && blind_rise_rate_ > 0.0) {
+    hold_active_ = false;
+    blind_s_ += std::max(0.0, dt);
+    if (blind_s_ >= blind_timeout_s_) {
+      auto result = std::make_shared<Result>();
+      result->success = false;
+      result->reason = "No valid depth within the blind rise time";
+      result->final_depth_m = depth_m;
+      result->final_error_m = goal->target_depth_m - depth_m;
+      abortActiveWithResult(result);
+      return zeroIntent();
+    }
+    return MotionIntent::localEnu(0.0, 0.0, blind_rise_rate_, 0.0);
+  }
   if (!depth_fresh) {
     hold_active_ = false;
     if (goal->watchdog_timeout_s > 0.0 &&

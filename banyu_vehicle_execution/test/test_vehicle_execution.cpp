@@ -5,6 +5,7 @@
 #include "banyu_vehicle_execution/action_servers.hpp"
 #include "banyu_vehicle_execution/vehicle_execution_node.hpp"
 #include "banyu_vehicle_execution/por_visual_helpers.hpp"
+#include "banyu_vehicle_execution/light_cue.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
 #include <limits>
@@ -1493,6 +1494,35 @@ TEST_F(VehicleExecutionNodeTest, SurfaceWatchdogTimesOutWhenEnabledAndDepthIsMis
   EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::ABORTED);
 }
 
+TEST_F(VehicleExecutionNodeTest, SurfaceWithNoDepthRisesBlindUntilItsTimeLimit)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("control.surface_blind_rise_rate_mps", 0.3);
+  options.append_parameter_override("control.surface_blind_timeout_s", 1.0);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  double max_vz = 0.0;
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&max_vz](const mavros_msgs::msg::PositionTarget::SharedPtr msg) {max_vz = std::max(max_vz, (double)msg->velocity.z);});
+  using Action = banyu_msgs::action::Surface;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/surface");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  Action::Goal goal;
+  goal.target_depth_m = 0.0; goal.depth_tolerance_m = 0.3; goal.watchdog_timeout_s = 0.15;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  spinFor(node, 5);
+  // Not the 0.15 s depth watchdog: the blind rise runs.
+  EXPECT_TRUE(result_future.wait_for(0ms) != std::future_status::ready);
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  EXPECT_EQ(result_future.get().code, rclcpp_action::ResultCode::ABORTED);
+  EXPECT_NEAR(max_vz, 0.3, 1e-6);
+}
+
 TEST_F(VehicleExecutionNodeTest, SurfaceWatchdogZeroDisablesMissingDepthTimeout)
 {
   rclcpp::NodeOptions options;
@@ -1894,6 +1924,271 @@ TEST_F(VehicleExecutionNodeTest, TimedMoveCompletesWhenBaroDepthReached)
   EXPECT_LT(wrapped.result->elapsed_s, 4.0);
 }
 
+namespace
+{
+// Runs SearchPipeline for a while with a fresh pinger dead ahead; returns the min and max ENU x
+// velocity (vehicle heading east) that the search commanded.
+std::pair<double, double> searchWithPingerAhead(bool use_hydrophone, bool * pinger_seen)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("control.use_hydrophone", use_hydrophone);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  double min_vx = 0.0;
+  double max_vx = 0.0;
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&](const mavros_msgs::msg::PositionTarget::SharedPtr msg) {
+      min_vx = std::min(min_vx, static_cast<double>(msg->velocity.x));
+      max_vx = std::max(max_vx, static_cast<double>(msg->velocity.x));
+    });
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto pinger_pub = node->create_publisher<banyu_msgs::msg::PingerObservation>(
+    "/banyu/pinger/observation", rclcpp::SensorDataQoS());
+  using Action = banyu_msgs::action::SearchPipeline;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/search_pipeline");
+  EXPECT_TRUE(client->wait_for_action_server(1s));
+  Action::Goal goal;
+  goal.search_span_rad = 10.0;
+  goal.sweep_rate_rad_s = 0.2;
+  auto send_future = client->async_send_goal(goal);
+  EXPECT_TRUE(waitForFuture(node, send_future));
+  for (int i = 0; i < 40; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    banyu_msgs::msg::PingerObservation obs;
+    obs.header.stamp = node->now();
+    obs.forward = 1.0F;
+    obs.bearing = 0.0F;
+    pinger_pub->publish(obs);
+    spinFor(node, 2);
+  }
+  *pinger_seen = node->telemetry().pinger_obs_valid;
+  return {min_vx, max_vx};
+}
+}  // namespace
+
+TEST_F(VehicleExecutionNodeTest, SearchPipelineWithoutHydrophoneIgnoresPingerAndRetraces)
+{
+  bool pinger_seen = true;
+  const auto [min_vx, max_vx] = searchWithPingerAhead(false, &pinger_seen);
+  EXPECT_FALSE(pinger_seen);
+  // Retrace backward along the entry heading (east), never the pinger's forward homing.
+  EXPECT_NEAR(min_vx, -0.2, 1e-3);
+  EXPECT_LE(max_vx, 1e-6);
+}
+
+TEST_F(VehicleExecutionNodeTest, SearchPipelineHomesOnPingerOnlyWhenOptedIn)
+{
+  bool pinger_seen = false;
+  const auto [min_vx, max_vx] = searchWithPingerAhead(true, &pinger_seen);
+  EXPECT_TRUE(pinger_seen);
+  EXPECT_NEAR(max_vx, 0.25, 1e-3);
+  EXPECT_GE(min_vx, -1e-6);
+}
+
+TEST_F(VehicleExecutionNodeTest, BaroCameraDescentSinksUntilThePipeAndStopsAtTheMaximumDepth)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  options.append_parameter_override("camera_descent.with_depth", true);
+  options.append_parameter_override("camera_descent.rate_mps", 0.15);
+  options.append_parameter_override("camera_descent.max_depth_m", 4.0);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  double min_vz = 0.0;
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&min_vz](const mavros_msgs::msg::PositionTarget::SharedPtr msg) {
+      min_vz = std::min(min_vz, static_cast<double>(msg->velocity.z));
+    });
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto depth_pub = node->create_publisher<std_msgs::msg::Float64>(
+    "/mavros/global_position/rel_alt", rclcpp::SensorDataQoS());
+  using Action = banyu_msgs::action::DiveToDepth;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/dive_to_depth");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  Action::Goal goal;
+  goal.target_depth_m = 12.5;
+  goal.depth_tolerance_m = 0.3;
+  goal.heading_tolerance_rad = 0.2;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  auto handle = send_future.get();
+  ASSERT_NE(handle, nullptr);
+  auto result_future = client->async_get_result(handle);
+  std_msgs::msg::Float64 depth;
+  depth.data = -1.0;
+  for (int i = 0; i < 20; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    depth_pub->publish(depth);
+    spinFor(node, 2);
+  }
+  // The camera descent rate, not the depth P-loop toward 12.5 m.
+  EXPECT_NEAR(min_vz, -0.15, 1e-3);
+  EXPECT_TRUE(result_future.wait_for(0ms) != std::future_status::ready);
+  depth.data = -4.2;
+  const auto until = std::chrono::steady_clock::now() + 1500ms;
+  while (result_future.wait_for(0ms) != std::future_status::ready &&
+    std::chrono::steady_clock::now() < until)
+  {
+    publishPose(node, pose_pub, 0.0);
+    depth_pub->publish(depth);
+    spinFor(node, 1);
+  }
+  ASSERT_TRUE(waitForFuture(node, result_future));
+  const auto wrapped = result_future.get();
+  EXPECT_EQ(wrapped.code, rclcpp_action::ResultCode::ABORTED);
+  EXPECT_NE(wrapped.result->reason.find("maximum depth"), std::string::npos);
+}
+
+TEST_F(VehicleExecutionNodeTest, FollowPipelineReverseBacksUpAlongThePipe)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  double min_vx = 0.0;
+  double max_vx = 0.0;
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&](const mavros_msgs::msg::PositionTarget::SharedPtr msg) {
+      min_vx = std::min(min_vx, static_cast<double>(msg->velocity.x));
+      max_vx = std::max(max_vx, static_cast<double>(msg->velocity.x));
+    });
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto guidance_pub = node->create_publisher<banyu_guidance::msg::VelocityIntent>(
+    "/banyu/guidance/velocity_intent", 10);
+  using Action = banyu_msgs::action::FollowPipeline;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/follow_pipeline");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  Action::Goal goal;
+  goal.enable = true;
+  goal.reverse = true;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  for (int i = 0; i < 40; ++i) {
+    publishPose(node, pose_pub, 0.0);   // facing east
+    banyu_guidance::msg::VelocityIntent intent;
+    intent.header.stamp = node->now();
+    intent.status = banyu_guidance::msg::VelocityIntent::TRACKING;
+    intent.surge_mps = 0.4F;
+    guidance_pub->publish(intent);
+    spinFor(node, 2);
+  }
+  EXPECT_NEAR(min_vx, -0.4, 1e-3);   // backing up (west)
+  EXPECT_LE(max_vx, 1e-6);
+}
+
+namespace
+{
+// Drives a point at a fixed step toward keepOutAim until it reaches the goal; returns the closest approach to any
+// obstacle (world frame) and whether the goal was reached.
+std::pair<double, bool> driveAround(
+  std::pair<double, double> start, std::pair<double, double> goal,
+  const std::vector<std::pair<double, double>> & obstacles, double radius)
+{
+  double x = start.first;
+  double y = start.second;
+  double closest = 1e9;
+  for (int i = 0; i < 2000; ++i) {
+    if (std::hypot(goal.first - x, goal.second - y) < 0.2) {return {closest, true};}
+    std::vector<std::pair<double, double>> relative;
+    for (const auto & o : obstacles) {
+      relative.emplace_back(o.first - x, o.second - y);
+    }
+    const auto [ax, ay] = banyu_vehicle_execution::keepOutAim(
+      {goal.first - x, goal.second - y}, relative, radius);
+    const double len = std::hypot(ax, ay);
+    x += 0.05 * ax / len;
+    y += 0.05 * ay / len;
+    for (const auto & o : obstacles) {
+      closest = std::min(closest, std::hypot(o.first - x, o.second - y));
+    }
+  }
+  return {closest, false};
+}
+}  // namespace
+
+TEST(KeepOutAim, ClearLineGoesStraightToTheGoal)
+{
+  const auto [ax, ay] = banyu_vehicle_execution::keepOutAim({10.0, 0.0}, {{5.0, 3.0}}, 1.2);
+  EXPECT_DOUBLE_EQ(ax, 10.0);
+  EXPECT_DOUBLE_EQ(ay, 0.0);
+}
+
+TEST(KeepOutAim, EndBuoyOnTheLineIsPassedOutsideTheRadius)
+{
+  // The end buoy sits right on the way to the goal.
+  const auto [closest, reached] = driveAround({-10.0, 0.0}, {10.0, 0.0}, {{0.0, 0.0}}, 1.2);
+  EXPECT_TRUE(reached);
+  EXPECT_GE(closest, 1.2);
+}
+
+TEST(KeepOutAim, GoalJustInsideTheStartBuoyIsReachedFromTheFarSide)
+{
+  // The goal is 1.5 m inside the start buoy (the standoff) and the vehicle comes from beyond the buoy; the end buoy is
+  // 8 m further. The vehicle must go around the start buoy.
+  const std::vector<std::pair<double, double>> buoys = {{0.0, 0.0}, {9.5, 0.0}};
+  const auto [closest, reached] = driveAround({-12.0, 0.3}, {1.5, 0.0}, buoys, 1.2);
+  EXPECT_TRUE(reached);
+  EXPECT_GE(closest, 1.2);
+}
+
+TEST(KeepOutAim, BothBuoysInTheWayAreAvoided)
+{
+  const std::vector<std::pair<double, double>> buoys = {{-3.0, 0.1}, {3.0, -0.1}};
+  const auto [closest, reached] = driveAround({-12.0, 0.0}, {12.0, 0.0}, buoys, 1.2);
+  EXPECT_TRUE(reached);
+  EXPECT_GE(closest, 1.2);
+}
+
+TEST(KeepOutAim, InsideTheRadiusMovesStraightOut)
+{
+  const auto [ax, ay] = banyu_vehicle_execution::keepOutAim({10.0, 0.0}, {{0.5, 0.0}}, 1.2);
+  EXPECT_LT(ax, 0.0);   // away from the buoy just ahead
+  EXPECT_NEAR(ay, 0.0, 1e-9);
+}
+
+TEST_F(VehicleExecutionNodeTest, AlignHeadingHoldsItsGpsPositionWhileTurning)
+{
+  // The 180 deg turn at the dive point let the vehicle creep 0.4 m toward the start buoy; it now steers back.
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  double min_vx = 0.0;
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&min_vx](const mavros_msgs::msg::PositionTarget::SharedPtr msg) {
+      min_vx = std::min(min_vx, static_cast<double>(msg->velocity.x));
+    });
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto gps_pub = node->create_publisher<sensor_msgs::msg::NavSatFix>(
+    "/mavros/global_position/raw/fix", rclcpp::SensorDataQoS());
+  auto publish_fix = [&](double longitude) {
+      sensor_msgs::msg::NavSatFix fix;
+      fix.header.stamp = node->now();
+      fix.status.status = sensor_msgs::msg::NavSatStatus::STATUS_FIX;
+      fix.latitude = 1.0;
+      fix.longitude = longitude;
+      gps_pub->publish(fix);
+    };
+  using Action = banyu_msgs::action::AlignHeading;
+  auto client = rclcpp_action::create_client<Action>(node, "/banyu/actions/align_heading");
+  ASSERT_TRUE(client->wait_for_action_server(1s));
+  for (int i = 0; i < 5; ++i) {publishPose(node, pose_pub, 0.0); publish_fix(2.0); spinFor(node, 2);}
+  Action::Goal goal;
+  goal.target_heading_rad = M_PI;   // a full turn ahead
+  goal.tolerance_rad = 0.05;
+  auto send_future = client->async_send_goal(goal);
+  ASSERT_TRUE(waitForFuture(node, send_future));
+  for (int i = 0; i < 10; ++i) {publishPose(node, pose_pub, 0.0); publish_fix(2.0); spinFor(node, 2);}
+  EXPECT_GT(min_vx, -1e-3);   // at the start point: no correction
+  for (int i = 0; i < 20; ++i) {publishPose(node, pose_pub, 0.0); publish_fix(2.0 + 4.5e-6); spinFor(node, 2);}
+  EXPECT_LT(min_vx, -0.1);    // drifted 0.5 m east: steers back west
+}
+
 TEST_F(VehicleExecutionNodeTest, ReplayTrackReplaysSticksAndTracksHeadingAndDepth)
 {
   rclcpp::NodeOptions options;
@@ -2118,4 +2413,130 @@ TEST_F(VehicleExecutionNodeTest, RcOverrideReleasesSticksWhenNoGoalRuns)
   const auto count = sent.size();
   run_for(20);
   EXPECT_EQ(sent.size(), count);
+}
+
+TEST(LightCue, SteersTowardALitLightOnlyWhenDeepAndConfident)
+{
+  banyu_vehicle_execution::VehicleTelemetry t;
+  t.light_cue_valid = true;
+  t.light_cue_visible = true;
+  t.light_cue_confidence = 0.6;
+  t.light_cue_color = banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN;
+  t.light_cue_offset_x = 0.5;    // right of the image centre
+  t.light_cue_offset_y = -0.5;   // above it: ahead for the bottom camera
+  t.depth_valid = true;
+  t.depth_m = 3.0;
+  const banyu_vehicle_execution::LightCueConfig config;
+  const auto cue = banyu_vehicle_execution::lightCueVelocity(t, config);
+  ASSERT_TRUE(cue.has_value());
+  EXPECT_GT(cue->surge, 0.0);
+  EXPECT_LT(cue->sway, 0.0);   // FLU: negative sway is to the right
+
+  auto shallow = t;
+  shallow.depth_m = 0.3;   // the start buoy's indicator seen from the surface
+  EXPECT_FALSE(banyu_vehicle_execution::lightCueVelocity(shallow, config).has_value());
+  auto unsure = t;
+  unsure.light_cue_confidence = 0.2;
+  EXPECT_FALSE(banyu_vehicle_execution::lightCueVelocity(unsure, config).has_value());
+  auto red = t;
+  red.light_cue_color = banyu_msgs::msg::PipelineRingObservation::COLOR_RED;
+  EXPECT_TRUE(banyu_vehicle_execution::lightCueVelocity(red, config).has_value());
+  for (const auto colour : {banyu_msgs::msg::PipelineRingObservation::COLOR_BLUE,
+      banyu_msgs::msg::PipelineRingObservation::COLOR_UNKNOWN})
+  {
+    auto other = t;
+    other.light_cue_color = colour;
+    EXPECT_FALSE(banyu_vehicle_execution::lightCueVelocity(other, config).has_value());
+  }
+  auto unseen = t;
+  unseen.light_cue_visible = false;
+  EXPECT_FALSE(banyu_vehicle_execution::lightCueVelocity(unseen, config).has_value());
+  auto no_depth = t;
+  no_depth.depth_valid = false;
+  EXPECT_FALSE(banyu_vehicle_execution::lightCueVelocity(no_depth, config).has_value());
+  auto disabled = config;
+  disabled.enabled = false;
+  EXPECT_FALSE(banyu_vehicle_execution::lightCueVelocity(t, disabled).has_value());
+}
+
+namespace
+{
+struct CommandedRange
+{
+  double min_vx{0.0}, max_vx{0.0}, min_vy{0.0}, max_vy{0.0};
+};
+
+// Runs a pipeline action for a while at the given depth (heading east, no pipe in view) with a light right of the image
+// centre on the light cue topic; returns the ENU velocities the action commanded.
+template<typename Action>
+CommandedRange runWithLightCue(const std::string & action_name, const typename Action::Goal & goal, double depth_m)
+{
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("control.require_lease", false);
+  auto node = std::make_shared<banyu_vehicle_execution::VehicleExecutionNode>(options);
+  CommandedRange range;
+  auto preview_sub = node->create_subscription<mavros_msgs::msg::PositionTarget>(
+    "/banyu/execution/preview_target", 10,
+    [&range](const mavros_msgs::msg::PositionTarget::SharedPtr msg) {
+      range.min_vx = std::min(range.min_vx, static_cast<double>(msg->velocity.x));
+      range.max_vx = std::max(range.max_vx, static_cast<double>(msg->velocity.x));
+      range.min_vy = std::min(range.min_vy, static_cast<double>(msg->velocity.y));
+      range.max_vy = std::max(range.max_vy, static_cast<double>(msg->velocity.y));
+    });
+  auto pose_pub = node->create_publisher<geometry_msgs::msg::PoseStamped>(
+    "/mavros/local_position/pose", rclcpp::SensorDataQoS());
+  auto depth_pub = node->create_publisher<std_msgs::msg::Float64>(
+    "/mavros/global_position/rel_alt", rclcpp::SensorDataQoS());
+  auto cue_pub = node->create_publisher<banyu_msgs::msg::PipelineRingObservation>(
+    "/banyu/pipeline/light_cue", rclcpp::SensorDataQoS());
+  auto client = rclcpp_action::create_client<Action>(node, action_name);
+  EXPECT_TRUE(client->wait_for_action_server(1s));
+  auto send_future = client->async_send_goal(goal);
+  EXPECT_TRUE(waitForFuture(node, send_future));
+  std_msgs::msg::Float64 depth;
+  depth.data = -depth_m;
+  for (int i = 0; i < 40; ++i) {
+    publishPose(node, pose_pub, 0.0);
+    depth_pub->publish(depth);
+    banyu_msgs::msg::PipelineRingObservation cue;
+    cue.header.stamp = node->now();
+    cue.visible = true;
+    cue.color = banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN;
+    cue.confidence = 0.6F;
+    cue.offset_x = 0.5F;
+    cue.offset_y = 0.0F;
+    cue_pub->publish(cue);
+    spinFor(node, 2);
+  }
+  return range;
+}
+}  // namespace
+
+TEST_F(VehicleExecutionNodeTest, SearchPipelineSteersOverALightInsteadOfRetracing)
+{
+  using Action = banyu_msgs::action::SearchPipeline;
+  Action::Goal goal;
+  goal.search_span_rad = 10.0;
+  goal.sweep_rate_rad_s = 0.2;
+  const auto deep = runWithLightCue<Action>("/banyu/actions/search_pipeline", goal, 3.0);
+  // Heading east: the light right of centre is to the south (negative ENU y); no backward retrace.
+  EXPECT_LT(deep.min_vy, -0.05);
+  EXPECT_GT(deep.min_vx, -0.05);
+  // Near the surface the light is ignored (the start buoy's indicator): the search retraces as before.
+  const auto shallow = runWithLightCue<Action>("/banyu/actions/search_pipeline", goal, 0.3);
+  EXPECT_NEAR(shallow.min_vx, -0.2, 1e-3);
+  EXPECT_GT(shallow.min_vy, -1e-6);
+}
+
+TEST_F(VehicleExecutionNodeTest, AcquirePipelineSteersOverALightInsteadOfDrivingOn)
+{
+  using Action = banyu_msgs::action::AcquirePipeline;
+  Action::Goal goal;
+  goal.use_heading_prior = false;
+  const auto deep = runWithLightCue<Action>("/banyu/actions/acquire_pipeline", goal, 3.0);
+  EXPECT_LT(deep.min_vy, -0.05);
+  EXPECT_LT(deep.max_vx, 0.05);   // not the 0.3 m/s forward drive
+  const auto shallow = runWithLightCue<Action>("/banyu/actions/acquire_pipeline", goal, 0.3);
+  EXPECT_NEAR(shallow.max_vx, 0.3, 1e-3);
+  EXPECT_GT(shallow.min_vy, -1e-6);
 }

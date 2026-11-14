@@ -5,10 +5,13 @@
 #include <mavros_msgs/msg/rc_in.hpp>
 #include <mavros_msgs/msg/state.hpp>
 #include <mavros_msgs/srv/command_bool.hpp>
+#include <mavros_msgs/srv/command_long.hpp>
 #include <mavros_msgs/srv/set_mode.hpp>
 #include <std_msgs/msg/u_int8.hpp>
+#include <std_srvs/srv/trigger.hpp>
 
 #include "banyu_teleop/banyu_teleop.hpp"
+#include "banyu_teleop/esp32_indicator.hpp"
 
 #include <chrono>
 #include <memory>
@@ -535,7 +538,8 @@ TEST_F(BanyuTeleopTest, GimbalInputRejectedInAutonomousMode)
   EXPECT_EQ(last_override.channels[1], 1500);
   EXPECT_EQ(last_override.channels[2], 1500);
   EXPECT_EQ(last_override.channels[3], 1500);
-  EXPECT_EQ(last_override.channels[4], 1500);
+  // Switch channels (SH CH5, SB CH6, SC CH8) are never overridden.
+  EXPECT_EQ(last_override.channels[4], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
   EXPECT_EQ(last_override.channels[5], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
   EXPECT_EQ(last_override.channels[7], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
 
@@ -615,4 +619,329 @@ TEST_F(BanyuTeleopTest, GimbalInputRejectedInAutonomousMode)
   for (size_t i = 0; i < last_override.channels.size(); ++i) {
     EXPECT_EQ(last_override.channels[i], mavros_msgs::msg::OverrideRCIn::CHAN_RELEASE);
   }
+}
+
+TEST(Esp32IndicatorProtocol, MapsOperationalModeToBoardStates)
+{
+  EXPECT_EQ(banyu_teleop::indicatorCommand(0), "its2\n");
+  EXPECT_EQ(banyu_teleop::indicatorCommand(1), "its0\n");
+  EXPECT_EQ(banyu_teleop::indicatorCommand(2), "its1\n");
+  EXPECT_EQ(banyu_teleop::parseIndicatorReport("its2\r"), 0);
+  EXPECT_EQ(banyu_teleop::parseIndicatorReport("its0"), 1);
+  EXPECT_EQ(banyu_teleop::parseIndicatorReport(" its1\r\n"), 2);
+  EXPECT_EQ(banyu_teleop::parseIndicatorReport("its3"), -1);
+  EXPECT_EQ(banyu_teleop::parseIndicatorReport("2"), -1);
+}
+
+TEST_F(BanyuTeleopTest, HardwareKillHeldUntilReleasedThenFollowsSB)
+{
+  std::vector<bool> arm_calls;
+  auto arm_service = test_node_->create_service<mavros_msgs::srv::CommandBool>(
+    "/mavros/cmd/arming",
+    [&](
+      const std::shared_ptr<mavros_msgs::srv::CommandBool::Request> request,
+      std::shared_ptr<mavros_msgs::srv::CommandBool::Response> response) {
+      arm_calls.push_back(request->value);
+      response->success = true;
+    });
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"serial_port", "none"},
+    {"enable_mock_auto", false},
+    {"kill_report_grace_s", 0.05},
+  });
+  auto teleop = std::make_shared<banyu_teleop::BanyuTeleop>(options);
+
+  std::vector<uint8_t> kills;
+  auto kill_sub = test_node_->create_subscription<std_msgs::msg::UInt8>(
+    "/banyu/hardware/kill_switch", 10,
+    [&](const std_msgs::msg::UInt8::SharedPtr msg) {kills.push_back(msg->data);});
+
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(test_node_);
+  exec.add_node(teleop);
+  auto spin = [&]() {
+      for (int i = 0; i < 10; ++i) {
+        exec.spin_some();
+        std::this_thread::sleep_for(10ms);
+      }
+    };
+
+  auto rc_up = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_up->channels = {1500, 1500, 1500, 1500, 1500, 988, 1500, 1500};
+  auto rc_mid = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_mid->channels = {1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500};
+
+  teleop->rcinCallback(rc_up);
+  // A report emitted before the board applied the new mode is not a hardware kill.
+  teleop->handleIndicatorLine("its2\r");
+  EXPECT_FALSE(teleop->isHardwareKillLatched());
+  spin();
+  teleop->handleIndicatorLine("its1\r");
+  EXPECT_FALSE(teleop->isHardwareKillLatched());
+
+  teleop->handleIndicatorLine("its2\r");
+  EXPECT_TRUE(teleop->isHardwareKillLatched());
+  EXPECT_EQ(teleop->getOperationalMode(), 0);
+  spin();
+  ASSERT_FALSE(arm_calls.empty());
+  EXPECT_FALSE(arm_calls.back());
+  ASSERT_FALSE(kills.empty());
+  EXPECT_EQ(kills.back(), 0);
+
+  // Moving SB while the input is still active does not re-arm or leave kill.
+  const size_t arm_count = arm_calls.size();
+  teleop->rcinCallback(rc_mid);
+  teleop->handleIndicatorLine("its2\r");
+  spin();
+  EXPECT_TRUE(teleop->isHardwareKillLatched());
+  EXPECT_EQ(teleop->getOperationalMode(), 0);
+  EXPECT_EQ(arm_calls.size(), arm_count);
+  EXPECT_EQ(kills.back(), 0);
+
+  // On release the board restores its old state; the vehicle follows SB as it is now.
+  teleop->handleIndicatorLine("its1\r");
+  EXPECT_FALSE(teleop->isHardwareKillLatched());
+  teleop->rcinCallback(rc_mid);
+  spin();
+  EXPECT_EQ(teleop->getOperationalMode(), 1);
+  ASSERT_GT(arm_calls.size(), arm_count);
+  EXPECT_TRUE(arm_calls.back());
+  EXPECT_EQ(kills.back(), 1);
+}
+
+TEST_F(BanyuTeleopTest, HardwareKillReleasedWithoutRCHoldsUntilSBDown)
+{
+  std::vector<bool> arm_calls;
+  auto arm_service = test_node_->create_service<mavros_msgs::srv::CommandBool>(
+    "/mavros/cmd/arming",
+    [&](
+      const std::shared_ptr<mavros_msgs::srv::CommandBool::Request> request,
+      std::shared_ptr<mavros_msgs::srv::CommandBool::Response> response) {
+      arm_calls.push_back(request->value);
+      response->success = true;
+    });
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"serial_port", "none"},
+    {"enable_mock_auto", false},
+    {"kill_report_grace_s", 0.0},
+    {"rc_timeout_s", 0.02},
+  });
+  auto teleop = std::make_shared<banyu_teleop::BanyuTeleop>(options);
+
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(test_node_);
+  exec.add_node(teleop);
+  auto spin = [&]() {
+      for (int i = 0; i < 10; ++i) {
+        exec.spin_some();
+        std::this_thread::sleep_for(10ms);
+      }
+    };
+
+  auto rc_mid = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_mid->channels = {1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500};
+  auto rc_down = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_down->channels = {1500, 1500, 1500, 1500, 1500, 2011, 1500, 1500};
+
+  teleop->rcinCallback(rc_mid);
+  spin();
+  teleop->handleIndicatorLine("its2\r");
+  ASSERT_TRUE(teleop->isHardwareKillLatched());
+  spin();
+  const size_t arm_count = arm_calls.size();
+
+  // RC went silent before the release: RC coming back does not arm by itself.
+  teleop->handleIndicatorLine("its0\r");
+  EXPECT_TRUE(teleop->isHardwareKillLatched());
+  teleop->rcinCallback(rc_mid);
+  spin();
+  EXPECT_EQ(teleop->getOperationalMode(), 0);
+  EXPECT_EQ(arm_calls.size(), arm_count);
+
+  // SB Down acknowledges; SB Mid then arms in manual again.
+  teleop->rcinCallback(rc_down);
+  EXPECT_FALSE(teleop->isHardwareKillLatched());
+  teleop->rcinCallback(rc_mid);
+  spin();
+  EXPECT_EQ(teleop->getOperationalMode(), 1);
+  ASSERT_GT(arm_calls.size(), arm_count);
+  EXPECT_TRUE(arm_calls.back());
+}
+
+TEST_F(BanyuTeleopTest, HardwareKillIgnoredWhenDisabled)
+{
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"serial_port", "none"},
+    {"enable_mock_auto", false},
+    {"use_hardware_kill", false},
+    {"kill_report_grace_s", 0.0},
+  });
+  auto teleop = std::make_shared<banyu_teleop::BanyuTeleop>(options);
+  auto rc_mid = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_mid->channels = {1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500};
+  teleop->rcinCallback(rc_mid);
+  teleop->handleIndicatorLine("its2");
+  EXPECT_FALSE(teleop->isHardwareKillLatched());
+  EXPECT_EQ(teleop->getOperationalMode(), 1);
+}
+
+TEST_F(BanyuTeleopTest, AutomaticLightControlWithOperationalModeAndDisarm)
+{
+  std::vector<std::pair<float, float>> light_calls;
+  auto cmd_service = test_node_->create_service<mavros_msgs::srv::CommandLong>(
+    "/mavros/cmd/command",
+    [&](
+      const std::shared_ptr<mavros_msgs::srv::CommandLong::Request> request,
+      std::shared_ptr<mavros_msgs::srv::CommandLong::Response> response) {
+      if (request->command == 183) {
+        light_calls.push_back({request->param1, request->param2});
+      }
+      response->success = true;
+      response->result = 0;
+    });
+
+  auto arm_service = test_node_->create_service<mavros_msgs::srv::CommandBool>(
+    "/mavros/cmd/arming",
+    [&](
+      const std::shared_ptr<mavros_msgs::srv::CommandBool::Request>,
+      std::shared_ptr<mavros_msgs::srv::CommandBool::Response> response) {
+      response->success = true;
+      response->result = 0;
+    });
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"serial_port", "none"},
+    {"enable_mock_auto", false},
+    {"kill_channel", 5},
+    {"mode_channel", 7},
+    {"light_enabled", true},
+    {"light_channel", 9},
+    {"light_on_pwm", 1900.0},
+    {"light_off_pwm", 1100.0},
+  });
+
+  auto teleop = std::make_shared<banyu_teleop::BanyuTeleop>(options);
+
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(test_node_);
+  exec.add_node(teleop);
+
+  auto spin = [&]() {
+      for (int i = 0; i < 15; ++i) {
+        exec.spin_some();
+        std::this_thread::sleep_for(10ms);
+      }
+    };
+
+  // 1. SB Mid (1500): Manual mode -> turns light ON (SERVO 9, 1900 PWM)
+  auto rc_mid = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_mid->channels = {1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500};
+  teleop->rcinCallback(rc_mid);
+  spin();
+
+  ASSERT_FALSE(light_calls.empty());
+  EXPECT_EQ(light_calls.back().first, 9.0f);
+  EXPECT_EQ(light_calls.back().second, 1900.0f);
+  EXPECT_TRUE(teleop->isLightOn());
+
+  // 2. SB Down (2011): Kill / Disarm -> turns light OFF (SERVO 9, 1100 PWM)
+  auto rc_down = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_down->channels = {1500, 1500, 1500, 1500, 1500, 2011, 1500, 1500};
+  teleop->rcinCallback(rc_down);
+  spin();
+
+  ASSERT_GE(light_calls.size(), 2u);
+  EXPECT_EQ(light_calls.back().first, 9.0f);
+  EXPECT_EQ(light_calls.back().second, 1100.0f);
+  EXPECT_FALSE(teleop->isLightOn());
+
+  // 3. SB Up (988): Autonomous mode -> turns light ON
+  auto rc_up = std::make_shared<mavros_msgs::msg::RCIn>();
+  rc_up->channels = {1500, 1500, 1500, 1500, 1500, 988, 1500, 1500};
+  teleop->rcinCallback(rc_up);
+  spin();
+
+  ASSERT_GE(light_calls.size(), 3u);
+  EXPECT_EQ(light_calls.back().first, 9.0f);
+  EXPECT_EQ(light_calls.back().second, 1900.0f);
+  EXPECT_TRUE(teleop->isLightOn());
+
+  // 4. Pixhawk reports disarmed via /mavros/state -> turns light OFF
+  auto state_disarmed = std::make_shared<mavros_msgs::msg::State>();
+  state_disarmed->armed = false;
+  state_disarmed->mode = "MANUAL";
+  teleop->stateCallback(state_disarmed);
+  spin();
+
+  ASSERT_GE(light_calls.size(), 4u);
+  EXPECT_EQ(light_calls.back().first, 9.0f);
+  EXPECT_EQ(light_calls.back().second, 1100.0f);
+  EXPECT_FALSE(teleop->isLightOn());
+}
+
+TEST_F(BanyuTeleopTest, ShPressPreparesAutonomyOnlyWithSbUp)
+{
+  const std::string service = "/test_sh/prepare_autonomy";
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+    {"serial_port", "none"},
+    {"prepare_channel", 4},
+    {"prepare_service", service},
+  });
+  auto teleop = std::make_shared<banyu_teleop::BanyuTeleop>(options);
+
+  int calls = 0;
+  auto prepare = test_node_->create_service<std_srvs::srv::Trigger>(
+    service,
+    [&](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+    std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+      ++calls;
+      response->success = true;
+    });
+
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(test_node_);
+  exec.add_node(teleop);
+  auto spin = [&]() {
+      for (int i = 0; i < 20; ++i) {
+        exec.spin_some();
+        std::this_thread::sleep_for(10ms);
+      }
+    };
+  // SB is CH6 (index 5), SH is CH5 (index 4).
+  auto rc = [&](uint16_t sb, uint16_t sf) {
+      auto msg = std::make_shared<mavros_msgs::msg::RCIn>();
+      msg->channels = {1500, 1500, 1500, 1500, sf, sb, 1500, 1500};
+      teleop->rcinCallback(msg);
+      spin();
+    };
+  const uint16_t up = 1000, mid = 1500, released = 1000, pressed = 2000;
+  spin();
+
+  // SH already held at startup is not a press.
+  rc(up, pressed);
+  rc(up, pressed);
+  EXPECT_EQ(calls, 0);
+
+  // A press with SB Mid is rejected.
+  rc(mid, released);
+  rc(mid, pressed);
+  EXPECT_EQ(calls, 0);
+
+  // A press with SB Up calls once; holding does not repeat.
+  rc(up, released);
+  rc(up, pressed);
+  rc(up, pressed);
+  EXPECT_EQ(calls, 1);
+
+  // Release and press again calls again.
+  rc(up, released);
+  rc(up, pressed);
+  EXPECT_EQ(calls, 2);
 }

@@ -18,3 +18,7 @@ float32 confidence
 # interpolated or selected at that timestamp within the configured maximum
 # timestamp skew.
 geometry_msgs/PoseStamped vehicle_pose_map
+
+# The ring tracker merged this record into another one (one node recorded twice, seen from far or beside the line):
+# it is not a node. Its node_id is never reused.
+bool superseded

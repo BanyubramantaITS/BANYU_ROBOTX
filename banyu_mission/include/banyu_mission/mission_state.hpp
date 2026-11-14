@@ -10,6 +10,7 @@
 #include "banyu_msgs/msg/pipeline_observation.hpp"
 #include "banyu_msgs/msg/pipeline_ring_observation.hpp"
 #include "banyu_msgs/msg/pipeline_ring_state.hpp"
+#include "banyu_msgs/msg/pipeline_end_candidate.hpp"
 #include "banyu_msgs/msg/pipeline_end_state.hpp"
 #include "banyu_msgs/msg/vehicle_status.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -79,12 +80,29 @@ public:
 
   bool autonomyInterrupted() const;
   bool vehicleReady() const;
-  // Flight mode used while autonomous ("GUIDED", or "ALT_HOLD" without a position estimate).
-  const std::string & autonomyMode() const {return autonomy_mode_;}
+  // Flight mode used while autonomous ("GUIDED", or "ALT_HOLD" without a position estimate). The
+  // autonomy_mode parameter may list a second, underwater mode ("GUIDED,ALT_HOLD"); this is the first.
+  const std::string & autonomyMode() const {return primary_autonomy_mode_;}
+  // Mode the vehicle is armed and waits in before it moves (e.g. MANUAL: no stabilization or
+  // depth hold pushing the hull under); empty = autonomyMode(). Counts as an autonomy mode from
+  // prepareAutonomy() until the BT selects another mode (modeSelected), so a later switch to it
+  // still ends the run.
+  void setStandbyMode(std::string mode);
+  std::string standbyMode() const;
+  void modeSelected(const std::string & mode);
+  // True for any listed autonomy mode and the standby mode.
+  bool autonomyModeAllowed(const std::string & mode) const;
   bool gpsAvailable() const;
   bool gpsRequired() const;
   bool pipelineLost() const;
   bool pipelineEnded() const;
+  // Four rings recorded and none waiting for a repair (ring tracker /banyu/pipeline/rings_complete).
+  bool ringsComplete() const;
+  // A survey leg has reached a pipe end: the pipe was out of view this long in total since the last new ring (at an end
+  // the search keeps finding the last stretch again, so one long loss never comes).
+  bool legEnded(double lost_s) const;
+  // A new survey leg starts: the out-of-view time counts from now.
+  void startSurveyLeg();
   bool redPending() const;
   uint32_t pendingRedIndex() const;
   bool acknowledgeRed(uint32_t index);
@@ -103,6 +121,7 @@ private:
   void ringStateCallback(const banyu_msgs::msg::PipelineRingState::SharedPtr msg);
   void endCallback(const std_msgs::msg::Bool::SharedPtr msg);
   void endStateCallback(const banyu_msgs::msg::PipelineEndState::SharedPtr msg);
+  void ringsCompleteCallback(const banyu_msgs::msg::PipelineEndCandidate::SharedPtr msg);
 
   mutable std::mutex mutex_;
   rclcpp::Node * node_;
@@ -124,6 +143,11 @@ private:
   bool pipeline_ended_ {false};
   bool pipeline_seen_ {false};
   bool pipeline_tracked_ {false};
+  bool rings_complete_ {false};
+  bool has_pipeline_stamp_ {false};
+  rclcpp::Time last_pipeline_stamp_{0, 0, RCL_ROS_TIME};
+  double lost_since_new_ring_s_ {0.0};
+  int64_t max_ring_index_ {-1};
   bool red_pending_ {false};
   uint32_t red_record_index_ {0};
   bool red_repaired_ {false};
@@ -142,7 +166,11 @@ private:
   double state_timeout_s_ {2.0};
   int rc_interrupt_channel_ {4};
   int rc_interrupt_threshold_ {1700};
-  std::string autonomy_mode_ {"GUIDED"};
+  std::string autonomy_mode_ {"GUIDED"};          // as configured, possibly "GUIDED,ALT_HOLD"
+  std::string primary_autonomy_mode_ {"GUIDED"};
+  std::string standby_mode_;
+  bool in_standby_ {false};
+  bool modeAllowedLocked(const std::string & mode) const;
   std::string autonomy_authority_;
   Lifecycle lifecycle_ {Lifecycle::Idle};
   double start_latitude_ {0.0};

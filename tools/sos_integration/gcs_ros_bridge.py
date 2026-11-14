@@ -138,10 +138,13 @@ class Bridge(Node):
         super().__init__('gcs_ros_bridge')
         self.vehicle_id = vehicle_id
         self.events = open(event_log, 'a', buffering=1) if event_log else None
-        self.course_pub = self.create_publisher(Course, '/system/mission/course', LATCHED)
+        # rx-sos spec: Course is volatile, so the last one is repeated about 1 Hz for vehicles that start late.
+        self.course_pub = self.create_publisher(Course, '/system/mission/course', VOLATILE)
         self.command_pub = self.create_publisher(Command, '/system/mission/command', VOLATILE)
-        self.reporter = reporter_factory(self.on_course, self.on_command)
         self._lock = threading.Lock()
+        self._course = None
+        self.reporter = reporter_factory(self.on_course, self.on_command)
+        self.create_timer(1.0, self.repeat_course)
         self.create_subscription(Heartbeat, '/system/vehicle/uuv/heartbeat', self.on_heartbeat,
                                  VOLATILE)
         self.create_subscription(MissionStatus, '/system/mission/status', self.on_status, VOLATILE)
@@ -173,9 +176,17 @@ class Bridge(Node):
         msg = Course(course_id=course.course_id, pinger_freq_hz=course.pinger_freq_hz)
         msg.boundary = [LatLng(latitude=c.latitude, longitude=c.longitude) for c in course.corners]
         msg.uav_geofence = [LatLng(latitude=a, longitude=b) for a, b in self.reporter.geofence]
+        with self._lock:
+            self._course = msg
         self.course_pub.publish(msg)
         self.event('ros_course_out', course_id=msg.course_id, pinger=msg.pinger_freq_hz)
         log.info('Course %s -> /system/mission/course', msg.course_id)
+
+    def repeat_course(self):
+        with self._lock:
+            course = self._course
+        if course is not None:
+            self.course_pub.publish(course)
 
     def on_command(self, command):
         body = command.WhichOneof('body')
@@ -200,10 +211,13 @@ class Bridge(Node):
                                target_vehicle=command.all_clear.vehicle_type))
         elif body == 'moving_object_alert':
             b = command.moving_object_alert
+            # robocommand RobotX_2026 rx_commands.proto: MovingObjectAlert.keep_out_radius_m (5 m by default; proto3 sends
+            # 0 for an unset field).
+            radius_m = b.keep_out_radius_m or 5.0
             for vehicle_type in b.affected_vehicle_types:
                 out.append(Command(command_type=Command.CMD_TASK4_MOVING_OBJECT,
                                    target_vehicle=vehicle_type, heading_deg=b.heading_deg,
-                                   speed_mps=b.speed_mps, position=lat_lng(b.position)))
+                                   speed_mps=b.speed_mps, radius_m=radius_m, position=lat_lng(b.position)))
         elif body == 'readiness_confirm':
             b = command.readiness_confirm
             target = VehicleType.TYPE_UUV if b.vehicle_id.upper().startswith('UUV') \

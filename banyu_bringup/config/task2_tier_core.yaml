@@ -1,0 +1,16 @@
+# Task 2 tier overlay for tier:=core. mission.launch.py loads it AFTER task2_params.yaml (a later file wins), so
+# the launch argument sets the tier of every node that depends on it. A dict or -p override did not win.
+banyu_mission:
+  ros__parameters:
+    mission:
+      task2_tier: 2
+uuv_comm_node:
+  ros__parameters:
+    survey:
+      task2_tier: 2
+survey_evidence_node:
+  ros__parameters:
+    tier: 2
+resource_code_decoder:
+  ros__parameters:
+    tier: 2

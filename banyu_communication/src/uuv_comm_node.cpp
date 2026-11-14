@@ -5,6 +5,7 @@
 #include <cmath>
 #include <functional>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <vector>
 #include <cstdlib>
@@ -68,6 +69,18 @@ UuvCommNode::UuvCommNode(const rclcpp::NodeOptions & options)
     "/system/vehicle/uuv/task4/incident_ack", 10);
   readiness_pub_ = create_publisher<rx_msgs::msg::ReadinessReport>(
     "/system/vehicle/uuv/task4/readiness", 10);
+  Task4ZoneTracker::Config zone_config;
+  zone_config.max_static_zones = static_cast<std::size_t>(declare_parameter<int>("task4.max_static_zones", 16));
+  zone_config.max_radius_m = declare_parameter<double>("task4.max_radius_m", zone_config.max_radius_m);
+  zone_config.moving_expiry_s = declare_parameter<double>("task4.moving_expiry_s", zone_config.moving_expiry_s);
+  zone_config.ack_moving_object = declare_parameter<bool>("task4.ack_moving_object", false);
+  if (!(zone_config.max_radius_m > 0.0) || !(zone_config.moving_expiry_s > 0.0)) {
+    throw std::invalid_argument("task4.max_radius_m and task4.moving_expiry_s must be positive");
+  }
+  zones_ = std::make_unique<Task4ZoneTracker>(zone_config);
+  zones_pub_ = create_publisher<banyu_msgs::msg::Task4Zones>(
+    declare_parameter<std::string>("topics.task4_zones", "/banyu/task4/zones"),
+    rclcpp::QoS(1).reliable().transient_local());
   SurveyLedger::Config ledger_config;
   ledger_config.evidence_sources = declare_parameter<std::vector<std::string>>(
     "survey.evidence_sources", {"pipeline_topology"});
@@ -83,6 +96,19 @@ UuvCommNode::UuvCommNode(const rclcpp::NodeOptions & options)
   const auto tier = declare_parameter<int>("survey.task2_tier", 2);
   if (tier < 2 || tier > 4) {throw std::invalid_argument("Invalid declared Task 2 tier");}
   ledger_config.tier = static_cast<uint8_t>(tier);
+  ledger_config.gamble_order = declare_parameter<bool>("survey.gamble_order", false);
+  // "2,3" = RED at position 2 or 3 at random, "3" = always position 3 (1 = closest to the active buoy).
+  ledger_config.gamble_red_positions.clear();
+  std::stringstream gamble_positions(declare_parameter<std::string>("survey.gamble_red_positions", "2,3"));
+  for (std::string item; std::getline(gamble_positions, item, ',');) {
+    if (item != "1" && item != "2" && item != "3" && item != "4") {
+      throw std::invalid_argument("survey.gamble_red_positions must be positions 1-4, e.g. 2,3");
+    }
+    ledger_config.gamble_red_positions.push_back(std::stoi(item));
+  }
+  if (ledger_config.gamble_red_positions.empty()) {
+    throw std::invalid_argument("survey.gamble_red_positions must not be empty");
+  }
   survey_ledger_ = std::make_unique<SurveyLedger>(ledger_config);
   SurfaceGuard::Config guard_config;
   guard_config.hold_s = declare_parameter<double>("survey.surface_hold_s", 1.0);
@@ -107,11 +133,11 @@ UuvCommNode::UuvCommNode(const rclcpp::NodeOptions & options)
   using std::placeholders::_1;
   command_sub_ = create_subscription<rx_msgs::msg::Command>(
     "/system/mission/command", 10, std::bind(&UuvCommNode::commandCallback, this, _1));
+  // rx-sos spec: Course uses the plain default QoS (reliable, volatile). A transient_local
+  // subscription would be incompatible with that publisher.
   course_sub_ = create_subscription<rx_msgs::msg::Course>(
-    "/system/mission/course", rclcpp::QoS(1).reliable().transient_local(),
+    "/system/mission/course", rclcpp::QoS(10).reliable(),
     std::bind(&UuvCommNode::courseCallback, this, _1));
-  state_sub_ = create_subscription<mavros_msgs::msg::State>(
-    "/mavros/state", 10, std::bind(&UuvCommNode::stateCallback, this, _1));
   gps_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
     "/mavros/global_position/global", rclcpp::SensorDataQoS(),
     std::bind(&UuvCommNode::gpsCallback, this, _1));
@@ -152,32 +178,20 @@ UuvCommNode::~UuvCommNode()
 uint8_t UuvCommNode::robotStateLocked() const
 {
   using rx_msgs::msg::RobotState;
-  const auto current_time = std::chrono::steady_clock::now();
-  const bool telemetry_fresh = state_received_ && vehicle_status_received_ &&
-    std::chrono::duration<double>(current_time - last_state_received_).count() <=
-    lifecycle_timeout_s_ &&
-    std::chrono::duration<double>(current_time - last_status_received_).count() <=
-    lifecycle_timeout_s_;
-  // MAV_STATE 6-8 (emergency, poweroff, termination) mean the vehicle cannot operate. CRITICAL (5)
-  // is a failsafe the vehicle can still navigate in; ArduSub reports it without a pilot joystick.
-  if (!telemetry_fresh || !state_.connected || !state_.armed || state_.system_status >= 6 ||
-    !vehicle_status_.armed || !vehicle_status_.fcu_connected ||
-    !vehicle_status_.fcu_status_fresh || vehicle_status_.authority == "FAILSAFE")
+  // The reported state is the kill switch status (SB or ESP32), whatever the FCU mode.
+  if (!vehicle_status_received_ ||
+    (now() - last_status_time_).seconds() > lifecycle_timeout_s_)
   {
     return RobotState::STATE_KILLED;
   }
-  if (vehicle_status_.operator_takeover) {
-    return RobotState::STATE_MANUAL;
+  switch (vehicle_status_.operational_mode) {
+    case 2:
+      return RobotState::STATE_AUTO;
+    case 1:
+      return RobotState::STATE_MANUAL;
+    default:
+      return RobotState::STATE_KILLED;
   }
-  if (!vehicle_status_.rc_fresh) {
-    return RobotState::STATE_KILLED;
-  }
-  if (state_.mode == "GUIDED" && vehicle_status_.mode == "GUIDED" &&
-    lifecycleFreshLocked() && lifecycle_.autonomous_ready)
-  {
-    return RobotState::STATE_AUTO;
-  }
-  return RobotState::STATE_MANUAL;
 }
 
 bool UuvCommNode::lifecycleFreshLocked() const
@@ -203,19 +217,22 @@ void UuvCommNode::publishHeartbeat()
       (heartbeat_time - last_gps_time_).seconds() <= 3.0 &&
       gps_.status.status >= sensor_msgs::msg::NavSatStatus::STATUS_FIX &&
       validPosition(gps_.latitude, gps_.longitude);
-    heartbeat.position = anchor_;
-    heartbeat.altitude_hae_m = static_cast<float>(anchor_altitude_hae_m_);
     if (gps_valid) {
-      heartbeat.position.latitude = gps_.latitude;
-      heartbeat.position.longitude = gps_.longitude;
-      if (std::isfinite(gps_.altitude)) {
-        heartbeat.altitude_hae_m = static_cast<float>(gps_.altitude);
+      last_fix_.latitude = gps_.latitude;
+      last_fix_.longitude = gps_.longitude;
+      if (!has_last_fix_ || std::isfinite(gps_.altitude)) {
+        last_fix_altitude_hae_m_ = std::isfinite(gps_.altitude) ? gps_.altitude : anchor_altitude_hae_m_;
       }
+      has_last_fix_ = true;
     }
+    heartbeat.position = has_last_fix_ ? last_fix_ : anchor_;
+    heartbeat.altitude_hae_m = static_cast<float>(has_last_fix_ ? last_fix_altitude_hae_m_ : anchor_altitude_hae_m_);
     heartbeat.spd_mps = (heartbeat_time - last_velocity_time_).seconds() > 3.0 ?
       0.0F : static_cast<float>(speed_mps_);
     const bool pose_fresh = (heartbeat_time - last_pose_time_).seconds() <= 3.0;
-    if (pose_fresh && std::isfinite(pose_.pose.position.z)) {
+    if (water_depth_valid_ && (heartbeat_time - last_water_depth_time_).seconds() <= 3.0) {
+      heartbeat.depth_m = static_cast<float>(std::max(0.0, water_depth_m_));
+    } else if (pose_fresh && std::isfinite(pose_.pose.position.z)) {
       heartbeat.depth_m = static_cast<float>(std::max(0.0, -pose_.pose.position.z));
     }
     const auto & q = pose_.pose.orientation;
@@ -239,6 +256,25 @@ void UuvCommNode::publishHeartbeat()
   }
   heartbeat_pub_->publish(heartbeat);
   publishSurveyProgress();
+  publishZones();
+}
+
+void UuvCommNode::publishZones()
+{
+  banyu_msgs::msg::Task4Zones msg;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    zones_->expire(now().seconds());
+    msg.run_id = run_id_;
+    msg.epoch = lifecycle_.epoch;
+    zones_->fill(msg);
+    if (zones_->movingActive()) {
+      msg.moving_stamp = rclcpp::Time(static_cast<int64_t>(zones_->movingReceivedS() * 1e9), RCL_ROS_TIME);
+    }
+  }
+  msg.header.stamp = now();
+  msg.header.frame_id = "wgs84";
+  zones_pub_->publish(msg);
 }
 
 void UuvCommNode::publishMissionStatus(
@@ -268,23 +304,46 @@ void UuvCommNode::commandCallback(const rx_msgs::msg::Command::SharedPtr msg)
   }
   using rx_msgs::msg::Command;
   using rx_msgs::msg::VehicleType;
+
+  // Task 4 zones: the surfaced UUV is a USV, so zones for the USV are kept clear of too.
+  Task4ZoneTracker::Result zone;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    zone = zones_->handle(*msg, now().seconds());
+  }
+  if (zone.relevant) {
+    if (zone.rejected) {
+      RCLCPP_WARN(get_logger(), "Task 4 %s ignored (seq %u): invalid zone", zone.event.c_str(), msg->command_seq);
+    } else if (zone.duplicate) {
+      RCLCPP_INFO(get_logger(), "Task 4 command seq %u type %u is a duplicate, ignored", msg->command_seq,
+        msg->command_type);
+    } else {
+      RCLCPP_INFO(get_logger(), "Task 4 %s (seq %u, target %u)%s", zone.event.c_str(), msg->command_seq,
+        msg->target_vehicle, zone.changed ? "" : ", no change");
+    }
+    if (zone.changed) {publishZones();}
+    if (zone.ack) {
+      rx_msgs::msg::IncidentAck ack;
+      ack.header.stamp = now();
+      ack.header.frame_id = "uuv";
+      ack.command_seq = msg->command_seq;
+      incident_ack_pub_->publish(ack);
+    }
+    return;
+  }
+
   if (msg->target_vehicle != VehicleType::TYPE_UUV &&
     msg->target_vehicle != VehicleType::TYPE_UNKNOWN)
   {
     return;
   }
-  if (msg->command_type == Command::CMD_TASK4_ASSISTANCE ||
-    msg->command_type == Command::CMD_TASK4_KEEP_OUT_ZONE ||
-    msg->command_type == Command::CMD_TASK4_ALL_CLEAR)
-  {
+  if (msg->command_type == Command::CMD_TASK4_ASSISTANCE) {
     rx_msgs::msg::IncidentAck ack;
     ack.header.stamp = now();
     ack.header.frame_id = "uuv";
     ack.command_seq = msg->command_seq;
     incident_ack_pub_->publish(ack);
-    if (msg->command_type == Command::CMD_TASK4_ASSISTANCE) {
-      publishMissionStatus("assistance execution unsupported/not ready");
-    }
+    publishMissionStatus("assistance execution unsupported/not ready");
   }
 }
 
@@ -297,17 +356,6 @@ void UuvCommNode::courseCallback(const rx_msgs::msg::Course::SharedPtr msg)
   course_ = *msg;
   pinger_freq_hz_ = msg->pinger_freq_hz;
   survey_ledger_->setCourse(msg->course_id, msg->pinger_freq_hz);
-}
-
-void UuvCommNode::stateCallback(const mavros_msgs::msg::State::SharedPtr msg)
-{
-  if (!msg) {
-    return;
-  }
-  std::lock_guard<std::mutex> lock(mutex_);
-  state_ = *msg;
-  state_received_ = true;
-  last_state_received_ = std::chrono::steady_clock::now();
 }
 
 void UuvCommNode::gpsCallback(const sensor_msgs::msg::NavSatFix::SharedPtr msg)
@@ -351,7 +399,7 @@ void UuvCommNode::vehicleStatusCallback(const banyu_msgs::msg::VehicleStatus::Sh
   std::lock_guard<std::mutex> lock(mutex_);
   vehicle_status_ = *msg;
   vehicle_status_received_ = true;
-  last_status_received_ = std::chrono::steady_clock::now();
+  last_status_time_ = now();
 }
 
 void UuvCommNode::lifecycleCallback(const banyu_msgs::msg::RunLifecycle::SharedPtr msg)
@@ -372,6 +420,7 @@ void UuvCommNode::lifecycleCallback(const banyu_msgs::msg::RunLifecycle::SharedP
     return;
   }
   bool notify = false;
+  bool zones_dirty = false;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (retired_authorities_.count(msg->authority_instance) != 0) {
@@ -407,12 +456,23 @@ void UuvCommNode::lifecycleCallback(const banyu_msgs::msg::RunLifecycle::SharedP
     notify = !lifecycle_received_ || msg->event != Lifecycle::SNAPSHOT ||
       msg->run_id != lifecycle_.run_id || msg->phase != lifecycle_.phase ||
       msg->reason != lifecycle_.reason || msg->current_task != lifecycle_.current_task;
+    // prepare_autonomy opens a new run identity window: zones and their sequence numbers start over.
+    const bool preparing = msg->phase == Lifecycle::PREPARING &&
+      (!lifecycle_received_ || lifecycle_.phase != Lifecycle::PREPARING);
+    if (preparing) {
+      zones_->reset();
+      zones_dirty = true;
+    }
     lifecycle_ = *msg;
     lifecycle_received_ = true;
     last_lifecycle_received_ = std::chrono::steady_clock::now();
     run_id_ = msg->run_id;
     current_task_ = msg->phase >= Lifecycle::ACTIVE && msg->phase <= Lifecycle::SURFACED ?
       msg->current_task : rx_msgs::msg::RxTask::TASK_NONE;
+  }
+  if (zones_dirty) {
+    RCLCPP_INFO(get_logger(), "Task 4 zones reset for a new run window");
+    publishZones();
   }
   if (notify) {
     publishMissionStatus(msg->reason.empty() ? "Mission lifecycle updated" : msg->reason,
@@ -444,6 +504,11 @@ void UuvCommNode::depthCallback(const banyu_msgs::msg::WaterDepth::SharedPtr msg
     return;
   }
   std::lock_guard<std::mutex> lock(mutex_);
+  if (msg->valid && msg->calibrated && std::isfinite(msg->depth_m)) {
+    water_depth_m_ = msg->depth_m;
+    water_depth_valid_ = true;
+    last_water_depth_time_ = now();
+  }
   using Lifecycle = banyu_msgs::msg::RunLifecycle;
   if (!lifecycleFreshLocked() || (lifecycle_.phase != Lifecycle::SURVEY_COMPLETE &&
     lifecycle_.phase != Lifecycle::SURFACED)) {return;}
@@ -502,7 +567,11 @@ void UuvCommNode::surveyCallback(
     reply(Response::RUN_NOT_ACTIVE, "RUN_NOT_ACTIVE: fresh eligible mission required");
     return;
   }
-  if (!survey_ledger_->complete()) {
+  // ".best_effort": the mission gave up on a full survey (pipe not found, traverse lost); report what was seen.
+  const std::string kBestEffort = ".best_effort";
+  const bool best_effort = request->report_id.size() > kBestEffort.size() &&
+    request->report_id.compare(request->report_id.size() - kBestEffort.size(), kBestEffort.size(), kBestEffort) == 0;
+  if (!survey_ledger_->complete() && !(best_effort && survey_ledger_->bestEffortAvailable())) {
     reply(Response::SURVEY_INVALID, survey_ledger_->reason());
     return;
   }
@@ -519,7 +588,11 @@ void UuvCommNode::surveyCallback(
 
   SurveyLedger::Report report;
   try {
-    report = survey_ledger_->build(request->report_id);
+    report = best_effort ? survey_ledger_->buildBestEffort(request->report_id) :
+      survey_ledger_->build(request->report_id);
+    if (best_effort && !survey_ledger_->complete()) {
+      RCLCPP_WARN(get_logger(), "Best-effort Core survey (incomplete: %s)", survey_ledger_->reason().c_str());
+    }
   } catch (const std::exception & error) {
     reply(Response::SURVEY_INVALID, error.what());
     return;

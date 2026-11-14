@@ -6,6 +6,7 @@
 #include "banyu_msgs/action/acquire_pipeline.hpp"
 #include "banyu_msgs/msg/pipeline_observation.hpp"
 #include "banyu_vehicle_execution/action_servers/typed_action_server.hpp"
+#include "banyu_vehicle_execution/light_cue.hpp"
 
 namespace banyu_vehicle_execution
 {
@@ -25,6 +26,8 @@ public:
     double surge_speed = 0.3,
     int confirm_frames = 5);
 
+  void setLightCue(const LightCueConfig & config) {light_cue_ = config;}
+
   void onGoalStarted() override;
 
   MotionIntent tick(
@@ -40,6 +43,9 @@ private:
   int confirm_frames_{5};
   int consecutive_frames_{0};
   rclcpp::Time start_time_{0, 0, RCL_ROS_TIME};
+  LightCueConfig light_cue_{};
+  double light_cue_used_s_{0.0};
+  bool light_cue_logged_{false};
 };
 
 }  // namespace banyu_vehicle_execution

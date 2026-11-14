@@ -1,0 +1,13 @@
+# Task 2 hydrophone opt-in (use_hydrophone:=True, launch_task2.sh --hydrophone). The competition vehicle has
+# no hydrophone, so task2_params.yaml keeps all of this off. mission.launch.py loads this file after the params
+# and the sensors overlay, and starts pinger_localization only with the opt-in.
+vehicle_execution_node:
+  ros__parameters:
+    control:
+      use_hydrophone: true
+underwater_odometry_node:
+  ros__parameters:
+    use_hydrophone: true
+task2_sim_provider:
+  ros__parameters:
+    publish_hydrophone_heading: true

@@ -12,6 +12,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(mavros_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(Boost REQUIRED)
 
 add_library(banyu_teleop_lib
@@ -25,6 +26,7 @@ ament_target_dependencies(banyu_teleop_lib
   rclcpp
   mavros_msgs
   std_msgs
+  std_srvs
 )
 target_link_libraries(banyu_teleop_lib Boost::boost)
 
@@ -59,5 +61,5 @@ endif()
 
 ament_export_include_directories(include)
 ament_export_libraries(banyu_teleop_lib)
-ament_export_dependencies(rclcpp mavros_msgs std_msgs)
+ament_export_dependencies(rclcpp mavros_msgs std_msgs std_srvs)
 ament_package()

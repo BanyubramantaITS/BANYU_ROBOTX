@@ -218,9 +218,9 @@ jalan di mode POR. Di laptop (satu jaringan dengan NUC, `ROS_DOMAIN_ID` robot = 
 
 ```bash
 export ROS_DOMAIN_ID=30                                          # wajib, default laptop 0
-python3 src/BANYU_ROBOTX/tools/scripts/por_hsv_tuner.py          # lewat WiFi (compressed)
-python3 src/BANYU_ROBOTX/tools/scripts/por_hsv_tuner.py --raw    # sim / kabel LAN
-python3 src/BANYU_ROBOTX/tools/scripts/por_hsv_tuner.py --source rekaman.mp4   # offline
+python3 src/BANYU_ROBOTX/tools/scripts/por/por_hsv_tuner.py          # lewat WiFi (compressed)
+python3 src/BANYU_ROBOTX/tools/scripts/por/por_hsv_tuner.py --raw    # sim / kabel LAN
+python3 src/BANYU_ROBOTX/tools/scripts/por/por_hsv_tuner.py --source rekaman.mp4   # offline
 ```
 
 - Tiga jendela slider: **Gate HSV (yellow)**, **Marker HSV (orange)**, dan Filter; slider
@@ -277,7 +277,7 @@ diagonal badan (depan-kiri) dan masih bisa yaw. Rutenya:
 Jangan edit angka satu per satu; buat ulang profil dengan generator dari hasil ukur:
 
 ```bash
-python3 src/BANYU_ROBOTX/tools/scripts/dead_thruster_por.py --no-position \
+python3 src/BANYU_ROBOTX/tools/scripts/por/dead_thruster_por.py --no-position \
   --measured-speed 0.42 --start-to-gate 3.0 --gate-to-marker 10.0 \
   --out src/BANYU_ROBOTX/banyu_bringup/config/por_params_dead_thruster_2_3_no_pos.yaml
 ```

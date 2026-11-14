@@ -59,7 +59,7 @@ bool RingTracker::hasRecordedColor(uint8_t color) const
   return std::any_of(
     snapshot_.records.begin(), snapshot_.records.end(),
     [color](const banyu_msgs::msg::Task2RingRecord & record) {
-      return record.color == color;
+      return !record.superseded && record.color == color;
     });
 }
 
@@ -239,12 +239,30 @@ bool RingTracker::ringProgress(const RingTrackerInput & input, double & progress
     const double angle = config_.camera_tilt_from_vertical_rad -
       config_.camera_half_vfov_rad * std::clamp(
       static_cast<double>(input.observation.offset_y), -1.0, 1.0);
-    ahead = config_.camera_forward_m + config_.camera_height_m * std::tan(angle);
+    // The measured height (pipe width) when there is one: the fixed one is right only at the survey altitude, and a
+    // vehicle 1.15 m above the nodes instead of 1.7 put far rings 50% too far ahead (two records for one node).
+    double height = input.camera_height_m > 0.0 ? input.camera_height_m : config_.camera_height_m;
+    // Only when the lid is big (close, about 0.8 m or less): at the survey altitude its size is a few pixels and the range from
+    // it is too noisy, the fixed height does better.
+    if (config_.lid_diameter_m > 0.0 && config_.focal_ratio > 0.0 && input.observation.size >= 0.08F) {
+      const double range = config_.focal_ratio * config_.lid_diameter_m / input.observation.size;
+      height = std::clamp(
+        range * std::cos(config_.camera_tilt_from_vertical_rad), 0.1, 1.5 * config_.camera_height_m);
+    }
+    ahead = config_.camera_forward_m + height * std::tan(angle);
     const auto & q = input.vehicle_pose_map.pose.orientation;
     const double yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y),
         1.0 - 2.0 * (q.y * q.y + q.z * q.z));
-    x += ahead * std::cos(yaw);
-    y += ahead * std::sin(yaw);
+    // Sideways too: a node off the vehicle's line sits on a different part of a bent pipe, and leaving the offset out put the same
+    // node at progress values 0.9 m apart from one view to the next, which made duplicate records and pushed the last node out.
+    double right = 0.0;
+    if (config_.focal_ratio > 0.0) {
+      const double slant = height / std::cos(angle);
+      right = std::clamp(static_cast<double>(input.observation.offset_x), -1.0, 1.0) *
+        0.5 / config_.focal_ratio * slant;
+    }
+    x += ahead * std::cos(yaw) + right * std::sin(yaw);
+    y += ahead * std::sin(yaw) - right * std::cos(yaw);
   }
   if (hasCenterline() && input.has_vehicle_pose) {
     progress = projectOntoCenterline(x, y);
@@ -270,6 +288,9 @@ int RingTracker::findAssociatedRecord(
 
   for (std::size_t i = 0; i < snapshot_.records.size(); ++i) {
     const auto & rec = snapshot_.records[i];
+    if (rec.superseded) {
+      continue;
+    }
     if (hasCenterline()) {
       const double delta_progress = std::abs(progress_m - rec.pipeline_progress_m);
       if (delta_progress <= config_.node_association_distance_m && delta_progress < min_dist) {
@@ -314,6 +335,15 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
     input.vehicle_pose_map);
 
   if (match_idx >= 0) {
+    // The same node can first look GREEN (bloom, a ring half in view) and then RED. A damaged node must not be
+    // reported GREEN, and it must not take a second slot: RED upgrades the record, GREEN never downgrades it.
+    if (observation.color == banyu_msgs::msg::PipelineRingObservation::COLOR_RED &&
+      snapshot_.records[match_idx].color != banyu_msgs::msg::PipelineRingObservation::COLOR_RED)
+    {
+      snapshot_.records[match_idx].color = banyu_msgs::msg::PipelineRingObservation::COLOR_RED;
+      snapshot_.red_pending = true;
+      snapshot_.repaired = false;
+    }
     const auto & existing = snapshot_.records[match_idx];
     banyu_msgs::msg::Task2RingRecord record = existing;
 
@@ -347,15 +377,29 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
     return result;
   }
 
-  if (snapshot_.records.size() >= 4) {
+  // The pipe has four nodes: a fifth distinct sighting means two records are one node (seen from far, or from beside
+  // the line). Merge the closest pair (the other is superseded, its id never reused), so a later node (the RED one in
+  // seed 24) is not lost.
+  if (config_.max_record_height_m > 0.0 && input.camera_height_m > config_.max_record_height_m) {
     clearEntry();
     return ignoredUpdate();
+  }
+  const std::size_t slot = snapshot_.records.size();
+  std::size_t survivor = 0;
+  std::size_t superseded = 0;
+  bool merged = false;
+  if (liveRecordCount() >= 4) {
+    if (!valid_progress || !mergeClosestRecords(survivor, superseded)) {
+      clearEntry();
+      return ignoredUpdate();
+    }
+    merged = true;
   }
 
   banyu_msgs::msg::Task2RingRecord record;
   record.run_id = input.run_id;
   record.epoch = input.epoch;
-  record.node_id = static_cast<uint32_t>(snapshot_.records.size());
+  record.node_id = static_cast<uint32_t>(slot);
   record.frame_sequence = observation.frame_sequence;
   record.color = observation.color;
   record.confidence = observation.confidence;
@@ -364,8 +408,14 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
   if (valid_progress) {
     record.pipeline_progress_m = calculated_progress;
     record.physical_identity_verified = true;
-    record.ordering_verified = snapshot_.records.empty() ||
-      (calculated_progress > last_record_path_distance_);
+    if (snapshot_.records.empty()) {
+      record.ordering_verified = true;
+    } else {
+      const double delta = calculated_progress - last_record_path_distance_;
+      if (traverse_direction_ == 0 && delta != 0.0) {traverse_direction_ = delta > 0.0 ? 1 : -1;}
+      record.ordering_verified = !config_.require_monotonic_order ||
+        (traverse_direction_ != 0 && delta * traverse_direction_ > 0.0);
+    }
     last_record_path_distance_ = calculated_progress;
     has_last_record_path_distance_ = true;
   } else {
@@ -381,7 +431,7 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
   snapshot_.invisible_frames = 0;
   snapshot_.has_last_state = true;
   snapshot_.last_state.header = observation.header;
-  snapshot_.last_state.index = static_cast<uint32_t>(snapshot_.records.size() - 1);
+  snapshot_.last_state.index = static_cast<uint32_t>(slot);
   snapshot_.last_state.color = observation.color;
   snapshot_.last_state.confidence = observation.confidence;
   snapshot_.last_state.run_id = record.run_id;
@@ -402,9 +452,58 @@ RingTrackerUpdate RingTracker::accept(const RingTrackerInput & input)
   result.phase = snapshot_.phase;
   result.accepted = true;
   result.consecutive_frames = snapshot_.consecutive_frames;
-  result.record_index = snapshot_.records.size() - 1;
+  result.record_index = slot;
   result.record = record;
+  result.merged = merged;
+  if (merged) {
+    result.merged_record = snapshot_.records[survivor];
+    result.superseded_record = snapshot_.records[superseded];
+  }
   return result;
+}
+
+std::size_t RingTracker::liveRecordCount() const
+{
+  return static_cast<std::size_t>(std::count_if(
+      snapshot_.records.begin(), snapshot_.records.end(),
+      [](const banyu_msgs::msg::Task2RingRecord & record) {return !record.superseded;}));
+}
+
+bool RingTracker::mergeClosestRecords(std::size_t & survivor, std::size_t & freed)
+{
+  auto & recs = snapshot_.records;
+  std::vector<std::size_t> order;
+  for (std::size_t i = 0; i < recs.size(); ++i) {
+    if (recs[i].superseded) {continue;}
+    if (!recs[i].physical_identity_verified) {return false;}
+    order.push_back(i);
+  }
+  if (order.size() < 2 || !(config_.min_node_spacing_m > 0.0)) {return false;}
+  std::sort(order.begin(), order.end(), [&recs](std::size_t a, std::size_t b) {
+      return recs[a].pipeline_progress_m < recs[b].pipeline_progress_m;
+    });
+  std::size_t best = 0;
+  for (std::size_t i = 1; i + 1 < order.size(); ++i) {
+    if (recs[order[i + 1]].pipeline_progress_m - recs[order[i]].pipeline_progress_m <
+      recs[order[best + 1]].pipeline_progress_m - recs[order[best]].pipeline_progress_m)
+    {
+      best = i;
+    }
+  }
+  if (recs[order[best + 1]].pipeline_progress_m - recs[order[best]].pipeline_progress_m >= config_.min_node_spacing_m) {
+    return false;
+  }
+  const std::size_t a = std::min(order[best], order[best + 1]);
+  const std::size_t b = std::max(order[best], order[best + 1]);
+  constexpr auto kRed = banyu_msgs::msg::PipelineRingObservation::COLOR_RED;
+  // The RED record keeps its slot (a repair may refer to it); otherwise the one seen first.
+  survivor = (recs[b].color == kRed && recs[a].color != kRed) ? b : a;
+  freed = survivor == a ? b : a;
+  if (recs[freed].color == kRed) {recs[survivor].color = kRed;}
+  // The node's place in the order is its first sighting.
+  recs[survivor].frame_sequence = std::min(recs[a].frame_sequence, recs[b].frame_sequence);
+  recs[freed].superseded = true;
+  return true;
 }
 
 RingTrackerUpdate RingTracker::update(
@@ -476,6 +575,33 @@ RingTrackerUpdate RingTracker::update(const RingTrackerInput & input)
     return ignoredUpdate();
   }
   const bool visible = kind == ObservationKind::VISIBLE;
+
+  // The node just recorded as GREEN now shows RED and the vehicle has not moved on: it is the same damaged node
+  // (it can look green first). Upgrade its record instead of ignoring the colour change or taking a second slot.
+  if (visible && observation.color == banyu_msgs::msg::PipelineRingObservation::COLOR_RED &&
+    snapshot_.has_last_state && !beyond_last_node_ &&
+    snapshot_.last_state.index < snapshot_.records.size() &&
+    snapshot_.records[snapshot_.last_state.index].color !=
+    banyu_msgs::msg::PipelineRingObservation::COLOR_RED &&
+    snapshot_.phase != RingTrackerPhase::IDLE)
+  {
+    const std::size_t index = snapshot_.last_state.index;
+    snapshot_.records[index].color = banyu_msgs::msg::PipelineRingObservation::COLOR_RED;
+    snapshot_.red_pending = true;
+    snapshot_.repaired = false;
+    snapshot_.phase = RingTrackerPhase::TRACKING;
+    snapshot_.active_color = observation.color;
+    snapshot_.consecutive_frames = 1;
+    snapshot_.invisible_frames = 0;
+    snapshot_.last_state.color = observation.color;
+    RingTrackerUpdate upgraded;
+    upgraded.phase = snapshot_.phase;
+    upgraded.accepted = true;
+    upgraded.consecutive_frames = snapshot_.consecutive_frames;
+    upgraded.record_index = index;
+    upgraded.record = snapshot_.records[index];
+    return upgraded;
+  }
 
   if (snapshot_.phase == RingTrackerPhase::TRACKING && visible && cameraModelEnabled() &&
     beyond_last_node_)
@@ -608,6 +734,7 @@ void RingTracker::reset()
   last_sequence_ = 0;
   last_record_path_distance_ = 0.0;
   has_last_record_path_distance_ = false;
+  traverse_direction_ = 0;
   last_record_pose_ = geometry_msgs::msg::PoseStamped();
   has_last_record_pose_ = false;
   rearmed_ = false;

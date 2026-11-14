@@ -33,9 +33,23 @@ struct RingTrackerConfig
   uint64_t maximum_sequence_gap{1};
   bool reject_duplicate_red{true};
   double node_association_distance_m{0.8};
+  // With four records, a fifth distinct ring merges the two records closest in progress, only if they are closer
+  // than this (one node recorded twice); otherwise the fifth ring is ignored. 0 disables the merge.
+  double min_node_spacing_m{1.0};
+  // Each new ring must continue the direction set by the first two (ordering_verified). Off for a two-leg survey from
+  // the midpoint: the second leg meets the rest of the rings the other way; the progress is absolute along the buoy line.
+  bool require_monotonic_order{true};
+  // No new record while the camera is higher than this above the pipe (measured from the pipe's width): from the descent
+  // the same node lands at several progress values (midpoint seed 2: three records in 6 s from 2.8 m). 0 = no limit.
+  double max_record_height_m{2.2};
   // Bottom camera geometry for estimating where a ring is along the pipe; disabled when
   // camera_height_m is 0 (ring position then equals vehicle position).
   double camera_height_m{0.0};
+  // With both set, the height of the camera above the ring comes from the ring's apparent size (observation.size,
+  // fraction of the image width) instead of camera_height_m, which only holds at the survey altitude. lid_diameter_m is
+  // the lit lid, focal_ratio is fx over the image width.
+  double lid_diameter_m{0.0};
+  double focal_ratio{0.0};
   double camera_forward_m{0.0};
   double camera_tilt_from_vertical_rad{0.0};
   double camera_half_vfov_rad{0.0};
@@ -50,6 +64,8 @@ struct RingTrackerInput
   bool has_vehicle_pose{false};
   double path_distance_m{0.0};
   bool has_path_distance{false};
+  // Camera height above the pipe measured now (from the pipe's apparent width); 0 = use camera_height_m.
+  double camera_height_m{0.0};
 };
 
 struct RingTrackerUpdate
@@ -61,6 +77,11 @@ struct RingTrackerUpdate
   std::size_t consecutive_frames{0};
   std::size_t record_index{0};
   banyu_msgs::msg::Task2RingRecord record;
+  // Set when two records were merged to make room for this one: the surviving record and the superseded one (both
+  // to publish before this record).
+  bool merged{false};
+  banyu_msgs::msg::Task2RingRecord merged_record;
+  banyu_msgs::msg::Task2RingRecord superseded_record;
 };
 
 struct RingTrackerSnapshot
@@ -106,6 +127,8 @@ public:
     return snapshot_.records;
   }
   bool redPending() const {return snapshot_.red_pending;}
+  // Records that are nodes (not superseded by a merge).
+  std::size_t liveRecordCount() const;
   bool repaired() const {return snapshot_.repaired;}
 
 private:
@@ -132,6 +155,9 @@ private:
   void clearEntry();
   RingTrackerUpdate ignoredUpdate() const;
   RingTrackerUpdate accept(const RingTrackerInput & input);
+  // Merges the two live records closest in progress into one (RED wins) and marks the other superseded; false if they
+  // lack progress or are not closer than min_node_spacing_m.
+  bool mergeClosestRecords(std::size_t & survivor, std::size_t & superseded);
 
   RingTrackerConfig config_;
   RingTrackerSnapshot snapshot_;
@@ -139,6 +165,9 @@ private:
   uint64_t last_sequence_{0};
   double last_record_path_distance_{0.0};
   bool has_last_record_path_distance_{false};
+  // Which way the progress runs in the order the rings are met: +1 from the active buoy end, -1 when the pipe is first met
+  // from the other end. The second ring fixes it; later rings must keep going the same way.
+  int traverse_direction_{0};
   geometry_msgs::msg::PoseStamped last_record_pose_;
   bool has_last_record_pose_{false};
   bool rearmed_{false};

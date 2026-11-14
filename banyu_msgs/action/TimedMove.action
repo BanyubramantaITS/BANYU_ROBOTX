@@ -1,4 +1,7 @@
 # Execute a timed body-frame (FLU) movement segment with optional barometer depth hold and IMU yaw cap.
+# Run identity (0 outside a run context): Task 2 only accepts goals from the active run.
+uint32 run_id
+uint64 epoch
 string segment_name
 float64 duration_s
 float64 speed_x_mps

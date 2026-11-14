@@ -62,7 +62,7 @@ protected:
 
     // Substituted FCU/sensor publishers on test_node_
     course_pub_ = test_node_->create_publisher<rx_msgs::msg::Course>(
-      "/system/mission/course", rclcpp::QoS(1).reliable().transient_local());
+      "/system/mission/course", rclcpp::QoS(10).reliable());
     evidence_pub_ = test_node_->create_publisher<banyu_msgs::msg::Task2SurveyEvidence>(
       "/banyu/pipeline/survey_evidence", rclcpp::QoS(5).reliable().transient_local());
     depth_pub_ = test_node_->create_publisher<banyu_msgs::msg::WaterDepth>(
@@ -116,6 +116,8 @@ protected:
     pt.latitude = 33.810;
     pt.longitude = -118.393;
     course.boundary.push_back(pt);
+    // Course is volatile: publish only once uuv_comm_node's reader has matched.
+    ASSERT_TRUE(spinUntil([this]() {return course_pub_->get_subscription_count() > 0;}));
     course_pub_->publish(course);
 
     spinFor(50ms);

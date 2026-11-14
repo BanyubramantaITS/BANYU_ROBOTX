@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
-<!-- RobotX 2026 Task 2: Infrastructure Survey and Repair, CORE, ADVANCED and DISRUPTIVE TIERS ({tier},
+<!-- NOT LOADED by banyu_mission (design draft; it needs a hydrophone the competition UUV does not have).
+     RobotX 2026 Task 2: Infrastructure Survey and Repair, CORE, ADVANCED and DISRUPTIVE TIERS ({tier},
      banyu_mission's task2_tier parameter), on the sensors the UUV
      carries (bottom camera + lights, echosounder, hydrophones, pressure depth, compass, GPS at
      the surface, magnetic probe under the bow; no DVL, no position estimate used for control).

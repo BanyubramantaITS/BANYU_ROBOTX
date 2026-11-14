@@ -1,0 +1,22 @@
+Execute docs/task2_core_disruptive_plan.md end to end, autonomously, simulation only. First read docs/task2_autonomous_run_prompt.md (full rules); follow it exactly. I am away for a long time: NEVER ask me anything, never use AskUserQuestion, never wait for approval, never stop to summarize midway. For any decision use the plan's defaults (sections 5 and 9), log decision and reason in docs/task2_run_log.md, continue.
+
+You are the critical ORCHESTRATOR; verify every subagent output every time.
+
+Rules
+- Work branch feat/task2-core-disruptive-sim from feat/dive-trajectory-path. Small local commits, only you commit. NEVER push. NO Co-Authored-By or AI attribution in commits.
+- Run ROS from ros2_ws_robotx root via bash -c 'source /opt/ros/jazzy/setup.bash && source install/setup.bash && <cmd>'. No absolute paths in committed files.
+- Simulation only: never touch real hardware, serial ports, udev, ESP32, real Pixhawk params. Don't edit bluerov2 front_camera block.
+- DDS: ROS_DOMAIN_ID 40 UUV, 10 GCS, 42 for unit tests. Before each sim kill only stale ardusub, mavproxy, gz, ros2 that this session started. Gazebo fails to load ~1 in 3: relaunch (max 3).
+- Follow AGENTS.md: new/renamed node params go in task2_params.yaml and mission.launch.py; create and keep tools/scripts/launch_task2.sh in sync; verify with --dry-run --sim and --real.
+- Never delete files you did not create; never rewrite history.
+
+Resources: 20 threads, 31 GB RAM, RTX 5050 8 GB, only ~25 GB disk. Use freely. Gazebo with __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia. Parallel builds/tests/agents OK; ONE sim at a time unless ports, instance id and domain are separate. Free RAM < 3 GB: stop extra jobs. Keep >= 5 GB disk free (df -h before each sim); compressed bags, no images; delete only your own bags/builds after logging.
+
+Delegation: cheap bounded jobs (plumbing, test scaffolds, log summaries, run loops, doc formatting) go to Claude subagents (model haiku/sonnet) or Antigravity: agy --dangerously-skip-permissions --print-timeout 900s --model gemini-3.8-flash-high --add-dir <dir> --print='<task + acceptance check>' (the = after --print is required). Run agy ONLY in an isolated git worktree or copy, never on the work branch. If agy fails, do it yourself. YOU do all decisions, Pixhawk mode experiments, BT and mode switch, decoder and ring-ack logic (R11), mock_gcs, safety params, stage gates, final verdict.
+Verify every subagent result: read the real diff, confirm only allowed files changed, nothing invented (params, topics, fields, tiers, numbers), re-run build and proof command yourself, spot-check numbers vs raw files. Wrong: fix yourself or re-delegate once, then do it yourself. Never commit unread output. Log each delegation and outcome in the run log.
+
+Order: 0) git pull --ff-only in src/RobotX-SoS-communication-ITSN, rebuild rx_msgs. 1) sim_gps_gate + Pixhawk mode experiments M1-M6 (gps_loss_depth 0.1 m, reacquire 10 s and 30 s) -> docs/task2_mode_experiments.md; pick underwater mode (default ALT_HOLD + RC override). 2) mode switch, search prior, surface-to-fix (max 3). 3) Core (tier 2): blue classifier, mock_gcs.py, red-ring matrix R1-R16, S1-S5, S7-S10, S12. 4) Advanced (tier 3): single-colour decoder, hold-and-decode BT step; re-run Core. 5) Disruptive (tier 4): two-colour decoder, 9 pairs, R11; re-run all. 6) pulse detector params, S2, S3, S11. 7) update docs, docs/task2_sim_results.md.
+
+Gates: stage done when cases pass or after 3 fix attempts; log FAILED limits with evidence, move on. Caps: 20 min/sim run, ~3 h/stage. Denied tool: use another way. Impossible items: Open items, use plan assumptions. Append to docs/task2_run_log.md after every step.
+
+Finish: write docs/task2_feasibility_verdict.md (per tier: success rate per case, failing step and why, sensor limit from plan section 13, yes/no/partial). Commit locally, stop. Final reply max 10 lines: branch, verdict per tier, delegations (total/rejected), open items.

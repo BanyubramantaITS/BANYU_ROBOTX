@@ -5,9 +5,11 @@
 #include <mavros_msgs/msg/rc_in.hpp>
 #include <mavros_msgs/msg/state.hpp>
 #include <mavros_msgs/srv/command_bool.hpp>
+#include <mavros_msgs/srv/command_long.hpp>
 #include <mavros_msgs/srv/set_mode.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/u_int8.hpp>
+#include <std_srvs/srv/trigger.hpp>
 
 #include <boost/asio.hpp>
 
@@ -31,6 +33,12 @@ public:
   bool isGimbalDeflected() const {return _gimbalDeflectedLast;}
   bool isGimbalInputRejected() const {return _currentOperationalMode == 2 && _gimbalDeflectedLast;}
   bool isGimbalOverrideActive() const {return _gimbalOverrideActive;}
+  bool isHardwareKillLatched() const {return _hwKillLatched;}
+  bool isLightOn() const {return _lightIsOn;}
+  bool isLightEnabled() const {return _lightEnabled;}
+
+  // One state line from the ESP32 indicator ("itsN"); public so tests can feed reports.
+  void handleIndicatorLine(const std::string & line);
 
   void rcinCallback(const mavros_msgs::msg::RCIn::SharedPtr msg);
   void stateCallback(const mavros_msgs::msg::State::SharedPtr msg);
@@ -43,15 +51,23 @@ private:
   void handleModeSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg);
   void handleKillSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg);
   void handleGimbalInput(const mavros_msgs::msg::RCIn::SharedPtr & msg);
+  void handlePrepareSwitch(const mavros_msgs::msg::RCIn::SharedPtr & msg);
+  void requestPrepareAutonomy();
   bool isGimbalDeflected(const mavros_msgs::msg::RCIn::SharedPtr & msg) const;
   void publishNeutralGimbalOverride();
   void publishReleaseOverride();
 
   void armVehicle(bool arm);
   void setFlightMode(const std::string & mode);
+  void setLightState(bool on);
 
-  void openSerial();
+  void openSerial(bool quiet = false);
+  void closeSerial();
   void writeKillCommand(int command);
+  void indicatorTimerCallback();
+  void readIndicatorSerial();
+  void latchHardwareKill();
+  void handleHardwareKillRelease();
 
   void startMockAutoMode();
   void stopMockAutoMode();
@@ -63,18 +79,33 @@ private:
   rclcpp::Subscription<mavros_msgs::msg::RCIn>::SharedPtr _rcinSubscriber;
   rclcpp::Subscription<mavros_msgs::msg::State>::SharedPtr _stateSubscriber;
   rclcpp::Publisher<std_msgs::msg::UInt8>::SharedPtr _killSwitchPublisher;
+  rclcpp::Publisher<std_msgs::msg::UInt8>::SharedPtr _killBoardPublisher;
   rclcpp::Publisher<mavros_msgs::msg::OverrideRCIn>::SharedPtr _rcOverridePub;
   rclcpp::Publisher<mavros_msgs::msg::PositionTarget>::SharedPtr _setpointPub;
 
   rclcpp::Client<mavros_msgs::srv::CommandBool>::SharedPtr _armingClient;
+  rclcpp::Client<mavros_msgs::srv::CommandLong>::SharedPtr _commandClient;
   rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr _setModeClient;
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr _prepareClient;
   rclcpp::TimerBase::SharedPtr _mockAutoTimer;
+  rclcpp::TimerBase::SharedPtr _indicatorTimer;
 
   std::string _rcTopic;
   std::string _killSwitchTopic;
+  std::string _killBoardTopic;
   std::string _overrideTopic;
   std::string _setpointTopic;
   std::string _stateTopic;
+  std::string _commandService = "/mavros/cmd/command";
+
+  bool _lightEnabled = true;
+  int _lightChannel = 9;
+  double _lightOnPwm = 1900.0;
+  double _lightOffPwm = 1100.0;
+  bool _lightIsOn = false;
+  bool _lightStateInitialized = false;
+  bool _targetLightOn = false;
+  uint32_t _lightRequestSeq = 0;
 
   int _modeChannel = 7;
   int _killChannel = 5;
@@ -82,8 +113,21 @@ private:
   double _switchHighThreshold = 1750.0;
   double _gimbalDeadband = 50.0;
 
-  std::string _serialDevice = "/dev/ttyUSB0";
+  // Momentary SH: a press (low -> high) with SB Up calls the mission's prepare_autonomy.
+  int _prepareChannel = 4;
+  std::string _prepareService = "/banyu/mission/prepare_autonomy";
+  bool _prepareSwitchInitialized = false;
+  bool _prepareSwitchPressed = false;
+  bool _preparePending = false;
+  rclcpp::Time _prepareRequestedAt{0, 0, RCL_STEADY_TIME};
+
+  std::string _serialDevice = "/dev/esp32_kill";
   int _serialBaud = 115200;
+  bool _useHardwareKill = true;
+  double _killReportTimeoutS = 1.5;
+  double _killReportGraceS = 0.3;
+  double _indicatorResendPeriodS = 1.0;
+  double _rcTimeoutS = 3.0;
 
   std::string _lastMode;
   bool _modeStateInitialized = false;
@@ -100,6 +144,20 @@ private:
   boost::asio::io_context _io;
   std::unique_ptr<boost::asio::serial_port> _serialPort;
   bool _serialConnected = false;
+  std::string _rxBuffer;
+
+  // Mode last sent to the ESP32 (-1 = none) and when it last changed.
+  int _commandedMode = -1;
+  rclcpp::Time _commandChangedAt{0, 0, RCL_STEADY_TIME};
+  rclcpp::Time _lastCommandSentAt{0, 0, RCL_STEADY_TIME};
+  rclcpp::Time _lastReportAt{0, 0, RCL_STEADY_TIME};
+  rclcpp::Time _lastReconnectAt{0, 0, RCL_STEADY_TIME};
+  rclcpp::Time _lastRcAt{0, 0, RCL_STEADY_TIME};
+  bool _hwKillLatched = false;
+  // Latched and waiting for the board to report the kill input released.
+  bool _hwKillAwaitRelease = false;
+  bool _reportStaleWarned = false;
+  rclcpp::Clock _steadyClock{RCL_STEADY_TIME};
 
   bool _enableMockAuto = true;
   std::string _mockAutoFlightMode = "MANUAL";

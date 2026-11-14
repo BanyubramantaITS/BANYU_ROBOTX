@@ -10,7 +10,7 @@
 > ESP32 firmware enforces the 500 ms heartbeat watchdog described here, teleop alone would trip it
 > in mode `2`. Evidence in this repo points to the single-byte firmware: the acceptance criteria
 > below are all unchecked, `teleop_transmitter.md` documents the byte protocol with the ESP32
-> echoing monitor lines, and `tools/scripts/esp32_kill_cmd.py` notes the board keeps its state only
+> echoing monitor lines, and `tools/scripts/debug/esp32_kill_cmd.py` notes the board keeps its state only
 > while a program holds the port open. The firmware source is not in any team repository, so
 > confirm on the bench once: SB Up, wait 5 s, the relay must stay on.
 

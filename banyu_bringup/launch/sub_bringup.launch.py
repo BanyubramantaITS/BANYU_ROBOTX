@@ -83,6 +83,68 @@ def generate_launch_description():
         choices=["por", "task2"],
     )
 
+    tier_arg = DeclareLaunchArgument(
+        name="tier",
+        default_value="core",
+        description="Task 2 tier the UUV attempts: 'core', 'advanced' or 'disruptive' (mode:=task2 only).",
+        choices=["core", "advanced", "disruptive"],
+    )
+
+    gamble_red_arg = DeclareLaunchArgument(
+        name="gamble_red", default_value="2,3",
+        description="sensors:=gamble: RED positions, 1 = closest to the active buoy; '2,3' = one of them at random, '3' = always 3.",
+    )
+    sensors_arg = DeclareLaunchArgument(
+        name="sensors",
+        default_value="full",
+        description="Task 2 sensor set (always the Bar30): 'full' (ALT_HOLD, dive to the fixed depth), 'baro' (ALT_HOLD, dive stopped by camera, "
+        "order dead-reckoned) or 'gamble' (Bar30 + surface GPS, timed dive, guessed light order).",
+        choices=["full", "baro", "gamble"],
+    )
+
+    dive_point_arg = DeclareLaunchArgument(
+        name="dive_point",
+        default_value="auto",
+        description="Task 2 dive point: 'buoy' (inside the start buoy), 'midpoint' (midway between the buoys, back up to the pipe's start, survey forward) or 'auto' (= midpoint).",
+        choices=["auto", "buoy", "midpoint"],
+    )
+
+    debug_topics_arg = DeclareLaunchArgument(
+        name="debug_topics",
+        default_value="False",
+        description="Task 2: publish the pipeline detector's annotated frame and masks on /banyu/pipeline/debug/*.",
+        choices=["True", "False"],
+    )
+
+    test_mission_arg = DeclareLaunchArgument(
+        name="test_mission",
+        default_value="False",
+        description="Task 2: fly the test mission (USV waypoint by GPS, dive, timed forward/backward legs, surface, Core report).",
+        choices=["True", "False"],
+    )
+
+    waypoint_mission_arg = DeclareLaunchArgument(
+        name="waypoint_mission",
+        default_value="False",
+        description="Task 2: fly the waypoint navigation & communication test mission (task2_waypoint_mission.xml).",
+        choices=["True", "False"],
+    )
+
+    auto_start_arg = DeclareLaunchArgument(
+        name="auto_start",
+        default_value="True",
+        description="Task 2: False turns off the waypoint mission's start on SB Up (mission.auto_start_on_auto); the run "
+        "then starts only from prepare_autonomy and the GCS CMD_RUN_START.",
+        choices=["True", "False"],
+    )
+
+    use_hydrophone_arg = DeclareLaunchArgument(
+        name="use_hydrophone",
+        default_value="False",
+        description="Task 2: opt in to the hydrophone (pinger_localization, pinger homing). The competition vehicle has none.",
+        choices=["True", "False"],
+    )
+
     use_gps_arg = DeclareLaunchArgument(
         name="use_gps",
         # POR runs GPS-denied; Task 2 needs the surface GPS leg (NavigateSurfaceGps).
@@ -290,6 +352,15 @@ def generate_launch_description():
             "use_sim": "False",
             "use_sim_time": "False",
             "debug": LaunchConfiguration("debug"),
+            "debug_topics": LaunchConfiguration("debug_topics"),
+            "tier": LaunchConfiguration("tier"),
+            "sensors": LaunchConfiguration("sensors"),
+            "use_hydrophone": LaunchConfiguration("use_hydrophone"),
+            "dive_point": LaunchConfiguration("dive_point"),
+            "test_mission": LaunchConfiguration("test_mission"),
+            "waypoint_mission": LaunchConfiguration("waypoint_mission"),
+            "auto_start": LaunchConfiguration("auto_start"),
+            "gamble_red": LaunchConfiguration("gamble_red"),
             "enable_esp32_trigger": LaunchConfiguration("enable_esp32_trigger"),
             "enable_esp32_bridge": LaunchConfiguration("enable_esp32_bridge"),
             "bypass_rc": LaunchConfiguration("bypass_rc"),
@@ -303,6 +374,15 @@ def generate_launch_description():
     return LaunchDescription(
         [
             mode_arg,
+            tier_arg,
+            sensors_arg,
+            use_hydrophone_arg,
+            dive_point_arg,
+            test_mission_arg,
+            waypoint_mission_arg,
+            auto_start_arg,
+            debug_topics_arg,
+            gamble_red_arg,
             use_gps_arg,
             debug_arg,
             enable_teleop_arg,

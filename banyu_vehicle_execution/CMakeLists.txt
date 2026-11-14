@@ -14,9 +14,11 @@ find_package(banyu_msgs REQUIRED)
 find_package(banyu_guidance REQUIRED)
 find_package(mavros_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(unique_identifier_msgs REQUIRED)
+find_package(rx_msgs REQUIRED)
 
 add_library(${PROJECT_NAME}
   src/command_encoder.cpp
@@ -48,7 +50,8 @@ ament_target_dependencies(${PROJECT_NAME}
   geometry_msgs
   sensor_msgs
   std_msgs
-  unique_identifier_msgs)
+  unique_identifier_msgs
+  rx_msgs)
 
 add_executable(vehicle_execution_node src/main.cpp)
 target_compile_features(vehicle_execution_node PUBLIC cxx_std_17)
@@ -62,7 +65,8 @@ ament_target_dependencies(vehicle_execution_node
   geometry_msgs
   sensor_msgs
   std_msgs
-  unique_identifier_msgs)
+  unique_identifier_msgs
+  rx_msgs)
 
 install(DIRECTORY include/ DESTINATION include)
 
@@ -72,7 +76,14 @@ target_link_libraries(calibrated_depth_node ${PROJECT_NAME})
 ament_target_dependencies(calibrated_depth_node
   rclcpp
   banyu_msgs
+  mavros_msgs
   std_msgs)
+
+add_executable(underwater_odometry_node src/underwater_odometry_node.cpp)
+target_compile_features(underwater_odometry_node PUBLIC cxx_std_17)
+target_include_directories(underwater_odometry_node PRIVATE include)
+ament_target_dependencies(underwater_odometry_node
+  rclcpp banyu_msgs geometry_msgs mavros_msgs nav_msgs sensor_msgs)
 
 install(TARGETS ${PROJECT_NAME}
   EXPORT export_${PROJECT_NAME}
@@ -80,7 +91,7 @@ install(TARGETS ${PROJECT_NAME}
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin)
 
-install(TARGETS vehicle_execution_node calibrated_depth_node
+install(TARGETS vehicle_execution_node calibrated_depth_node underwater_odometry_node
   DESTINATION lib/${PROJECT_NAME})
 
 ament_export_include_directories(include)
@@ -94,7 +105,8 @@ ament_export_dependencies(
   geometry_msgs
   sensor_msgs
   std_msgs
-  unique_identifier_msgs)
+  unique_identifier_msgs
+  rx_msgs)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
@@ -111,19 +123,38 @@ if(BUILD_TESTING)
     geometry_msgs
     sensor_msgs
     std_msgs
-    unique_identifier_msgs)
+    unique_identifier_msgs
+    rx_msgs)
+
+  ament_add_gtest(test_task4_zones test/test_task4_zones.cpp ENV ROS_DOMAIN_ID=42)
+  target_link_libraries(test_task4_zones ${PROJECT_NAME})
+  target_compile_features(test_task4_zones PUBLIC cxx_std_17)
+  target_include_directories(test_task4_zones PRIVATE include)
+  ament_target_dependencies(test_task4_zones rclcpp rclcpp_action banyu_msgs mavros_msgs geometry_msgs sensor_msgs rx_msgs)
 
   ament_add_gtest(test_run_authorization test/test_run_authorization.cpp)
   target_link_libraries(test_run_authorization ${PROJECT_NAME})
   target_compile_features(test_run_authorization PUBLIC cxx_std_17)
   ament_target_dependencies(test_run_authorization rclcpp rclcpp_action banyu_msgs)
 
+  ament_add_gtest(test_camera_heave test/test_camera_heave.cpp)
+  target_compile_features(test_camera_heave PUBLIC cxx_std_17)
+  target_include_directories(test_camera_heave PRIVATE include)
+
+  ament_add_gtest(test_depth_health_monitor test/test_depth_health_monitor.cpp)
+  target_compile_features(test_depth_health_monitor PUBLIC cxx_std_17)
+  target_include_directories(test_depth_health_monitor PRIVATE include)
+
   ament_add_gtest(test_calibrated_depth_node test/test_calibrated_depth_node.cpp src/calibrated_depth_node.cpp)
   target_compile_definitions(test_calibrated_depth_node PRIVATE BANYU_VEHICLE_EXECUTION_NO_MAIN)
   target_link_libraries(test_calibrated_depth_node ${PROJECT_NAME})
   target_compile_features(test_calibrated_depth_node PUBLIC cxx_std_17)
   target_include_directories(test_calibrated_depth_node PRIVATE include)
-  ament_target_dependencies(test_calibrated_depth_node rclcpp banyu_msgs std_msgs)
+  ament_target_dependencies(test_calibrated_depth_node rclcpp banyu_msgs mavros_msgs std_msgs)
+
+  ament_add_gtest(test_underwater_filter test/test_underwater_filter.cpp)
+  target_compile_features(test_underwater_filter PUBLIC cxx_std_17)
+  target_include_directories(test_underwater_filter PRIVATE include)
 
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)

@@ -2,6 +2,8 @@
 uint32 run_id
 uint64 epoch
 bool enable
+# Follow the pipe backwards (stern first): the midpoint dive backs up to the pipe's start before the survey.
+bool reverse
 ---
 bool success
 string reason

@@ -37,7 +37,7 @@ This package provides the Gazebo simulation environment, 3D world models, and la
 
 `main_world.world` gets its Task 2 props from `banyu_robotx_models` (a `package.xml` dependency of this package), from the private repository `BanyubramantaITS/banyu-robotx-models` (clone it into `src/`, see the top-level README). Systems built here:
 
-- **`banyu::HydrophoneArray`** (loaded by the `bluerov2_task2` model): pinger TDOA arrivals.
+- **`banyu::HydrophoneArray`** (loaded by the `bluerov2_task2` model): pinger TDOA arrivals, azimuth only (far-field plane wave along the horizontal bearing; no range or elevation, matching the real array).
 - **`banyu::PipelineLights`** (built here; no world in this repo loads it directly): turns one listed light node RED and the rest GREEN. The seed comes from `<seed>`, or from `BANYU_LIGHT_SEED` (the launch arg `light_seed`) if that is set.
 - **`banyu::UnderwaterTurbidity`** (loaded by `main_world.world`): an Ogre2 post-process on the listed `<camera>` sensors. It applies range-based per-channel attenuation plus backscatter veil. Only the server-side sensor image gets it; the GUI view stays clear. The coefficients are placeholders, not measured venue water.
 
@@ -96,7 +96,7 @@ ros2 launch banyu_bringup sub_bringup.launch.py mode:=por
 
 ---
 
-MAVROS is not started by any launch file: run `tools/scripts/launch_mavros.sh --sim` (or without
+MAVROS is not started by any launch file: run `tools/scripts/run/launch_mavros.sh --sim` (or without
 `--sim` on the robot) in another terminal.
 
 ## ⚙️ Launch Arguments

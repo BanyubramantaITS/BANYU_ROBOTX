@@ -141,7 +141,7 @@ TEST(SurveyLedger, ReportsAllRedPositionsFromBothObservedActiveEndpoints)
   }
 }
 
-TEST(SurveyLedger, BentPipeUsesProgressRatherThanVehicleDistanceOrAcceptanceOrder)
+TEST(SurveyLedger, OrderIsTheFirstSightingRatherThanVehicleDistanceOrSnapshotOrder)
 {
   SurveyLedger ledger(ledgerConfig());
   initialize(ledger);
@@ -414,10 +414,27 @@ TEST(SurveyLedger, OriginalGreenMustRemainIntactAfterLaterRedFlash)
   ASSERT_TRUE(ledger.ingest(value, 11 * kSecond).empty());
   ASSERT_EQ(ledger.build("audit-green").original_conditions[0], 1u);
 
+  // The red flash only comes after a verified repair.
   value.revision++;
+  value.repair_verified = true;
   value.rings[0].color = 1;
   ASSERT_TRUE(ledger.ingest(value, 11 * kSecond).empty());
   EXPECT_EQ(ledger.build("audit-green").original_conditions[0], 1u);
+}
+
+TEST(SurveyLedger, FirstSeenGreenThenRedBeforeRepairIsOriginallyRed)
+{
+  SurveyLedger ledger(ledgerConfig());
+  initialize(ledger);
+  auto value = evidence();
+  value.repair_verified = false;
+  ASSERT_TRUE(ledger.ingest(value, 11 * kSecond).empty());
+  ASSERT_EQ(ledger.build("far-green").original_conditions[0], 1u);
+
+  value.revision++;
+  value.rings[0].color = 1;
+  ASSERT_TRUE(ledger.ingest(value, 11 * kSecond).empty());
+  EXPECT_EQ(ledger.build("far-green").original_conditions[0], 2u);
 }
 
 TEST(SurveyLedger, OriginalRedMustSurviveUnknownNodeEarlierInSnapshot)
@@ -473,4 +490,133 @@ TEST(SurfaceGuard, SingleSampleMustNotVerifyContinuousSurfacing)
   guard.beginRun(13, 1);
   guard.observe(depth(10 * kSecond), 10 * kSecond, kSecond);
   EXPECT_FALSE(guard.ready(10 * kSecond + 160000000LL, kSecond + 160000000LL));
+}
+
+TEST(SurveyLedger, BestEffortReportsWhatWasSeenWithTheVerifiedBuoy)
+{
+  SurveyLedger ledger(ledgerConfig());
+  initialize(ledger);
+  auto value = evidence();
+  value.rings.resize(3);   // rings 100 (GREEN), 101 (GREEN), 102 (RED) seen, the fourth never reached
+  value.traversal_complete = false;
+  EXPECT_FALSE(ledger.ingest(value, 11 * kSecond).empty());
+  EXPECT_FALSE(ledger.complete());
+  ASSERT_TRUE(ledger.bestEffortAvailable());
+  const auto report = ledger.buildBestEffort("task2-survey-13-1.best_effort");
+  EXPECT_EQ(report.tier, 2);
+  EXPECT_DOUBLE_EQ(report.buoy_latitude, 33.0);
+  const std::array<uint8_t, 4> expected{1, 1, 2, 1};   // GREEN, GREEN, RED as seen, then GREEN
+  EXPECT_EQ(report.original_conditions, expected);
+}
+
+TEST(SurveyLedger, BestEffortWithNothingSeenIsAllGreenAndNeedsABuoy)
+{
+  SurveyLedger ledger(ledgerConfig());
+  initialize(ledger);
+  EXPECT_FALSE(ledger.bestEffortAvailable());
+  EXPECT_THROW(ledger.buildBestEffort("x.best_effort"), std::logic_error);
+  auto value = evidence();
+  value.rings.clear();
+  value.traversal_complete = false;
+  ledger.ingest(value, 11 * kSecond);
+  ASSERT_TRUE(ledger.bestEffortAvailable());
+  const std::array<uint8_t, 4> all_green{1, 1, 1, 1};
+  EXPECT_EQ(ledger.buildBestEffort("x.best_effort").original_conditions, all_green);
+}
+
+TEST(SurveyLedger, BestEffortOfACompleteSurveyIsTheFullReport)
+{
+  SurveyLedger ledger(ledgerConfig());
+  initialize(ledger);
+  ASSERT_TRUE(ledger.ingest(evidence(), 11 * kSecond).empty());
+  EXPECT_EQ(ledger.buildBestEffort("x.best_effort").original_conditions,
+    ledger.build("x").original_conditions);
+}
+
+TEST(SurveyLedger, BestEffortKeepsAVerifiedFlashCode)
+{
+  SurveyLedger ledger(ledgerConfig(4));
+  initialize(ledger);
+  auto value = evidence(4);
+  value.repair_verified = true;
+  value.resource_code_complete = true;
+  value.resource_color = 3;
+  value.delivery_circle_color = 2;
+  value.rings[1].ordering_verified = false;   // the order could not be verified
+  EXPECT_FALSE(ledger.ingest(value, 11 * kSecond).empty());
+  ASSERT_TRUE(ledger.bestEffortAvailable());
+  const auto report = ledger.buildBestEffort("x.best_effort");
+  EXPECT_EQ(report.tier, 4);
+  EXPECT_EQ(report.resource_color, 3);
+  EXPECT_EQ(report.delivery_circle_color, 2);
+}
+
+TEST(SurveyLedger, GambleRedOnlyAtTheConfiguredPositions)
+{
+  for (const std::vector<int> & allowed : {std::vector<int>{2, 3}, std::vector<int>{4}}) {
+    auto config = ledgerConfig();
+    config.gamble_order = true;
+    config.gamble_red_positions = allowed;
+    SurveyLedger ledger(config);
+    initialize(ledger);
+    auto value = evidence();
+    value.rings.clear();
+    value.traversal_complete = false;
+    ledger.ingest(value, 11 * kSecond);
+    std::array<int, 5> count{};
+    for (int i = 0; i < 400; ++i) {
+      const auto conditions = ledger.buildBestEffort("x.best_effort").original_conditions;
+      EXPECT_EQ(std::count(conditions.begin(), conditions.end(), 2), 1);
+      ++count[std::find(conditions.begin(), conditions.end(), 2) - conditions.begin() + 1];
+    }
+    for (int position = 1; position <= 4; ++position) {
+      const bool wanted = std::find(allowed.begin(), allowed.end(), position) != allowed.end();
+      EXPECT_EQ(count[position] > 0, wanted) << position;
+    }
+  }
+}
+
+TEST(SurveyLedger, SupersededDuplicateRecordIsDroppedAndTheNewNodeKeepsTheOrder)
+{
+  // The ring tracker recorded one node twice (100 and 101), then merged 101 into 100 when the RED node (104) came.
+  SurveyLedger ledger(ledgerConfig());
+  initialize(ledger);
+  auto value = evidence();
+  value.traversal_complete = false;
+  const std::vector<double> first = {0.1, 1.0, 10.1, 20.1};
+  for (std::size_t i = 0; i < 4; ++i) {
+    value.rings[i].color = 2;
+    value.rings[i].pipeline_progress_m = first[i];
+  }
+  ledger.ingest(value, 11 * kSecond);
+
+  value.revision++;
+  value.traversal_complete = true;
+  value.rings[1].superseded = true;
+  auto red = value.rings[3];
+  red.node_id = 104;
+  red.frame_sequence = 5;
+  red.color = 1;
+  red.pipeline_progress_m = 30.1;
+  value.rings.push_back(red);
+  ASSERT_TRUE(ledger.ingest(value, 11 * kSecond).empty());
+  const auto report = ledger.build("merged");
+  EXPECT_EQ(report.original_conditions[0], 1u);
+  EXPECT_EQ(report.original_conditions[1], 1u);
+  EXPECT_EQ(report.original_conditions[2], 1u);
+  EXPECT_EQ(report.original_conditions[3], 2u);
+}
+
+TEST(SurveyLedger, OrderFollowsTheFirstSightingWhenDeadReckonedProgressDisagrees)
+{
+  // Dead-reckoning drift put the third node seen (RED) behind the second one in progress: the report keeps the order the
+  // forward survey met them in.
+  SurveyLedger ledger(ledgerConfig());
+  initialize(ledger);
+  auto value = evidence();
+  value.rings[1].pipeline_progress_m = 20.1;
+  value.rings[2].pipeline_progress_m = 10.1;   // the RED one (frame 3)
+  ASSERT_TRUE(ledger.ingest(value, 11 * kSecond).empty());
+  EXPECT_EQ(ledger.build("drift").original_conditions, (std::array<uint8_t, 4>{1, 1, 2, 1}));
+  EXPECT_EQ(ledger.buildBestEffort("drift.best_effort").original_conditions, (std::array<uint8_t, 4>{1, 1, 2, 1}));
 }

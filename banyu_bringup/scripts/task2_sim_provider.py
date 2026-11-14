@@ -97,6 +97,8 @@ class Task2SimProvider(Node):
         super().__init__("task2_sim_provider", *args, **kwargs)
 
         # These are ENU map coordinates for the configured Task 2 buoy.
+        # Ground-truth buoy bearing as a fake hydrophone heading: off unless use_hydrophone opts in.
+        self.declare_parameter("publish_hydrophone_heading", False)
         self.declare_parameter("buoy_x", 51.381)
         self.declare_parameter("buoy_y", 13.8475)
         self.declare_parameter("start_buoy_map_x", 43.95)
@@ -180,6 +182,32 @@ class Task2SimProvider(Node):
             float(self.get_parameter("end_buoy_map_x").value),
             float(self.get_parameter("end_buoy_map_y").value),
         )
+        # Scenario (sim only): the pipe moved against the buoys (rotated about its start, then shifted), and the buoy
+        # positions the USV reports off by an error. gazebo_main.launch.py moves the world's pipe the same way.
+        self.declare_parameter("scenario_pipe_dx", 0.0)
+        self.declare_parameter("scenario_pipe_dy", 0.0)
+        self.declare_parameter("scenario_pipe_dyaw_deg", 0.0)
+        self.declare_parameter("scenario_buoy_error_x", 0.0)
+        self.declare_parameter("scenario_buoy_error_y", 0.0)
+        dx = float(self.get_parameter("scenario_pipe_dx").value)
+        dy = float(self.get_parameter("scenario_pipe_dy").value)
+        dyaw = math.radians(float(self.get_parameter("scenario_pipe_dyaw_deg").value))
+        if dx or dy or dyaw:
+            sx, sy = self.pipeline_start
+            ex, ey = self.pipeline_end[0] - sx, self.pipeline_end[1] - sy
+            c, sn = math.cos(dyaw), math.sin(dyaw)
+            self.pipeline_start = (sx + dx, sy + dy)
+            self.pipeline_end = (sx + dx + c * ex - sn * ey, sy + dy + sn * ex + c * ey)
+            self.get_logger().warn(
+                f"scenario: pipe moved {dx:+.2f} m east, {dy:+.2f} m north, {math.degrees(dyaw):+.1f} deg: "
+                f"start {self.pipeline_start}, end {self.pipeline_end}")
+        bex = float(self.get_parameter("scenario_buoy_error_x").value)
+        bey = float(self.get_parameter("scenario_buoy_error_y").value)
+        if bex or bey:
+            self.start_buoy_map_x += bex
+            self.start_buoy_map_y += bey
+            self.end_buoy_map = (self.end_buoy_map[0] + bex, self.end_buoy_map[1] + bey)
+            self.get_logger().warn(f"scenario: reported buoys off by ({bex:+.2f}, {bey:+.2f}) m")
         self.start_buoy_label = str(
             self.get_parameter("pipeline_buoys_start_label").value).strip().lower()
         if self.start_buoy_label not in ("a", "b"):
@@ -228,9 +256,11 @@ class Task2SimProvider(Node):
         self.route_pub = self.create_publisher(
             Path, "/banyu/debug/task2/route", 10
         )
-        self.heading_pub = self.create_publisher(
-            HydrophoneHeading, "/banyu/hydrophone/relative_heading", 10
-        )
+        self.heading_pub = None
+        if self.get_parameter("publish_hydrophone_heading").value:
+            self.heading_pub = self.create_publisher(
+                HydrophoneHeading, "/banyu/hydrophone/relative_heading", 10
+            )
         self.ring_state_pub = self.create_publisher(
             PipelineRingState, "/banyu/debug/task2/ring_state", 10
         )
@@ -250,8 +280,10 @@ class Task2SimProvider(Node):
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
+        # rx-sos spec: /system topics use the plain default QoS (reliable, volatile, keep_last 10).
+        system_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
         self.pipeline_buoys_pub = self.create_publisher(
-            PipelineBuoys, "/system/vehicle/usv/task2/pipeline_buoys", latched
+            PipelineBuoys, "/system/vehicle/usv/task2/pipeline_buoys", system_qos
         )
         self.end_candidate_pub = self.create_publisher(
             PipelineEndCandidate, "/banyu/pipeline/end_candidate_state", 10
@@ -269,7 +301,7 @@ class Task2SimProvider(Node):
         self.create_subscription(
             RunLifecycle, "/banyu/mission/run_lifecycle", self._on_lifecycle, latched
         )
-        self.create_subscription(Course, "/system/mission/course", self._on_course, latched)
+        self.create_subscription(Course, "/system/mission/course", self._on_course, system_qos)
 
         self._latest_global_fix = None
         self._latest_vehicle_pose = None
@@ -431,6 +463,8 @@ class Task2SimProvider(Node):
     def _on_vehicle_pose(self, msg):
         self._latest_vehicle_pose = msg
         self._vehicle_pose_received = self.get_clock().now()
+        if self.heading_pub is None:
+            return
 
         vehicle_yaw = yaw_from_quaternion(msg.pose.orientation)
         target_bearing = math.atan2(

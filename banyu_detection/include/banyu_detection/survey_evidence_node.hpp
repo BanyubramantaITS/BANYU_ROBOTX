@@ -9,6 +9,7 @@
 
 #include "banyu_msgs/msg/active_buoy_fix.hpp"
 #include "banyu_msgs/msg/pipeline_end_state.hpp"
+#include "banyu_msgs/msg/resource_code.hpp"
 #include "banyu_msgs/msg/run_lifecycle.hpp"
 #include "banyu_msgs/msg/task2_ring_record.hpp"
 #include "banyu_msgs/msg/task2_survey_evidence.hpp"
@@ -36,6 +37,7 @@ private:
   void handleEndState(const banyu_msgs::msg::PipelineEndState::SharedPtr msg);
   void handleStartBuoyFix(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
   void handleActiveBuoyFix(const banyu_msgs::msg::ActiveBuoyFix::SharedPtr msg);
+  void handleResourceCode(const banyu_msgs::msg::ResourceCode::SharedPtr msg);
   void handleCourse(const rx_msgs::msg::Course::SharedPtr msg);
   void handleLifecycle(const banyu_msgs::msg::RunLifecycle::SharedPtr msg);
   void publishEvidence();
@@ -58,6 +60,7 @@ private:
   bool traversal_complete_{false};
   bool repair_verified_{false};
   bool resource_code_complete_{false};
+  bool code_gave_up_{false};   // the decode window closed without a complete code: report the Core survey only
   uint8_t resource_color_{0};
   uint8_t delivery_circle_color_{0};
   bool start_buoy_trust_raw_fix_{false};
@@ -69,6 +72,7 @@ private:
   rclcpp::Subscription<banyu_msgs::msg::PipelineEndState>::SharedPtr end_state_sub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr start_buoy_fix_sub_;
   rclcpp::Subscription<banyu_msgs::msg::ActiveBuoyFix>::SharedPtr active_buoy_fix_sub_;
+  rclcpp::Subscription<banyu_msgs::msg::ResourceCode>::SharedPtr resource_code_sub_;
   rclcpp::Subscription<rx_msgs::msg::Course>::SharedPtr course_sub_;
   rclcpp::Subscription<banyu_msgs::msg::RunLifecycle>::SharedPtr lifecycle_sub_;
   rclcpp::Publisher<banyu_msgs::msg::Task2SurveyEvidence>::SharedPtr evidence_pub_;

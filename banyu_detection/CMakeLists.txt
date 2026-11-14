@@ -22,6 +22,7 @@ find_package(ros_gz_interfaces REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(std_srvs REQUIRED)
+find_package(mavros_msgs REQUIRED)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -38,12 +39,13 @@ target_include_directories(perception_state_machines PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
-ament_target_dependencies(perception_state_machines rclcpp banyu_msgs geometry_msgs std_msgs)
+ament_target_dependencies(perception_state_machines rclcpp banyu_msgs geometry_msgs std_msgs sensor_msgs mavros_msgs)
 
 # Task 2 vision algorithms and acoustics ported from main_mission_sim
 add_library(banyu_task2_perception STATIC
     src/pipeline_vision.cpp
     src/acoustics.cpp
+    src/resource_code_decoder.cpp
 )
 target_include_directories(banyu_task2_perception PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -58,14 +60,14 @@ target_include_directories(por_detection PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/inc
 
 add_executable(task2_pipeline_detector src/task2_pipeline_detector.cpp)
 target_link_libraries(task2_pipeline_detector banyu_task2_perception)
-ament_target_dependencies(task2_pipeline_detector rclcpp cv_bridge OpenCV sensor_msgs banyu_msgs)
+ament_target_dependencies(task2_pipeline_detector rclcpp cv_bridge OpenCV sensor_msgs banyu_msgs image_transport)
 
 add_executable(pinger_localization src/pinger_localization_node.cpp)
 target_link_libraries(pinger_localization banyu_task2_perception)
 ament_target_dependencies(pinger_localization rclcpp sensor_msgs ros_gz_interfaces banyu_msgs tf2_ros)
 
 add_executable(ring_tracker_node src/ring_tracker_main.cpp)
-ament_target_dependencies(ring_tracker_node rclcpp sensor_msgs geometry_msgs banyu_msgs)
+ament_target_dependencies(ring_tracker_node rclcpp sensor_msgs geometry_msgs banyu_msgs mavros_msgs)
 target_link_libraries(ring_tracker_node perception_state_machines)
 
 add_executable(pipeline_end_node src/pipeline_end_main.cpp)
@@ -76,6 +78,11 @@ add_executable(survey_evidence_node src/survey_evidence_node.cpp)
 ament_target_dependencies(survey_evidence_node rclcpp sensor_msgs banyu_msgs rx_msgs)
 target_include_directories(survey_evidence_node PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+add_executable(resource_code_decoder_node src/resource_code_decoder_node.cpp)
+target_link_libraries(resource_code_decoder_node banyu_task2_perception)
+ament_target_dependencies(resource_code_decoder_node rclcpp std_srvs banyu_msgs)
+target_include_directories(resource_code_decoder_node PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 install(TARGETS
     por_detection
     task2_pipeline_detector
@@ -83,6 +90,7 @@ install(TARGETS
     ring_tracker_node
     pipeline_end_node
     survey_evidence_node
+    resource_code_decoder_node
     DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -121,6 +129,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_pipeline_vision test/test_pipeline_vision.cpp)
   target_link_libraries(test_pipeline_vision banyu_task2_perception)
 
+  ament_add_gtest(test_resource_code_decoder test/test_resource_code_decoder.cpp)
+  target_link_libraries(test_resource_code_decoder banyu_task2_perception)
+
   ament_add_gtest(test_acoustics test/test_acoustics.cpp)
   target_link_libraries(test_acoustics banyu_task2_perception)
 
@@ -133,6 +144,9 @@ if(BUILD_TESTING)
       test/test_ring_tracker.cpp)
   target_link_libraries(test_ring_tracker perception_state_machines)
   ament_target_dependencies(test_ring_tracker banyu_msgs geometry_msgs)
+
+  ament_add_gtest(test_dead_reckoner test/test_dead_reckoner.cpp)
+  target_include_directories(test_dead_reckoner PRIVATE include)
 
   ament_add_gtest(test_ring_tracker_adapter
       test/test_ring_tracker_adapter.cpp)

@@ -58,7 +58,7 @@ Esp32BridgeNode::Esp32BridgeNode(const rclcpp::NodeOptions & options)
   serial_fd_(-1),
   is_running_(false)
 {
-  port_ = declare_parameter<std::string>("port", "/dev/ttyUSB0");
+  port_ = declare_parameter<std::string>("port", "/dev/esp32_kill");
   baud_ = declare_parameter<int>("baud", 115200);
   heartbeat_rate_hz_ = declare_parameter<double>("heartbeat_rate_hz", 10.0);
   serial_timeout_s_ = declare_parameter<double>("serial_timeout_s", 0.5);
@@ -195,6 +195,12 @@ void Esp32BridgeNode::processIncomingBytes(const char * data, size_t length)
     if (trimmed == "0" || trimmed == "1" || trimmed == "2") {
       std_msgs::msg::UInt8 msg;
       msg.data = static_cast<uint8_t>(trimmed[0] - '0');
+      kill_switch_pub_->publish(msg);
+    } else if (trimmed == "its0" || trimmed == "its1" || trimmed == "its2") {
+      // Indicator firmware: its0 manual, its1 auto, its2 emergency -> operational_mode 1/2/0.
+      static const uint8_t kIndicatorToMode[] = {1, 2, 0};
+      std_msgs::msg::UInt8 msg;
+      msg.data = kIndicatorToMode[trimmed[3] - '0'];
       kill_switch_pub_->publish(msg);
     }
   }

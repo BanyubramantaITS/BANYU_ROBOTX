@@ -1,0 +1,4 @@
+seed 2 node 1: final state TASK_COMPLETED_GREEN, reported ['RED', 'GREEN', 'GREEN', 'GREEN']
+seed 5 node 3: final state TASK_COMPLETED_GREEN, reported ['GREEN', 'GREEN', 'RED', 'GREEN']
+seed 9 node 4: final state TASK_COMPLETED_GREEN, reported ['GREEN', 'GREEN', 'GREEN', 'RED']
+seed 1 node 2: final state TASK_COMPLETED_GREEN, reported ['GREEN', 'RED', 'GREEN', 'GREEN']

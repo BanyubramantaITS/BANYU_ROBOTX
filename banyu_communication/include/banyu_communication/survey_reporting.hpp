@@ -31,6 +31,10 @@ public:
     double ingress_max_age_s{2.0};
     double minimum_progress_separation_m{0.0};
     uint8_t tier{2};
+    // Best-effort report with no RED seen: put one RED at a random one of these positions (1 = the node closest to the active
+    // buoy, 4 = the farthest; one position = always that one). The handbook lights one node RED.
+    bool gamble_order{false};
+    std::vector<int> gamble_red_positions{2, 3};
   };
 
   struct Report
@@ -58,6 +62,11 @@ public:
   bool complete() const {return complete_;}
   std::string reason() const {return reason_;}
   Report build(const std::string & report_id) const;
+  // A Core survey from what was seen when the survey could not be completed (a pipe not found, a lost traverse): the
+  // verified active buoy, the rings seen in progress order and GREEN for the rest. Keeps the heartbeat and start-buoy
+  // points instead of sending nothing. Throws when no active buoy was ever verified.
+  Report buildBestEffort(const std::string & report_id) const;
+  bool bestEffortAvailable() const;
 
 private:
   Config config_;

@@ -41,7 +41,10 @@ void registerMissionNodes(
   std::function<void()> on_abort = nullptr,
   std::function<BT::NodeStatus()> on_survey_complete = nullptr,
   std::function<BT::NodeStatus()> on_surface_success = nullptr,
-  std::function<BT::NodeStatus()> on_lock_buoy_target = nullptr);
+  std::function<BT::NodeStatus()> on_lock_buoy_target = nullptr,
+  std::function<BT::NodeStatus()> on_give_up_survey = nullptr,
+  std::function<BT::NodeStatus()> on_shift_buoy_target = nullptr,
+  std::function<BT::NodeStatus()> on_wait_buoy_target = nullptr);
 
 class BanyuMission : public rclcpp::Node
 {
@@ -96,6 +99,7 @@ private:
   std::chrono::steady_clock::time_point lifecycle_published_at_{};
   std::chrono::steady_clock::time_point pose_received_at_{};
   bool pose_valid_{false};
+  double readiness_pose_timeout_s_{1.0};
   banyu_msgs::msg::ExecutionReadiness execution_readiness_;
   std::chrono::steady_clock::time_point execution_received_at_{};
   double execution_readiness_timeout_s_{1.0};
@@ -111,9 +115,21 @@ private:
   rclcpp::Subscription<banyu_msgs::msg::ExecutionReadiness>::SharedPtr execution_readiness_sub_;
   rclcpp::Subscription<banyu_msgs::msg::Task2SurveyProgress>::SharedPtr survey_progress_sub_;
   rclcpp::Subscription<banyu_msgs::msg::Task2BuoyTarget>::SharedPtr buoy_target_sub_;
-  // USV active buoy target; it replaces the configured target until LockBuoyTarget runs.
+  // USV active buoy target: the run waits for it (WaitForBuoyTarget) and follows it until LockBuoyTarget runs.
   std::optional<banyu_msgs::msg::Task2BuoyTarget> buoy_target_;
   bool buoy_target_locked_{false};
+  bool auto_start_on_auto_{false};
+  uint8_t last_operational_mode_{0};
+  double retry_dive_offset_m_{3.0};
+  // Dive this far from the start buoy toward the other one (the pipe starts 1.5-2.5 m inside the buoys). The reported buoy is unchanged.
+  double dive_offset_m_{0.0};
+  // The surface goal is never a buoy: at least this far from the start buoy along the buoy line.
+  double buoy_standoff_m_{1.5};
+  // The surface transit keeps this far from both buoys (smaller than the standoff, so the goal stays outside).
+  double buoy_keep_out_m_{1.2};
+  // "buoy": dive near the start buoy; "midpoint": dive midway between the buoys, then survey in two legs.
+  std::string dive_point_{"buoy"};
+  void shiftTargetAlongHeading(double distance_m);
   bool explicit_heading_{false};
   BT::Blackboard::Ptr blackboard_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr preparation_service_;
@@ -131,7 +147,7 @@ private:
   bool por_use_vision_return_{false};
   bool por_use_vision_assist_{false};
   bool por_use_replay_{false};
-  std::string fallback_mode_{"SURFACE"};
+  std::string fallback_mode_{"MANUAL"};
   std::string set_mode_service_{"/mavros/set_mode"};
   rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr set_mode_client_;
   std::string arming_service_{"/mavros/cmd/arming"};

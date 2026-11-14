@@ -35,9 +35,22 @@ void VehicleExecutionNode::initParameters()
   enable_mavros_publish_ = declare_parameter<bool>("control.enable_mavros_publish", false);
   require_guided_ = declare_parameter<bool>("control.require_guided", true);
   autonomy_mode_ = declare_parameter<std::string>("control.autonomy_mode", "GUIDED");
+  {
+    // "GUIDED,ALT_HOLD": surface mode first, then the mode used under water.
+    const auto comma = autonomy_mode_.find(',');
+    if (comma != std::string::npos) {
+      underwater_mode_ = autonomy_mode_.substr(comma + 1);
+      autonomy_mode_ = autonomy_mode_.substr(0, comma);
+    }
+  }
+  standby_mode_ = declare_parameter<std::string>("control.standby_mode", "");
   output_mode_ = declare_parameter<std::string>("control.output_mode", "setpoint");
-  if (output_mode_ != "setpoint" && output_mode_ != "rc_override") {
-    throw std::invalid_argument("control.output_mode must be setpoint or rc_override");
+  if (output_mode_ != "setpoint" && output_mode_ != "rc_override" && output_mode_ != "auto") {
+    throw std::invalid_argument("control.output_mode must be setpoint, rc_override or auto");
+  }
+  if (output_mode_ == "auto" && underwater_mode_.empty()) {
+    throw std::invalid_argument(
+            "control.output_mode auto needs control.autonomy_mode \"<surface>,<underwater>\"");
   }
   rc_override_config_.channel_forward = static_cast<int>(declare_parameter<int64_t>(
     "rc_override.channel_forward", rc_override_config_.channel_forward));
@@ -73,6 +86,10 @@ void VehicleExecutionNode::initParameters()
   if (!std::isfinite(run_lifecycle_timeout_s_) || run_lifecycle_timeout_s_ <= 0.0) {
     throw std::invalid_argument("control.run_lifecycle_timeout_s must be positive and finite");
   }
+  pose_timeout_s_ = declare_parameter<double>("control.pose_timeout_s", 0.5);
+  if (!std::isfinite(pose_timeout_s_) || pose_timeout_s_ <= 0.0) {
+    throw std::invalid_argument("control.pose_timeout_s must be positive and finite");
+  }
   require_calibrated_surface_depth_ = declare_parameter<bool>(
     "control.require_calibrated_surface_depth", false);
   surface_depth_timeout_s_ = declare_parameter<double>("control.surface_depth_timeout_s", 0.5);
@@ -105,6 +122,8 @@ void VehicleExecutionNode::initSubscribers()
     "topics.pipeline_obs", "/banyu/pipeline/observation");
   const auto ring_obs_topic = declare_parameter<std::string>(
     "topics.ring_obs", "/banyu/pipeline/ring_observation");
+  const auto light_cue_topic = declare_parameter<std::string>(
+    "topics.light_cue", "/banyu/pipeline/light_cue");
   const auto detection_topic = declare_parameter<std::string>(
     "topics.detection", "/banyu/detection");
   const auto guidance_intent_topic = declare_parameter<std::string>(
@@ -143,10 +162,25 @@ void VehicleExecutionNode::initSubscribers()
   ring_obs_sub_ = create_subscription<banyu_msgs::msg::PipelineRingObservation>(
     ring_obs_topic, rclcpp::SensorDataQoS(),
     std::bind(&VehicleExecutionNode::handleRingObs, this, std::placeholders::_1));
+  light_cue_sub_ = create_subscription<banyu_msgs::msg::PipelineRingObservation>(
+    light_cue_topic, rclcpp::SensorDataQoS(),
+    std::bind(&VehicleExecutionNode::handleLightCue, this, std::placeholders::_1));
 
   detection_sub_ = create_subscription<banyu_msgs::msg::Detection>(
     detection_topic, rclcpp::SensorDataQoS(),
     std::bind(&VehicleExecutionNode::handleDetection, this, std::placeholders::_1));
+
+  zones_sub_ = create_subscription<banyu_msgs::msg::Task4Zones>(
+    declare_parameter<std::string>("topics.task4_zones", "/banyu/task4/zones"),
+    rclcpp::QoS(1).reliable().transient_local(),
+    std::bind(&VehicleExecutionNode::handleZones, this, std::placeholders::_1));
+  surface_obstacles_sub_ = create_subscription<banyu_msgs::msg::SurfaceObstacles>(
+    declare_parameter<std::string>("topics.surface_obstacles", "/banyu/surface/obstacles"),
+    rclcpp::QoS(1).reliable().transient_local(),
+    std::bind(&VehicleExecutionNode::handleSurfaceObstacles, this, std::placeholders::_1));
+  course_sub_ = create_subscription<rx_msgs::msg::Course>(
+    declare_parameter<std::string>("topics.course", "/system/mission/course"), rclcpp::QoS(10).reliable(),
+    std::bind(&VehicleExecutionNode::handleCourse, this, std::placeholders::_1));
 
   guidance_intent_sub_ = create_subscription<banyu_guidance::msg::VelocityIntent>(
     guidance_intent_topic, rclcpp::QoS(10),
@@ -154,9 +188,13 @@ void VehicleExecutionNode::initSubscribers()
 
   const auto pinger_obs_topic = declare_parameter<std::string>(
     "topics.pinger_obs", "/banyu/pinger/observation");
-  pinger_obs_sub_ = create_subscription<banyu_msgs::msg::PingerObservation>(
-    pinger_obs_topic, rclcpp::SensorDataQoS(),
-    std::bind(&VehicleExecutionNode::handlePingerObs, this, std::placeholders::_1));
+  // The competition vehicle has no hydrophone: pinger data is read only when opted in.
+  use_hydrophone_ = declare_parameter<bool>("control.use_hydrophone", false);
+  if (use_hydrophone_) {
+    pinger_obs_sub_ = create_subscription<banyu_msgs::msg::PingerObservation>(
+      pinger_obs_topic, rclcpp::SensorDataQoS(),
+      std::bind(&VehicleExecutionNode::handlePingerObs, this, std::placeholders::_1));
+  }
 
   run_lifecycle_sub_ = create_subscription<banyu_msgs::msg::RunLifecycle>(
     lifecycle_topic, rclcpp::QoS(1).reliable().transient_local(),
@@ -174,13 +212,13 @@ void VehicleExecutionNode::initPublishers()
   preview_target_pub_ = create_publisher<mavros_msgs::msg::PositionTarget>(
     preview_topic, rclcpp::QoS(10));
 
-  if (enable_mavros_publish_ && output_mode_ == "setpoint") {
+  if (enable_mavros_publish_ && (output_mode_ == "setpoint" || output_mode_ == "auto")) {
     const auto mavros_topic = declare_parameter<std::string>(
       "topics.mavros_target", "/mavros/setpoint_raw/local");
     mavros_target_pub_ = create_publisher<mavros_msgs::msg::PositionTarget>(
       mavros_topic, rclcpp::QoS(10));
   }
-  if (enable_mavros_publish_ && output_mode_ == "rc_override") {
+  if (enable_mavros_publish_ && (output_mode_ == "rc_override" || output_mode_ == "auto")) {
     const auto override_topic = declare_parameter<std::string>(
       "topics.rc_override", "/mavros/rc/override");
     rc_override_pub_ = create_publisher<mavros_msgs::msg::OverrideRCIn>(
@@ -245,9 +283,57 @@ void VehicleExecutionNode::initActionServers()
   const double acquire_timeout_s = declare_parameter<double>("control.acquire_timeout_s", 20.0);
   const double acquire_surge_speed = declare_parameter<double>("control.acquire_surge_speed", 0.3);
   const int acquire_confirm_frames = declare_parameter<int>("control.acquire_confirm_frames", 5);
+  // Task 4: keep-out zone avoidance of the surfaced vehicle (RoboCommand zones from /banyu/task4/zones).
+  telemetry_.zones.margin_m = declare_parameter<double>("zones.margin_m", telemetry_.zones.margin_m);
+  telemetry_.surface_obstacle_margin_m = declare_parameter<double>(
+    "surface_obstacles.margin_m", telemetry_.surface_obstacle_margin_m);
+  if (!(telemetry_.surface_obstacle_margin_m >= 0.0)) {
+    throw std::invalid_argument("surface_obstacles.margin_m must not be negative");
+  }
+  telemetry_.zones.horizon_s = declare_parameter<double>("zones.horizon_s", telemetry_.zones.horizon_s);
+  telemetry_.zones.exit_clearance_m =
+    declare_parameter<double>("zones.exit_clearance_m", telemetry_.zones.exit_clearance_m);
+  telemetry_.zones.exit_speed_mps = declare_parameter<double>("zones.exit_speed_mps", telemetry_.zones.exit_speed_mps);
+  zone_guard_enabled_ = declare_parameter<bool>("zones.idle_guard", zone_guard_enabled_);
+  zone_surface_depth_m_ = declare_parameter<double>("zones.surface_depth_m", zone_surface_depth_m_);
+  const double zone_buoy_clear_m = declare_parameter<double>("zones.dive_point_buoy_clear_m", 1.5);
+  const double zone_surface_hold_s = declare_parameter<double>("zones.surface_hold_timeout_s", 60.0);
+  if (!(telemetry_.zones.margin_m >= 0.0) || !(telemetry_.zones.horizon_s >= 0.0) ||
+    !(telemetry_.zones.exit_clearance_m >= 0.0) || !(telemetry_.zones.exit_speed_mps > 0.0) ||
+    !(zone_buoy_clear_m >= 0.0) || !(zone_surface_hold_s >= 0.0) || !(zone_surface_depth_m_ > 0.0))
+  {
+    throw std::invalid_argument("zones margin, horizon, clearance, buoy clearance and hold must not be negative, speed and surface depth positive");
+  }
+  // Course fence (GCS course boundary): surface goals and commands stay fence.margin_m inside it.
+  auto & fence = telemetry_.fence;
+  fence.margin_m = declare_parameter<double>("fence.margin_m", fence.margin_m);
+  fence.brake_m = declare_parameter<double>("fence.brake_m", fence.brake_m);
+  fence.return_speed_mps = declare_parameter<double>("fence.return_speed_mps", fence.return_speed_mps);
+  telemetry_.fence_reject_outside_m =
+    declare_parameter<double>("fence.reject_outside_m", telemetry_.fence_reject_outside_m);
+  fence_required_ = declare_parameter<bool>("fence.required", fence_required_);
+  fence_guard_enabled_ = declare_parameter<bool>("fence.idle_guard", fence_guard_enabled_);
+  fence_gps_timeout_s_ = declare_parameter<double>("fence.gps_timeout_s", fence_gps_timeout_s_);
+  if (!(fence.margin_m >= 0.0) || !(fence.brake_m >= 0.0) || !(fence.return_speed_mps > 0.0) ||
+    !(telemetry_.fence_reject_outside_m >= 0.0) || !(fence_gps_timeout_s_ > 0.0))
+  {
+    throw std::invalid_argument("fence margin, brake and reject distance must not be negative, speed and GPS timeout positive");
+  }
+  LightCueConfig light_cue;
+  light_cue.enabled = declare_parameter<bool>("light_cue.enabled", light_cue.enabled);
+  light_cue.min_confidence = declare_parameter<double>("light_cue.min_confidence", light_cue.min_confidence);
+  light_cue.min_depth_m = declare_parameter<double>("light_cue.min_depth_m", light_cue.min_depth_m);
+  light_cue.kp_sway = declare_parameter<double>("light_cue.kp_sway", light_cue.kp_sway);
+  light_cue.kp_surge = declare_parameter<double>("light_cue.kp_surge", light_cue.kp_surge);
+  light_cue.max_speed_mps = declare_parameter<double>("light_cue.max_speed_mps", light_cue.max_speed_mps);
+  light_cue.budget_s = declare_parameter<double>("light_cue.budget_s", light_cue.budget_s);
+  if (!(light_cue.max_speed_mps >= 0.0) || !(light_cue.budget_s >= 0.0)) {
+    throw std::invalid_argument("light_cue max_speed_mps and budget_s must not be negative");
+  }
 
   auto nav_server = std::make_shared<NavigateSurfaceGpsServer>(
     this, nav_action, this, nav_kp, nav_max_speed, yaw_kp, max_yaw_rate);
+  nav_server->setZoneBuoyClear(zone_buoy_clear_m);
   auto align_server = std::make_shared<AlignHeadingServer>(
     this, align_action, this, yaw_kp, max_yaw_rate);
   auto dive_server = std::make_shared<DiveToDepthServer>(
@@ -255,6 +341,7 @@ void VehicleExecutionNode::initActionServers()
   auto acquire_server = std::make_shared<AcquirePipelineServer>(
     this, acquire_action, this, yaw_kp, max_yaw_rate, 0.3, acquire_timeout_s, acquire_surge_speed,
     acquire_confirm_frames);
+  acquire_server->setLightCue(light_cue);
   const double search_retrace_distance_m =
     declare_parameter<double>("control.search_retrace_distance_m", 1.5);
   const double search_retrace_speed = declare_parameter<double>("control.search_retrace_speed",
@@ -267,7 +354,8 @@ void VehicleExecutionNode::initActionServers()
     declare_parameter<double>("control.search_pinger_forward_speed", 0.25);
   auto search_server = std::make_shared<SearchPipelineServer>(
     this, search_action, this, 0.2, 0.3, search_retrace_distance_m, search_retrace_speed,
-    search_pinger_timeout_s, search_pinger_kp, search_pinger_forward_speed);
+    search_pinger_timeout_s, search_pinger_kp, search_pinger_forward_speed, use_hydrophone_);
+  search_server->setLightCue(light_cue);
   auto follow_server = std::make_shared<FollowPipelineServer>(
     this, follow_action, this);
   auto center_server = std::make_shared<CenterOnRingServer>(
@@ -279,6 +367,45 @@ void VehicleExecutionNode::initActionServers()
     this, surface_action, this, depth_kp, max_depth_rate, require_calibrated_surface_depth_,
     declare_parameter<double>("control.surface_hold_time_s", 1.0), surface_depth_timeout_s_,
     declare_parameter<double>("control.surface_max_depth_m", 0.2));
+  camera_heave_enabled_ = declare_parameter<bool>("camera_heave.enabled", false);
+  CameraHeaveConfig heave_config;
+  heave_config.pipe_diameter_m = declare_parameter<double>("camera_heave.pipe_diameter_m", heave_config.pipe_diameter_m);
+  heave_config.hfov_rad = declare_parameter<double>("camera_heave.hfov_rad", heave_config.hfov_rad);
+  heave_config.standoff_m = declare_parameter<double>("camera_heave.standoff_m", heave_config.standoff_m);
+  heave_config.kp = declare_parameter<double>("camera_heave.kp", heave_config.kp);
+  heave_config.max_rate_mps = declare_parameter<double>("camera_heave.max_rate_mps", heave_config.max_rate_mps);
+  heave_config.deadband_m = declare_parameter<double>("camera_heave.deadband_m", heave_config.deadband_m);
+  heave_config.trim_mps = declare_parameter<double>("camera_heave.trim_mps", heave_config.trim_mps);
+  heave_config.ki = declare_parameter<double>("camera_heave.ki", heave_config.ki);
+  heave_config.max_integral_mps = declare_parameter<double>(
+    "camera_heave.max_integral_mps", heave_config.max_integral_mps);
+  if (!(heave_config.pipe_diameter_m > 0.0) || !(heave_config.hfov_rad > 0.0) || !(heave_config.standoff_m > 0.0) ||
+    !(heave_config.max_rate_mps > 0.0))
+  {
+    throw std::invalid_argument("camera_heave diameter, fov, standoff and rate must be positive");
+  }
+  camera_heave_ = CameraHeave(heave_config);
+  {
+    const double rate = declare_parameter<double>("camera_descent.rate_mps", 0.15);
+    // The time limit: max_time_s if set (the commanded rate is not the real sink rate in STABILIZE), else max_depth_m / rate.
+    const double max_time = declare_parameter<double>("camera_descent.max_time_s", 0.0);
+    const double max_depth = declare_parameter<double>("camera_descent.max_depth_m", 15.0);
+    dive_server->setCameraDescent(
+      rate, declare_parameter<double>("camera_descent.lock_s", 1.0),
+      max_time > 0.0 ? max_time : max_depth / rate,
+      declare_parameter<double>("camera_descent.surge_mps", 0.0));
+    // sensors:=baro: the Bar30 holds depth (ALT_HOLD) but the pipe depth is unknown, so the dive also stops by camera.
+    const bool with_depth = declare_parameter<bool>("camera_descent.with_depth", false);
+    if (with_depth) {
+      dive_server->setCameraDescentWithDepth(max_depth);
+    }
+  }
+  camera_heave_servers_ = {acquire_server->name(), search_server->name(), follow_server->name(),
+    center_server->name()};
+  surface_server->setZoneHold(zone_surface_hold_s);
+  surface_server->setBlindRise(
+    declare_parameter<double>("control.surface_blind_rise_rate_mps", 0.0),
+    declare_parameter<double>("control.surface_blind_timeout_s", 180.0));
   auto acquire_gate_server = std::make_shared<AcquireGateServer>(
     this, acquire_gate_action, this);
   auto search_marker_server = std::make_shared<SearchMarkerServer>(
@@ -373,9 +500,22 @@ void VehicleExecutionNode::notifyDisplaced(
   }
 }
 
+void VehicleExecutionNode::setBuoyKeepOut(
+  const std::vector<double> & latitude_deg,
+  const std::vector<double> & longitude_deg,
+  double radius_m)
+{
+  telemetry_.keep_out_latitude_deg = latitude_deg;
+  telemetry_.keep_out_longitude_deg = longitude_deg;
+  telemetry_.keep_out_radius_m = radius_m;
+}
+
 void VehicleExecutionNode::timerCallback()
 {
   const auto current_ros_time = now();
+  const bool sim_clock_stalled = get_parameter("use_sim_time").as_bool() &&
+    last_tick_time_.nanoseconds() > 0 &&
+    current_ros_time <= last_tick_time_;
   double dt = 0.05;
   if (last_tick_time_.nanoseconds() > 0) {
     dt = (current_ros_time - last_tick_time_).seconds();
@@ -387,19 +527,36 @@ void VehicleExecutionNode::timerCallback()
   telemetry_.current_time = current_ros_time;
 
   // Telemetry freshness watchdog
-  constexpr double kPoseTimeoutS = 0.5;
+  constexpr double kImuTimeoutS = 0.5;
   constexpr double kGpsTimeoutS = 2.0;
   constexpr double kStatusTimeoutS = 1.0;
   constexpr double kGuidanceTimeoutS = 0.5;
   constexpr double kObservationTimeoutS = 0.5;
 
   const auto steady_now = steady_clock_.now();
+  if (sim_clock_stalled) {
+    if (telemetry_.pose_valid) {
+      pose_receipt_ = steady_now;
+    }
+    if (telemetry_.status_valid) {
+      status_receipt_ = steady_now;
+    }
+    if (lifecycle_received_) {
+      lifecycle_receipt_ = steady_now;
+    }
+    if (telemetry_.water_depth.receipt_valid) {
+      telemetry_.water_depth.receipt_time = steady_now;
+    }
+    if (telemetry_.depth_receipt_valid) {
+      telemetry_.depth_receipt_time = steady_now;
+    }
+  }
   const auto steady_age = [steady_now](const SteadyTime & receipt) {
       return std::chrono::duration<double>(steady_now - receipt).count();
     };
   if (telemetry_.pose_valid &&
-    ((current_ros_time - telemetry_.pose_stamp).seconds() > kPoseTimeoutS ||
-    steady_age(pose_receipt_) > kPoseTimeoutS))
+    ((current_ros_time - telemetry_.pose_stamp).seconds() > pose_timeout_s_ ||
+    steady_age(pose_receipt_) > pose_timeout_s_))
   {
     telemetry_.pose_valid = false;
   }
@@ -440,6 +597,11 @@ void VehicleExecutionNode::timerCallback()
   {
     telemetry_.ring_obs_valid = false;
   }
+  if (telemetry_.light_cue_valid &&
+    (current_ros_time - telemetry_.light_cue_stamp).seconds() > kObservationTimeoutS)
+  {
+    telemetry_.light_cue_valid = false;
+  }
   if (telemetry_.detection_valid &&
     (current_ros_time - telemetry_.detection_stamp).seconds() > kObservationTimeoutS)
   {
@@ -453,7 +615,7 @@ void VehicleExecutionNode::timerCallback()
     }
   }
   if (telemetry_.imu_valid &&
-    (current_ros_time - telemetry_.imu_stamp).seconds() > kPoseTimeoutS)
+    (current_ros_time - telemetry_.imu_stamp).seconds() > kImuTimeoutS)
   {
     telemetry_.imu_valid = false;
   }
@@ -462,11 +624,23 @@ void VehicleExecutionNode::timerCallback()
   const bool safety_fault = (telemetry_.status_valid &&
     (telemetry_.operator_takeover || !telemetry_.fcu_connected || !telemetry_.armed ||
     !telemetry_.fcu_status_fresh ||
-    !telemetry_.rc_fresh || (require_guided_ && telemetry_.mode != autonomy_mode_) ||
+    !telemetry_.rc_fresh || (require_guided_ && !modeAllowed(telemetry_.mode)) ||
     telemetry_.operational_mode != 2 || telemetry_.hardware_kill_active)) ||
     (status_ever_received_ && !telemetry_.status_valid) ||
     (require_run_authorization_ && !runMotionAuthorized() && !readinessHoldAuthorized());
 
+  static bool fault_logged = false;
+  if (safety_fault && !fault_logged) {
+    RCLCPP_WARN(
+      get_logger(),
+      "safety fault: status_valid=%d takeover=%d fcu=%d armed=%d fcu_fresh=%d rc_fresh=%d mode_ok=%d op_mode=%d kill=%d "
+      "ever=%d run_auth=%d hold_auth=%d",
+      telemetry_.status_valid, telemetry_.operator_takeover, telemetry_.fcu_connected, telemetry_.armed,
+      telemetry_.fcu_status_fresh, telemetry_.rc_fresh, !require_guided_ || modeAllowed(telemetry_.mode),
+      telemetry_.operational_mode, telemetry_.hardware_kill_active, status_ever_received_,
+      !require_run_authorization_ || runMotionAuthorized(), readinessHoldAuthorized());
+  }
+  fault_logged = safety_fault;
   if (safety_fault) {
     revokeGoals("Vehicle safety or run authorization fault");
     if (require_run_authorization_ && lifecycle_received_) {
@@ -476,8 +650,13 @@ void VehicleExecutionNode::timerCallback()
   }
 
 
+  const auto camera_range = camera_heave_.range(current_ros_time.seconds());
+  telemetry_.camera_range_valid = camera_range.has_value();
+  telemetry_.camera_range_m = camera_range.value_or(0.0);
+
   MotionIntent intent = zeroIntent();
   bool readiness_output_selected = false;
+  bool zone_guard_selected = false;
   bool readiness_output_published = false;
 
   if (arbiter_.state() == GoalState::ZeroBarrier) {
@@ -497,16 +676,39 @@ void VehicleExecutionNode::timerCallback()
     const auto & handle = *arbiter_.activeGoal();
     auto it = server_map_.find(handle.goal.owner);
     if (it != server_map_.end()) {
-      const auto requested = it->second->tick(telemetry_, current_ros_time, dt);
-      intent = arbiter_.selectOutput(handle, requested);
+      auto requested = it->second->tick(telemetry_, current_ros_time, dt);
+      // No depth sensor: an action that does not command heave holds the standoff above the pipe by camera.
+      if (camera_heave_enabled_ && requested.linear_z == 0.0 &&
+        camera_heave_servers_.count(handle.goal.owner) > 0)
+      {
+        requested.linear_z = camera_heave_.command(current_ros_time.seconds());
+      } else if (camera_heave_enabled_ && rcModeActive()) {
+        // Under water in STABILIZE the heave stick is thrust: every other action gets the learned buoyancy trim too.
+        requested.linear_z += camera_heave_.bias();
+      }
+      intent = applyFence(arbiter_.selectOutput(handle, requested), current_ros_time);
     } else {
       intent = zeroIntent();
     }
     telemetry_.water_depth.samples_since_last_tick.clear();
     telemetry_.depth_samples_since_last_tick.clear();
+  } else if (const auto guard_intent = zoneGuardIntent(current_ros_time, zone_guard_selected);
+    zone_guard_selected && !safety_fault)
+  {
+    intent = applyFence(guard_intent, current_ros_time);
+  } else if (const auto fence_intent = fenceGuardIntent(current_ros_time, zone_guard_selected);
+    zone_guard_selected && !safety_fault)
+  {
+    intent = fence_intent;
   } else if (readinessHoldAuthorized() && !safety_fault) {
-    intent = readinessHoldIntent();
-    readiness_output_selected = hold_pose_captured_ && telemetry_.pose_valid;
+    // RC override has no ArduSub position hold: neutral sticks while waiting for the start.
+    if (rcModeActive()) {
+      intent = zeroIntent();
+      readiness_output_selected = true;
+    } else {
+      intent = readinessHoldIntent();
+      readiness_output_selected = hold_pose_captured_ && telemetry_.pose_valid;
+    }
   }
 
   if (safety_fault || (require_run_authorization_ &&
@@ -523,7 +725,7 @@ void VehicleExecutionNode::timerCallback()
     preview_target_pub_->publish(target);
 
     if (arbiter_.state() == GoalState::ZeroBarrier || arbiter_.activeGoal().has_value() ||
-      readiness_output_selected)
+      readiness_output_selected || (zone_guard_selected && !safety_fault))
     {
       last_goal_time_ = steady_now;
     }
@@ -533,12 +735,13 @@ void VehicleExecutionNode::timerCallback()
       const bool terminal_stop = require_run_authorization_ &&
         terminal_zero_cycles_remaining_ > 0;
       const bool run_output_ready = !require_run_authorization_ ||
-        runMotionAuthorized() || terminal_stop;
-      const bool allowed = hardwareStatusReady() && run_output_ready && !safety_fault;
+        runMotionAuthorized() || (readinessHoldAuthorized() && readiness_output_selected) || terminal_stop;
+      const bool allowed = hardwareStatusReady() && run_output_ready && !safety_fault &&
+        rcModeActive();
       publishRcOverride(allowed ? intent : zeroIntent(), allowed, own_sticks);
-      readiness_output_published = false;
+      readiness_output_published = allowed && readiness_output_selected && !terminal_stop;
     }
-    if (enable_mavros_publish_ && mavros_target_pub_) {
+    if (enable_mavros_publish_ && mavros_target_pub_ && setpointModeActive()) {
       if (!hardwareStatusReady()) {
         terminal_zero_cycles_remaining_ = 0;
       }
@@ -561,7 +764,8 @@ void VehicleExecutionNode::timerCallback()
       "Failed to encode preview setpoint: %s", ex.what());
   }
   publishReadiness(readiness_output_published,
-    readiness_output_published ? "Readiness position hold streaming" :
+    readiness_output_published ? (rcModeActive() ? "Readiness hold streaming (neutral sticks)" :
+    "Readiness position hold streaming") :
     !enable_mavros_publish_ ? "MAVROS output disabled" :
     !lifecycleFresh() ? "Mission lifecycle unavailable or expired" :
     !hardwareStatusReady() ? "Hardware safety denied" :
@@ -586,7 +790,7 @@ void VehicleExecutionNode::handlePose(const geometry_msgs::msg::PoseStamped::Sha
     if (msg->header.stamp.nanosec >= 1000000000U || msg->header.stamp.sec < 0) {return;}
     const rclcpp::Time stamp(msg->header.stamp, get_clock()->get_clock_type());
     const double age = (now() - stamp).seconds();
-    if (msg->header.frame_id != "map" || stamp.nanoseconds() <= 0 || age < 0.0 || age > 0.5 ||
+    if (msg->header.frame_id != "map" || stamp.nanoseconds() <= 0 || age < 0.0 || age > pose_timeout_s_ ||
       (telemetry_.pose_stamp.nanoseconds() > 0 && stamp <= telemetry_.pose_stamp))
     {
       return;
@@ -705,8 +909,11 @@ void VehicleExecutionNode::handleStatus(const banyu_msgs::msg::VehicleStatus::Sh
   if (msg->header.stamp.nanosec >= 1000000000U || msg->header.stamp.sec < 0) {return;}
   const rclcpp::Time stamp(msg->header.stamp, get_clock()->get_clock_type());
   const double age = (now() - stamp).seconds();
+  const bool allow_equal_stamp = get_parameter("use_sim_time").as_bool();
+  const bool non_monotonic = telemetry_.status_stamp.nanoseconds() > 0 &&
+    (allow_equal_stamp ? (stamp < telemetry_.status_stamp) : (stamp <= telemetry_.status_stamp));
   if (stamp.nanoseconds() <= 0 || age < 0.0 || age > 1.0 ||
-    (telemetry_.status_stamp.nanoseconds() > 0 && stamp <= telemetry_.status_stamp))
+    non_monotonic)
   {
     return;
   }
@@ -724,17 +931,36 @@ void VehicleExecutionNode::handleStatus(const banyu_msgs::msg::VehicleStatus::Sh
   telemetry_.hardware_kill_active = msg->hardware_kill_active;
 }
 
+bool VehicleExecutionNode::modeAllowed(const std::string & mode) const
+{
+  return mode == autonomy_mode_ || (!underwater_mode_.empty() && mode == underwater_mode_) ||
+         (!standby_mode_.empty() && mode == standby_mode_);
+}
+
+bool VehicleExecutionNode::rcModeActive() const
+{
+  // rc_override: sticks in every listed mode (e.g. "STABILIZE,ALT_HOLD": surface and under water).
+  if (output_mode_ == "rc_override") {return modeAllowed(telemetry_.mode);}
+  return output_mode_ == "auto" &&
+         (telemetry_.mode == underwater_mode_ || (!standby_mode_.empty() && telemetry_.mode == standby_mode_));
+}
+
+bool VehicleExecutionNode::setpointModeActive() const
+{
+  if (output_mode_ == "setpoint") {return true;}
+  return output_mode_ == "auto" && telemetry_.mode == autonomy_mode_;
+}
+
 void VehicleExecutionNode::publishRcOverride(
   const MotionIntent & intent, bool output_allowed, bool own_sticks)
 {
   // While a goal runs: stream sticks. Right after one, hold neutral while the vehicle is still
-  // armed in the autonomy mode with autonomy selected (a clean stop). Release the sticks at
+  // armed in the RC-override mode with autonomy selected (a clean stop). Release the sticks at
   // once on an RC takeover / MANUAL switch, a disarm or a mode change, and when no goal has
   // run for idle_release_s (e.g. armed in ALT_HOLD for a manual teach drive with no mission),
   // so the pilot is never fought or locked out.
-  const bool armed_in_autonomy = own_sticks && telemetry_.armed &&
-    telemetry_.mode == autonomy_mode_ && telemetry_.operational_mode == 2 &&
-    !telemetry_.operator_takeover;
+  const bool armed_in_autonomy = own_sticks && telemetry_.armed && rcModeActive() &&
+    telemetry_.operational_mode == 2 && !telemetry_.operator_takeover;
   mavros_msgs::msg::OverrideRCIn msg;
   if (output_allowed && own_sticks) {
     double heading = 0.0;
@@ -772,7 +998,7 @@ bool VehicleExecutionNode::hardwareStatusReady() const
 {
   return telemetry_.status_valid && telemetry_.fcu_connected && telemetry_.fcu_status_fresh &&
          telemetry_.armed && telemetry_.rc_fresh && !telemetry_.operator_takeover &&
-         telemetry_.mode == autonomy_mode_ &&
+         modeAllowed(telemetry_.mode) &&
          telemetry_.operational_mode == 2 && !telemetry_.hardware_kill_active &&
          std::chrono::duration<double>(steady_clock_.now() - status_receipt_).count() <= 1.0;
 }
@@ -794,8 +1020,9 @@ bool VehicleExecutionNode::readinessHoldAuthorized() const
          (run_lifecycle_.phase == Lifecycle::READY ||
          (run_lifecycle_.phase == Lifecycle::INITIALIZING &&
          run_lifecycle_.epoch > revoked_epoch_)) && hardwareStatusReady() &&
-         telemetry_.pose_valid &&
-         std::chrono::duration<double>(steady_clock_.now() - pose_receipt_).count() <= 0.5;
+         // RC override holds with neutral sticks and needs no pose (it may arrive at only ~2.5 Hz on the robot).
+         (rcModeActive() || (telemetry_.pose_valid &&
+         std::chrono::duration<double>(steady_clock_.now() - pose_receipt_).count() <= pose_timeout_s_));
 }
 
 void VehicleExecutionNode::publishReadiness(bool holding, const std::string & reason)
@@ -827,7 +1054,7 @@ void VehicleExecutionNode::revokeGoals(const std::string & reason)
 MotionIntent VehicleExecutionNode::readinessHoldIntent()
 {
   if (!telemetry_.pose_valid ||
-    std::chrono::duration<double>(steady_clock_.now() - pose_receipt_).count() > 0.5)
+    std::chrono::duration<double>(steady_clock_.now() - pose_receipt_).count() > pose_timeout_s_)
   {
     return zeroIntent();
   }
@@ -876,9 +1103,12 @@ void VehicleExecutionNode::handleRunLifecycle(
   }
   const bool new_authority = !lifecycle_received_ ||
     msg->authority_instance != run_lifecycle_.authority_instance;
+  const bool allow_equal_stamp = get_parameter("use_sim_time").as_bool();
+  const rclcpp::Time prev_stamp(run_lifecycle_.header.stamp, get_clock()->get_clock_type());
+  const bool stamp_regressed = allow_equal_stamp ? (stamp < prev_stamp) : (stamp <= prev_stamp);
   if (!new_authority && (msg->revision <= run_lifecycle_.revision ||
     msg->epoch < run_lifecycle_.epoch ||
-    stamp <= rclcpp::Time(run_lifecycle_.header.stamp, get_clock()->get_clock_type())))
+    stamp_regressed))
   {
     return;
   }
@@ -904,6 +1134,9 @@ void VehicleExecutionNode::handleRunLifecycle(
     run_context_start_ns_ = accepted_stamp.nanoseconds() > 0 ?
       accepted_stamp.nanoseconds() : stamp.nanoseconds();
     last_water_depth_stamp_ns_ = 0;
+    telemetry_.keep_out_latitude_deg.clear();
+    telemetry_.keep_out_longitude_deg.clear();
+    telemetry_.keep_out_radius_m = 0.0;
     if (require_calibrated_surface_depth_) {
       telemetry_.water_depth.valid = false;
       telemetry_.water_depth.calibrated = false;
@@ -943,6 +1176,157 @@ void VehicleExecutionNode::handleRunLifecycle(
   }
 }
 
+void VehicleExecutionNode::handleZones(const banyu_msgs::msg::Task4Zones::SharedPtr msg)
+{
+  auto & zones = telemetry_.zones;
+  zones.active = true;
+  zones.static_latitude_deg = msg->static_latitude_deg;
+  zones.static_longitude_deg = msg->static_longitude_deg;
+  zones.static_radius_m = msg->static_radius_m;
+  zones.moving.reset();
+  if (msg->moving_active) {
+    MovingObject moving;
+    moving.latitude_deg = msg->moving_latitude_deg;
+    moving.longitude_deg = msg->moving_longitude_deg;
+    moving.heading_enu_rad = msg->moving_heading_enu_rad;
+    moving.speed_mps = msg->moving_speed_mps;
+    moving.radius_m = msg->moving_radius_m;
+    zones.moving = moving;
+    // The alert's age is counted from its receipt by the communication node (the message is repeated every second).
+    // Not resolveStamp: it treats a stamp over 60 s old as bad and would put the object back at its alert position.
+    telemetry_.zones_moving_stamp = (msg->moving_stamp.sec != 0 || msg->moving_stamp.nanosec != 0) ?
+      rclcpp::Time(msg->moving_stamp, get_clock()->get_clock_type()) : now();
+  }
+  RCLCPP_INFO(
+    get_logger(), "Task 4 zones (%s): %zu static, moving object %s", msg->last_event.c_str(),
+    msg->static_latitude_deg.size(), msg->moving_active ? "active" : "none");
+}
+
+void VehicleExecutionNode::handleSurfaceObstacles(const banyu_msgs::msg::SurfaceObstacles::SharedPtr msg)
+{
+  std::vector<VehicleTelemetry::SurfaceObstacle> list;
+  const std::size_t count = std::min({msg->latitude_deg.size(), msg->longitude_deg.size(), msg->radius_m.size()});
+  for (std::size_t i = 0; i < count; ++i) {
+    if (!std::isfinite(msg->latitude_deg[i]) || !std::isfinite(msg->longitude_deg[i]) ||
+      !std::isfinite(msg->radius_m[i]) || msg->radius_m[i] <= 0.0)
+    {
+      continue;
+    }
+    list.push_back({msg->latitude_deg[i], msg->longitude_deg[i], msg->radius_m[i]});
+  }
+  auto & stored = telemetry_.surface_obstacles[msg->source];
+  if (stored.size() != list.size()) {
+    RCLCPP_INFO(get_logger(), "Surface obstacles from %s: %zu", msg->source.c_str(), list.size());
+  }
+  stored = std::move(list);
+}
+
+// Nobody is steering (no goal) but the vehicle sits on the surface inside a zone, e.g. in the buoy-target standby or
+// after the report: move out and stay out. Returns true in `selected` when it commands.
+MotionIntent VehicleExecutionNode::zoneGuardIntent(const rclcpp::Time & now, bool & selected)
+{
+  selected = false;
+  const bool heading_valid = telemetry_.pose_valid || (rcModeActive() && telemetry_.imu_valid);
+  if (!zone_guard_enabled_ || !telemetry_.zones.any() || !telemetry_.gps_valid || !heading_valid) {
+    return zeroIntent();
+  }
+  if (require_run_authorization_ && !runMotionAuthorized()) {return zeroIntent();}
+  const auto & water = telemetry_.water_depth;
+  if (water.valid && water.depth_m > zone_surface_depth_m_) {return zeroIntent();}
+  const auto exit = exitVector(
+    Vec2{0.0, 0.0}, telemetry_.zonesAroundVehicle(now), telemetry_.zones.exit_clearance_m,
+    telemetry_.buoysAroundVehicle(), telemetry_.keep_out_radius_m);
+  if (!exit) {return zeroIntent();}
+  selected = true;
+  RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Task 4: idle inside a keep-out zone, leaving %.1f m", exit->distance_m);
+  return zoneExitIntent(*exit, telemetry_.zones.exit_speed_mps, 0.0);
+}
+
+void VehicleExecutionNode::handleCourse(const rx_msgs::msg::Course::SharedPtr msg)
+{
+  std::vector<double> lat;
+  std::vector<double> lon;
+  for (const auto & p : msg->boundary) {
+    if (!std::isfinite(p.latitude) || !std::isfinite(p.longitude) || std::abs(p.latitude) > 90.0 ||
+      std::abs(p.longitude) > 180.0)
+    {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000, "Course %s: invalid boundary point, ignored",
+        msg->course_id.c_str());
+      return;
+    }
+    lat.push_back(p.latitude);
+    lon.push_back(p.longitude);
+  }
+  if (lat.size() < 3) {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000, "Course %s: boundary has %zu points, no fence",
+      msg->course_id.c_str(), lat.size());
+    return;
+  }
+  auto & fence = telemetry_.fence;
+  if (msg->course_id != fence_course_id_ || lat != fence.latitude_deg || lon != fence.longitude_deg) {
+    RCLCPP_INFO(get_logger(), "Course fence %s: %zu boundary points, margin %.1f m", msg->course_id.c_str(), lat.size(),
+      fence.margin_m);
+  }
+  fence_course_id_ = msg->course_id;
+  fence.latitude_deg = std::move(lat);
+  fence.longitude_deg = std::move(lon);
+}
+
+MotionIntent VehicleExecutionNode::applyFence(const MotionIntent & intent, const rclcpp::Time & now)
+{
+  const auto & water = telemetry_.water_depth;
+  if (water.valid && water.depth_m > zone_surface_depth_m_) {return intent;}
+  auto held = intent;
+  held.linear_x = 0.0;
+  held.linear_y = 0.0;
+  if (!telemetry_.fence.any()) {
+    if (!fence_required_ || (intent.linear_x == 0.0 && intent.linear_y == 0.0)) {return intent;}
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Course fence required but no course received: holding");
+    return held;
+  }
+  const bool gps_fresh = telemetry_.gps_valid && (now - telemetry_.gps_stamp).seconds() <= fence_gps_timeout_s_;
+  const bool heading_valid = telemetry_.pose_valid || telemetry_.imu_valid;
+  if (!gps_fresh || !heading_valid) {
+    if (intent.linear_x != 0.0 || intent.linear_y != 0.0) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Course fence: no fresh GPS fix or heading, holding");
+    }
+    return held;
+  }
+  // Same heading as the RC override encoder.
+  const double heading = telemetry_.pose_valid ? telemetry_.yaw : telemetry_.imu_yaw;
+  const auto enu = intent.frame == IntentFrame::BodyFlu ? bodyFluToLocalEnu(intent, heading) :
+    std::optional<MotionIntent>(intent);
+  if (!enu) {return held;}
+  const auto d = fenceDistance(Vec2{0.0, 0.0}, telemetry_.fenceAroundVehicle());
+  const Vec2 v{enu->linear_x, enu->linear_y};
+  const Vec2 limited = fenceVelocity(v, d, telemetry_.fence);
+  if (length(limited - v) > 1e-3) {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Course fence: %.1f m %s the boundary, limiting the command",
+      std::abs(d.clearance_m), d.clearance_m < 0.0 ? "outside" : "inside");
+  }
+  return clampIntent(MotionIntent::localEnu(limited.x, limited.y, enu->linear_z, enu->yaw_rate), limits_)
+         .value_or(held);
+}
+
+// No goal running on the surface and the vehicle drifted into the fence margin (or out of the course): drive back in.
+MotionIntent VehicleExecutionNode::fenceGuardIntent(const rclcpp::Time & now, bool & selected)
+{
+  selected = false;
+  if (!fence_guard_enabled_ || !telemetry_.fence.any() || !telemetry_.gps_valid ||
+    (now - telemetry_.gps_stamp).seconds() > fence_gps_timeout_s_)
+  {
+    return zeroIntent();
+  }
+  const bool heading_valid = telemetry_.pose_valid || (rcModeActive() && telemetry_.imu_valid);
+  if (!heading_valid || (require_run_authorization_ && !runMotionAuthorized())) {return zeroIntent();}
+  const auto & water = telemetry_.water_depth;
+  if (water.valid && water.depth_m > zone_surface_depth_m_) {return zeroIntent();}
+  const auto d = fenceDistance(Vec2{0.0, 0.0}, telemetry_.fenceAroundVehicle());
+  if (d.clearance_m >= telemetry_.fence.margin_m) {return zeroIntent();}
+  selected = true;
+  return applyFence(zeroIntent(), now);
+}
+
 void VehicleExecutionNode::handlePipelineObs(
   const banyu_msgs::msg::PipelineObservation::SharedPtr msg)
 {
@@ -953,6 +1337,10 @@ void VehicleExecutionNode::handlePipelineObs(
   telemetry_.pipeline_offset_y = msg->offset_y;
   telemetry_.pipeline_heading_error_rad = msg->heading_error_rad;
   telemetry_.pipeline_confidence = msg->confidence;
+  telemetry_.pipeline_width = msg->width;
+  if (msg->status == banyu_msgs::msg::PipelineObservation::TRACKED) {
+    camera_heave_.addWidth(msg->width, telemetry_.pipeline_obs_stamp.seconds());
+  }
 }
 
 void VehicleExecutionNode::handleRingObs(
@@ -964,7 +1352,20 @@ void VehicleExecutionNode::handleRingObs(
   telemetry_.ring_color = msg->color;
   telemetry_.ring_offset_x = msg->offset_x;
   telemetry_.ring_offset_y = msg->offset_y;
+  telemetry_.ring_size = msg->size;
   telemetry_.ring_confidence = msg->confidence;
+}
+
+void VehicleExecutionNode::handleLightCue(
+  const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg)
+{
+  telemetry_.light_cue_valid = true;
+  telemetry_.light_cue_stamp = resolveStamp(msg->header.stamp);
+  telemetry_.light_cue_visible = msg->visible;
+  telemetry_.light_cue_color = msg->color;
+  telemetry_.light_cue_offset_x = msg->offset_x;
+  telemetry_.light_cue_offset_y = msg->offset_y;
+  telemetry_.light_cue_confidence = msg->confidence;
 }
 
 void VehicleExecutionNode::handleDetection(const banyu_msgs::msg::Detection::SharedPtr msg)
@@ -1007,7 +1408,7 @@ void VehicleExecutionNode::handleGuidanceIntent(
 void VehicleExecutionNode::handlePingerObs(
   const banyu_msgs::msg::PingerObservation::SharedPtr msg)
 {
-  if (!msg || !std::isfinite(msg->bearing) || !std::isfinite(msg->elevation_cos)) {
+  if (!msg || !std::isfinite(msg->bearing)) {
     telemetry_.pinger_obs_valid = false;
     return;
   }
@@ -1016,8 +1417,6 @@ void VehicleExecutionNode::handlePingerObs(
   telemetry_.pinger_forward = msg->forward;
   telemetry_.pinger_left = msg->left;
   telemetry_.pinger_bearing_rad = msg->bearing;
-  telemetry_.pinger_elevation_cos = msg->elevation_cos;
-  telemetry_.pinger_horizontal_range_m = msg->horizontal_range;
 }
 
 }  // namespace banyu_vehicle_execution

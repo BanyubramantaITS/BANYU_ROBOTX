@@ -513,3 +513,196 @@ TEST(RingTracker, CameraModelSeparatesSameColorRingsSeenBackToBack) {
   EXPECT_NEAR(tracker.records()[0].pipeline_progress_m, 1.0, 0.1);
   EXPECT_NEAR(tracker.records()[1].pipeline_progress_m, 1.85, 0.1);
 }
+
+TEST(RingTracker, GreenThenRedAtTheSameNodeIsOneRedRecord) {
+  // The damaged node can first look green and then red: one node, one slot, and the record must end up red.
+  banyu_detection::RingTracker tracker(trackerConfig(1, 1, 1));
+  banyu_detection::RingTrackerConfig config = trackerConfig(1, 1, 1);
+  config.node_association_distance_m = 0.8;
+  banyu_detection::RingTracker wide(config);
+
+  EXPECT_TRUE(update(wide, 1, banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN, true, 1.00).accepted);
+  EXPECT_EQ(wide.records().size(), 1U);
+  EXPECT_EQ(wide.records()[0].color, banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN);
+
+  const auto red = update(wide, 2, banyu_msgs::msg::PipelineRingObservation::COLOR_RED, true, 1.60);
+  EXPECT_TRUE(red.accepted);
+  EXPECT_EQ(wide.records().size(), 1U) << "the same node must not take a second slot";
+  EXPECT_EQ(wide.records()[0].color, banyu_msgs::msg::PipelineRingObservation::COLOR_RED);
+  EXPECT_TRUE(wide.snapshot().red_pending);
+}
+
+TEST(RingTracker, RedRecordIsNeverDowngradedToGreen) {
+  banyu_detection::RingTrackerConfig config = trackerConfig(1, 1, 1);
+  config.node_association_distance_m = 0.8;
+  banyu_detection::RingTracker tracker(config);
+
+  EXPECT_TRUE(update(tracker, 1, banyu_msgs::msg::PipelineRingObservation::COLOR_RED, true, 1.00).accepted);
+  update(tracker, 2, banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN, true, 1.50);
+  EXPECT_EQ(tracker.records().size(), 1U);
+  EXPECT_EQ(tracker.records()[0].color, banyu_msgs::msg::PipelineRingObservation::COLOR_RED);
+}
+
+TEST(RingTracker, PipeMetFromTheFarEndKeepsOrderingVerifiedInThatDirection) {
+  // The UUV may meet the pipe from the end away from the active buoy: the progress then falls from ring to ring. The order is
+  // verified in that direction, and a ring that breaks it is still unverified.
+  banyu_detection::RingTracker tracker(trackerConfig(1, 1, 1));
+  const auto green = banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN;
+  uint64_t seq = 1;
+  auto meet = [&](double progress) {
+      auto u = update(tracker, seq++, green, true, progress);
+      update(tracker, seq++, green, false, progress);
+      update(tracker, seq++, green, false, progress);
+      return u;
+    };
+  EXPECT_TRUE(meet(4.0).record.ordering_verified);
+  EXPECT_TRUE(meet(2.9).record.ordering_verified);   // falls: fixes the direction
+  EXPECT_TRUE(meet(1.5).record.ordering_verified);   // keeps falling
+  EXPECT_FALSE(meet(6.5).record.ordering_verified);  // jumps back up past the first ring: not in order
+}
+
+TEST(RingTracker, MeasuredCameraHeightPlacesRingsWhenTheVehicleIsLowerThanTheConfiguredHeight) {
+  // The vehicle follows 1.15 m above the rings, the configured height is 1.7 m; the measured height (pipe width) is given.
+  auto config = trackerConfig(3, 2, 2);
+  config.minimum_rearm_distance_m = 0.25;
+  config.node_association_distance_m = 0.4;
+  config.camera_height_m = 1.7;
+  config.camera_forward_m = 0.2;
+  config.camera_tilt_from_vertical_rad = 0.227;
+  config.camera_half_vfov_rad = 0.408;
+  banyu_detection::RingTracker tracker(config);
+  using Obs = banyu_msgs::msg::PipelineRingObservation;
+  const double height = 1.15;
+  const std::vector<double> rings{1.0, 1.85};
+  uint64_t seq = 1;
+  for (double p = -0.6; p <= 2.2; p += 0.02) {
+    double best_offset = 2.0;
+    for (double ring_position : rings) {
+      const double angle = std::atan((ring_position - p - 0.2) / height);
+      const double offset = (0.227 - angle) / 0.408;
+      if (std::abs(offset) <= 1.0 && std::abs(offset) < std::abs(best_offset)) {best_offset = offset;}
+    }
+    banyu_detection::RingTrackerInput input;
+    const bool visible = std::abs(best_offset) <= 1.0;
+    input.observation = ring(seq, Obs::COLOR_GREEN, visible);
+    if (visible) {input.observation.offset_y = static_cast<float>(best_offset);}
+    input.has_path_distance = true;
+    input.path_distance_m = p;
+    input.has_vehicle_pose = true;
+    input.vehicle_pose_map.header.frame_id = "map";
+    input.vehicle_pose_map.header.stamp = input.observation.header.stamp;
+    input.vehicle_pose_map.pose.position.x = p;
+    input.vehicle_pose_map.pose.orientation.w = 1.0;
+    input.camera_height_m = height;
+    tracker.update(input);
+    ++seq;
+  }
+  ASSERT_EQ(tracker.records().size(), 2U);
+  EXPECT_NEAR(tracker.records()[0].pipeline_progress_m, 1.0, 0.1);
+  EXPECT_NEAR(tracker.records()[1].pipeline_progress_m, 1.85, 0.1);
+}
+
+TEST(RingTracker, FifthRingMergesADuplicateRecordSoTheRedNodeIsKept) {
+  // Disruptive seed 24: one node recorded twice (0.03 and 0.85) filled the four slots before the RED node.
+  banyu_detection::RingTracker tracker(trackerConfig(1, 1, 1));
+  const auto green = banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN;
+  const auto red = banyu_msgs::msg::PipelineRingObservation::COLOR_RED;
+  uint64_t seq = 1;
+  auto meet = [&](uint8_t color, double progress) {
+      auto u = update(tracker, seq++, color, true, progress);
+      update(tracker, seq++, color, false, progress);
+      update(tracker, seq++, color, false, progress);
+      return u;
+    };
+  for (double p : {0.03, 0.85, 2.05, 3.19}) {
+    EXPECT_TRUE(meet(green, p).accepted);
+  }
+  const auto u = meet(red, 4.4);
+  ASSERT_TRUE(u.accepted);
+  EXPECT_TRUE(u.merged);
+  EXPECT_EQ(u.merged_record.node_id, 0U);
+  EXPECT_EQ(u.superseded_record.node_id, 1U);
+  EXPECT_TRUE(u.superseded_record.superseded);
+  // A new identity: the survey ledger keeps the first sighting of each node id.
+  EXPECT_EQ(u.record.node_id, 4U);
+  EXPECT_TRUE(u.record.ordering_verified);
+  ASSERT_EQ(tracker.records().size(), 5U);
+  EXPECT_EQ(tracker.liveRecordCount(), 4U);
+  EXPECT_TRUE(tracker.records()[1].superseded);
+  EXPECT_EQ(tracker.records()[4].color, red);
+  EXPECT_NEAR(tracker.records()[4].pipeline_progress_m, 4.4, 1e-9);
+  EXPECT_TRUE(tracker.redPending());
+}
+
+TEST(RingTracker, MergedPairKeepsTheRedRecordInItsSlot) {
+  banyu_detection::RingTracker tracker(trackerConfig(1, 1, 1));
+  const auto green = banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN;
+  const auto red = banyu_msgs::msg::PipelineRingObservation::COLOR_RED;
+  uint64_t seq = 1;
+  auto meet = [&](uint8_t color, double progress) {
+      auto u = update(tracker, seq++, color, true, progress);
+      update(tracker, seq++, color, false, progress);
+      update(tracker, seq++, color, false, progress);
+      return u;
+    };
+  meet(green, 0.0);
+  meet(green, 1.5);
+  meet(red, 2.4);     // 0.9 m from the GREEN at 1.5: the same node, now RED
+  meet(green, 3.9);
+  const auto u = meet(green, 5.3);
+  ASSERT_TRUE(u.merged);
+  EXPECT_EQ(u.merged_record.node_id, 2U);
+  EXPECT_EQ(u.merged_record.color, red);
+  EXPECT_EQ(u.superseded_record.node_id, 1U);
+  // The node's place in the report order is its first sighting, the GREEN at 1.5 (frame 4), not the RED (frame 7).
+  EXPECT_EQ(u.merged_record.frame_sequence, 4U);
+  EXPECT_EQ(u.record.node_id, 4U);
+  EXPECT_EQ(tracker.records()[2].color, red);
+  EXPECT_FALSE(tracker.records()[2].superseded);
+}
+
+TEST(RingTracker, FifthRingIsIgnoredWhenNoRecordsAreCloserThanTheNodeSpacing) {
+  banyu_detection::RingTracker tracker(trackerConfig(1, 1, 1));
+  const auto green = banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN;
+  uint64_t seq = 1;
+  auto meet = [&](double progress) {
+      auto u = update(tracker, seq++, green, true, progress);
+      update(tracker, seq++, green, false, progress);
+      update(tracker, seq++, green, false, progress);
+      return u;
+    };
+  for (double p : {0.0, 1.3, 2.6, 3.9}) {
+    meet(p);
+  }
+  EXPECT_FALSE(meet(5.2).accepted);
+  EXPECT_EQ(tracker.records().size(), 4U);
+}
+
+TEST(RingTracker, NoNewRecordWhileTheCameraIsHighAboveThePipe)
+{
+  // Midpoint seed 2: three records of one or two nodes in 6 s from 2.8 m above them during the descent.
+  banyu_detection::RingTracker tracker(trackerConfig(1, 1, 1));
+  const auto green = banyu_msgs::msg::PipelineRingObservation::COLOR_GREEN;
+  uint64_t seq = 1;
+  auto meet = [&](double progress, double height) {
+      banyu_detection::RingTrackerInput input;
+      input.observation = ring(seq++, green);
+      input.has_path_distance = true;
+      input.path_distance_m = progress;
+      input.has_vehicle_pose = true;
+      input.vehicle_pose_map.header.frame_id = "map";
+      input.vehicle_pose_map.header.stamp = input.observation.header.stamp;
+      input.vehicle_pose_map.pose.position.x = progress;
+      input.vehicle_pose_map.pose.orientation.w = 1.0;
+      input.camera_height_m = height;
+      const auto u = tracker.update(input);
+      update(tracker, seq++, green, false, progress);
+      update(tracker, seq++, green, false, progress);
+      return u;
+    };
+  EXPECT_FALSE(meet(1.0, 2.8).accepted);
+  EXPECT_FALSE(meet(2.5, 2.4).accepted);
+  EXPECT_TRUE(meet(4.0, 1.1).accepted);
+  EXPECT_TRUE(meet(5.5, 0.0).accepted);   // height unknown: recorded as before
+  EXPECT_EQ(tracker.records().size(), 2U);
+}

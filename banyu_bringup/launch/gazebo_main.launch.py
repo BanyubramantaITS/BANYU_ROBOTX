@@ -60,6 +60,76 @@ def layout_world(template, layout):
     return set_pose(text, "robobuoy_red", "%.3f %.3f 0 0 0 0" % layout["red"])
 
 
+NODE_ABOVE_PIPE_ORIGIN = 1.596   # light nodes sit this far above the pipeline model's origin
+
+
+def set_pipe_depth(template, node_depth_m):
+    """Move the pipeline (and the nodes placed relative to it) so the light nodes are node_depth_m below the surface."""
+    if not 1.0 <= node_depth_m <= -PIPE_Z - NODE_ABOVE_PIPE_ORIGIN:
+        raise ValueError(f"pipe_depth {node_depth_m} m: must be 1 to {-PIPE_Z - NODE_ABOVE_PIPE_ORIGIN:.1f} m")
+    pat = r"(<name>pipeline</name>\s*<uri>[^<]*</uri>\s*<pose>)([^<]*)(</pose>)"
+    m = re.search(pat, template)
+    assert m, "pipeline pose"
+    v = m.group(2).split()
+    v[2] = f"{-node_depth_m - NODE_ABOVE_PIPE_ORIGIN:.3f}"
+    return template[:m.start(2)] + " ".join(v) + template[m.end(2):]
+
+
+def move_pipe(template, dx, dy, dyaw_deg):
+    """Scenario: rotate the pipeline about its origin (its start end) by dyaw_deg, then shift it (m); the buoys stay."""
+    pat = r"(<name>pipeline</name>\s*<uri>[^<]*</uri>\s*<pose>)([^<]*)(</pose>)"
+    m = re.search(pat, template)
+    assert m, "pipeline pose"
+    v = [float(x) for x in m.group(2).split()]
+    v[0] += dx
+    v[1] += dy
+    v[5] += math.radians(dyaw_deg)
+    return template[:m.start(2)] + " ".join(f"{x:.5f}" for x in v) + template[m.end(2):]
+
+
+def set_visibility(template, visibility_m):
+    """Scenario: scale the turbidity's beam attenuation so the green channel sees visibility_m (contrast 5%: 3 / beta)."""
+    m = re.search(r"<attenuation>([^<]*)</attenuation>", template)
+    assert m, "attenuation"
+    att = [float(x) for x in m.group(1).split()]
+    k = (3.0 / visibility_m) / att[1]
+    return template[:m.start(1)] + " ".join(f"{a * k:.3f}" for a in att) + template[m.end(1):]
+
+
+# Barrel distortion (Brown model) standing in for the HORUS T10 fisheye; the detector undistorts with camera_info.
+BOTTOM_CAMERA_DISTORTION = (
+    "<distortion><k1>-0.28</k1><k2>0.07</k2><k3>0.0</k3><p1>0.0</p1><p2>0.0</p2>"
+    "<center>0.5 0.5</center></distortion>")
+
+
+def set_bottom_camera_width(robot_xml, width):
+    """Bottom camera resolution (4:3); the sim default is 320x240 and the real HORUS is 1920x1080."""
+    tag = '<camera name="bottom_camera">'
+    assert tag in robot_xml, "bottom camera"
+    image = f"<image><width>{width}</width><height>{width * 3 // 4}</height></image>"
+    return robot_xml.replace(tag, tag + image, 1)
+
+
+def distort_bottom_camera(robot_xml):
+    tag = '<camera name="bottom_camera">'
+    assert tag in robot_xml, "bottom camera"
+    return robot_xml.replace(tag, tag + BOTTOM_CAMERA_DISTORTION, 1)
+
+
+# The HORUS T10's IR LED ring as a spot light along the bottom camera's axis (Gazebo cameras look along +X).
+IR_LED = (
+    '<gazebo reference="bottom_camera_link"><light name="bottom_led" type="spot">'
+    "<pose>0 0 0 0 0 0</pose><diffuse>0.8 0.8 0.8 1</diffuse><specular>0.1 0.1 0.1 1</specular>"
+    "<direction>1 0 0</direction><attenuation><range>6</range><constant>0.3</constant><linear>0.2</linear>"
+    "<quadratic>0.05</quadratic></attenuation><spot><inner_angle>0.6</inner_angle><outer_angle>1.0</outer_angle>"
+    "<falloff>1.0</falloff></spot><cast_shadows>false</cast_shadows></light></gazebo>")
+
+
+def add_ir_led(robot_xml):
+    assert "</robot>" in robot_xml, "robot"
+    return robot_xml.replace("</robot>", IR_LED + "</robot>", 1)
+
+
 def self_check():
     for seed in range(200):
         lay = random_layout(seed)
@@ -72,6 +142,10 @@ def self_check():
            "<name>robobuoy_green</name><uri>u</uri><pose>0 0 0 0 0 0</pose>"
            "<name>robobuoy_red</name><uri>u</uri><pose>0 0 0 0 0 0</pose>")
     assert "0 0 0 0 0 0" not in layout_world(tpl, random_layout(1))
+    assert "<pose>0 0 -4.596 0 0 0</pose>" in set_pipe_depth(tpl, 3.0)
+    assert "<pose>1.00000 -2.00000 0.00000 0.00000 0.00000 0.17453</pose>" in move_pipe(tpl, 1.0, -2.0, 10.0)
+    assert "<attenuation>5.143 3.000 4.714</attenuation>" in set_visibility(
+        "<attenuation>0.60 0.35 0.55</attenuation>", 1.0)
     print("gazebo_main layout self-check OK")
 
 
@@ -122,9 +196,34 @@ def generate_launch_description():
         choices=["core", "advanced", "disruptive"],
     )
 
+    pipe_depth_arg = DeclareLaunchArgument(
+        name="pipe_depth", default_value="",
+        description="Depth (m) of the light nodes below the surface; empty = the world's 13.4 m.")
+    pipe_dx_arg = DeclareLaunchArgument(name="pipe_dx", default_value="", description="Scenario: shift the pipe east (m).")
+    pipe_dy_arg = DeclareLaunchArgument(name="pipe_dy", default_value="", description="Scenario: shift the pipe north (m).")
+    pipe_dyaw_arg = DeclareLaunchArgument(
+        name="pipe_dyaw_deg", default_value="", description="Scenario: rotate the pipe about its start end (deg).")
+    camera_model_arg = DeclareLaunchArgument(
+        name="camera_model", default_value="pinhole", choices=["pinhole", "fisheye"],
+        description="Scenario: 'fisheye' adds barrel distortion to the bottom camera (the HORUS T10 is a fisheye).")
+    camera_width_arg = DeclareLaunchArgument(
+        name="camera_width", default_value="",
+        description="Bottom camera width in pixels (4:3); empty = the model's 320x240.")
+    ir_led_arg = DeclareLaunchArgument(
+        name="ir_led", default_value="off", choices=["on", "off"],
+        description="Scenario: 'on' adds the camera's LED ring as a spot light along the bottom camera.")
+    use_hydrophone_arg = DeclareLaunchArgument(
+        name="use_hydrophone", default_value="False", choices=["True", "False"],
+        description="Add the sim HydrophoneArray plugin and its bridge (the competition vehicle has no hydrophone).")
+    light_fault_arg = DeclareLaunchArgument(
+        name="light_fault", default_value="",
+        description="Scenario: a functional node fault '<node>:thermistor|mag|hot' (blinks RED or goes dark).")
+    visibility_arg = DeclareLaunchArgument(
+        name="visibility_m", default_value="", description="Scenario: water visibility (m); empty = the world's.")
     spawn_x_arg = DeclareLaunchArgument(name="spawn_x", default_value="0")
     spawn_y_arg = DeclareLaunchArgument(name="spawn_y", default_value="0")
     spawn_z_arg = DeclareLaunchArgument(name="spawn_z", default_value="-0.06")
+    spawn_yaw_arg = DeclareLaunchArgument(name="spawn_yaw", default_value="0", description="Spawn heading in rad.")
 
     set_use_sim_time = SetParameter(
         name="use_sim_time",
@@ -154,7 +253,16 @@ def generate_launch_description():
     def launch_course(context):
         tier_val = LaunchConfiguration("tier").perform(context)
         probe = "false" if tier_val == "core" else "true"
-        bluerov2_heavy_xml = xacro.process(_bluerov2_heavy_file, mappings={"probe": probe})
+        hydrophone = "true" if LaunchConfiguration("use_hydrophone").perform(context) == "True" else "false"
+        bluerov2_heavy_xml = xacro.process(
+            _bluerov2_heavy_file, mappings={"probe": probe, "hydrophone": hydrophone})
+        if LaunchConfiguration("camera_model").perform(context) == "fisheye":
+            bluerov2_heavy_xml = distort_bottom_camera(bluerov2_heavy_xml)
+        camera_width = LaunchConfiguration("camera_width").perform(context)
+        if camera_width:
+            bluerov2_heavy_xml = set_bottom_camera_width(bluerov2_heavy_xml, int(camera_width))
+        if LaunchConfiguration("ir_led").perform(context) == "on":
+            bluerov2_heavy_xml = add_ir_led(bluerov2_heavy_xml)
 
         seed_text = LaunchConfiguration("layout_seed").perform(context)
         if seed_text:
@@ -174,11 +282,30 @@ def generate_launch_description():
             )
         else:
             world_path = _world_file
+            pipe_depth = LaunchConfiguration("pipe_depth").perform(context)
+            pipe_move = [float(LaunchConfiguration(n).perform(context) or 0.0)
+                         for n in ("pipe_dx", "pipe_dy", "pipe_dyaw_deg")]
+            visibility = LaunchConfiguration("visibility_m").perform(context)
+            if pipe_depth or any(pipe_move) or visibility:
+                with open(_world_file) as f:
+                    world = f.read()
+                if pipe_depth:
+                    world = set_pipe_depth(world, float(pipe_depth))
+                if any(pipe_move):
+                    world = move_pipe(world, *pipe_move)
+                if visibility:
+                    world = set_visibility(world, float(visibility))
+                world_path = os.path.join(tempfile.gettempdir(), "banyu_main_world.world")
+                with open(world_path, "w") as f:
+                    f.write(world)
             sx = float(LaunchConfiguration("spawn_x").perform(context))
             sy = float(LaunchConfiguration("spawn_y").perform(context))
             sz = float(LaunchConfiguration("spawn_z").perform(context))
-            syaw = 0.0
-            info_msg = f"[layout] using world {world_path} with spawn ({sx}, {sy}, {sz})"
+            syaw = float(LaunchConfiguration("spawn_yaw").perform(context))
+            info_msg = (f"[layout] using world {world_path} with spawn ({sx}, {sy}, {sz}, yaw {syaw})"
+                        + (f", light nodes at {pipe_depth} m" if pipe_depth else "")
+                        + (f", pipe moved {pipe_move}" if any(pipe_move) else "")
+                        + (f", visibility {visibility} m" if visibility else ""))
 
         return [
             Node(
@@ -199,6 +326,7 @@ def generate_launch_description():
                 + [world_path],
                 additional_env={
                     "BANYU_LIGHT_SEED": LaunchConfiguration("light_seed").perform(context),
+                    "BANYU_LIGHT_FAULT": LaunchConfiguration("light_fault").perform(context),
                     "BANYU_TIER": tier_val,
                 },
                 output="both",
@@ -226,6 +354,7 @@ def generate_launch_description():
                 ],
                 additional_env={
                     "BANYU_LIGHT_SEED": LaunchConfiguration("light_seed").perform(context),
+                    "BANYU_LIGHT_FAULT": LaunchConfiguration("light_fault").perform(context),
                     "BANYU_TIER": tier_val,
                 },
                 output="screen",
@@ -293,7 +422,8 @@ def generate_launch_description():
         name="hydrophone_bridge",
         arguments=["/banyu/pinger/arrivals@ros_gz_interfaces/msg/Float32Array[gz.msgs.Float_V"],
         output="screen",
-        condition=IfCondition(LaunchConfiguration("use_sim")),
+        condition=IfCondition(
+            AndSubstitution(LaunchConfiguration("use_sim"), LaunchConfiguration("use_hydrophone"))),
     )
 
     return LaunchDescription(
@@ -304,9 +434,20 @@ def generate_launch_description():
             layout_seed_arg,
             light_seed_arg,
             tier_arg,
+            pipe_depth_arg,
+            pipe_dx_arg,
+            pipe_dy_arg,
+            pipe_dyaw_arg,
+            visibility_arg,
+            light_fault_arg,
+            camera_model_arg,
+            ir_led_arg,
+            use_hydrophone_arg,
+            camera_width_arg,
             spawn_x_arg,
             spawn_y_arg,
             spawn_z_arg,
+            spawn_yaw_arg,
             set_use_sim_time,
             clock_bridge,
             OpaqueFunction(function=launch_course),

@@ -2,6 +2,8 @@
 
 #include <cmath>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 #include "banyu_communication/pipeline_buoys.hpp"
 #include "rx_msgs/msg/vehicle_type.hpp"
@@ -84,6 +86,9 @@ TEST(PipelineBuoysTracker, ActiveBTargetPointsTowardBuoyA)
   EXPECT_DOUBLE_EQ(target->longitude, -118.393272);
   ASSERT_TRUE(target->heading_valid);
   EXPECT_NEAR(std::abs(target->heading_enu_rad), kPi, 1e-3);   // west
+  // The other buoy (A) is carried for the midpoint dive.
+  ASSERT_TRUE(target->other_valid);
+  EXPECT_DOUBLE_EQ(target->other_longitude, -118.393392);
 }
 
 TEST(PipelineBuoysTracker, RejectsWrongCourseSourceAndInvalidContent)
@@ -151,6 +156,7 @@ TEST(PipelineBuoysTracker, OneBuoyOrUnknownActiveGivesNoTarget)
   const auto target = value.target(stamp(1));
   ASSERT_TRUE(target.has_value());
   EXPECT_FALSE(target->heading_valid);   // no pipe direction from a single buoy
+  EXPECT_FALSE(target->other_valid);
 }
 
 TEST(PipelineBuoysTracker, ZeroUncertaintyUsesConfiguredDefault)
@@ -247,4 +253,95 @@ TEST(PipelineBuoysTracker, PolygonAndGeometryHelpers)
   const auto north = point(33.810538, -118.393392);
   EXPECT_NEAR(PipelineBuoysTracker::enuBearing(a, north), kPi / 2.0, 1e-6);
   EXPECT_NEAR(PipelineBuoysTracker::distanceM(a, north), 11.13, 0.05);
+}
+
+TEST(SafePassageObstacles, MergesEntryExitAndFieldInsideTheCourse)
+{
+  rx_msgs::msg::SafePassage msg;
+  msg.entry_position = point(33.8100, -118.3940);
+  // Exit not mapped yet: (0, 0) is unset.
+  rx_msgs::msg::BuoyDetection entry;
+  entry.position = point(33.8100, -118.3940);   // the entry buoy again
+  rx_msgs::msg::BuoyDetection red;
+  red.position = point(33.8102, -118.3938);
+  rx_msgs::msg::BuoyDetection far;
+  far.position = point(33.8200, -118.3940);     // outside the course
+  msg.buoys = {entry, red, far};
+
+  const auto obstacles = banyu_communication::safePassageObstacles(msg, course().boundary, 2.0);
+  EXPECT_EQ(obstacles.source, "uav_safe_passage");
+  ASSERT_EQ(obstacles.latitude_deg.size(), 2u);
+  ASSERT_EQ(obstacles.radius_m.size(), 2u);
+  EXPECT_DOUBLE_EQ(obstacles.latitude_deg[1], 33.8102);
+  EXPECT_DOUBLE_EQ(obstacles.radius_m[0], 2.0);
+
+  // Without a course nothing is filtered by position.
+  EXPECT_EQ(banyu_communication::safePassageObstacles(msg, {}, 2.0).latitude_deg.size(), 3u);
+}
+
+// The field the UAV reported on 2026-11-12 (Singapore trial): 8 buoys in the first message, then 5 for minutes
+// (B2, B4, B7 missing), then 6 (B2, B5 missing).
+enum class TrialMessage {First, FiveBuoys, SixBuoys};
+
+rx_msgs::msg::SafePassage trialField(TrialMessage which, double jitter_deg = 0.0)
+{
+  rx_msgs::msg::SafePassage msg;
+  msg.entry_position = point(1.280812 + jitter_deg, 103.855181);
+  const std::vector<std::pair<double, double>> field = {{1.280812, 103.855181}, {1.280892, 103.855210},
+    {1.280771, 103.855216}, {1.280833, 103.855245}, {1.280860, 103.855244}, {1.280884, 103.855284},
+    {1.280888, 103.855182}, {1.280891, 103.855244}};
+  for (std::size_t i = 0; i < field.size(); ++i) {
+    if (which == TrialMessage::FiveBuoys && (i == 2 || i == 4 || i == 7)) {continue;}
+    if (which == TrialMessage::SixBuoys && (i == 2 || i == 5)) {continue;}
+    rx_msgs::msg::BuoyDetection b;
+    b.position = point(field[i].first + jitter_deg, field[i].second);
+    msg.buoys.push_back(b);
+  }
+  return msg;
+}
+
+TEST(UavBuoyField, KeepsBuoysTheUavDropsAndMergesJitter)
+{
+  banyu_communication::UavBuoyField field(1.0, 0.0);
+  field.update(trialField(TrialMessage::First), {}, 0.0);
+  EXPECT_EQ(field.size(), 8u);
+  // The same field 0.2 m north (the trial's jitter) is the same eight buoys.
+  field.update(trialField(TrialMessage::First, 0.0000018), {}, 1.0);
+  EXPECT_EQ(field.size(), 8u);
+  // The later messages never hold all eight again: every buoy stays an obstacle.
+  field.update(trialField(TrialMessage::FiveBuoys), {}, 448.0);
+  field.update(trialField(TrialMessage::SixBuoys), {}, 1001.0);
+  const auto obstacles = field.obstacles({}, 1.2, 1002.0);
+  EXPECT_EQ(obstacles.latitude_deg.size(), 8u);
+  EXPECT_EQ(obstacles.source, "uav_safe_passage");
+  EXPECT_DOUBLE_EQ(obstacles.radius_m.front(), 1.2);
+  field.clear();
+  EXPECT_EQ(field.size(), 0u);
+}
+
+TEST(UavBuoyField, ForgetsBuoysNotReportedForForgetS)
+{
+  banyu_communication::UavBuoyField field(1.0, 60.0);
+  field.update(trialField(TrialMessage::First), {}, 0.0);
+  field.update(trialField(TrialMessage::FiveBuoys), {}, 30.0);
+  EXPECT_EQ(field.obstacles({}, 1.2, 50.0).latitude_deg.size(), 8u);
+  EXPECT_EQ(field.obstacles({}, 1.2, 70.0).latitude_deg.size(), 5u);
+  field.update(trialField(TrialMessage::FiveBuoys), {}, 70.0);
+  EXPECT_EQ(field.size(), 5u);
+}
+
+TEST(UavBuoyField, FiltersByTheCourseBoundaryAtPublish)
+{
+  banyu_communication::UavBuoyField field;
+  rx_msgs::msg::SafePassage msg;
+  rx_msgs::msg::BuoyDetection inside;
+  inside.position = point(33.8102, -118.3938);
+  rx_msgs::msg::BuoyDetection outside;
+  outside.position = point(33.8200, -118.3940);
+  msg.buoys = {inside, outside};
+  // SafePassage before the course: both remembered, the far one filtered once the course is known.
+  field.update(msg, {}, 0.0);
+  EXPECT_EQ(field.obstacles({}, 1.2, 0.0).latitude_deg.size(), 2u);
+  EXPECT_EQ(field.obstacles(course().boundary, 1.2, 0.0).latitude_deg.size(), 1u);
+  EXPECT_THROW(banyu_communication::UavBuoyField(0.0, 0.0), std::invalid_argument);
 }

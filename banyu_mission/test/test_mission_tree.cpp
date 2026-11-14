@@ -105,6 +105,61 @@ void abortMission(const rclcpp::Node::SharedPtr & node)
 }
 }  // namespace
 
+TEST_F(MissionTest, GambleTreeLoads)
+{
+  auto node = std::make_shared<rclcpp::Node>("mission_tree_gamble_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get(), false);
+  BT::BehaviorTreeFactory factory;
+  banyu_mission::registerMissionNodes(factory, node, state);
+  const auto path = ament_index_cpp::get_package_share_directory("banyu_mission") + "/bt/task2_gamble_mission.xml";
+  EXPECT_NO_THROW(factory.registerBehaviorTreeFromFile(path));
+  EXPECT_NO_THROW({auto tree = factory.createTree("Main", BT::Blackboard::create()); (void)tree;});
+}
+
+TEST_F(MissionTest, TestMissionTreeLoads)
+{
+  auto node = std::make_shared<rclcpp::Node>("mission_tree_test_mission_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get(), false);
+  BT::BehaviorTreeFactory factory;
+  banyu_mission::registerMissionNodes(factory, node, state);
+  const auto path = ament_index_cpp::get_package_share_directory("banyu_mission") + "/bt/task2_test_mission.xml";
+  EXPECT_NO_THROW(factory.registerBehaviorTreeFromFile(path));
+  EXPECT_NO_THROW({auto tree = factory.createTree("Main", BT::Blackboard::create()); (void)tree;});
+  // Order of the underwater legs: dive, settle, forward, pause, backward; then surface and report.
+  const auto xml = readFile(path);
+  std::size_t previous = 0;
+  for (const auto * step : {"WaitForBuoyTarget", "NavigateSurfaceGps", "LockBuoyTarget", "AlignHeading", "segment_name=\"dive\"",
+      "segment_name=\"forward\"", "segment_name=\"backward\"", "GiveUpSurvey", "<Surface ",
+      "PublishPipelineSurvey best_effort=\"true\""})
+  {
+    const auto current = xml.find(step, previous);
+    ASSERT_NE(current, std::string::npos) << step;
+    previous = current;
+  }
+}
+
+TEST_F(MissionTest, LoadsTask2WaypointMission)
+{
+  auto node = std::make_shared<rclcpp::Node>("mission_tree_waypoint_mission_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get(), false);
+  BT::BehaviorTreeFactory factory;
+  banyu_mission::registerMissionNodes(factory, node, state);
+  const auto path = ament_index_cpp::get_package_share_directory("banyu_mission") + "/bt/task2_waypoint_mission.xml";
+  EXPECT_NO_THROW(factory.registerBehaviorTreeFromFile(path));
+  EXPECT_NO_THROW({auto tree = factory.createTree("Main", BT::Blackboard::create()); (void)tree;});
+  // Surface waypoint GPS navigation, align heading, and report (no diving, no timed legs).
+  const auto xml = readFile(path);
+  std::size_t previous = 0;
+  for (const auto * step : {"WaitForBuoyTarget", "NavigateSurfaceGps", "LockBuoyTarget", "AlignHeading",
+      "GiveUpSurvey", "ConfirmSurfaceAction", "PublishPipelineSurvey best_effort=\"true\""})
+  {
+    const auto current = xml.find(step, previous);
+    ASSERT_NE(current, std::string::npos) << step;
+    previous = current;
+  }
+  EXPECT_EQ(xml.find("TimedMove"), std::string::npos);
+}
+
 TEST_F(MissionTest, LoadsAndRegistersAllNodes)
 {
   auto node = std::make_shared<rclcpp::Node>("mission_tree_parser_test");
@@ -231,6 +286,40 @@ TEST_F(MissionTest, RingAcknowledgementMustMatchPendingRecord)
   EXPECT_FALSE(state->redPending());
 }
 
+TEST_F(MissionTest, SurveyLegEndsAfterThePipeIsOutOfViewLongEnoughSinceTheLastNewRing)
+{
+  auto node = std::make_shared<rclcpp::Node>("mission_state_leg_test");
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get());
+  auto pipe_pub = node->create_publisher<banyu_msgs::msg::PipelineObservation>(
+    "/banyu/pipeline/observation", rclcpp::SensorDataQoS());
+  auto ring_pub = node->create_publisher<banyu_msgs::msg::PipelineRingState>(
+    "/banyu/pipeline/ring_state", rclcpp::QoS(5));
+  spinFor(node);
+  auto observe = [&](double t, bool tracked) {
+      banyu_msgs::msg::PipelineObservation obs;
+      obs.header.stamp = rclcpp::Time(static_cast<int64_t>(t * 1e9), RCL_ROS_TIME);
+      obs.status = tracked ? banyu_msgs::msg::PipelineObservation::TRACKED :
+        banyu_msgs::msg::PipelineObservation::NO_PIPE;
+      pipe_pub->publish(obs);
+      spinFor(node, 3);
+    };
+  for (double t = 10.0; t <= 13.0; t += 0.5) {observe(t, false);}   // 3 s out of view
+  EXPECT_TRUE(state->legEnded(2.5));
+  EXPECT_FALSE(state->legEnded(6.0));
+  banyu_msgs::msg::PipelineRingState ring;
+  ring.index = 0;
+  ring.color = banyu_msgs::msg::PipelineRingState::COLOR_GREEN;
+  ring.confidence = 1.0F;
+  ring_pub->publish(ring);
+  spinFor(node);
+  EXPECT_FALSE(state->legEnded(2.5));   // a new ring starts the count again
+  ring_pub->publish(ring);              // the same ring again does not
+  spinFor(node);
+  for (double t = 13.5; t <= 17.0; t += 0.5) {observe(t, t < 15.0 || t > 16.0);}
+  EXPECT_FALSE(state->legEnded(2.5));   // 1.5 s out of view
+  EXPECT_TRUE(state->legEnded(0.9));
+}
+
 TEST_F(MissionTest, ActionResultSemanticFailureIsNotTransportSuccess)
 {
   struct Result {bool success{false};};
@@ -242,9 +331,12 @@ TEST_F(MissionTest, ActionResultSemanticFailureIsNotTransportSuccess)
       SuccessfulResult{}));
 }
 
-TEST_F(MissionTest, PublishPipelineSurveyNodeProvidedPortsIsEmpty)
+TEST_F(MissionTest, PublishPipelineSurveyNodeHasBestEffortAndTimeoutPorts)
 {
-  EXPECT_TRUE(banyu_mission::PublishPipelineSurveyNode::providedPorts().empty());
+  const auto ports = banyu_mission::PublishPipelineSurveyNode::providedPorts();
+  ASSERT_EQ(ports.size(), 2U);
+  EXPECT_EQ(ports.count("best_effort"), 1U);
+  EXPECT_EQ(ports.count("timeout_s"), 1U);
 }
 
 TEST_F(MissionTest, PublishPipelineSurveyWaitsForDelayedServiceDiscovery)
@@ -417,6 +509,8 @@ TEST_F(MissionTest, TreeInstantiatesWithSubtreeAutoremap)
   blackboard->set("depth_tolerance", 0.2);
   blackboard->set("camera_name", "front_camera");
   blackboard->set("heading_prior", 0.0);
+  blackboard->set("two_legs", false);
+  blackboard->set("leg_end_lost_s", 6.0);
   blackboard->set("acquire_timeout_ms", static_cast<unsigned>(15000));
   blackboard->set("search_span", 1.0);
   blackboard->set("sweep_rate", 0.2);
@@ -760,7 +854,7 @@ TEST_F(MissionTest, PorVisionAssistedTreeLoadsWithTimedFallbacks)
   }
 }
 
-TEST_F(MissionTest, FallbackModeParameterDefaultsToSurface)
+TEST_F(MissionTest, FallbackModeParameterDefaultsToManual)
 {
   rclcpp::NodeOptions options;
   options.parameter_overrides(
@@ -770,7 +864,7 @@ TEST_F(MissionTest, FallbackModeParameterDefaultsToSurface)
   auto mission = std::make_shared<banyu_mission::BanyuMission>(options);
   std::string fallback_mode;
   EXPECT_TRUE(mission->get_parameter("fallback_mode", fallback_mode));
-  EXPECT_EQ(fallback_mode, "SURFACE");
+  EXPECT_EQ(fallback_mode, "MANUAL");
 }
 
 TEST_F(MissionTest, HandleAbortOrTeleopInvokesAbortCallback)
@@ -788,7 +882,7 @@ TEST_F(MissionTest, HandleAbortOrTeleopInvokesAbortCallback)
   EXPECT_TRUE(state->snapshot().abort_requested);
 }
 
-TEST_F(MissionTest, AbortServiceCommandsFallbackModeSurface)
+TEST_F(MissionTest, AbortServiceCommandsFallbackModeManual)
 {
   auto helper_node = std::make_shared<rclcpp::Node>("set_mode_helper_node");
   std::string received_mode;
@@ -819,7 +913,7 @@ TEST_F(MissionTest, AbortServiceCommandsFallbackModeSurface)
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 
-  EXPECT_EQ(received_mode, "SURFACE");
+  EXPECT_EQ(received_mode, "MANUAL");
 }
 
 TEST_F(MissionTest, SingleDroppedPipelineFrameDoesNotCountAsLosingThePipe)

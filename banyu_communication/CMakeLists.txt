@@ -17,7 +17,7 @@ find_package(mavros_msgs REQUIRED)
 find_package(banyu_msgs REQUIRED)
 find_package(rx_msgs REQUIRED)
 
-add_library(banyu_survey_core src/survey_reporting.cpp src/pipeline_buoys.cpp)
+add_library(banyu_survey_core src/survey_reporting.cpp src/pipeline_buoys.cpp src/task4_zones.cpp)
 target_compile_features(banyu_survey_core PUBLIC cxx_std_17)
 target_include_directories(banyu_survey_core PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
@@ -63,6 +63,9 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_survey_reporting_core test/test_survey_reporting_core.cpp)
   target_link_libraries(test_survey_reporting_core banyu_survey_core)
+
+  ament_add_gtest(test_task4_zones test/test_task4_zones.cpp)
+  target_link_libraries(test_task4_zones banyu_survey_core)
 
   ament_add_gtest(test_pipeline_buoys test/test_pipeline_buoys.cpp)
   target_link_libraries(test_pipeline_buoys banyu_survey_core)

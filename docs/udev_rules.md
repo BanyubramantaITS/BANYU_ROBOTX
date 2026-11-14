@@ -1,36 +1,27 @@
 # USB udev Rules for Hardware Devices
 
-This document specifies the udev rules for persistent device naming on the companion computer.
+Persistent device names on the AUV computer. The rules file is
+[`tools/udev/99-banyu.rules`](../tools/udev/99-banyu.rules):
 
-## Rules (`/etc/udev/rules.d/99-banyu.rules`)
+| Name | Device | USB ID |
+|---|---|---|
+| `/dev/pixhawk` | Pixhawk 1 | `1209:5741` |
+| `/dev/gps_rtk` | u-blox RTK GNSS receiver | `1546:01a9` |
+| `/dev/esp32_kill` | ESP32 kill-switch indicator (native USB) | `303a:1001` |
+| `/dev/front_camera` | "H264 USB Camera" capture node (index 0) | `32e4:9422` |
+| `/dev/bottom_camera` | "2M WebCam" / Horus B capture node (index 0) | `2ce3:3894` |
 
-```udev
-# Pixhawk 1 (Vendor: 1209, Product: 5741)
-SUBSYSTEM=="tty", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="5741", SYMLINK+="pixhawk", MODE="0666", GROUP="dialout"
-
-# u-blox GNSS RTK Receiver (Vendor: 1546, Product: 01a9)
-SUBSYSTEM=="tty", ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", SYMLINK+="gps_rtk", MODE="0666", GROUP="dialout"
-
-# Horus B / 2M WebCam (Vendor: 2ce3, Product: 3894)
-SUBSYSTEM=="video4linux", ATTRS{idVendor}=="2ce3", ATTRS{idProduct}=="3894", ATTR{index}=="0", SYMLINK+="horus_camera", MODE="0666", GROUP="video"
-```
-
-For camera-specific setup, parameters, and troubleshooting, refer to [Horus Camera Guide](horus_camera.md).
+The serial rules also set `ID_MM_DEVICE_IGNORE` so ModemManager never probes these ports.
+What each device is used for: [`hardware_setup.md`](hardware_setup.md).
 
 ## Installation
 
-1. Create or copy the rules file:
-   ```bash
-   sudo nano /etc/udev/rules.d/99-banyu.rules
-   ```
+```bash
+sudo install -m 644 src/BANYU_ROBOTX/tools/udev/99-banyu.rules /etc/udev/rules.d/99-banyu.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger --action=change --subsystem-match=tty
+sudo udevadm trigger --action=change --subsystem-match=video4linux
+ls -l /dev/pixhawk /dev/gps_rtk /dev/esp32_kill /dev/front_camera /dev/bottom_camera
+```
 
-2. Reload and trigger udev:
-   ```bash
-   sudo udevadm control --reload-rules
-   sudo udevadm trigger
-   ```
-
-3. Verification:
-   ```bash
-   ls -l /dev/pixhawk /dev/gps_rtk
-   ```
+Installed on the competition Pi (banyu@192.168.0.100) on 2026-11-03.

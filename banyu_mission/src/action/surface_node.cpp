@@ -12,7 +12,10 @@ BT::PortsList SurfaceNode::providedPorts()
     BT::InputPort<double>("depth_tolerance"),
     BT::InputPort<double>(
       "watchdog_timeout_s", 0.0,
-      "Continuous missing-prerequisite watchdog; zero disables it")};
+      "Continuous missing-prerequisite watchdog; zero disables it"),
+    BT::InputPort<bool>(
+      "hold_for_zones", false,
+      "Task 4: wait at depth, time-bounded, while the last known position is inside a keep-out zone")};
 }
 
 SurfaceNode::SurfaceNode(
@@ -28,6 +31,7 @@ SurfaceNode::Goal SurfaceNode::makeGoal()
   goal.target_depth_m = input<double>("target_depth");
   goal.depth_tolerance_m = input<double>("depth_tolerance");
   goal.watchdog_timeout_s = input<double>("watchdog_timeout_s");
+  goal.hold_for_zones = input<bool>("hold_for_zones");
   return goal;
 }
 

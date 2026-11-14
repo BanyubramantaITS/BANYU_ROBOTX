@@ -3,7 +3,9 @@ import os
 import xml.etree.ElementTree as ET
 
 from ament_index_python.packages import get_package_share_directory, PackageNotFoundError
+from launch import LaunchContext
 from launch.actions import DeclareLaunchArgument
+from launch.utilities import perform_substitutions
 from launch_ros.actions import Node
 import pytest
 import yaml
@@ -31,15 +33,26 @@ def _declared_args(ld):
     return args
 
 
+def _arg_default(ld, name, **configs):
+    context = LaunchContext()
+    context.launch_configurations.update(configs)
+    for entity in ld.entities:
+        if isinstance(entity, DeclareLaunchArgument) and entity.name == name:
+            return perform_substitutions(context, entity.default_value)
+    raise KeyError(name)
+
+
 def test_sub_bringup_defaults_are_hardware_safe():
     ld = _load_launch("sub_bringup.launch.py")
     args = _declared_args(ld)
     assert "use_sim" not in args
     assert "use_dvl" not in args
-    assert args["use_gps"] == "False"
+    # POR runs GPS-denied; Task 2 needs the surface GPS leg.
+    assert _arg_default(ld, "use_gps", mode="por") == "False"
+    assert _arg_default(ld, "use_gps", mode="task2") == "True"
     assert args["enable_teleop"] == "True"
     assert args["enable_esp32_bridge"] == "False"
-    # MAVROS runs on its own (tools/scripts/launch_mavros.sh), never from a launch file.
+    # MAVROS runs on its own (tools/scripts/run/launch_mavros.sh), never from a launch file.
     assert "fcu_url" not in args
     assert "launch_mavros" not in args
     assert args["enable_cameras"] == "True"

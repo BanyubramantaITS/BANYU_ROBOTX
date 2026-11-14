@@ -22,10 +22,14 @@
 #include "banyu_msgs/msg/pipeline_observation.hpp"
 #include "banyu_msgs/msg/pipeline_ring_observation.hpp"
 #include "banyu_msgs/msg/detection.hpp"
+#include "banyu_msgs/msg/task4_zones.hpp"
+#include "banyu_msgs/msg/surface_obstacles.hpp"
+#include "rx_msgs/msg/course.hpp"
 #include "banyu_guidance/msg/velocity_intent.hpp"
 
 #include "banyu_msgs/msg/pinger_observation.hpp"
 #include "banyu_vehicle_execution/action_servers.hpp"
+#include "banyu_vehicle_execution/camera_heave.hpp"
 #include "banyu_vehicle_execution/command_encoder.hpp"
 #include "banyu_vehicle_execution/goal_arbiter.hpp"
 #include "banyu_vehicle_execution/motion_intent.hpp"
@@ -57,6 +61,10 @@ public:
   void notifyDisplaced(
     const GoalIdentity & displaced_identity,
     const std::string & new_owner) override;
+  void setBuoyKeepOut(
+    const std::vector<double> & latitude_deg,
+    const std::vector<double> & longitude_deg,
+    double radius_m) override;
 
   // Accessors for testing and inspection
   const GoalArbiter & arbiter() const noexcept {return arbiter_;}
@@ -78,6 +86,14 @@ private:
   void handleStatus(const banyu_msgs::msg::VehicleStatus::SharedPtr msg);
   void handlePipelineObs(const banyu_msgs::msg::PipelineObservation::SharedPtr msg);
   void handleRingObs(const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg);
+  void handleZones(const banyu_msgs::msg::Task4Zones::SharedPtr msg);
+  void handleSurfaceObstacles(const banyu_msgs::msg::SurfaceObstacles::SharedPtr msg);
+  MotionIntent zoneGuardIntent(const rclcpp::Time & now, bool & selected);
+  void handleCourse(const rx_msgs::msg::Course::SharedPtr msg);
+  // Course fence on every goal's command while surfaced; under water there is no position to check.
+  MotionIntent applyFence(const MotionIntent & intent, const rclcpp::Time & now);
+  MotionIntent fenceGuardIntent(const rclcpp::Time & now, bool & selected);
+  void handleLightCue(const banyu_msgs::msg::PipelineRingObservation::SharedPtr msg);
   void handleDetection(const banyu_msgs::msg::Detection::SharedPtr msg);
   void handleImu(const sensor_msgs::msg::Imu::SharedPtr msg);
   void handleGuidanceIntent(const banyu_guidance::msg::VelocityIntent::SharedPtr msg);
@@ -103,7 +119,15 @@ private:
   // Flight mode the vehicle must be in while autonomous ("GUIDED" for setpoint
   // output; "ALT_HOLD"/"STABILIZE"/"MANUAL" for rc_override, no position needed).
   std::string autonomy_mode_{"GUIDED"};
-  // "setpoint" (/mavros/setpoint_raw/local, GUIDED) or "rc_override" (/mavros/rc/override).
+  // Second mode of a two-mode list ("GUIDED,ALT_HOLD"): the mode used under water, driven by RC override.
+  std::string underwater_mode_;
+  // Mode the mission waits in before it moves (banyu_mission standby_mode), driven by RC override.
+  std::string standby_mode_;
+  bool modeAllowed(const std::string & mode) const;
+  bool rcModeActive() const;
+  bool setpointModeActive() const;
+  // "setpoint" (/mavros/setpoint_raw/local, GUIDED), "rc_override" (/mavros/rc/override) or "auto":
+  // setpoint in autonomy_mode (surface, GPS) and rc_override in underwater_mode (no position needed).
   std::string output_mode_{"setpoint"};
   RcOverrideConfig rc_override_config_{};
   bool rc_override_neutral_sent_{false};
@@ -115,6 +139,7 @@ private:
   bool status_ever_received_{false};
   bool require_run_authorization_{false};
   double run_lifecycle_timeout_s_{1.0};
+  double pose_timeout_s_{0.5};
   banyu_msgs::msg::RunLifecycle run_lifecycle_;
   bool lifecycle_received_{false};
   bool authority_handshake_{false};
@@ -131,6 +156,10 @@ private:
   uint64_t revoked_epoch_{0};
   bool require_calibrated_surface_depth_{false};
   double surface_depth_timeout_s_{0.5};
+  // Heave from the pipe's apparent width for the actions that hold the vehicle over the pipe.
+  bool camera_heave_enabled_{false};
+  CameraHeave camera_heave_;
+  std::unordered_set<std::string> camera_heave_servers_;
   std::vector<std::string> surface_depth_sources_;
   int64_t run_context_start_ns_{0};
   int64_t last_water_depth_stamp_ns_{0};
@@ -149,9 +178,23 @@ private:
   rclcpp::Subscription<banyu_msgs::msg::VehicleStatus>::SharedPtr status_sub_;
   rclcpp::Subscription<banyu_msgs::msg::PipelineObservation>::SharedPtr pipeline_obs_sub_;
   rclcpp::Subscription<banyu_msgs::msg::PipelineRingObservation>::SharedPtr ring_obs_sub_;
+  rclcpp::Subscription<banyu_msgs::msg::PipelineRingObservation>::SharedPtr light_cue_sub_;
   rclcpp::Subscription<banyu_msgs::msg::Detection>::SharedPtr detection_sub_;
+  rclcpp::Subscription<banyu_msgs::msg::Task4Zones>::SharedPtr zones_sub_;
+  rclcpp::Subscription<banyu_msgs::msg::SurfaceObstacles>::SharedPtr surface_obstacles_sub_;
+  // Idle on the surface (no goal) and a keep-out zone reaches the vehicle: move out and stay out.
+  bool zone_guard_enabled_{true};
+  double zone_surface_depth_m_{0.5};
+  rclcpp::Subscription<rx_msgs::msg::Course>::SharedPtr course_sub_;
+  // No course received: surface commands may not move horizontally when required.
+  bool fence_required_{false};
+  bool fence_guard_enabled_{true};
+  // Horizontal motion on the surface stops when the GPS fix is older than this (the fence cannot be checked).
+  double fence_gps_timeout_s_{2.0};
+  std::string fence_course_id_;
   rclcpp::Subscription<banyu_guidance::msg::VelocityIntent>::SharedPtr guidance_intent_sub_;
   rclcpp::Subscription<banyu_msgs::msg::PingerObservation>::SharedPtr pinger_obs_sub_;
+  bool use_hydrophone_{false};
   rclcpp::Subscription<banyu_msgs::msg::RunLifecycle>::SharedPtr run_lifecycle_sub_;
 
   rclcpp::Publisher<mavros_msgs::msg::PositionTarget>::SharedPtr preview_target_pub_;

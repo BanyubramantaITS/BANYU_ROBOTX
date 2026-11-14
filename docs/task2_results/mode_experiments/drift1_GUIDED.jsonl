@@ -1,0 +1,4 @@
+{"kind": "baseline", "surface_depth": -0.089, "t": 36.1}
+{"kind": "trial_start", "mode": "GUIDED", "t": 36.1}
+{"kind": "mode_request", "mode": "GUIDED", "reached_depth": false, "dive_drift_xy_m": [-0.2, -0.04], "accepted": true, "fcu_mode": "GUIDED", "depth": 0.09899999999999999, "t": 100.75}
+{"kind": "trial_end", "mode": "GUIDED", "reached_depth": false, "accepted": true, "fcu_mode_after_hold": "GUIDED", "depth_drift_m": 0.0, "yaw_drift_deg": 1.5, "surfaced": false, "guided_back_after_s": 2.0, "forward": {"commanded_mps": 0.3, "seconds": 20.0, "true_dx": -0.03, "true_dy": -0.01, "true_dz": 0.0}, "statustext": ["Arming motors", "EKF3 IMU0 is using GPS", "EKF3 IMU1 is using GPS", "EKF3 IMU1 MAG0 in-flight yaw alignment complete", "Lost manual control", "Disarming motors"], "t": 255.75}

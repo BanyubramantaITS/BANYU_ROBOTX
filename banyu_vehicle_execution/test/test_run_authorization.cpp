@@ -29,6 +29,7 @@ protected:
   virtual bool enableMavros() const {return true;}
   virtual bool calibratedSurface() const {return false;}
   virtual double lifecycleTimeout() const {return 0.25;}
+  virtual double poseTimeout() const {return 0.5;}
 
   void SetUp() override
   {
@@ -36,6 +37,7 @@ protected:
     options.append_parameter_override("control.require_run_authorization", true);
     options.append_parameter_override("control.run_lifecycle_timeout_s", lifecycleTimeout());
     options.append_parameter_override("control.require_lease", false);
+    options.append_parameter_override("control.pose_timeout_s", poseTimeout());
     options.append_parameter_override("control.enable_mavros_publish", enableMavros());
     options.append_parameter_override("topics.run_lifecycle", "/authorization/lifecycle");
     options.append_parameter_override("topics.status", "/authorization/status");
@@ -412,6 +414,27 @@ TEST_F(RunAuthorizationTest, FrozenRosClockCannotKeepLifecyclePermissionFresh)
   pump(100ms);
   EXPECT_TRUE(targets_.empty());
   EXPECT_EQ(sendSearch(), nullptr);
+}
+
+class SlowPoseReadinessTest : public RunAuthorizationTest
+{
+protected:
+  double poseTimeout() const override {return 1.0;}
+};
+
+// The robot's pose comes at ~3 Hz with gaps up to 0.7 s: the hold must ride through them, not a longer loss.
+TEST_F(SlowPoseReadinessTest, ReadinessHoldRidesThroughPoseGapsShorterThanTheTimeout)
+{
+  pump(200ms);
+  ASSERT_TRUE(readiness_.holding);
+  publish_pose_ = false;
+  pump(700ms);
+  EXPECT_TRUE(readiness_.holding);
+  targets_.clear();
+  pump(100ms);
+  EXPECT_FALSE(targets_.empty());
+  pump(500ms);
+  EXPECT_FALSE(readiness_.holding);
 }
 
 class PreviewReadinessTest : public RunAuthorizationTest

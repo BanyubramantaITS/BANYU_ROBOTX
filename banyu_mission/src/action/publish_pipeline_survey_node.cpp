@@ -1,5 +1,6 @@
 #include "banyu_mission/action/publish_pipeline_survey_node.hpp"
 
+#include <cmath>
 #include <utility>
 
 namespace banyu_mission
@@ -27,6 +28,9 @@ BT::NodeStatus PublishPipelineSurveyNode::onStart()
     success_ = false;
     request_sent_ = false;
     retryable_ = false;
+    best_effort_ = getInput<bool>("best_effort").value_or(false);
+    const double timeout_s = getInput<double>("timeout_s").value_or(5.0);
+    timeout_ = std::chrono::duration<double>(std::isfinite(timeout_s) && timeout_s > 0.0 ? timeout_s : 5.0);
   }
   return onRunning();
 }
@@ -39,7 +43,7 @@ BT::NodeStatus PublishPipelineSurveyNode::onRunning()
     state_->lifecycle() != MissionState::Lifecycle::Active)
   {return BT::NodeStatus::FAILURE;}
   const auto current_time = std::chrono::steady_clock::now();
-  if (current_time - start_time_ > std::chrono::seconds(5)) {
+  if (current_time - start_time_ > timeout_) {
     generation_++;
     client_->prune_pending_requests();
     RCLCPP_WARN(node_->get_logger(), "Pipeline survey local acceptance timed out");
@@ -56,7 +60,8 @@ BT::NodeStatus PublishPipelineSurveyNode::onRunning()
     auto request = std::make_shared<banyu_msgs::srv::TriggerPipelineSurvey::Request>();
     request->run_id = run_id_;
     request->epoch = epoch_;
-    request->report_id = "task2-survey-" + std::to_string(run_id_) + "-" + std::to_string(epoch_);
+    request->report_id = "task2-survey-" + std::to_string(run_id_) + "-" + std::to_string(epoch_) +
+      (best_effort_ ? ".best_effort" : "");
     const auto generation = generation_;
     const auto report_id = request->report_id;
     request_sent_ = true;

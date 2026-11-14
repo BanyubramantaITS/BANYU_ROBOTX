@@ -45,6 +45,14 @@ TEST(PipelineVision, FitsPipeStraightAhead) {
   EXPECT_NEAR(fit->lateral, 0.0, 5.0);
 }
 
+TEST(PipelineVision, MeasuresThePipeWidth) {
+  float width = -1.0f;
+  pipeMask(syntheticFrame(), {}, &width);
+  EXPECT_NEAR(width, 20.0, 3.0);   // the synthetic pipe is 20 px wide
+  pipeMask(noisy(cv::Mat(240, 320, CV_8UC3, cv::Scalar(2, 24, 1))), {}, &width);
+  EXPECT_EQ(width, 0.0f);
+}
+
 TEST(PipelineVision, OneGreenNodeOnThePipe) {
   const cv::Mat im = syntheticFrame();
   const auto lights = detectLights(im, pipeMask(im));

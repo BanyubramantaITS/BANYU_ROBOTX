@@ -23,7 +23,7 @@ atau buka `bash` dulu lalu source kedua file itu.
 - **Satu run = satu file profil** (`banyu_bringup/config/por_params*.yaml`). Profil berisi
   setting semua node POR; yang berbeda antar-profil terutama rute (durasi dan kecepatan tiap
   segmen) dan pemakaian kamera.
-- Semua dijalankan lewat [`tools/scripts/launch_por.sh`](../../tools/scripts/launch_por.sh).
+- Semua dijalankan lewat [`tools/scripts/por/launch_por.sh`](../../tools/scripts/por/launch_por.sh).
 
 ## 2. Memilih profil
 
@@ -39,7 +39,7 @@ file profil, jadi satu file dipakai untuk dua-duanya.
 | `replay` | `por_params_replay.yaml` | putar ulang rute yang dikemudikan manual (§4.8) |
 
 - **Thruster 2 + 3 mati:** buat profil dari hasil ukur di kolam dengan
-  `tools/scripts/dead_thruster_por.py` ([`tuning.md`](tuning.md) §6), lalu pakai
+  `tools/scripts/por/dead_thruster_por.py` ([`tuning.md`](tuning.md) §6), lalu pakai
   `--profile <nama file>`.
 - **Sensor tidak bisa dipercaya (murni timer):** set `use_sensors: false` di salinan profil
   (heading hold mati, dive dan putaran open-loop), lalu pakai `--profile <path>`.
@@ -65,14 +65,14 @@ file profil, jadi satu file dipakai untuk dua-duanya.
 ## 3. Menjalankan di simulasi
 
 ```bash
-env -u TMUX ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --profile safe
-env -u TMUX ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --headless --profile fastest
+env -u TMUX ./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --sim --profile safe
+env -u TMUX ./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --sim --headless --profile fastest
 ```
 
 MAVROS tidak dijalankan oleh launch file mana pun. Di terminal lain:
 
 ```bash
-./src/BANYU_ROBOTX/tools/scripts/launch_mavros.sh --sim
+./src/BANYU_ROBOTX/tools/scripts/run/launch_mavros.sh --sim
 ```
 
 Restart MAVROS setiap kali sim di-restart (waktu sim mulai dari 0 lagi).
@@ -114,7 +114,7 @@ Catatan sim:
    (bukan `sim_only.parm`), lalu reboot. Setelah itu simpan dump parameter dari QGC
    (Parameters → Tools → Save to file) dan cek:
    ```bash
-   python3 src/BANYU_ROBOTX/tools/scripts/check_pixhawk_params.py <dump>.params
+   python3 src/BANYU_ROBOTX/tools/scripts/check/check_pixhawk_params.py <dump>.params
    ```
    Skrip ini membandingkan dump dengan `banyu_defaults.parm`, frame, fungsi motor SERVO1–8, dan
    mendeteksi Bar30. Harus berakhir dengan `OK`. Yang penting untuk robot:
@@ -125,24 +125,28 @@ Catatan sim:
      mempublikasikan kedalaman dan heading tanpa GPS. Tanpa `EK3_SRC2_YAW 1`, EKF kehilangan
      sumber heading begitu `nogps_odom_beacon` memilih source set 2.
    - `FS_EKF_ACTION 0`, `FS_GCS_ENABLE 0`.
+   - `FS_THR_ENABLE 1`: kalau link TX16S putus, ArduSub menetralkan stick setelah
+     `RC_FS_TIMEOUT` (1 s). Dengan `0`, nilai stick terakhir tetap dipakai dan thruster terus
+     berputar di MANUAL. Jangan `2` (SURFACE): di bawah air link selalu putus.
    - `MAV_GCS_SYSID 255` (sysid MAVROS), lihat §4.2.
-   - **Batas daya thruster** `MOT_PWM_MIN 1300`, `MOT_PWM_MAX 1700` (50% dari 1100..1900):
-     board power ESC tidak kuat menyuplai arus penuh thruster. Batas ini berlaku untuk semua
-     mode (MANUAL dari TX16S, ALT_HOLD + RC override POR, GUIDED Task 2) karena dipotong di
-     mixer ArduSub. 60% = `1260 1740`, 70% = `1220 1780`; naikkan hanya setelah arus board
-     diukur. `MOT_PWM_TYPE` harus 0 (DShot/8/9 membuat ArduSub mengabaikan batas ini).
-     **QGC Motor Test tidak dibatasi** (PWM mentah): jangan geser slider melewati batas.
+   - **Rentang daya thruster** `MOT_PWM_MIN 1100`, `MOT_PWM_MAX 1900` (penuh): sejak board
+     power ESC diganti (2026-11-13); dengan batas 50% (`1300 1700`) dua thruster vertikal hampir
+     tidak bisa menyelam. Rentang ini berlaku untuk semua mode (MANUAL dari TX16S, ALT_HOLD + RC
+     override POR, GUIDED Task 2) karena dipotong di mixer ArduSub. Untuk membatasi lagi:
+     50% = `1300 1700`, 60% = `1260 1740`, 70% = `1220 1780`. `MOT_PWM_TYPE` harus 0
+     (DShot/8/9 membuat ArduSub mengabaikan rentang ini). QGC Motor Test memakai PWM mentah.
      `launch_por.sh` tidak memeriksa batas ini. Untuk mengecek nilai di Pixhawk, jalankan
-     `tools/scripts/check_thrust_limit.py` manual setelah `run_mavproxy.sh` (lewat port 14552).
+     `tools/scripts/check/check_thrust_limit.py` manual setelah `run_mavproxy.sh` (lewat port 14552).
    - Cek juga `FS_EKF_THRESH` dan `ARMING_CHECK` (tidak diatur file ini).
 2. **Device** di mini-PC:
    ```bash
-   ls -l /dev/pixhawk /dev/ttyACM* /dev/ttyUSB*
-   v4l2-ctl --list-devices
+   ls -l /dev/pixhawk /dev/esp32_kill /dev/front_camera /dev/bottom_camera /dev/gps_rtk
    ```
-   ESP32 diasumsikan `/dev/ttyUSB0` (`teleop_rcin.yaml`, `hardware_params.yaml`), kamera depan
-   `/dev/video0`. Nama ini bisa tertukar setelah cabut-pasang; sebaiknya pakai udev rule
-   ([`../udev_rules.md`](../udev_rules.md)).
+   Semua config memakai nama udev ini (`tools/udev/99-banyu.rules`, lihat
+   [`../udev_rules.md`](../udev_rules.md)), jadi urutan `ttyACM*`/`video*` setelah cabut-pasang
+   tidak berpengaruh. Kamera depan = "H264 USB Camera", kamera bawah = "2M WebCam" (Horus B).
+   Semua perangkat, kill switch, GPS RTK dan script debug: [`../hardware_setup.md`](../hardware_setup.md)
+   (cek cepat: `tools/scripts/check/check_devices.sh`).
 
 ### 4.2 Peta kanal RC dan parameter Pixhawk
 
@@ -178,29 +182,30 @@ Pengaman:
 | `RC8_OPTION 213` (mount pitch), `RC7_OPTION 214` (mount yaw), `MNT1_RC_RATE 30` | SC (CH8) juga menggerakkan tilt mount kamera dengan laju 30°/s selama tidak di tengah: SC atas memiringkan kamera sampai -90°, SC bawah sampai +20°. Arah kamera depan saat misi jadi tergantung riwayat posisi SC | **Aman**: kamera depan fixed, tidak ada servo tilt. Kalau suatu saat dipasang mount, set `RC8_OPTION 0` |
 | `BARO2_DEVID 0` | Saat dump diambil, Bar30 belum dipasang (hanya baro internal). ALT_HOLD butuh Bar30 | Pasang Bar30 untuk run di air; cek `BARO2_DEVID` bukan 0 sebelum menyelam |
 | `FS_EKF_ACTION 1` | Berbeda dengan repo (`0`) | Ikuti `banyu_defaults.parm` |
+| `FS_THR_ENABLE 0` (dump 2026-11-06) | Link RC putus saat MANUAL: stick terakhir tetap dipakai, thruster terus berputar (hanya failsafe pilot input `FS_PILOT_INPUT 1` yang menetralkan setelah 3 s, dan itu di-reset oleh RC override/`MANUAL_CONTROL` dari GCS mana pun) | **Belum**: set `FS_THR_ENABLE 1` (ada di `banyu_defaults.parm`) |
 
 ### 4.3 Run dengan TX16S
 
 1. Terminal 1, bridge Pixhawk:
    ```bash
-   ./src/BANYU_ROBOTX/tools/scripts/run_mavproxy.sh            # opsional: <device> <IP laptop QGC>
+   ./src/BANYU_ROBOTX/tools/scripts/run/run_mavproxy.sh            # opsional: <device> <IP laptop QGC>
    ```
 2. Terminal 2, MAVROS (biarkan jalan; tidak perlu restart saat ganti profil):
    ```bash
-   ./src/BANYU_ROBOTX/tools/scripts/launch_mavros.sh            # opsional: --fcu-url /dev/ttyACM0:921600
+   ./src/BANYU_ROBOTX/tools/scripts/run/launch_mavros.sh            # opsional: --fcu-url /dev/ttyACM0:921600
    ```
 3. Terminal 3, stack POR (**`--profile` wajib** di robot). Launch file tidak pernah menjalankan
    MAVROS; launcher menolak jalan kalau `mavros_node` belum ada. Ganti profil cukup Ctrl+C di
    terminal ini lalu jalankan lagi.
    ```bash
-   ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --profile safe --dry-run   # cek dulu
-   ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --profile safe
+   ./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --real --profile safe --dry-run   # cek dulu
+   ./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --real --profile safe
    ```
    Tambah `--no-cam` untuk profil timer supaya CPU lebih ringan.
 3. SB **bawah** (kill) selama robot dipegang di darat.
 4. Cek kesiapan (§4.5), lalu masukkan robot ke air menghadap gate. Arah start harus sejajar
    garis gate–marker, error maksimal ±4°.
-5. SB **atas** (autonomous: relay ESP32 nyala, Pixhawk arm).
+5. SB **atas** (autonomous: LED AUTO ESP32, Pixhawk arm).
 6. Start:
    ```bash
    ros2 service call /banyu/mission/start std_srvs/srv/Trigger "{}"
@@ -210,40 +215,57 @@ Switch TX16S (sumber: [`banyu_teleop/config/teleop_rcin.yaml`](../../banyu_teleo
 
 | Switch | Posisi | Arti |
 |---|---|---|
-| SB | atas | Autonomous (`2`): relay ESP32 nyala, arm Pixhawk, misi boleh jalan, SC dan stick/gimbal dikunci |
+| SB | atas | Autonomous (`2`): LED AUTO ESP32, arm Pixhawk, misi boleh jalan, SC dan stick/gimbal dikunci |
 | SB | tengah | Manual (`1`): misi berhenti, override dilepas, stick langsung berfungsi |
-| SB | bawah | Kill (`0`): relay ESP32 putus, Pixhawk disarm |
+| SB | bawah | Kill (`0`): LED EMERGENCY ESP32, Pixhawk disarm |
 | SC | atas / tengah / bawah | STABILIZE / MANUAL / ALT_HOLD, hanya saat SB tengah atau bawah |
 | SF | – | tidak dipakai |
 
+**Kill switch ESP32 (firmware `indikator_banyu.ino`).** Board ini tidak punya relay: ia hanya
+menyalakan LED (MANUAL / AUTO / EMERGENCY) dan membaca input kill fisik (ADC). Thruster diputus oleh
+kill fisik itu sendiri, bukan oleh software. Protokol serial (`/dev/esp32_kill`, 115200): PC
+mengirim baris `its0` (manual), `its1` (auto) atau `its2` (emergency) diakhiri `\n`; board melapor
+`itsN` tiap 500 ms dan mengabaikan `its0`/`its1` selama kill fisik aktif. Penomoran board berbeda
+dari `operational_mode`: teleop memetakan `0 kill → its2`, `1 manual → its0`, `2 auto → its1`, dan
+mengirim ulang tiap 1 s (state hilang kalau board reboot).
+
+Kalau board melapor `its2` padahal SB tengah/atas, kill fisik sedang aktif: teleop menerbitkan
+kill (`operational_mode 0`, misi berhenti), disarm Pixhawk, dan **menahan** kill itu sampai SB
+digeser ke bawah, supaya robot tidak arm sendiri saat kill dilepas. Laporan board terekam di
+`/banyu/hardware/kill_switch_board`. Kalau input kill belum tersambung (board selalu melapor
+`its2`), robot tidak bisa arm; untuk uji darat saja, set
+`use_hardware_kill: false` di `teleop_rcin.yaml`.
+
 ### 4.4 Run tanpa TX16S (`--no-rc`)
 
-Berlaku untuk semua profil. `--no-rc` mematikan teleop, menjalankan `esp32_trigger_node` (relay
-ESP32), dan meneruskan `bypass_rc:=True` ke `banyu_vehicle_status`, jadi kesegaran RC tidak
+Berlaku untuk semua profil. `--no-rc` mematikan teleop, menjalankan `esp32_trigger_node` (kill
+switch ESP32), dan meneruskan `bypass_rc:=True` ke `banyu_vehicle_status`, jadi kesegaran RC tidak
 dicek. `bypass_rc` tidak ditulis di file profil.
 
 Mode kendaraan mengikuti perintah trigger terakhir (`'2'` autonomous, `'1'` manual: misi
-berhenti/tidak bisa start, `'0'` kill); sebelum ada perintah dianggap autonomous. Selain topic
+berhenti/tidak bisa start, `'0'` kill); sebelum ada perintah dianggap autonomous. Node menerjemahkan
+`'0'/'1'/'2'` ke baris `its2/its0/its1`. Kill fisik yang dilaporkan board menahan kill sampai ada
+perintah `'0'`. Selain topic
 di bawah, bisa lewat service (juga mengganti warna LED ESP32):
 `ros2 service call /banyu/trigger/command banyu_msgs/srv/TriggerCommand "{command: '2'}"` atau
 `ros2 service call /banyu/trigger/set std_srvs/srv/SetBool "{data: true}"` (`true` = `'2'`,
 `false` = `'0'`).
 
 ```bash
-./src/BANYU_ROBOTX/tools/scripts/run_mavproxy.sh                     # terminal 1
-./src/BANYU_ROBOTX/tools/scripts/launch_mavros.sh                    # terminal 2, biarkan jalan
-./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --no-rc --profile safe   # terminal 3
-ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '2'}"   # relay nyala (autonomous)
+./src/BANYU_ROBOTX/tools/scripts/run/run_mavproxy.sh                     # terminal 1
+./src/BANYU_ROBOTX/tools/scripts/run/launch_mavros.sh                    # terminal 2, biarkan jalan
+./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --real --no-rc --profile safe   # terminal 3
+ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '2'}"   # autonomous (LED AUTO)
 ros2 service call /banyu/mission/start std_srvs/srv/Trigger "{}"
 ```
 
 Berhenti:
 - `ros2 service call /banyu/mission/abort std_srvs/srv/Trigger "{}"`: misi berhenti, Pixhawk disarm.
-- `ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '0'}"`: relay putus,
+- `ros2 topic pub --once /banyu/trigger/cmd std_msgs/msg/String "{data: '0'}"`: LED EMERGENCY,
   status kendaraan jadi kill (`operational_mode 0`), misi berhenti, Pixhawk disarm.
 
 Dengan `bypass_rc`, kendaraan dianggap autonomous selama tidak ada perintah kill yang masih baru.
-Tidak ada takeover dari stick. Siapkan selalu kill relay fisik.
+Tidak ada takeover dari stick. Siapkan selalu kill switch fisik.
 
 ### 4.5 Cek kesiapan
 
@@ -273,7 +295,8 @@ Untuk profil kamera, cek juga deteksi: `ros2 topic echo /banyu/detection --once`
 | Cara | Efek |
 |---|---|
 | SB tengah | Misi berhenti, stick langsung pegang kendali (pilih mode dengan SC) |
-| SB bawah | Relay ESP32 putus, Pixhawk disarm |
+| SB bawah | LED EMERGENCY, Pixhawk disarm |
+| Kill switch fisik | Thruster diputus hardware; teleop disarm dan menahan kill sampai SB bawah |
 | `/banyu/mission/abort` | Misi berhenti, fallback `DISARM`: thruster berhenti, robot naik karena daya apung |
 | Ctrl+C stack | Override berhenti; ArduSub membuang override setelah ~3 s (`RC_OVERRIDE_TIME`) dan stick netral (failsafe pilot input) |
 
@@ -284,7 +307,7 @@ Semua profil POR memakai fallback `DISARM`, juga saat misi selesai.
 Untuk memastikan semua thruster berputar tanpa air. **Jangan pernah dipakai untuk misi.**
 
 ```bash
-./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --profile safe --mock-auto
+./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --real --profile safe --mock-auto
 ```
 
 - SB atas: arm, mode MANUAL, override 1540 µs di forward dan throttle (8 thruster berputar
@@ -292,7 +315,7 @@ Untuk memastikan semua thruster berputar tanpa air. **Jangan pernah dipakai untu
 - SB tengah: mock berhenti, stick kembali. SB bawah: kill + disarm.
 - Default `enable_mock_auto` sekarang `false` di `teleop_rcin.yaml`, jadi teleop yang dijalankan
   sendiri (`teleop.launch.py`) juga tidak memutar thruster.
-- Tanpa ESP32: `python3 src/BANYU_ROBOTX/tools/scripts/mock_esp32.py` membuat `/tmp/ttyESP32`;
+- Tanpa ESP32: `python3 src/BANYU_ROBOTX/tools/scripts/debug/mock_esp32.py` membuat `/tmp/ttyESP32`;
   jalankan teleop dengan `-p serial_port:=/tmp/ttyESP32`.
 
 ### 4.8 Teach & replay (rekam manual, putar ulang otomatis)
@@ -316,8 +339,8 @@ dan posisi start yang berbeda tetap membuat hasilnya bergeser.
 2. **Potong jadi track** (di komputer robot, setelah stack dihentikan):
 
    ```bash
-   python3 src/BANYU_ROBOTX/tools/scripts/por_teach_extract.py ~/banyu_bags/<run> --list
-   python3 src/BANYU_ROBOTX/tools/scripts/por_teach_extract.py ~/banyu_bags/<run> --name rute1
+   python3 src/BANYU_ROBOTX/tools/scripts/por/por_teach_extract.py ~/banyu_bags/<run> --list
+   python3 src/BANYU_ROBOTX/tools/scripts/por/por_teach_extract.py ~/banyu_bags/<run> --name rute1
    ```
 
    Default: jendela arm terakhir, dari input stick pertama sampai terakhir + 1 s. `--window N`,
@@ -328,7 +351,7 @@ dan posisi start yang berbeda tetap membuat hasilnya bergeser.
 3. **Putar ulang:**
 
    ```bash
-   ./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --real --no-rc \
+   ./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --real --no-rc \
      --profile replay --replay-track rute1
    ```
 
@@ -338,8 +361,8 @@ dan posisi start yang berbeda tetap membuat hasilnya bergeser.
    lebih pendek), panjangkan kaki itu di track tanpa rekam ulang:
 
    ```bash
-   python3 src/BANYU_ROBOTX/tools/scripts/por_track_stretch.py rute1 --list
-   python3 src/BANYU_ROBOTX/tools/scripts/por_track_stretch.py rute1 --hold 18:1.5 --name rute1_long
+   python3 src/BANYU_ROBOTX/tools/scripts/por/por_track_stretch.py rute1 --list
+   python3 src/BANYU_ROBOTX/tools/scripts/por/por_track_stretch.py rute1 --hold 18:1.5 --name rute1_long
    ```
 
    `--hold T:S` menahan stick (dan heading/kedalaman rekaman) pada waktu track `T` selama `S`
@@ -368,10 +391,10 @@ dan posisi start yang berbeda tetap membuat hasilnya bergeser.
 (`/sim/ground_truth/odom`).
 
 ```bash
-./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --profile safe --record     # teach (QGC joystick)
-python3 src/BANYU_ROBOTX/tools/scripts/por_teach_extract.py ~/banyu_bags/<teach run> --name sim1
-./src/BANYU_ROBOTX/tools/scripts/launch_por.sh --sim --profile replay --replay-track sim1 --record
-python3 src/BANYU_ROBOTX/tools/scripts/por_path_compare.py ~/banyu_bags/<replay run>
+./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --sim --profile safe --record     # teach (QGC joystick)
+python3 src/BANYU_ROBOTX/tools/scripts/por/por_teach_extract.py ~/banyu_bags/<teach run> --name sim1
+./src/BANYU_ROBOTX/tools/scripts/por/launch_por.sh --sim --profile replay --replay-track sim1 --record
+python3 src/BANYU_ROBOTX/tools/scripts/por/por_path_compare.py ~/banyu_bags/<replay run>
 ```
 
 `por_path_compare.py` menemukan track dan bag teach sendiri, menyejajarkan kedua run pada waktu
@@ -427,7 +450,7 @@ sama dengan kanal SB/SC.
 TX16S → receiver → Pixhawk (ArduSub) ←USB→ run_mavproxy.sh ─┬→ QGC laptop (14550)
                                                             ├→ MAVROS (14551)
                                                             └→ nogps_odom_beacon (14552)
-banyu_teleop: baca SB/SC dari /mavros/rc/in → relay ESP32 + /banyu/hardware/kill_switch
+banyu_teleop: baca SB/SC dari /mavros/rc/in + laporan ESP32 → LED ESP32 + /banyu/hardware/kill_switch
 banyu_vehicle_status: FCU + RC + kill switch → /banyu/vehicle_status
 banyu_mission (BehaviorTree) → action → vehicle_execution_node → /mavros/rc/override
 por_detection: kamera depan → /banyu/detection (dipakai profil vision/hybrid)

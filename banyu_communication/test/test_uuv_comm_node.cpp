@@ -70,6 +70,9 @@ protected:
     ack_sub_ = peer_->create_subscription<rx_msgs::msg::IncidentAck>(
       "/system/vehicle/uuv/task4/incident_ack", 10,
       [this](rx_msgs::msg::IncidentAck::SharedPtr msg) {acks_.push_back(*msg);});
+    zones_sub_ = peer_->create_subscription<banyu_msgs::msg::Task4Zones>(
+      "/banyu/task4/zones", rclcpp::QoS(1).reliable().transient_local(),
+      [this](banyu_msgs::msg::Task4Zones::SharedPtr msg) {zones_.push_back(*msg);});
     readiness_sub_ = peer_->create_subscription<rx_msgs::msg::ReadinessReport>(
       "/system/vehicle/uuv/task4/readiness", 10,
       [this](rx_msgs::msg::ReadinessReport::SharedPtr msg) {readiness_.push_back(*msg);});
@@ -116,7 +119,6 @@ protected:
     node_->courseCallback(nullptr);
     node_->evidenceCallback(nullptr);
     node_->depthCallback(nullptr);
-    node_->stateCallback(nullptr);
     node_->gpsCallback(nullptr);
     node_->poseCallback(nullptr);
     node_->velocityCallback(nullptr);
@@ -199,6 +201,8 @@ protected:
   rclcpp::Subscription<rx_msgs::msg::PipelineSurvey>::SharedPtr survey_sub_;
   rclcpp::Subscription<rx_msgs::msg::IncidentAck>::SharedPtr ack_sub_;
   rclcpp::Subscription<rx_msgs::msg::ReadinessReport>::SharedPtr readiness_sub_;
+  rclcpp::Subscription<banyu_msgs::msg::Task4Zones>::SharedPtr zones_sub_;
+  std::vector<banyu_msgs::msg::Task4Zones> zones_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr start_server_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr abort_server_;
   rclcpp::Publisher<Command>::SharedPtr command_pub_;
@@ -418,6 +422,85 @@ TEST_F(UuvCommNodeTest, AcknowledgesTask4CommandsWithMatchingSequence)
   EXPECT_TRUE(readiness_.empty());
 }
 
+TEST_F(UuvCommNodeTest, Task4ZonesArePublishedAckedPerTargetAndClearedByAllClear)
+{
+  Command command;
+  command.command_type = Command::CMD_TASK4_KEEP_OUT_ZONE;
+  command.center.latitude = 33.0;
+  command.center.longitude = -118.0;
+  command.radius_m = 25.0F;
+
+  // Addressed to the USV: avoided, not acknowledged (the USV is the correct system for it).
+  command.target_vehicle = VehicleType::TYPE_USV;
+  command.command_seq = 21;
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {
+      return !zones_.empty() && zones_.back().static_radius_m.size() == 1;
+  }));
+  EXPECT_DOUBLE_EQ(zones_.back().static_radius_m[0], 25.0);
+  EXPECT_EQ(zones_.back().last_event, "keep_out_zone");
+  spinFor(100ms);
+  EXPECT_TRUE(acks_.empty());
+
+  // The same RxCommand for the UUV: no second zone, but acknowledged.
+  command.target_vehicle = VehicleType::TYPE_UUV;
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {return acks_.size() == 1;}));
+  EXPECT_EQ(acks_.back().command_seq, 21u);
+  EXPECT_EQ(zones_.back().static_radius_m.size(), 1u);
+
+  command.command_type = Command::CMD_TASK4_ALL_CLEAR;
+  command.command_seq = 22;
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {
+      return !zones_.empty() && zones_.back().static_radius_m.empty();
+  }));
+  EXPECT_EQ(zones_.back().last_event, "all_clear");
+  ASSERT_TRUE(spinUntil([this]() {return acks_.size() == 2;}));
+  EXPECT_EQ(acks_.back().command_seq, 22u);
+}
+
+TEST_F(UuvCommNodeTest, Task4MovingObjectIsPublishedWithoutAnAckByDefault)
+{
+  Command command;
+  command.command_type = Command::CMD_TASK4_MOVING_OBJECT;
+  command.target_vehicle = VehicleType::TYPE_UUV;
+  command.command_seq = 30;
+  command.position.latitude = 33.0;
+  command.position.longitude = -118.0;
+  command.heading_deg = 90.0F;
+  command.speed_mps = 1.5F;
+  command.radius_m = 12.0F;
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {return !zones_.empty() && zones_.back().moving_active;}));
+  EXPECT_DOUBLE_EQ(zones_.back().moving_radius_m, 12.0);
+  EXPECT_NEAR(zones_.back().moving_heading_enu_rad, 0.0, 1e-9);
+  EXPECT_GT(zones_.back().moving_stamp.sec, 0);
+  spinFor(100ms);
+  EXPECT_TRUE(acks_.empty());
+}
+
+TEST_F(UuvCommNodeTest, PrepareAutonomyClearsTheTask4Zones)
+{
+  Command command;
+  command.command_type = Command::CMD_TASK4_KEEP_OUT_ZONE;
+  command.target_vehicle = VehicleType::TYPE_UUV;
+  command.command_seq = 40;
+  command.center.latitude = 33.0;
+  command.center.longitude = -118.0;
+  command.radius_m = 25.0F;
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {
+      return !zones_.empty() && zones_.back().static_radius_m.size() == 1;
+  }));
+  publishLifecycle(lifecycle(banyu_msgs::msg::RunLifecycle::PREPARING, 18, 1));
+  ASSERT_TRUE(spinUntil([this]() {return zones_.back().static_radius_m.empty();}));
+  EXPECT_EQ(zones_.back().last_event, "reset");
+  // The new window accepts seq 40 again.
+  command_pub_->publish(command);
+  ASSERT_TRUE(spinUntil([this]() {return zones_.back().static_radius_m.size() == 1;}));
+}
+
 TEST_F(UuvCommNodeTest, HeartbeatUsesTelemetryAndFallsBackForInvalidGps)
 {
   auto gps_pub = publisher<sensor_msgs::msg::NavSatFix>(
@@ -465,23 +548,34 @@ TEST_F(UuvCommNodeTest, HeartbeatUsesTelemetryAndFallsBackForInvalidGps)
   EXPECT_NEAR(heartbeat.roll_deg, 30.0F, 1e-4);
   EXPECT_NEAR(heartbeat.pitch_deg, -20.0F, 1e-4);
 
+  // No fix (under water) or an invalid fix: the last valid fix stays the position.
   gps.status.status = sensor_msgs::msg::NavSatStatus::STATUS_NO_FIX;
-  ASSERT_TRUE(spinUntil([&]() {
-      gps_pub->publish(gps);
-      return heartbeats_.back().position.latitude == 33.0;
-    }));
-  EXPECT_DOUBLE_EQ(heartbeats_.back().position.longitude, -118.0);
-  EXPECT_FLOAT_EQ(heartbeats_.back().altitude_hae_m, 4.0F);
+  gps.latitude = 35.0;
+  for (int i = 0; i < 5; ++i) {
+    gps_pub->publish(gps);
+    spinFor(30ms);
+  }
+  EXPECT_DOUBLE_EQ(heartbeats_.back().position.latitude, 34.0);
+  EXPECT_DOUBLE_EQ(heartbeats_.back().position.longitude, -119.0);
+  EXPECT_FLOAT_EQ(heartbeats_.back().altitude_hae_m, 12.0F);
   gps.status.status = sensor_msgs::msg::NavSatStatus::STATUS_FIX;
   gps.latitude = std::numeric_limits<double>::quiet_NaN();
   for (int i = 0; i < 5; ++i) {
     gps_pub->publish(gps);
     spinFor(30ms);
   }
-  EXPECT_DOUBLE_EQ(heartbeats_.back().position.latitude, 33.0);
+  EXPECT_DOUBLE_EQ(heartbeats_.back().position.latitude, 34.0);
 }
 
-TEST_F(UuvCommNodeTest, HeartbeatFallsBackToAnchorWhenGpsIsStaleAndRecovers)
+TEST_F(UuvCommNodeTest, HeartbeatUsesTheAnchorOnlyBeforeAnyFix)
+{
+  ASSERT_TRUE(spinUntil([this]() {return !heartbeats_.empty();}));
+  EXPECT_DOUBLE_EQ(heartbeats_.back().position.latitude, 33.0);
+  EXPECT_DOUBLE_EQ(heartbeats_.back().position.longitude, -118.0);
+  EXPECT_FLOAT_EQ(heartbeats_.back().altitude_hae_m, 4.0F);
+}
+
+TEST_F(UuvCommNodeTest, HeartbeatKeepsTheLastFixWhenGpsIsStaleAndRecovers)
 {
   auto gps_pub = publisher<sensor_msgs::msg::NavSatFix>(
     "/mavros/global_position/global", rclcpp::SensorDataQoS());
@@ -497,21 +591,18 @@ TEST_F(UuvCommNodeTest, HeartbeatFallsBackToAnchorWhenGpsIsStaleAndRecovers)
       return heartbeats_.back().position.latitude == 34.0;
     }));
 
-  spinFor(2500ms);
-  EXPECT_DOUBLE_EQ(heartbeats_.back().position.latitude, 34.0);
-  ASSERT_TRUE(spinUntil([this]() {
-      return heartbeats_.back().position.latitude == 33.0;
-    }, 1500ms));
+  spinFor(4000ms);   // the fix is stale (> 3 s): the last one stays
   EXPECT_GT((rclcpp::Time(heartbeats_.back().header.stamp) - last_publish_time).seconds(), 3.0);
-  EXPECT_DOUBLE_EQ(heartbeats_.back().position.longitude, -118.0);
-  EXPECT_FLOAT_EQ(heartbeats_.back().altitude_hae_m, 4.0F);
-
-  ASSERT_TRUE(spinUntil([&]() {
-      gps_pub->publish(gps);
-      return heartbeats_.back().position.latitude == 34.0;
-    }));
+  EXPECT_DOUBLE_EQ(heartbeats_.back().position.latitude, 34.0);
   EXPECT_DOUBLE_EQ(heartbeats_.back().position.longitude, -119.0);
   EXPECT_FLOAT_EQ(heartbeats_.back().altitude_hae_m, 12.0F);
+
+  gps.latitude = 34.5;
+  ASSERT_TRUE(spinUntil([&]() {
+      gps_pub->publish(gps);
+      return heartbeats_.back().position.latitude == 34.5;
+    }));
+  EXPECT_DOUBLE_EQ(heartbeats_.back().position.longitude, -119.0);
 }
 
 TEST_F(UuvCommNodeTest, HeartbeatConvertsEnuYawToCompassCardinalHeadings)
@@ -579,61 +670,19 @@ TEST_F(UuvCommNodeTest, HeartbeatResetsStaleVelocityAndPoseAndRecovers)
   EXPECT_NEAR(heartbeats_.back().heading_deg, 90.0F, 1e-4);
 }
 
-TEST_F(UuvCommNodeTest, AutoHeartbeatRequiresActualGuidedSafetyAndLifecycleReadiness)
+TEST_F(UuvCommNodeTest, HeartbeatStateIsTheKillSwitchStatus)
 {
-  auto state_pub = publisher<mavros_msgs::msg::State>("/mavros/state");
   auto status_pub = publisher<banyu_msgs::msg::VehicleStatus>("/banyu/vehicle_status");
-  mavros_msgs::msg::State state;
-  state.connected = true;
-  state.armed = true;
-  state.mode = "GUIDED";
-  state.system_status = 4;
   banyu_msgs::msg::VehicleStatus status;
-  status.armed = true;
-  status.fcu_connected = true;
-  status.fcu_status_fresh = true;
-  status.rc_fresh = true;
-  status.mode = "GUIDED";
-  state_pub->publish(state);
+  status.mode = "MANUAL";   // the FCU mode must not matter
+  status.operational_mode = 1;
   status_pub->publish(status);
   ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_MANUAL;}));
-  auto ready = lifecycle(banyu_msgs::msg::RunLifecycle::READY, 0, 0);
-  publishLifecycle(ready);
+  status.operational_mode = 2;
+  status_pub->publish(status);
   ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_AUTO;}));
-
-  status.rc_fresh = false;
+  status.operational_mode = 0;
   status_pub->publish(status);
-  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_KILLED;}));
-  status.rc_fresh = true;
-  status.operator_takeover = true;
-  status_pub->publish(status);
-  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_MANUAL;}));
-  status.operator_takeover = false;
-  status_pub->publish(status);
-  ready.revision = ++revision_;
-  ready.autonomous_ready = false;
-  ready.reason = "readiness revoked";
-  publishLifecycle(ready);
-  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_MANUAL;}));
-  ready.revision = ++revision_;
-  ready.autonomous_ready = true;
-  ready.reason = "readiness restored";
-  publishLifecycle(ready);
-  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_AUTO;}));
-
-  state.mode = "AUTO";
-  state_pub->publish(state);
-  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_MANUAL;}));
-  state.mode = "GUIDED";
-  state.armed = false;
-  state_pub->publish(state);
-  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_KILLED;}));
-  state.armed = true;
-  state.system_status = 5;
-  state_pub->publish(state);
-  ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_AUTO;}));
-  state.system_status = 6;
-  state_pub->publish(state);
   ASSERT_TRUE(spinUntil([this]() {return heartbeats_.back().state == RobotState::STATE_KILLED;}));
 }
 
@@ -696,4 +745,18 @@ TEST_F(UuvCommNodeTest, RejectsInvalidLifecycleConfiguration)
 TEST_F(UuvCommNodeTest, NullMessagePointersHandledSafelyWithoutCrash)
 {
   EXPECT_NO_THROW(callCallbacksWithNull());
+}
+
+TEST_F(UuvCommNodeTest, HeartbeatDepthIsTheCalibratedWaterDepth)
+{
+  auto depth_pub = publisher<banyu_msgs::msg::WaterDepth>("/banyu/vehicle/water_depth", rclcpp::QoS(5).reliable());
+  banyu_msgs::msg::WaterDepth depth;
+  depth.valid = true;
+  depth.calibrated = true;
+  depth.depth_m = 3.25;
+  ASSERT_TRUE(spinUntil([&]() {
+      depth.header.stamp = peer_->now();
+      depth_pub->publish(depth);
+      return heartbeats_.back().depth_m == 3.25F;
+    }));
 }

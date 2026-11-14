@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <banyu_msgs/msg/pipeline_end_candidate.hpp>
 #include <banyu_msgs/msg/pipeline_observation.hpp>
 
 namespace
@@ -331,6 +332,56 @@ TEST_F(PipelineEndNodeTest, CandidateStateSupportsSimTimeWithoutClockMismatchExc
         std::this_thread::sleep_for(2ms);
       }
   });
+}
+
+TEST_F(PipelineEndNodeTest, FourRingsAndThePipeOutOfViewEndTheTraverse)
+{
+  // The real vehicle has no end detector: with four rings recorded (none waiting for a repair), losing the pipe for
+  // rings_complete_lost_s in total ends the traverse. Losing it before that, or four rings with the pipe in view, does not.
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("rings_complete_lost_s", 3.0);
+  options.append_parameter_override("observation_topic", "/test_rings/obs");
+  options.append_parameter_override("end_topic", "/test_rings/end");
+  options.append_parameter_override("rings_complete_topic", "/test_rings/complete");
+  auto node = std::make_shared<banyu_detection::PipelineEndNode>(options);
+  auto obs_pub = node->create_publisher<banyu_msgs::msg::PipelineObservation>(
+    "/test_rings/obs", rclcpp::SensorDataQoS());
+  auto complete_pub = node->create_publisher<banyu_msgs::msg::PipelineEndCandidate>(
+    "/test_rings/complete", rclcpp::QoS(1).reliable().transient_local());
+  bool ended = false;
+  auto end_sub = node->create_subscription<std_msgs::msg::Bool>(
+    "/test_rings/end", rclcpp::QoS(5),
+    [&ended](const std_msgs::msg::Bool::SharedPtr msg) {ended = ended || msg->data;});
+  uint64_t seq = 1;
+  auto observe = [&](double t, uint8_t status) {
+      auto obs = makeObservation(seq++, status);
+      obs.header.stamp = rclcpp::Time(static_cast<int64_t>(t * 1e9), RCL_ROS_TIME);
+      obs_pub->publish(obs);
+      spinFor(node, 2);
+    };
+  auto complete = [&](bool value) {
+      banyu_msgs::msg::PipelineEndCandidate msg;
+      msg.candidate = value;
+      complete_pub->publish(msg);
+      spinFor(node, 3);
+    };
+  spinFor(node, 5);
+  complete(false);
+  for (double t = 10.0; t <= 14.0; t += 0.5) {observe(t, banyu_msgs::msg::PipelineObservation::NO_PIPE);}
+  EXPECT_FALSE(ended);
+  complete(true);
+  for (double t = 14.5; t <= 18.0; t += 0.5) {observe(t, banyu_msgs::msg::PipelineObservation::TRACKED);}
+  EXPECT_FALSE(ended);
+  // At the end the search finds the last stretch again within a second each time: the losses add up.
+  const auto lost = banyu_msgs::msg::PipelineObservation::NO_PIPE;
+  const auto tracked = banyu_msgs::msg::PipelineObservation::TRACKED;
+  observe(18.5, lost); observe(19.0, lost); observe(19.5, lost);   // 1.5 s
+  observe(20.0, tracked); observe(22.0, tracked);
+  observe(22.5, lost); observe(23.0, lost);                        // 2.5 s
+  EXPECT_FALSE(ended);
+  observe(23.5, tracked);
+  observe(24.0, lost); observe(24.5, lost);                        // 3.5 s
+  EXPECT_TRUE(ended);
 }
 
 }  // namespace

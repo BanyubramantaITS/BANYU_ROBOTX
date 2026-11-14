@@ -1,0 +1,4 @@
+{"t": 1793258726.52, "kind": "uuv_heartbeat", "state": 3, "current_task": 1, "depth_m": 0.07999999821186066}
+{"t": 1793258728.52, "kind": "command_sent", "name": "run-start", "command_seq": 1, "command_type": 1, "target_vehicle": 2, "run_id": 1}
+{"t": 1793258729.1, "kind": "uuv_heartbeat", "state": 3, "current_task": 3, "depth_m": 0.07999999821186066}
+{"t": 1793258739.1, "kind": "uuv_heartbeat", "state": 2, "current_task": 3, "depth_m": 0.09000000357627869}

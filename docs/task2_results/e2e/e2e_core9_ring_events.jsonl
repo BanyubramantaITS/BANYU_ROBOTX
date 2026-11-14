@@ -1,0 +1,13 @@
+{"t": 1793055990.06, "kind": "evidence", "pose": [0.04, 0.0, -0.08], "rev": 173, "rings": [], "trav": false, "repair": false, "code": false, "tin": 0, "circle": 0}
+{"t": 1793056037.1, "kind": "accepted_ring", "pose": [3.73, 0.01, -11.27], "node_id": 0, "color": 2, "progress": 0.0, "ordering": true, "identity": true}
+{"t": 1793056037.1, "kind": "evidence", "pose": [3.73, 0.01, -11.27], "rev": 40, "rings": [[0, 2, 0.0]], "trav": false, "repair": false, "code": false, "tin": 0, "circle": 0}
+{"t": 1793056040.06, "kind": "accepted_ring", "pose": [3.47, 0.01, -12.24], "node_id": 0, "color": 2, "progress": 0.0, "ordering": true, "identity": true}
+{"t": 1793056042.37, "kind": "accepted_ring", "pose": [2.23, -0.02, -12.15], "node_id": 1, "color": 2, "progress": 0.66, "ordering": true, "identity": true}
+{"t": 1793056042.37, "kind": "evidence", "pose": [2.23, -0.02, -12.15], "rev": 48, "rings": [[0, 2, 0.0], [1, 2, 0.66]], "trav": false, "repair": false, "code": false, "tin": 0, "circle": 0}
+{"t": 1793056042.56, "kind": "accepted_ring", "pose": [2.16, -0.02, -12.15], "node_id": 2, "color": 1, "progress": 1.37, "ordering": true, "identity": true}
+{"t": 1793056042.56, "kind": "evidence", "pose": [2.16, -0.02, -12.15], "rev": 50, "rings": [[0, 2, 0.0], [1, 2, 0.66], [2, 1, 1.37]], "trav": false, "repair": false, "code": false, "tin": 0, "circle": 0}
+{"t": 1793056043.36, "kind": "accepted_ring", "pose": [1.75, -0.14, -12.13], "node_id": 2, "color": 1, "progress": 1.37, "ordering": true, "identity": true}
+{"t": 1793056043.48, "kind": "accepted_ring", "pose": [1.71, -0.2, -12.13], "node_id": 2, "color": 1, "progress": 1.37, "ordering": true, "identity": true}
+{"t": 1793056056.21, "kind": "accepted_ring", "pose": [0.84, -0.73, -12.06], "node_id": 3, "color": 2, "progress": 2.89, "ordering": true, "identity": true}
+{"t": 1793056056.21, "kind": "evidence", "pose": [0.84, -0.73, -12.06], "rev": 69, "rings": [[0, 2, 0.0], [1, 2, 0.66], [2, 1, 1.37], [3, 2, 2.89]], "trav": false, "repair": false, "code": false, "tin": 0, "circle": 0}
+{"t": 1793056071.4, "kind": "evidence", "pose": [-2.39, -0.16, -12.05], "rev": 88, "rings": [[0, 2, 0.0], [1, 2, 0.66], [2, 1, 1.37], [3, 2, 2.89]], "trav": true, "repair": false, "code": false, "tin": 0, "circle": 0}

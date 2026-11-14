@@ -7,7 +7,7 @@
 namespace banyu_mission
 {
 
-// A teach track written by tools/scripts/por_teach_extract.py (one row per recorded sample).
+// A teach track written by tools/scripts/por/por_teach_extract.py (one row per recorded sample).
 struct ReplayTrack
 {
   std::string name;

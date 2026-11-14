@@ -1,0 +1,6 @@
+{"t": 1793247653.88, "kind": "uuv_heartbeat", "state": 3, "current_task": 1, "depth_m": 0.07999999821186066}
+{"t": 1793247656.77, "kind": "command_sent", "name": "run-start", "command_seq": 1, "command_type": 1, "target_vehicle": 2, "run_id": 1}
+{"t": 1793247657.32, "kind": "uuv_heartbeat", "state": 3, "current_task": 3, "depth_m": 0.07999999821186066}
+{"t": 1793247666.32, "kind": "uuv_heartbeat", "state": 2, "current_task": 3, "depth_m": 0.07999999821186066}
+{"t": 1793247749.8, "kind": "uuv_pipeline_survey", "active_buoy": [33.810313, -118.39382595826935], "segments": ["GREEN", "RED", "GREEN", "GREEN"]}
+{"t": 1793247750.32, "kind": "uuv_heartbeat", "state": 1, "current_task": 1, "depth_m": 0.10999999940395355}

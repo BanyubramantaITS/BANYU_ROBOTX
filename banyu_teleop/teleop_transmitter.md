@@ -63,6 +63,13 @@ Kill switch ESP32 dan arming Pixhawk di-unify pada saklar SB (channel 6 / index 
 
 Catatan: Saklar SF di-unmap dan tidak digunakan lagi.
 
+### Prepare autonomy (SH)
+SH (momentary, default CH5 / index 4, `prepare_channel` di `config/teleop_rcin.yaml`): ditekan
+(-100 -> +100) saat SB Up memanggil `/banyu/mission/prepare_autonomy` (Task 2: datum kedalaman dan
+run window baru). Ditolak kalau SB tidak Up; mission menolak saat run sedang berjalan. Hasilnya ada di
+log `banyu_teleop`. Tekan hanya saat wahana mengapung bebas (datum diambil saat itu). Pixhawk
+`RC5_OPTION` harus 0.
+
 contoh program ros2:
 ```python
 import rclpy

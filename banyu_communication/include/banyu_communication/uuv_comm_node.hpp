@@ -20,7 +20,6 @@
 #include <banyu_msgs/srv/trigger_pipeline_survey.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
-#include <mavros_msgs/msg/state.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rx_msgs/msg/command.hpp>
 #include <rx_msgs/msg/course.hpp>
@@ -33,6 +32,8 @@
 #include <rx_msgs/msg/rx_task.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include "banyu_communication/survey_reporting.hpp"
+#include "banyu_communication/task4_zones.hpp"
+#include <banyu_msgs/msg/task4_zones.hpp>
 
 class UuvCommNodeTest;
 
@@ -54,7 +55,6 @@ private:
     const std::string & message, std::optional<uint32_t> expected_run_id = std::nullopt);
   void commandCallback(const rx_msgs::msg::Command::SharedPtr msg);
   void courseCallback(const rx_msgs::msg::Course::SharedPtr msg);
-  void stateCallback(const mavros_msgs::msg::State::SharedPtr msg);
   void gpsCallback(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
   void poseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
   void velocityCallback(const geometry_msgs::msg::TwistStamped::SharedPtr msg);
@@ -63,6 +63,7 @@ private:
   void evidenceCallback(const banyu_msgs::msg::Task2SurveyEvidence::SharedPtr msg);
   void depthCallback(const banyu_msgs::msg::WaterDepth::SharedPtr msg);
   void publishSurveyProgress();
+  void publishZones();
   void surveyCallback(
     std::shared_ptr<rclcpp::Service<TriggerPipelineSurvey>> service,
     std::shared_ptr<rmw_request_id_t> header,
@@ -75,7 +76,6 @@ private:
   double lifecycle_timeout_s_;
   rx_msgs::msg::LatLng anchor_;
   double anchor_altitude_hae_m_;
-  mavros_msgs::msg::State state_;
   sensor_msgs::msg::NavSatFix gps_;
   rclcpp::Time last_gps_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_pose_time_{0, 0, RCL_ROS_TIME};
@@ -84,10 +84,17 @@ private:
   banyu_msgs::msg::VehicleStatus vehicle_status_;
   bool gps_received_{false};
   bool vehicle_status_received_{false};
-  bool state_received_{false};
   bool lifecycle_received_{false};
-  std::chrono::steady_clock::time_point last_state_received_;
-  std::chrono::steady_clock::time_point last_status_received_;
+  // Vehicle status is published on the ROS clock (sim time in the sim): its freshness is judged on it.
+  rclcpp::Time last_status_time_{0, 0, RCL_ROS_TIME};
+  // Calibrated water depth (Bar30, or the GPS surface proof) for the heartbeat; the EKF pose has no depth under water.
+  // Last valid GPS fix: the heartbeat position while the fix is stale (always under water); the anchor only before any fix.
+  bool has_last_fix_{false};
+  rx_msgs::msg::LatLng last_fix_;
+  double last_fix_altitude_hae_m_{0.0};
+  double water_depth_m_{0.0};
+  bool water_depth_valid_{false};
+  rclcpp::Time last_water_depth_time_{0, 0, RCL_ROS_TIME};
   std::chrono::steady_clock::time_point last_lifecycle_received_;
   banyu_msgs::msg::RunLifecycle lifecycle_;
   std::set<std::string> retired_authorities_;
@@ -101,6 +108,9 @@ private:
   // Keyed by epoch: RoboCommand may reuse a run_id after a run ID reset.
   std::set<uint64_t> submitted_epochs_;
   uint64_t evidence_revision_{0};
+  // Task 4 keep-out zones (RoboCommand), published for the surface avoidance; cleared at prepare_autonomy.
+  std::unique_ptr<Task4ZoneTracker> zones_;
+  rclcpp::Publisher<banyu_msgs::msg::Task4Zones>::SharedPtr zones_pub_;
 
   rclcpp::Publisher<rx_msgs::msg::Heartbeat>::SharedPtr heartbeat_pub_;
   rclcpp::Publisher<rx_msgs::msg::MissionStatus>::SharedPtr mission_status_pub_;
@@ -111,7 +121,6 @@ private:
   rclcpp::Publisher<banyu_msgs::msg::Task2SurveyProgress>::SharedPtr survey_progress_pub_;
   rclcpp::Subscription<rx_msgs::msg::Command>::SharedPtr command_sub_;
   rclcpp::Subscription<rx_msgs::msg::Course>::SharedPtr course_sub_;
-  rclcpp::Subscription<mavros_msgs::msg::State>::SharedPtr state_sub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_sub_;

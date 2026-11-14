@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <cmath>
 #include <string>
 #include <thread>
 #include <vector>
@@ -55,6 +56,12 @@ protected:
   static void SetUpTestSuite() {rclcpp::init(0, nullptr);}
   static void TearDownTestSuite() {rclcpp::shutdown();}
 
+  // The Task 2 tree stands by until the USV's active buoy arrives; most tests start with one already known.
+  virtual bool publishDefaultBuoyTarget() const {return true;}
+  // These tests check the target plumbing: no standoff unless a test asks for it.
+  virtual double buoyStandoff() const {return 0.0;}
+  virtual std::string divePoint() const {return "buoy";}
+
   void SetUp() override
   {
     std::string pattern = (std::filesystem::temp_directory_path() /
@@ -74,6 +81,8 @@ protected:
       "/system/mission/command", rclcpp::QoS(10));
     execution_readiness_pub_ = fixture_->create_publisher<banyu_msgs::msg::ExecutionReadiness>(
       "/banyu/execution/readiness", rclcpp::QoS(5).reliable());
+    target_pub_ = fixture_->create_publisher<banyu_msgs::msg::Task2BuoyTarget>(
+      "/banyu/task2/buoy_target", rclcpp::QoS(1).reliable().transient_local());
     lifecycle_sub_ = fixture_->create_subscription<Lifecycle>(
       "/banyu/mission/run_lifecycle", rclcpp::QoS(10).reliable().transient_local(),
       [this](const Lifecycle::SharedPtr value) {
@@ -125,6 +134,8 @@ protected:
         rclcpp::Parameter("mission.target_longitude", 2.001),
         rclcpp::Parameter("mission.end_latitude", 1.002),
         rclcpp::Parameter("mission.end_longitude", 2.002),
+        rclcpp::Parameter("mission.buoy_standoff_m", buoyStandoff()),
+        rclcpp::Parameter("mission.dive_point", divePoint()),
         rclcpp::Parameter("run.journal_path", (directory_ / "runs.journal").string()),
         rclcpp::Parameter("timing.run_reset_timeout_s", 2.0),
         rclcpp::Parameter("timing.execution_readiness_timeout_s", 0.2),
@@ -141,6 +152,21 @@ protected:
         std::lock_guard<std::mutex> lock(lifecycle_mutex_);
         return lifecycle_seen_;
       }));
+    if (publishDefaultBuoyTarget()) {
+      ASSERT_TRUE(waitUntil([this]() {return target_pub_->get_subscription_count() > 0;}));
+      publishBuoyTarget(1.001, 2.001, 0);
+      std::this_thread::sleep_for(100ms);
+    }
+  }
+
+  void publishBuoyTarget(double latitude, double longitude, uint32_t seq)
+  {
+    banyu_msgs::msg::Task2BuoyTarget target;
+    target.course_id = "course-a";
+    target.source_seq = seq;
+    target.latitude = latitude;
+    target.longitude = longitude;
+    target_pub_->publish(target);
   }
 
   void TearDown() override
@@ -168,6 +194,7 @@ protected:
     executor_.reset();
     telemetry_timer_.reset();
     lifecycle_sub_.reset();
+    target_pub_.reset();
     navigation_server_.reset();
     tracker_reset_server_.reset();
     end_reset_server_.reset();
@@ -340,6 +367,7 @@ protected:
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
   rclcpp::Publisher<rx_msgs::msg::Command>::SharedPtr command_pub_;
   rclcpp::Publisher<banyu_msgs::msg::ExecutionReadiness>::SharedPtr execution_readiness_pub_;
+  rclcpp::Publisher<banyu_msgs::msg::Task2BuoyTarget>::SharedPtr target_pub_;
   rclcpp::Subscription<Lifecycle>::SharedPtr lifecycle_sub_;
   rclcpp::Service<mavros_msgs::srv::SetMode>::SharedPtr mode_server_;
   rclcpp::Service<mavros_msgs::srv::CommandBool>::SharedPtr arming_server_;
@@ -377,6 +405,12 @@ protected:
   std::atomic<double> hold_stamp_offset_s_{0.0};
   std::atomic_bool publish_pose_{true};
   inline static std::atomic<int> next_groot_port_{31000};
+};
+
+class RunLifecycleNoBuoyTargetTest : public RunLifecycleTest
+{
+protected:
+  bool publishDefaultBuoyTarget() const override {return false;}
 };
 }  // namespace
 
@@ -563,12 +597,14 @@ TEST_F(RunLifecycleTest, MissionDoneStopsWithoutManufacturingSuccess)
   EXPECT_EQ(navigation_goals_.load(), 1U);
 }
 
-TEST_F(RunLifecycleTest, NavigationExecutionFailureClearsTask)
+// SurfaceTransitToStart retries a failed navigation once per second (for up to 3 minutes) instead of failing the run.
+TEST_F(RunLifecycleTest, NavigationExecutionFailureIsRetriedWithoutEndingTheRun)
 {
   ASSERT_NO_FATAL_FAILURE(start());
+  const auto goals = navigation_goals_.load();
   fail_navigation_.store(true);
-  ASSERT_TRUE(waitUntil([this]() {return lifecycle().phase == Lifecycle::FAILED;}));
-  EXPECT_EQ(lifecycle().current_task, rx_msgs::msg::RxTask::TASK_NONE);
+  ASSERT_TRUE(waitUntil([this, goals]() {return navigation_goals_.load() >= goals + 2;}));
+  EXPECT_EQ(lifecycle().phase, Lifecycle::ACTIVE);
   EXPECT_EQ(lifecycle().run_id, 13U);
 }
 
@@ -760,8 +796,7 @@ TEST_F(RunLifecycleTest, ReusedRunIdAndSeqStartAgainAfterPreparation)
 
 TEST_F(RunLifecycleTest, UsvBuoyTargetDrivesTransitAndRetargetsUntilLocked)
 {
-  auto target_pub = fixture_->create_publisher<banyu_msgs::msg::Task2BuoyTarget>(
-    "/banyu/task2/buoy_target", rclcpp::QoS(1).reliable().transient_local());
+  auto & target_pub = target_pub_;
   banyu_msgs::msg::Task2BuoyTarget target;
   target.course_id = "course-a";
   target.source_seq = 1;
@@ -794,4 +829,91 @@ TEST_F(RunLifecycleTest, UsvBuoyTargetDrivesTransitAndRetargetsUntilLocked)
   target_pub->publish(target);
   std::this_thread::sleep_for(300ms);
   EXPECT_EQ(navigation_goals_.load(), 2U);
+}
+
+TEST_F(RunLifecycleNoBuoyTargetTest, StandsByOnTheSurfaceUntilTheUsvBuoyTargetArrives)
+{
+  ASSERT_NO_FATAL_FAILURE(prepare());
+  command(13, 10);
+  ASSERT_TRUE(waitUntil([this]() {
+      const auto value = lifecycle();
+      return value.run_id == 13 && value.phase == Lifecycle::ACTIVE;
+    }));
+  // No transit to the configured mission.target_* coordinates while the USV has not reported the active buoy.
+  std::this_thread::sleep_for(1500ms);
+  EXPECT_EQ(navigation_goals_.load(), 0U);
+  EXPECT_EQ(lifecycle().phase, Lifecycle::ACTIVE);
+
+  ASSERT_TRUE(waitUntil([this]() {return target_pub_->get_subscription_count() > 0;}));
+  publishBuoyTarget(1.0011, 2.0012, 1);
+  ASSERT_TRUE(waitUntil([this]() {return navigation_goals_.load() == 1U;}));
+  std::lock_guard<std::mutex> lock(navigation_mutex_);
+  EXPECT_DOUBLE_EQ(navigation_handles_.at(0)->get_goal()->target_latitude_deg, 1.0011);
+  EXPECT_DOUBLE_EQ(navigation_handles_.at(0)->get_goal()->target_longitude_deg, 2.0012);
+}
+
+class RunLifecycleStandoffTest : public RunLifecycleNoBuoyTargetTest
+{
+protected:
+  double buoyStandoff() const override {return 1.5;}
+};
+
+TEST_F(RunLifecycleStandoffTest, SurfaceGoalIsTheStandoffInsideTheStartBuoyNeverTheBuoy)
+{
+  ASSERT_NO_FATAL_FAILURE(prepare());
+  command(13, 10);
+  ASSERT_TRUE(waitUntil([this]() {return lifecycle().phase == Lifecycle::ACTIVE;}));
+  ASSERT_TRUE(waitUntil([this]() {return target_pub_->get_subscription_count() > 0;}));
+  banyu_msgs::msg::Task2BuoyTarget target;
+  target.course_id = "course-a";
+  target.source_seq = 1;
+  target.latitude = 1.0011;
+  target.longitude = 2.0012;
+  target.heading_valid = true;
+  target.heading_enu_rad = 0.0;   // the end buoy is due east
+  target_pub_->publish(target);
+  ASSERT_TRUE(waitUntil([this]() {return navigation_goals_.load() == 1U;}));
+  std::lock_guard<std::mutex> lock(navigation_mutex_);
+  const auto goal = navigation_handles_.at(0)->get_goal();
+  constexpr double kEarthRadiusM = 6378137.0;
+  const double east_m = (goal->target_longitude_deg - 2.0012) * M_PI / 180.0 * kEarthRadiusM *
+    std::cos(1.0011 * M_PI / 180.0);
+  EXPECT_NEAR(east_m, 1.5, 0.01);
+  EXPECT_NEAR(goal->target_latitude_deg, 1.0011, 1e-9);
+}
+
+class RunLifecycleMidpointTest : public RunLifecycleNoBuoyTargetTest
+{
+protected:
+  double buoyStandoff() const override {return 1.5;}
+  std::string divePoint() const override {return "midpoint";}
+};
+
+TEST_F(RunLifecycleMidpointTest, SurfaceGoalIsMidwayBetweenTheBuoys)
+{
+  ASSERT_NO_FATAL_FAILURE(prepare());
+  command(13, 10);
+  ASSERT_TRUE(waitUntil([this]() {return lifecycle().phase == Lifecycle::ACTIVE;}));
+  ASSERT_TRUE(waitUntil([this]() {return target_pub_->get_subscription_count() > 0;}));
+  banyu_msgs::msg::Task2BuoyTarget target;
+  target.course_id = "course-a";
+  target.source_seq = 1;
+  target.latitude = 1.0011;
+  target.longitude = 2.0012;
+  target.heading_valid = true;
+  target.heading_enu_rad = 0.0;
+  target.other_valid = true;
+  target.other_latitude = 1.0013;
+  target.other_longitude = 2.0016;
+  target_pub_->publish(target);
+  ASSERT_TRUE(waitUntil([this]() {return navigation_goals_.load() == 1U;}));
+  std::lock_guard<std::mutex> lock(navigation_mutex_);
+  const auto goal = navigation_handles_.at(0)->get_goal();
+  EXPECT_NEAR(goal->target_latitude_deg, 1.0012, 1e-9);
+  EXPECT_NEAR(goal->target_longitude_deg, 2.0014, 1e-9);
+  // Both buoys are keep-out points of the transit.
+  ASSERT_EQ(goal->keep_out_latitude_deg.size(), 2U);
+  EXPECT_NEAR(goal->keep_out_latitude_deg[0], 1.0011, 1e-9);
+  EXPECT_NEAR(goal->keep_out_longitude_deg[1], 2.0016, 1e-9);
+  EXPECT_NEAR(goal->keep_out_radius_m, 1.2, 1e-9);
 }

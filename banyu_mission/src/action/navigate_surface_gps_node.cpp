@@ -1,6 +1,7 @@
 #include "banyu_mission/action/navigate_surface_gps_node.hpp"
 
 #include <cmath>
+#include <string>
 #include <utility>
 
 namespace banyu_mission
@@ -12,7 +13,12 @@ BT::PortsList NavigateSurfaceGpsNode::providedPorts()
     BT::InputPort<double>("target_latitude"), BT::InputPort<double>("target_longitude"),
     BT::InputPort<double>("start_latitude"), BT::InputPort<double>("start_longitude"),
     BT::InputPort<double>("tolerance"),
-    BT::InputPort<double>("retarget_threshold_m", 1.0, "Target move that re-sends the goal")};
+    BT::InputPort<double>("retarget_threshold_m", 1.0, "Target move that re-sends the goal"),
+    BT::InputPort<double>("start_buoy_latitude", std::nan(""), "keep clear of it (NaN = unknown)"),
+    BT::InputPort<double>("start_buoy_longitude", std::nan(""), ""),
+    BT::InputPort<double>("end_buoy_latitude", std::nan(""), "keep clear of it (NaN = unknown)"),
+    BT::InputPort<double>("end_buoy_longitude", std::nan(""), ""),
+    BT::InputPort<double>("keep_out_radius", 0.0, "keep-out radius around the buoys (m, 0 = none)")};
 }
 
 NavigateSurfaceGpsNode::NavigateSurfaceGpsNode(
@@ -30,6 +36,15 @@ NavigateSurfaceGpsNode::Goal NavigateSurfaceGpsNode::makeGoal()
   goal.start_latitude_deg = input<double>("start_latitude");
   goal.start_longitude_deg = input<double>("start_longitude");
   goal.tolerance_m = input<double>("tolerance");
+  for (const auto & prefix : {std::string("start_buoy"), std::string("end_buoy")}) {
+    const double lat = getInput<double>(prefix + "_latitude").value_or(std::nan(""));
+    const double lon = getInput<double>(prefix + "_longitude").value_or(std::nan(""));
+    if (std::isfinite(lat) && std::isfinite(lon)) {
+      goal.keep_out_latitude_deg.push_back(lat);
+      goal.keep_out_longitude_deg.push_back(lon);
+    }
+  }
+  goal.keep_out_radius_m = getInput<double>("keep_out_radius").value_or(0.0);
   goal_latitude_ = goal.target_latitude_deg;
   goal_longitude_ = goal.target_longitude_deg;
   return goal;

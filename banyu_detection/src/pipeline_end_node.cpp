@@ -23,6 +23,9 @@ PipelineEndNode::PipelineEndNode(const rclcpp::NodeOptions & options)
   candidate_state_sub_ = create_subscription<banyu_msgs::msg::PipelineEndCandidate>(
     candidate_state_topic_, rclcpp::QoS(10),
     std::bind(&PipelineEndNode::candidateStateCallback, this, std::placeholders::_1));
+  rings_complete_sub_ = create_subscription<banyu_msgs::msg::PipelineEndCandidate>(
+    rings_complete_topic_, rclcpp::QoS(1).reliable().transient_local(),
+    std::bind(&PipelineEndNode::ringsCompleteCallback, this, std::placeholders::_1));
   reset_service_server_ = create_service<ResetTask2>(
     reset_service_,
     std::bind(&PipelineEndNode::resetCallback, this, std::placeholders::_1,
@@ -43,6 +46,10 @@ void PipelineEndNode::declareParameters()
     "candidate_state_topic", "/banyu/pipeline/end_candidate_state");
   reset_service_ = declare_parameter<std::string>(
     "reset_service", "/banyu/pipeline/reset_end");
+  rings_complete_topic_ = declare_parameter<std::string>(
+    "rings_complete_topic", "/banyu/pipeline/rings_complete");
+  rings_complete_lost_s_ = declare_parameter<double>("rings_complete_lost_s", 3.0);
+  require_rings_complete_ = declare_parameter<bool>("require_rings_complete", false);
   require_run_context_ = declare_parameter<bool>("require_run_context", false);
   publish_confirmed_only_ = declare_parameter<bool>(
     "publish_confirmed_only", true);
@@ -72,6 +79,10 @@ void PipelineEndNode::reset()
   adapter_.reset();
   candidate_active_ = false;
   candidate_received_ = false;
+  rings_complete_ = false;
+  has_last_stamp_ = false;
+  lost_after_rings_s_ = 0.0;
+  ended_by_rings_ = false;
 }
 
 void PipelineEndNode::resetCallback(
@@ -88,7 +99,25 @@ void PipelineEndNode::resetCallback(
   adapter_.reset();
   candidate_active_ = false;
   candidate_received_ = false;
+  rings_complete_ = false;
+  has_last_stamp_ = false;
+  lost_after_rings_s_ = 0.0;
+  ended_by_rings_ = false;
   publishEnd(false);
+}
+
+void PipelineEndNode::ringsCompleteCallback(const banyu_msgs::msg::PipelineEndCandidate::SharedPtr msg)
+{
+  if (!msg) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (require_run_context_ && (!run_context_.initialized() || msg->run_id != run_context_.runId() ||
+    msg->epoch != run_context_.epoch()))
+  {
+    return;
+  }
+  rings_complete_ = msg->candidate;
 }
 
 void PipelineEndNode::publishEnd(bool ended)
@@ -163,7 +192,21 @@ void PipelineEndNode::observationCallback(
   }
 
   const auto update = adapter_.update(*msg, is_candidate);
-  if (update.confirmed) {
+  const rclcpp::Time stamp(msg->header.stamp, get_clock()->get_clock_type());
+  if (has_last_stamp_ && rings_complete_ && msg->status != banyu_msgs::msg::PipelineObservation::TRACKED) {
+    // Frame gaps longer than 1 s count as 1 s.
+    lost_after_rings_s_ += std::clamp((stamp - last_stamp_).seconds(), 0.0, 1.0);
+  }
+  last_stamp_ = stamp;
+  has_last_stamp_ = true;
+  if (!ended_by_rings_ && rings_complete_ && rings_complete_lost_s_ > 0.0 &&
+    lost_after_rings_s_ >= rings_complete_lost_s_)
+  {
+    ended_by_rings_ = true;
+    RCLCPP_INFO(get_logger(), "Pipeline end: four rings recorded and the pipe out of view for %.1f s since",
+      lost_after_rings_s_);
+  }
+  if ((update.confirmed && (!require_rings_complete_ || rings_complete_)) || ended_by_rings_) {
     publishEnd(true);
   } else if (!publish_confirmed_only_) {
     publishEnd(false);

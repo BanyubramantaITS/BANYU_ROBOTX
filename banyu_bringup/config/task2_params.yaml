@@ -2,7 +2,12 @@
 
 banyu_mission:
   ros__parameters:
-    fallback_mode: "SURFACE"
+    fallback_mode: "MANUAL"   # FCU mode commanded on abort/failure (DISARM = disarm, then MANUAL)
+    autonomy_mode: "GUIDED,ALT_HOLD"   # surface mode, then the mode used under water (SetFcuMode)
+    # Mode armed and waited in from SB Up / prepare_autonomy until the USV buoys arrive (then the surface mode).
+    # MANUAL: no stabilization or depth hold, so the hull floats and keeps the link. Same in banyu_vehicle_status
+    # and vehicle_execution_node control.standby_mode. "" = wait in the surface mode.
+    standby_mode: "STABILIZE"
     topics:
       pipeline_observation: "/banyu/pipeline/observation"
       ring_observation: "/banyu/pipeline/ring_observation"
@@ -21,28 +26,87 @@ banyu_mission:
     timing:
       preparation_timeout_s: 30.0
       execution_readiness_timeout_s: 1.0
+      # Pose age that ends readiness, and a live run. On the robot the pose comes at ~3 Hz (QGC's stream request).
+      readiness_pose_timeout_s: 2.0
       run_reset_timeout_s: 3.0
       state_timeout_s: 5.0
       gps_timeout_s: 5.0
     mission:
-      task2_tier: 2
+      underwater_mode: "ALT_HOLD"   # second entry of autonomy_mode
+      # A failed first dive or traverse surfaces, moves this far along the buoy line toward the other buoy and dives again.
+      strategy: "survey"   # survey, gamble (task2_gamble_mission.xml; sensors:=gamble), test (task2_test_mission.xml; test_mission:=True) or waypoint (task2_waypoint_mission.xml; waypoint_mission:=True)
+      auto_start_on_auto: false
+      retry_dive_offset_m: 3.0
+      # Dive point this far from the start buoy toward the other one (0 = at the buoy). The reported buoy position is unchanged.
+      dive_offset_m: 0.0
+      # The surface goal is never a buoy (ArduSub's fence only logs, it does not avoid): at least this far inside the start buoy.
+      buoy_standoff_m: 1.5
+      # The surface transit keeps at least this far from both buoys (a detour beside a buoy in the way); must be smaller
+      # than buoy_standoff_m. Covers the buoy's own size and the vehicle's; not the USV's buoy position error.
+      buoy_keep_out_m: 1.2
+      # buoy: dive near the start buoy; midpoint: dive midway between the buoys (launch argument dive_point:=,
+      # task2_dive_midpoint.yaml). Both face the end buoy, back up along the pipe to its start, then survey forward.
+      dive_point: "buoy"
+      # Backing up ends at the pipe's start, when the pipe was out of view this long in total.
+      leg_end_lost_s: 6.0
+      # Task 4: after the report the mission stays on the surface (keeping clear of the zones) while a RoboCommand
+      # keep-out zone or moving object is active, until none has been for release_s, at most max_hold_s.
+      zones:
+        release_s: 10.0
+        max_hold_s: 600.0
+      task2_tier: 2   # launch argument tier:= overrides this (core 2, advanced 3, disruptive 4)
       surface_depth_m: 0.0
-      surface_tolerance_m: 0.5
+      surface_tolerance_m: 0.2
+      # The dive point must be on the buoy line: a transit that ends from the side (a detour around a buoy) stopped
+      # 0.8 m off it with 1.0 m and the camera missed the first nodes. RTK GPS is far better than this; the limit on the
+      # robot is the buoy position error (USV uncertainty_m), not the vehicle fix.
+      gps_tolerance_m: 0.3
       max_retries: 3
-      start_latitude: 33.810313
-      start_longitude: -118.393866
-      target_latitude: 33.810438
-      target_longitude: -118.393392
-      end_latitude: 33.810438
-      end_longitude: -118.393272
       camera_name: "bottom_camera"
       acquire_timeout_s: 15.0
       traverse_timeout_s: 600.0
       inspection_depth_m: 12.5
       depth_tolerance_m: 0.3
+      # Advanced and Disruptive: depth of the probe hold. In main_world.world the light nodes are at z -13.4 and the
+      # probe tip is 0.26 m below the vehicle origin, while the depth sensor reads about 5% more than the true depth
+      # in the sim (12.5 read = z -11.8), so the tip reaches the switch (0.15 m) at about 13.9 read.
+      repair_depth_m: 13.9
+      repair_ring_tolerance: 0.25   # normalized image offset for the probe step and the code reading hold
+      approach_descent_rate_mps: 0.12   # Core repair: sink onto the red ring by camera, no fixed depth
+      approach_contact_ring_size: 0.14  # ring size (image width fraction) at contact: tip about 0.1 m from the switch
+      approach_max_descent_m: 2.5       # cap on the sink below the depth where the ring was centred
+      approach_hold_s: 14.0             # hold on contact for the ring to stay GREEN (switch needs 2 s, then 1.5 s steady)
+      repair_step_timeout_s: 60.0   # limit for each repair step; a step that times out is skipped
+      # Advanced and Disruptive: time to stay on the repaired ring while the flash code is read.
+      decode_window_s: 40.0
+      # strategy test only (task2_test_mission.yaml sets these for the run): dive, then timed forward and backward legs.
+      test:
+        depth_m: 1.0
+        dive_timeout_s: 40.0
+        settle_s: 3.0
+        leg_duration_s: 6.0
+        leg_speed_mps: 0.3
+        depth_kp: 0.7
+        max_depth_speed_mps: 0.3
+        transit_timeout_s: 300.0
+      # strategy gamble only (sensors:=gamble): dive to depth_m on the Bar30, then forward/backward, sway left/right and
+      # yaw left/right legs at that depth, settle_s between legs. A duration of 0 skips that pair of legs.
+      gamble:
+        depth_m: 1.0
+        dive_timeout_s: 40.0
+        settle_s: 3.0
+        depth_kp: 0.7
+        max_depth_speed_mps: 0.3
+        surge_duration_s: 5.0
+        surge_speed_mps: 0.3
+        sway_duration_s: 5.0
+        sway_speed_mps: 0.2
+        yaw_duration_s: 5.0
+        yaw_rate_rad_s: 0.3
 
 task2_sim_provider:
   ros__parameters:
+    publish_hydrophone_heading: false   # opt in with use_hydrophone:=True
     ring_colors: ["green", "green", "green", "red"]
     publish_rate: 5.0
     pipeline_standoff_m: 1.0
@@ -52,18 +116,20 @@ task2_sim_provider:
     receipt_pair_timeout_s: 3.0
     task2_pose_timeout_s: 3.0
     task2_gps_fix_timeout_s: 1.0
-    start_buoy_map_x: 43.95
-    start_buoy_map_y: 13.85
+    # Sim fixture in the EKF map frame (origin = spawn, ENU). These must match banyu_simulation/worlds/main_world.world:
+    # robobuoy_green (3.8, 0), robobuoy_red (-3.8, 0), pipeline (2.3, 0) yawed 180 deg (runs west, 4.57 m).
+    start_buoy_map_x: 3.8
+    start_buoy_map_y: 0.0
     # Simulation ground truth (sim-only fixture): pipe axis, end window and active buoy identity.
-    pipeline_start_map_x: 47.11
-    pipeline_start_map_y: 13.85
-    pipeline_end_map_x: 51.64
-    pipeline_end_map_y: 13.86
+    pipeline_start_map_x: 2.3
+    pipeline_start_map_y: 0.0
+    pipeline_end_map_x: -2.27
+    pipeline_end_map_y: 0.0
     end_candidate_window_m: 0.5
     end_candidate_max_lateral_m: 1.0
     # Stands in for the USV: publishes rx_msgs/PipelineBuoys (start buoy = active/GREEN).
-    end_buoy_map_x: 55.0
-    end_buoy_map_y: 13.85
+    end_buoy_map_x: -3.8
+    end_buoy_map_y: 0.0
     pipeline_buoys_start_label: "a"
     pipeline_buoys_report_active: true
     pipeline_buoys_uncertainty_m: 1.0
@@ -71,13 +137,24 @@ task2_sim_provider:
 
 task2_pipeline_detector:
   ros__parameters:
-    use_gui: false
+    # use_gui and publish_debug_images (annotated frame and masks on <debug_topic_prefix>/*) come from the launch file
+    # (debug:=True / debug_topics:=True), like apply_image_rotation (true on the robot, false in sim).
+    debug_topic_prefix: "/banyu/pipeline/debug"
+    debug_rate_hz: 5.0
+    debug_scale: 0.5
     image_topic: "/bottom_camera/image_raw"
     # Launch sets this true on the real AUV (use_sim:=False)
     use_compressed_image: false
     camera_info_topic: "/bottom_camera/camera_info"
+    # Undistort each frame when camera_info has distortion (fisheye HORUS: equidistant model; sim --fisheye: Brown).
+    undistort: true
+    # The real bottom camera is mounted turned: rotate each frame clockwise (deg) about the principal point.
+    # Launch sets apply_image_rotation false in sim, where the camera is mounted straight.
+    image_rotation_deg: 45.0
     observation_topic: "/banyu/pipeline/observation"
     ring_observation_topic: "/banyu/pipeline/ring_observation"
+    # A light seen with no pipe in view: a steering cue for AcquirePipeline/SearchPipeline, never a ring record.
+    light_cue_topic: "/banyu/pipeline/light_cue"
     min_aspect_ratio: 1.5
     min_line_length_px: 18.0
     min_component_area_px: 20
@@ -85,7 +162,7 @@ task2_pipeline_detector:
     max_heading_error_rad: 1.571
     # Refit a band of +-ratio*height around the lookahead row when bends spoil the global fit.
     local_fit_band_ratio: 0.2
-    probe_rect: []
+    # probe_rect: [x, y, w, h] masks the probe tip; leave unset (an empty YAML list cannot be typed by rclcpp).
 
     # Pipeline mask HSV and grayscale thresholds
     gray_threshold: 170
@@ -113,10 +190,6 @@ task2_pipeline_detector:
     green_ring_v_min: 30
     green_ring_v_max: 255
 
-pinger_localization:
-  ros__parameters:
-    pinger_depth: 1.0
-
 banyu_vehicle_status:
   ros__parameters:
     state_topic: "/mavros/state"
@@ -129,9 +202,12 @@ banyu_vehicle_status:
     gps_timeout_s: 5.0
     rc_takeover_channel: 1   # 0-based /mavros/rc/in index: CH2 = forward stick (RCMAP_FORWARD 2)
     rc_takeover_threshold: 1700
-    autonomy_mode: "GUIDED"
+    autonomy_mode: "GUIDED,ALT_HOLD"   # surface mode, then the mode used under water
+    standby_mode: "STABILIZE"   # banyu_mission standby_mode
     default_operational_mode: 0
-    kill_switch_timeout_s: 1.0
+    kill_switch_timeout_s: 2.5   # teleop republishes it per /mavros/rc/in, which arrives at ~2 Hz with 1.2 s gaps on the robot
+    # bypass_rc (launch_task2.sh --no-rc): mode until the first /banyu/trigger/cmd ('2' = the software SB Up).
+    bypass_operational_mode: 1
 
 ring_tracker:
   ros__parameters:
@@ -141,9 +217,19 @@ ring_tracker:
     pose_topic: "/mavros/local_position/pose"
     state_topic: "/banyu/pipeline/ring_state"
     accepted_ring_topic: "/banyu/pipeline/accepted_ring"
+    rings_complete_topic: "/banyu/pipeline/rings_complete"   # four rings, none waiting for a repair (pipeline_end_node)
     repair_service: "/banyu/pipeline/acknowledge_ring_repair"
-    # Same physical node if within this distance; keep below half the minimum ring spacing.
-    node_association_distance_m: 0.4
+    # Same physical node if within this distance. The camera model moves the progress estimate of one ring by up to
+    # 0.7 m between views in the sim, and the sim ring spacing is 1.4 m, so 0.8 keeps one node in one record.
+    node_association_distance_m: 0.8
+    # Four records and a fifth distinct ring: merge the two closest records if nearer than this (one node recorded twice,
+    # seen from far or beside the line; seed 24). Sim node spacing 1.28-1.55 m. 0 = never merge (the fifth is ignored).
+    min_node_spacing_m: 1.0
+    # Off: the report order is the first sighting, so dead-reckoning noise in progress must not void it.
+    require_monotonic_order: false
+    # No new ring record while the camera is higher than this above the pipe (from its width): rings seen from the descent are
+    # placed badly and one node becomes several records. The following height is about 1 m. 0 = no limit.
+    max_record_height_m: 2.2
     # Nearest pose can be half a pose period away (MAVROS pose ~5-10 Hz vs 30 Hz camera).
     pose_timestamp_tolerance_s: 0.12
     # Tolerate a few dropped camera frames (best-effort transport) before treating it as a gap.
@@ -154,16 +240,23 @@ ring_tracker:
     camera_forward_m: 0.2
     camera_tilt_from_vertical_rad: 0.227
     camera_half_vfov_rad: 0.408
-    # Ordered from the active (start) buoy end so progress increases along the survey;
-    # survey_evidence low_progress_endpoint_id is start_buoy.
-    centerline_points: [
-      47.231, 13.848,
-      47.921, 13.848,
-      48.701, 13.273,
-      49.541, 13.108,
-      50.351, 13.558,
-      51.251, 13.848
-    ]
+    lid_diameter_m: 0.074     # sim lid; height above the ring from observation.size once the vehicle leaves the survey altitude
+    focal_ratio: 0.866        # fx / image width (554 / 640)
+    # Camera height above the pipe from its apparent width (fixed camera_height_m when the pipe is not measured).
+    pipe_height:
+      enabled: true
+      pipe_diameter_m: 0.0889
+      hfov_rad: 1.047
+    # The pose under water is dead-reckoned: the last surface fix, then the commanded velocity x velocity_gain (the robot
+    # has no underwater position). Progress runs along the buoy-to-buoy line (USV PipelineBuoys bearing) from where the GPS
+    # is lost at the dive; it only tells a repeat sighting from a new node. The report order is the order of first sighting
+    # in the forward survey. No pipe map is used.
+    dead_reckoning:
+      velocity_gain: 1.0
+    buoy_line_half_length_m: 30.0
+    gps_fix_topic: "/mavros/global_position/global"
+    command_topic: "/banyu/execution/preview_target"
+    buoy_target_topic: "/banyu/task2/buoy_target"
 
 pipeline_guidance:
   ros__parameters:
@@ -184,11 +277,20 @@ pipeline_guidance:
 
 uuv_comm_node:
   ros__parameters:
+    # Task 4 (RoboCommand keep-out zones): published on /banyu/task4/zones, recorded in the bag.
+    task4:
+      max_static_zones: 16
+      max_radius_m: 500.0
+      moving_expiry_s: 120.0      # a moving object RoboCommand stopped updating is dropped (no all-clear exists for it)
+      ack_moving_object: false    # protocol: no ack for MOVING_OBJECT; scoring: 25 for acknowledging. Settle at the briefing.
     survey:
       task2_tier: 2
       evidence_sources: ["pipeline_topology"]
       buoy_sources: ["usv_pipeline_buoys", "uuv_buoy_localizer", "gcs_buoy_observer"]
       depth_sources: ["pressure_depth"]
+      gamble_order: false   # sensors:=gamble: a best-effort report with no RED seen gets one RED by chance
+      # survey.gamble_red_positions (where that RED may go) comes only from the launch argument gamble_red (launch_task2.sh --gamble-red,
+      # default "2,3"): a value in this file would win over the launch argument (launch_ros loads files after dicts).
       minimum_confidence: 0.2
       maximum_buoy_uncertainty_m: 5.0
       ingress_max_age_s: 2.0
@@ -228,6 +330,13 @@ pipeline_buoys_node:
       longitude: -118.393392
       uncertainty_m: 3.0
       green_confirmed: false
+    # UAV Task 1 SafePassage buoy field -> surface obstacles the GPS transit detours round.
+    uav_buoys:
+      enabled: true
+      radius_m: 1.2                       # keep-out per buoy, same as the USV buoys (banyu_mission buoy_keep_out_m)
+      # The UAV's map drops buoys for minutes (2026-11-12: two of six for ~9 min): remember each one reported.
+      merge_m: 1.0                        # a report this close to a remembered buoy is that buoy (jitter max 0.26 m)
+      forget_s: 0.0                       # drop a buoy not reported this long; 0 = keep until the course changes
     topics:
       pipeline_buoys: "/system/vehicle/usv/task2/pipeline_buoys"
       course: "/system/mission/course"
@@ -235,6 +344,8 @@ pipeline_buoys_node:
       water_depth: "/banyu/vehicle/water_depth"
       buoy_target: "/banyu/task2/buoy_target"
       active_buoy_fix: "/banyu/task2/active_buoy_fix"
+      safe_passage: "/system/vehicle/uav/task1/safe_passage"
+      surface_obstacles: "/banyu/surface/obstacles"
 
 vehicle_execution_node:
   ros__parameters:
@@ -245,11 +356,26 @@ vehicle_execution_node:
       # Water depth is datum minus EKF baro altitude, which drifts ~0.2-0.4 m over a dive;
       # 0.5 m matches the GPS surface tolerance used elsewhere in this file.
       surface_max_depth_m: 0.5
+      # No valid depth (Bar30 fault): rise at this rate for at most this long (maximum depth 15 m at 0.25 m/s, plus margin).
+      # The fault holds for the rest of the run, so the goal ends at the time limit.
+      surface_blind_rise_rate_mps: 0.25
+      surface_blind_timeout_s: 120.0
       require_run_authorization: true
       run_lifecycle_timeout_s: 1.0
+      # /mavros/local_position/pose age limit (readiness hold and every action). On the robot QGC's stream request
+      # brings it down to ~3 Hz with gaps up to 0.7 s; 0.5 s dropped the readiness hold at random.
+      pose_timeout_s: 1.0
       enable_mavros_publish: true
       publish_rate_hz: 20.0
       require_guided: true
+      # GUIDED with the GPS on the surface, ALT_HOLD with RC override under water (no position needed):
+      # see docs/task2_mode_experiments.md. banyu_mission, banyu_vehicle_status and this node must list the same modes.
+      autonomy_mode: "GUIDED,ALT_HOLD"
+      standby_mode: "STABILIZE"   # banyu_mission standby_mode: neutral sticks (zero thrust) while waiting
+      output_mode: "auto"
+      # Surface GPS transit speed limit (NavigateSurfaceGps only). Faster pushes the hull and the GPS antenna under.
+      nav_max_speed: 0.4
+      nav_kp: 0.5
       acquire_surge_speed: 0.3
       acquire_timeout_s: 20.0
       acquire_confirm_frames: 5
@@ -260,9 +386,86 @@ vehicle_execution_node:
       ring_lost_grace_s: 1.0
       search_retrace_distance_m: 1.5
       search_retrace_speed: 0.2
+      # No hydrophone on the competition vehicle: SearchPipeline retraces and sweeps only.
+      # use_hydrophone:=True (task2_hydrophone_on.yaml) enables the pinger homing below.
+      use_hydrophone: false
       search_pinger_timeout_s: 3.0
       search_pinger_kp: 0.8
       search_pinger_forward_speed: 0.25
+    # Task 4: keep-out zone avoidance of the surfaced vehicle (a surface vehicle is a USV).
+    zones:
+      margin_m: 2.0               # added to every zone radius: GPS error plus vehicle size
+      horizon_s: 30.0             # a moving object's projected travel is kept clear of this far ahead
+      exit_clearance_m: 0.5       # leave a zone to this distance outside it
+      exit_speed_mps: 0.6
+      idle_guard: true            # no goal running (standby, after the report): move out of a zone and stay out
+      surface_depth_m: 0.5        # the idle guard acts only at or above this depth
+      dive_point_buoy_clear_m: 1.5  # a dive point shifted out of a zone stays this far from both buoys (buoy_standoff_m)
+      surface_hold_timeout_s: 60.0  # Surface: wait at depth this long in all while the surfacing point is inside a zone
+    # Fixed surface obstacles (UAV buoy field): added to each radius for NavigateSurfaceGps. Both fixes are plain GPS
+    # (no RTK on 2026-11-10, 20 s stationary spread p90 0.33 m), so the UAV's and our positions can disagree by ~1 m.
+    # Replay of the 2026-11-12 field with 1 m receiver bias: 0.75 kept >= 0.88 m from every buoy centre and reached
+    # 56/56 crossings; 0.9 closes the 3-3.4 m gaps and stalled 2-3 crossings.
+    surface_obstacles:
+      margin_m: 0.75
+    # Course fence from the GCS course boundary (/system/mission/course, Course.boundary). ArduSub's own fence only logs.
+    # Surfaced only (no position under water): NavigateSurfaceGps targets move margin_m inside, every goal's horizontal
+    # command loses its outward part near the edge and is pushed back in inside the margin, and with no goal running the
+    # idle guard drives back in. No fresh GPS fix on the surface while a fence is set: no horizontal motion.
+    fence:
+      margin_m: 3.0               # stay this far inside the boundary: GPS error, vehicle size, drift, an underwater leg
+      brake_m: 3.0                # outward speed fades out over this band before the margin
+      return_speed_mps: 0.4       # inward push inside the margin or outside the boundary
+      reject_outside_m: 20.0      # a target farther outside than this is refused (a typo), not pulled in
+      required: false             # true: no horizontal motion on the surface until a course boundary arrives
+      idle_guard: true
+      gps_timeout_s: 2.0
+    # AcquirePipeline and SearchPipeline steer over a light seen with no pipe in view (the node sits on the pipe).
+    light_cue:
+      enabled: true
+      min_confidence: 0.5
+      min_depth_m: 1.0     # shallower lights are ignored: the start buoy's indicator is seen from the surface
+      kp_sway: 0.4
+      kp_surge: 0.3
+      max_speed_mps: 0.2
+      budget_s: 15.0       # steering time per goal, so a false light (fish, reflection) cannot hold the search
+    # Heave from the pipe's apparent width (sensors:=baro): range = diameter / (width x 2 tan(hfov / 2)).
+    # Diameter: 3" Schedule 40 PVC in the sim (measure the real pipe). hfov: the sim bottom camera (re-calibrate the HORUS).
+    camera_heave:
+      enabled: false
+      pipe_diameter_m: 0.0889
+      hfov_rad: 1.047
+      standoff_m: 1.6
+      kp: 0.4
+      max_rate_mps: 0.25
+      deadband_m: 0.1
+      trim_mps: 0.0
+      # Learns the buoyancy trim while the pipe is in view (STABILIZE: heave stick = thrust) and keeps it when the pipe is lost.
+      ki: 0.03
+      max_integral_mps: 0.15
+    # Dive with no depth sensor: sink until the camera has the pipe (with a range) for lock_s; give up at max_depth_m / rate.
+    camera_descent:
+      rate_mps: 0.15
+      lock_s: 1.0
+      max_depth_m: 15.0
+      max_time_s: 0.0   # > 0: the time limit instead of max_depth_m / rate_mps
+      # sensors:=baro: with the Bar30 the dive also stops by camera; max_depth_m is then a measured floor.
+      with_depth: false
+      # Creep forward along the buoy-to-buoy heading while sinking: the start buoy is 1.5-2.5 m beyond the pipe's end.
+      surge_mps: 0.0
+    rc_override:   # = Pixhawk RCMAP_FORWARD/LATERAL/THROTTLE/YAW (robot: 2/1/3/4); same gains as POR
+      channel_forward: 2
+      channel_lateral: 1
+      channel_throttle: 3
+      channel_yaw: 4
+      gain_xy_pwm_per_mps: 300.0
+      gain_z_pwm_per_mps: 400.0
+      gain_yaw_pwm_per_rad_s: 143.4
+      max_delta_pwm: 400
+      neutral_pwm: 1500
+      deadzone_xy_pwm: 0
+      deadzone_z_pwm: 50
+      deadzone_yaw_pwm: 20
     surface:
       depth_sources: ["pressure_depth"]
     topics:
@@ -274,14 +477,23 @@ vehicle_execution_node:
       gps: "/mavros/global_position/raw/fix"
       pipeline_obs: "/banyu/pipeline/observation"
       ring_obs: "/banyu/pipeline/ring_observation"
+      light_cue: "/banyu/pipeline/light_cue"
       pinger_obs: "/banyu/pinger/observation"
       guidance_intent: "/banyu/guidance/velocity_intent"
       preview_target: "/banyu/execution/preview_target"
       mavros_target: "/mavros/setpoint_raw/local"
+      task4_zones: "/banyu/task4/zones"
+      surface_obstacles: "/banyu/surface/obstacles"   # NavigateSurfaceGps detours round these (UAV buoy field)
+      course: "/system/mission/course"   # course boundary for the fence
 
 pipeline_end_node:
   ros__parameters:
     require_run_context: true
+    # The real vehicle's only end signal (the end candidates are the sim fixture's ground truth): four rings recorded
+    # (none waiting for a repair, ring_tracker rings_complete_topic) and the pipe out of view this long. 0 = off.
+    rings_complete_lost_s: 3.0
+    require_rings_complete: false   # true for the midpoint dive (task2_dive_midpoint.yaml)
+    rings_complete_topic: "/banyu/pipeline/rings_complete"
     reset_service: "/banyu/pipeline/reset_end"
     candidate_state_topic: "/banyu/pipeline/end_candidate_state"
     end_state_topic: "/banyu/pipeline/end_state"
@@ -290,6 +502,15 @@ pipeline_end_node:
     end_topic: "/banyu/pipeline/end"
 calibrated_depth_node:
   ros__parameters:
+    # Depth is always the Bar30. A fresh GPS fix this recent proves the surface (datum before the run; no health check).
+    gps_surface_timeout_s: 2.0
+    # Bar30 health under water during the run; a fault makes the depth invalid for the rest of the run.
+    health:
+      enabled: true
+      silent_s: 3.0
+      stuck_s: 3.0
+      max_step_m: 0.3
+      max_disagree_m: 0.0   # 0 = off: in ALT_HOLD the real climb rate does not follow the command (false fault in the sim)
     source_id: "pressure_depth"
     datum: "water_surface"
     calibration_id: "surface_rel_alt_datum"
@@ -301,6 +522,9 @@ calibrated_depth_node:
       rel_alt: "/mavros/global_position/rel_alt"
       water_depth: "/banyu/vehicle/water_depth"
       run_lifecycle: "/banyu/mission/run_lifecycle"
+      gps_fix: "/mavros/global_position/global"
+      command: "/banyu/execution/preview_target"
+      depth_health: "/banyu/vehicle/depth_health"
 
 survey_evidence_node:
   ros__parameters:
@@ -322,18 +546,18 @@ survey_evidence_node:
 
 esp32_bridge_node:
   ros__parameters:
-    port: "/dev/ttyUSB0"
+    port: "/dev/esp32_kill"
     baud: 115200
     heartbeat_rate_hz: 10.0
     serial_timeout_s: 0.5
 
 esp32_serial_node:
   ros__parameters:
-    port: "/dev/ttyUSB0"
+    port: "/dev/esp32_kill"
     baud: 115200
     timer_period_s: 0.1
     append_newline: false
-    default_trigger_cmd: "2"   # issue #15: 2 = autonomous
+    default_trigger_cmd: "2"   # issue #15: 2 = autonomous (sent to the board as its1)
     trigger_on_cmd: "2"
     trigger_off_cmd: "0"
     trigger_service: "/banyu/trigger/fire"
@@ -341,14 +565,17 @@ esp32_serial_node:
     command_service: "/banyu/trigger/command"
     command_topic: "/banyu/trigger/cmd"
     monitor_topic: "/banyu/trigger/monitor"
+    use_hardware_kill: true      # board its2 while 1/2 is commanded = physical kill
+    kill_report_grace_s: 0.3
+    resend_period_s: 1.0
 
 esp32_trigger_node:
   ros__parameters:
-    port: "/dev/ttyUSB0"
+    port: "/dev/esp32_kill"
     baud: 115200
     timer_period_s: 0.1
     append_newline: false
-    default_trigger_cmd: "2"   # issue #15: 2 = autonomous
+    default_trigger_cmd: "2"   # issue #15: 2 = autonomous (sent to the board as its1)
     trigger_on_cmd: "2"
     trigger_off_cmd: "0"
     trigger_service: "/banyu/trigger/fire"
@@ -356,6 +583,24 @@ esp32_trigger_node:
     command_service: "/banyu/trigger/command"
     command_topic: "/banyu/trigger/cmd"
     monitor_topic: "/banyu/trigger/monitor"
+    use_hardware_kill: true      # board its2 while 1/2 is commanded = physical kill
+    kill_report_grace_s: 0.3
+    # The board reports a single ADC sample of the kill input every 500 ms: a power dip or noise can show as one
+    # its2. Latch the kill only after this many in a row (~1.5 s); shorter glitches are logged, not latched.
+    kill_report_count: 3
+    # The board cuts thruster power and shows EMERGENCY by itself when the kill switch is pulled. Leave its LED alone and
+    # go to MANUAL when the switch is back in (no '0' needed); AUTO again only on a '2', and the run needs a new start.
+    kill_release_to_manual: true
+    resend_period_s: 1.0
+    # '1' MANUAL: Pixhawk to fcu_manual_mode and armed; '0' KILL: fcu_manual_mode and disarmed; '2' AUTO: left to the
+    # mission manager. Retried until /mavros/state confirms it or fcu_sync_timeout_s.
+    fcu_mode_sync: true
+    fcu_manual_mode: "MANUAL"
+    fcu_sync_retry_s: 1.0
+    fcu_sync_timeout_s: 10.0
+    fcu_state_topic: "/mavros/state"
+    set_mode_service: "/mavros/set_mode"
+    arming_service: "/mavros/cmd/arming"
 
 sim_rc_deadman_node:
   ros__parameters:
@@ -363,3 +608,53 @@ sim_rc_deadman_node:
     publish_rate_hz: 10.0
     num_channels: 8
     channel_value: 1500
+
+underwater_odometry_node:
+  ros__parameters:
+    dive_depth_m: 0.5
+    surface_depth_m: 0.2
+    gps_sigma_m: 2.0
+    setpoint_timeout_s: 0.5
+    min_path_step_m: 0.05
+    max_poses: 5000
+    frame_id: "dive_origin"
+    child_frame_id: "base_link"
+    use_hydrophone: false   # pinger bearing corrections, opt in with use_hydrophone:=True
+    # Achieved/commanded speed, calibrate in the water; the rest are 1-sigma estimates.
+    velocity_gain: 1.0
+    speed_error_fraction: 0.1
+    drift_rate_mps: 0.02
+    bearing_sigma_rad: 0.17
+    min_range_m: 1.0
+    gate_sigma: 3.0
+    topics:
+      pose: "/mavros/local_position/pose"
+      gps: "/mavros/global_position/global"
+      water_depth: "/banyu/vehicle/water_depth"
+      setpoint: "/mavros/setpoint_raw/local"
+      pinger: "/banyu/pinger/observation"
+      buoy_target: "/banyu/task2/buoy_target"
+      odometry: "/banyu/dive/odometry"
+      path: "/banyu/dive/path"
+
+resource_code_decoder:
+  ros__parameters:
+    tier: 2                 # launch argument tier:= overrides this; 4 reads tin and circle, 3 the circle only
+    topics:
+      ring_observation: "/banyu/pipeline/ring_observation"
+      run_lifecycle: "/banyu/mission/run_lifecycle"
+      resource_code: "/banyu/pipeline/resource_code"
+    services:
+      decode_window: "/banyu/pipeline/decode_resource_code"
+    min_on_s: 0.5           # a flash lasts about 1 s
+    max_on_s: 1.7
+    steady_on_s: 2.5        # longer runs are the steady green after the repair (a flash is about 1 s)
+    long_gap_s: 1.6         # dark gap between cycles (nominally 2 s)
+    merge_gap_s: 0.25       # dropout shorter than this does not split a flash
+    min_cycles: 2           # cycles that must agree before the code counts as read
+    require_repair_verified: true   # no code until RED then steady GREEN was seen (a neighbouring node may flicker green)
+    # Only flashes within this long after the post-repair steady green count (the code lasts 30 s); later ones are a
+    # neighbouring node's lid after a drift (Advanced seed 5 read node 2's steady GREEN). 0 = no limit.
+    max_code_after_repair_s: 35.0
+    max_window_s: 240.0     # must cover the whole repair: two steps of mission.repair_step_timeout_s plus the code hold
+    publish_period_s: 1.0

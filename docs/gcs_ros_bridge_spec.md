@@ -14,7 +14,7 @@ UUV (ROS domain 40) --DDS Router: /system/* only--> GCS (ROS domain 10) --bridge
 
 | ROS topic (GCS domain) | Direction | RoboCommand message |
 |---|---|---|
-| `/system/mission/course` (`Course`, reliable, transient-local) | RC → vehicle | `RxCourse` (retained). `corners` → `boundary`; `uav_geofence` from the declaration |
+| `/system/mission/course` (`Course`, reliable, volatile; repeated about 1 Hz) | RC → vehicle | `RxCourse` (retained). `corners` → `boundary`; `uav_geofence` from the declaration |
 | `/system/mission/command` (`Command`, reliable) | RC → vehicle | `RxCommand`; `command_seq = RxCommand.seq` (never renumber) |
 | `/system/vehicle/uuv/heartbeat` (`Heartbeat`) | vehicle → RC | `RxReport.heartbeat`, resampled at 2 Hz by `GcsReporter` |
 | `/system/vehicle/uuv/task2/pipeline_survey` (`PipelineSurvey`, transient-local) | vehicle → RC | `RxReport.pipeline_survey` |
@@ -22,6 +22,7 @@ UUV (ROS domain 40) --DDS Router: /system/* only--> GCS (ROS domain 10) --bridge
 | `/system/vehicle/uuv/task4/incident_ack` (`IncidentAck`) | vehicle → RC | `RxReport.incident_ack` |
 | `/system/vehicle/uuv/task4/readiness` (`ReadinessReport`) | vehicle → RC | `RxReport.readiness` |
 | `/system/mission/status` (`MissionStatus`) | vehicle → GCS | not sent to RoboCommand (GCS display/log only) |
+| `/system/vehicle/uav/task1/safe_passage` (`SafePassage`, reliable, volatile) | UAV → UUV (forwarded to domain 40) | none here; the UUV's surface transit detours round the buoy field |
 
 All shared enum values (`RobotState`, `RxTask`, `VehicleType`, `TaskTier`, `Color`,
 `PipelineSegmentStatus`, ...) are numerically identical between `rx_msgs` and the protobuf schema,
@@ -35,7 +36,7 @@ so enum fields copy across unchanged.
 | `assistance_request` | `CMD_TASK4_ASSISTANCE` | `target_vehicle = vehicle_type`, `position` |
 | `keep_out_zone` | `CMD_TASK4_KEEP_OUT_ZONE` | `target_vehicle`, `center`, `radius_m` |
 | `all_clear` | `CMD_TASK4_ALL_CLEAR` | `target_vehicle` |
-| `moving_object_alert` | `CMD_TASK4_MOVING_OBJECT` | one command per `affected_vehicle_types` entry; `position`, `heading_deg`, `speed_mps` |
+| `moving_object_alert` | `CMD_TASK4_MOVING_OBJECT` | one command per `affected_vehicle_types` entry; `position`, `heading_deg`, `speed_mps`, **`radius_m`** from the proto field `MovingObjectAlert.keep_out_radius_m` (robonation/robocommand `RobotX_2026/proto/robotx/rx_commands.proto`; 5 m by default, so 0 becomes 5; handbook update 2026-10-23). The bridge used to drop it, and the UUV rejects an alert without a radius |
 | `readiness_confirm` | `CMD_TASK4_READINESS_CONFIRM` | `report_seq`; target from `vehicle_id` |
 
 ## Required behaviour (found missing in `GcsReporter` during integration testing)
@@ -54,10 +55,20 @@ so enum fields copy across unchanged.
    receives them after the UUV surfaces (store-and-forward). The same property re-delivers them to
    a restarted bridge. De-duplicate per run, e.g. by payload hash (the public messages carry no
    report id — a stronger receipt protocol would need a joint `rx_msgs` change).
+5. **Repeat the course.** Since `rx_msgs` `cc7d9fa`, `Course` uses the plain default QoS (reliable,
+   volatile), so a vehicle node that starts or restarts after the course was published never receives
+   it, and the UUV rejects survey evidence without a course. Republish the last course about once per
+   second until the run ends (reference: `gcs_ros_bridge.py`), like `PipelineBuoys`. The `rx_msgs`
+   README still says "published once"; this is a **joint decision** to record there.
+6. **Forward and repeat the UAV buoy field.** The UAV publishes `SafePassage` only when its map
+   changes, so a UUV stack started after the UAV's Task 1 never sees it. Forward
+   `/system/vehicle/uav/task1/safe_passage` to the UUV domain and republish the last one about once
+   per second, like the course (or the UAV repeats it itself; a **joint decision**).
 
 ## Vehicle-side behaviour the GCS can rely on (BANYU UUV, Issue #13)
 
-- Heartbeat at 2 Hz with GPS position, depth, attitude, `STATE_AUTO/MANUAL/KILLED` and
+- Heartbeat at 2 Hz with GPS position, depth, attitude, `STATE_AUTO/MANUAL/KILLED` (the kill switch
+  status: SB Up/Mid/Down or the ESP32 commands, not the FCU mode; KILLED if the status is stale) and
   authoritative `current_task` (`TASK_INFRA_SURVEY_REPAIR` during the run, `TASK_NONE` otherwise).
 - Holds position until a valid `CMD_RUN_START`; duplicate starts are ignored without restarting;
   commands for other vehicle types are ignored.
@@ -65,8 +76,13 @@ so enum fields copy across unchanged.
   re-prepares autonomy. Each preparation opens a new run identity window (the console may also reset
   `run_id` to 1); within one window an already accepted `run_id` is never restarted, and reports stay
   tied to the run epoch.
-- Task 4: `IncidentAck` with the original `command_seq` for assistance, keep-out and all-clear; no
-  ACK for moving-object alerts; no `ReadinessReport` (Task 4 is not attempted yet).
+- Task 4: `IncidentAck` with the original `command_seq` for assistance, keep-out and all-clear
+  addressed to the UUV or to all vehicles (not the USV's own); no ACK for moving-object alerts unless
+  `uuv_comm_node` `task4.ack_moving_object` is set (the protocol has none, the scoring awards one; see
+  `docs/task4.md`); no `ReadinessReport`. Keep-out zones and moving-object alerts (any target UUV, UNKNOWN or USV,
+  since a surfaced UUV is a USV) are kept per run and avoided on the surface. Dedup key `(command_seq, command_type)`:
+  the bridge sends one `Command` per addressed vehicle type with the same `seq`, so the second is a duplicate for the
+  zone state (still acked when it is the UUV's). `MOVING_OBJECT` needs `radius_m` (>0) or it is rejected.
 - `PipelineSurvey` is published once per run, after surfacing, with the active (GREEN) buoy
   position and the four original segment states ordered from the active buoy end.
 

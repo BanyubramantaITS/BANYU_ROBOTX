@@ -12,7 +12,8 @@ bool FollowPipelineNode::semanticResultSuccess(const Result & result, bool expec
 
 BT::PortsList FollowPipelineNode::providedPorts()
 {
-  return {BT::InputPort<bool>("enable")};
+  return {BT::InputPort<bool>("enable"),
+    BT::InputPort<bool>("reverse", false, "follow the pipe backwards (stern first)")};
 }
 
 FollowPipelineNode::FollowPipelineNode(
@@ -26,6 +27,7 @@ FollowPipelineNode::Goal FollowPipelineNode::makeGoal()
 {
   Goal goal;
   goal.enable = input<bool>("enable");
+  goal.reverse = getInput<bool>("reverse").value_or(false);
   return goal;
 }
 

@@ -14,7 +14,7 @@ from launch_ros.actions import SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
 
 
-# ArduSub SITL only. MAVROS is not started by any launch file: run tools/scripts/launch_mavros.sh.
+# ArduSub SITL only. MAVROS is not started by any launch file: run tools/scripts/run/launch_mavros.sh.
 def generate_launch_description():
     use_sim_arg = DeclareLaunchArgument(
         name="use_sim",
@@ -54,6 +54,12 @@ def generate_launch_description():
             "Optional extra ArduPilot .parm file for sim_vehicle.py (fault injection, e.g. "
             "config/sim_faults/dead_thrusters_2_3.parm). Simulation only."
         ),
+    )
+
+    site_arg = DeclareLaunchArgument(
+        name="site",
+        default_value="",
+        description="Simulation GPS home: empty = RATBeach (Long Beach), 'marina_bay' = Marina Bay, Singapore.",
     )
 
     headless_arg = DeclareLaunchArgument(
@@ -115,8 +121,8 @@ def generate_launch_description():
 
     _ardusub_sitl_base_cmd = [
         "sim_vehicle.py",
-        "-L",
-        "RATBeach",
+        PythonExpression(["'--custom-location=1.2816,103.8636,0,270' if '", LaunchConfiguration("site"),
+                          "' == 'marina_bay' else '--location=RATBeach'"]),
         "-v",
         "ArduSub",
         "-f",
@@ -125,7 +131,9 @@ def generate_launch_description():
         "--out=udp:0.0.0.0:14550",
         "--out=udp:127.0.0.1:14551",
         "--out=udp:127.0.0.1:14552",
-        "--mavproxy-args=--streamrate=10",
+        # 25 Hz of sim time: on a slow machine (0.34x real time on an iGPU) 10 Hz gave poses up to 0.6 s of wall time
+        # apart, past vehicle execution's 0.5 s pose freshness for the position hold, and the readiness latched off.
+        "--mavproxy-args=--streamrate=25",
         "-w",
         "--add-param-file=" + _banyu_defaults_file,
         "--add-param-file=" + _sim_only_file,
@@ -172,6 +180,7 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
+            site_arg,
             use_sim_arg,
             use_ardusub_sitl_arg,
             use_sim_time_arg,

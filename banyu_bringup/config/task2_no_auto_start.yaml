@@ -1,0 +1,6 @@
+# Loaded last with auto_start:=False (launch_task2.sh --no-auto-start): SB Up only arms the switch; the run starts from
+# prepare_autonomy and the GCS CMD_RUN_START (RoboCommand), so the reports carry RoboCommand's run.
+banyu_mission:
+  ros__parameters:
+    mission:
+      auto_start_on_auto: false

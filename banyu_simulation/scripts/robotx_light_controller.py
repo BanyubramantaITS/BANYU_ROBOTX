@@ -54,6 +54,20 @@ import gz.msgs10.visual_pb2 as visual_pb2
 import gz.msgs10.boolean_pb2 as bool_pb2
 import gz.msgs10.magnetometer_pb2 as mag_pb2
 import gz.msgs10.pose_v_pb2 as pose_v_pb2
+import gz.msgs10.clock_pb2 as clock_pb2
+
+# Every light timing (flash code, magnet hold) runs on the simulation clock: the camera, the detector and the decoder
+# see sim time, so a wall-clock flash looks shorter when the sim runs slower than real time (at 0.3x a 1 s flash was
+# 0.3 s and the decoder dropped every one). Wall time only until the first clock message.
+_SIM_TIME = [None]
+
+
+def sim_now():
+    return _SIM_TIME[0] if _SIM_TIME[0] is not None else time.time()
+
+
+def _on_clock(msg):
+    _SIM_TIME[0] = msg.sim.sec + msg.sim.nsec * 1e-9
 
 # ROS 2 Integration
 HAS_ROS2 = False
@@ -124,7 +138,7 @@ class LightNodeState:
 
     @property
     def total_field_mT(self):
-        now = time.time()
+        now = sim_now()
         eff_injected = self.injected_field_mT if now < self.injected_until else 0.0
         return self.raw_sensor_field_mT + eff_injected
 
@@ -135,7 +149,7 @@ class LightNodeState:
     @property
     def current_hold_duration_ms(self):
         if self.magnet_above_threshold_start is not None:
-            return max(0, int((time.time() - self.magnet_above_threshold_start) * 1000))
+            return max(0, int((sim_now() - self.magnet_above_threshold_start) * 1000))
         return 0
 
     def to_status_dict(self):
@@ -159,6 +173,8 @@ class RobotXPipelineController:
     def __init__(self, world_name="pipeline_lights"):
         self.world_name = world_name
         self.gz_node = gz_transport.Node()
+        self.gz_node.subscribe(clock_pb2.Clock, "/clock", _on_clock)
+        self.gz_node.subscribe(clock_pb2.Clock, f"/world/{world_name}/clock", _on_clock)
         self.lock = threading.RLock()
         self.running = True
 
@@ -170,6 +186,16 @@ class RobotXPipelineController:
         self.disruptive_first_color = "RED"       # Tin color to retrieve (1st flash)
         self.disruptive_second_color = "BLUE"     # Target circle destination (2nd flash)
         self.challenge_active = True
+
+        # Scenario (build guide faults on a FUNCTIONAL node): BANYU_LIGHT_FAULT="<node>:thermistor|mag|hot", e.g. "3:mag".
+        # thermistor blinks RED every 500 ms, mag every 250 ms, hot switches the LEDs off.
+        self.fault_node, self.fault_kind = None, None
+        fault = os.environ.get("BANYU_LIGHT_FAULT", "").strip()
+        if fault:
+            node_text, _, kind = fault.partition(":")
+            if kind in ("thermistor", "mag", "hot") and node_text.isdigit():
+                self.fault_node, self.fault_kind = int(node_text), kind
+                print(f"[Pipeline] Fault scenario: node {self.fault_node} {kind}")
 
         env_seed = os.environ.get("BANYU_LIGHT_SEED", os.environ.get("ROBOTX_SEED", "")).strip()
         if env_seed:
@@ -350,7 +376,7 @@ class RobotXPipelineController:
                 # Magnetic switch is at the top of the node lid (z + 0.0414)
                 switch_pos = (target_pos[0], target_pos[1], target_pos[2] + 0.0414)
                 dist = math.dist(tip_pos, switch_pos)
-                now = time.time()
+                now = sim_now()
                 with self.lock:
                     node = self.nodes[self.damaged_node_id]
                     if dist < 0.15:
@@ -593,7 +619,7 @@ class RobotXPipelineController:
         with self.lock:
             node = self.nodes.get(node_id)
             if node:
-                now = time.time()
+                now = sim_now()
                 node.injected_field_mT = field_mT
                 node.injected_until = now + duration_s
                 if node.state == "MANUAL_OVERRIDE":
@@ -755,7 +781,7 @@ class RobotXPipelineController:
 
     def update_state_machine(self):
         """Run non-blocking RobotX Task 2 state machine step for all nodes."""
-        now = time.time()
+        now = sim_now()
         to_actuate = []
 
         with self.lock:
@@ -771,6 +797,20 @@ class RobotXPipelineController:
                         node.magnet_above_threshold_start = now
                 else:
                     node.magnet_above_threshold_start = None
+
+                # A node fault (scenario): a functional node that blinks RED or is dark.
+                if node.role == "FUNCTIONAL" and idx == self.fault_node:
+                    if self.fault_kind == "hot":
+                        name = "OFF"
+                    else:
+                        half = 0.5 if self.fault_kind == "thermistor" else 0.25
+                        name = "RED" if (now % (2 * half)) < half else "OFF"
+                    node.state = f"FAULT_{self.fault_kind.upper()}"
+                    if node.active_color_name != name:
+                        node.active_color_name = name
+                        node.active_rgb = COLOR_MAP[name]
+                        to_actuate.append((idx, COLOR_MAP[name]))
+                    continue
 
                 # Functional segments remain solid green throughout
                 if node.role == "FUNCTIONAL":
@@ -915,7 +955,7 @@ class RobotXPipelineController:
 
     def broadcast_status(self):
         """Broadcast live condition of each node and the overall pipeline."""
-        now = time.time()
+        now = sim_now()
         pipeline_status = {
             "tier": self.tier,
             "damaged_node_id": self.damaged_node_id,

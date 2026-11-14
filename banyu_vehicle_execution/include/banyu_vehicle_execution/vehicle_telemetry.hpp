@@ -5,10 +5,14 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <string>
+#include <vector>
 
 #include "rclcpp/rclcpp.hpp"
 #include "banyu_msgs/msg/detection.hpp"
+#include "banyu_vehicle_execution/course_fence.hpp"
+#include "banyu_vehicle_execution/task4_zones.hpp"
 
 namespace banyu_vehicle_execution
 {
@@ -102,6 +106,11 @@ struct VehicleTelemetry
   double pipeline_offset_y{0.0};
   double pipeline_heading_error_rad{0.0};
   double pipeline_confidence{0.0};
+  double pipeline_width{std::numeric_limits<double>::quiet_NaN()};
+
+  // Range to the pipe from its apparent width.
+  bool camera_range_valid{false};
+  double camera_range_m{0.0};
 
   // Ring observation
   bool ring_obs_valid{false};
@@ -111,6 +120,77 @@ struct VehicleTelemetry
   double ring_offset_x{0.0};
   double ring_offset_y{0.0};
   double ring_confidence{0.0};
+  double ring_size{0.0};
+
+  // Light seen with no pipe in view (detector light_cue topic): a steering cue only, never a ring record.
+  bool light_cue_valid{false};
+  rclcpp::Time light_cue_stamp{};
+  bool light_cue_visible{false};
+  uint8_t light_cue_color{0};
+  double light_cue_offset_x{0.0};
+  double light_cue_offset_y{0.0};
+  double light_cue_confidence{0.0};
+
+  // Task 4 keep-out zones (RoboCommand), run-scoped; the moving object is predicted from its receipt time.
+  ZoneField zones;
+  rclcpp::Time zones_moving_stamp{};
+  std::vector<double> keep_out_latitude_deg{};
+  std::vector<double> keep_out_longitude_deg{};
+  double keep_out_radius_m{0.0};
+
+  // Zones as capsules around the last known position (the last GPS fix when under water).
+  std::vector<Capsule> zonesAroundVehicle(const rclcpp::Time & now) const
+  {
+    const double age = zones_moving_stamp.nanoseconds() != 0 ? (now - zones_moving_stamp).seconds() : 0.0;
+    return zonesAround(zones, latitude_deg, longitude_deg, std::max(0.0, age));
+  }
+
+  // Fixed surface obstacles per source (e.g. the UAV's Task 1 buoy field); NavigateSurfaceGps detours round them.
+  struct SurfaceObstacle
+  {
+    double latitude_deg{0.0};
+    double longitude_deg{0.0};
+    double radius_m{0.0};
+  };
+  std::map<std::string, std::vector<SurfaceObstacle>> surface_obstacles{};
+  // Added to every surface obstacle radius: GPS error between the reporting vehicle and this one, plus the hull.
+  double surface_obstacle_margin_m{0.75};
+
+  std::vector<Capsule> surfaceObstaclesAroundVehicle() const
+  {
+    std::vector<Capsule> discs;
+    for (const auto & [source, list] : surface_obstacles) {
+      for (const auto & o : list) {
+        const Vec2 c = enuOffset(latitude_deg, longitude_deg, o.latitude_deg, o.longitude_deg);
+        discs.push_back(Capsule{c, c, o.radius_m + surface_obstacle_margin_m, false});
+      }
+    }
+    return discs;
+  }
+
+  // Course boundary (GCS /system/mission/course); NavigateSurfaceGps keeps its goal inside it.
+  CourseFence fence;
+  // Goals farther than this outside the boundary are refused instead of pulled inside.
+  double fence_reject_outside_m{20.0};
+
+  std::vector<Vec2> fenceAroundVehicle() const
+  {
+    return fenceAround(fence, latitude_deg, longitude_deg);
+  }
+
+  // Known buoys as planar ENU offsets from the vehicle.
+  std::vector<Vec2> buoysAroundVehicle() const
+  {
+    std::vector<Vec2> buoys;
+    const std::size_t count = std::min(keep_out_latitude_deg.size(), keep_out_longitude_deg.size());
+    for (std::size_t i = 0; i < count; ++i) {
+      if (!std::isfinite(keep_out_latitude_deg[i]) || !std::isfinite(keep_out_longitude_deg[i])) {
+        continue;
+      }
+      buoys.push_back(enuOffset(latitude_deg, longitude_deg, keep_out_latitude_deg[i], keep_out_longitude_deg[i]));
+    }
+    return buoys;
+  }
 
   // Guidance velocity intent (for FollowPipeline)
   bool guidance_intent_valid{false};
@@ -127,8 +207,6 @@ struct VehicleTelemetry
   double pinger_forward{0.0};
   double pinger_left{0.0};
   double pinger_bearing_rad{0.0};
-  double pinger_elevation_cos{0.0};
-  double pinger_horizontal_range_m{0.0};
 
   // Best POR detection. The stamp is the receipt/header stamp used by the
   // execution watchdog; controllers must not command from stale imagery.

@@ -10,7 +10,7 @@ This package contains launch files and bringup configurations for running the **
 
 Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL (`sitl.launch.py`), and the mission stack.
 
-> **No launch file starts MAVROS.** Run it on its own with `tools/scripts/launch_mavros.sh`
+> **No launch file starts MAVROS.** Run it on its own with `tools/scripts/run/launch_mavros.sh`
 > (`--sim` for sim time) and keep it running while the stack is relaunched.
 
 #### Usage Commands
@@ -22,8 +22,10 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL (`sit
 
 - **Full Simulation — Task 2 (Underwater Pipeline & Rings)**:
   ```bash
-  ros2 launch banyu_bringup main_launch.launch.py mode:=task2
+  ./tools/scripts/run/launch_task2.sh --sim     # operator wrapper (see --help)
+  ./tools/scripts/run/launch_mavros.sh --sim    # separate terminal
   ```
+  Scored sim batches (start MAVROS themselves): `tools/scripts/sim/task2_sim_batch.sh --help`.
 
 - **Bare ArduSub SITL Mode**:
   ```bash
@@ -39,10 +41,14 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL (`sit
 
 - **Real Hardware Bringup Mode (onboard BlueROV2 / Mini-PC)**:
   ```bash
-  ./tools/scripts/launch_mavros.sh          # separate terminal, after run_mavproxy.sh
+  ./tools/scripts/run/launch_mavros.sh          # separate terminal, after run_mavproxy.sh
   ros2 launch banyu_bringup sub_bringup.launch.py mode:=por
+  ./tools/scripts/run/launch_task2.sh --real    # Task 2 (checks devices, MAVROS and ROS_DOMAIN_ID=40 first)
+  ./tools/scripts/run/launch_task2.sh --real --test-mission   # Task 2 test: midpoint, 1 m dive, forward/back, report
   ```
   *(Launches `banyu_teleop` safety switches, `usb_cam` cameras, and the mission stack)*
+  Devices (udev names), kill switch protocol, RTK GPS bridge and debug scripts:
+  [`docs/hardware_setup.md`](../docs/hardware_setup.md).
 
 
 ---
@@ -56,10 +62,13 @@ Full simulation bringup script that composes Gazebo Harmonic, ArduSub SITL (`sit
 | `use_sim_time` | `True` / `False` | `True` | Sets `use_sim_time` parameter for ROS 2 nodes. |
 | `use_ardusub_sitl` | `True` / `False` | `True` | Uses `sim_vehicle.py` SITL wrapper (UDP 14550 for QGC) when `True`; uses bare `ardusub` when `False`. |
 | `use_gps` | `True` / `False` | `True` (`main_launch`); `sub_bringup`: `False` for `por`, `True` for `task2` | `False` removes the SITL GPS from boot and starts `nogps_odom_beacon` (GPS-denied, like the real AUV in POR). `launch_por.sh --sim` and `launch_sim.sh por` pass `False`. |
+| `sensors` | `full` / `baro` / `gamble` | `full` | Task 2 sensor profile (`config/task2_sensors_<s>.yaml`): `full` = Bar30 + ALT_HOLD, dive to the fixed inspection depth; `baro` = Bar30 + ALT_HOLD, the dive stops by camera at the pipe (Bar30 as the floor), pipe-width standoff, dive point 1.5 m inside the start buoy, ring order dead-reckoned along the buoy line; `gamble` = GPS to the dive point (`dive_point:=auto`, the default, is `midpoint` for gamble), Bar30 dive to `mission.gamble.depth_m`, timed forward/backward, sway and yaw legs at that depth, guessed order. Every profile takes depth from the Bar30; a Bar30 fault makes the depth invalid for the rest of the run (no GPS fallback). `launch_task2.sh --sensors`. |
+| `use_hydrophone` | `True` / `False` | `False` | Task 2 only. Opt in to the hydrophone: `pinger_localization`, the sim `HydrophoneArray` plugin and bridge, pinger homing in `SearchPipeline` and pinger corrections in `underwater_odometry_node` (`config/task2_hydrophone_on.yaml`). The competition UUV has no hydrophone; with `False` nothing publishes `/banyu/pinger/observation` and no decision reads pinger data. `launch_task2.sh --hydrophone`. |
+| `test_mission` | `True` / `False` | `False` | Task 2 only. Fly `task2_test_mission.xml` instead of the survey: GPS to the midpoint between the USV buoys, face the end buoy, dive to 1 m, timed forward and backward legs, surface, Core report (`config/task2_test_mission.yaml`, `docs/task2_test_mission.md`). `launch_task2.sh --test-mission`. |
 | `record` | `True` / `False` | `True` (`sub_bringup`), `False` (`main_launch`) | Records the run to a rosbag, see [Mission Recording](#-mission-recording). In sim the bag uses sim time and includes the ground truth `/sim/ground_truth/odom` (POR). |
 | `record_images` | `True` / `False` | `True` (`sub_bringup`), `False` (`main_launch`) | Includes compressed camera images in the bag. Raw images are never recorded. |
 | `por_params_file` | path | `config/por_params_timed_safe.yaml` | POR profile. Profiles: `por_params_timed_safe.yaml`, `por_params_timed_fastest.yaml`, `por_params_replay.yaml` (see `docs/por/README.md` §2). One file serves RC and no-RC runs. |
-| `bypass_rc` | `True` / `False` | `False` | No transmitter: POR vehicle status ignores RC freshness and takes the mode from the ESP32 trigger. Use with `enable_teleop:=False enable_esp32_trigger:=True`; `launch_por.sh --no-rc` sets all three. |
+| `bypass_rc` | `True` / `False` | `False` | No transmitter: vehicle status (POR and Task 2) ignores RC freshness and takes the mode from the ESP32 trigger (`/banyu/trigger/command` service, or `/banyu/trigger/cmd`: `'2'` auto, `'1'` manual, `'0'` kill; Task 2 starts MANUAL). Use with `enable_teleop:=False enable_esp32_trigger:=True`; `launch_por.sh --no-rc` and `launch_task2.sh --no-rc` set all three. |
 | `replay_track` | `latest`, a name or a path | `latest` | Teach track flown by profiles with `use_replay: true` (newest `.csv` in `$BANYU_REPLAY_DIR`, default `~/banyu_replays`). See `docs/por/README.md` §4.8. |
 
 ---
@@ -82,7 +91,7 @@ Each run goes to `~/banyu_bags/<YYYYmmdd_HHMMSS>_<mode>/` (override with `BANYU_
 - `run_info.txt`: start/stop time, host, git commit and recorder settings.
 - `params/`: a copy of the parameter YAML (profile) the run used.
 
-`tools/scripts/launch_por.sh --real` records by default and names the folder after the
+`tools/scripts/por/launch_por.sh --real` records by default and names the folder after the
 profile (e.g. `20261026_133006_por_timed_safe`). It shows the bag location and free disk
 in its banner, and takes `--no-record` and `--no-record-images`.
 

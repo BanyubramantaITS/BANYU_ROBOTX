@@ -55,6 +55,79 @@ def generate_launch_description():
         choices=["True", "False"],
     )
 
+    debug_topics_arg = DeclareLaunchArgument(
+        name="debug_topics",
+        default_value="False",
+        description="Task 2: publish the pipeline detector's annotated frame and masks on /banyu/pipeline/debug/* "
+        "(view with rqt_image_view; works without a display, recorded as compressed images).",
+        choices=["True", "False"],
+    )
+
+    tier_arg = DeclareLaunchArgument(
+        name="tier",
+        default_value="core",
+        description="Task 2 tier the UUV attempts: 'core' (2), 'advanced' (3) or 'disruptive' (4). "
+        "Sets the mission, survey evidence, report and flash-code decoder tier.",
+        choices=["core", "advanced", "disruptive"],
+    )
+
+    sensors_arg = DeclareLaunchArgument(
+        name="sensors",
+        default_value="full",
+        description="Task 2 sensor set (always the Bar30): 'full' (ALT_HOLD, dive to the fixed depth), 'baro' (ALT_HOLD, dive stopped by camera, "
+        "order dead-reckoned) or 'gamble' (Bar30 + surface GPS, timed dive, guessed light order).",
+        choices=["full", "baro", "gamble"],
+    )
+
+    use_hydrophone_arg = DeclareLaunchArgument(
+        name="use_hydrophone",
+        default_value="False",
+        description="Task 2: opt in to the hydrophone (pinger_localization and pinger homing). The competition "
+        "vehicle has none; with False no node reads pinger data.",
+        choices=["True", "False"],
+    )
+
+    dive_point_arg = DeclareLaunchArgument(
+        name="dive_point",
+        default_value="auto",
+        description="Task 2 dive point: 'buoy' (inside the start buoy, one traverse), 'midpoint' (midway between the "
+        "buoys facing the end buoy, back up to the pipe's start, then survey forward) or 'auto' (= midpoint).",
+        choices=["auto", "buoy", "midpoint"],
+    )
+
+    test_mission_arg = DeclareLaunchArgument(
+        name="test_mission",
+        default_value="False",
+        description="Task 2: fly the test mission (task2_test_mission.xml: the USV waypoint by GPS, dive, timed forward "
+        "and backward legs, surface, Core report) instead of the survey.",
+        choices=["True", "False"],
+    )
+
+    waypoint_mission_arg = DeclareLaunchArgument(
+        name="waypoint_mission",
+        default_value="False",
+        description="Task 2: fly the waypoint navigation & communication test mission (task2_waypoint_mission.xml) "
+        "instead of the survey.",
+        choices=["True", "False"],
+    )
+
+    auto_start_arg = DeclareLaunchArgument(
+        name="auto_start",
+        default_value="True",
+        description="Task 2: False turns off the waypoint mission's start on SB Up (mission.auto_start_on_auto); the run "
+        "then starts only from prepare_autonomy and the GCS CMD_RUN_START.",
+        choices=["True", "False"],
+    )
+
+    scenario_args = [
+        DeclareLaunchArgument(name=n, default_value="0.0", description="Simulation scenario, see main_launch.launch.py")
+        for n in ("pipe_dx", "pipe_dy", "pipe_dyaw_deg", "buoy_error_x", "buoy_error_y")
+    ] + [DeclareLaunchArgument(
+        name="gamble_red", default_value="2,3",
+        description="sensors:=gamble: RED positions, 1 = closest to the active buoy; '2,3' = one of them at random, '3' = always 3.",
+    ), DeclareLaunchArgument(
+        name="site", default_value="", description="Simulation site overlay: empty = none, 'marina_bay'.")]
+
     task2_params_arg = DeclareLaunchArgument(
         name="task2_params_file",
         default_value=default_task2_params,
@@ -83,7 +156,7 @@ def generate_launch_description():
     enable_esp32_bridge_arg = DeclareLaunchArgument(
         name="enable_esp32_bridge",
         default_value="False",
-        description="Whether to launch esp32_bridge_node (False when banyu_teleop owns /dev/ttyUSB0)",
+        description="Whether to launch esp32_bridge_node (False when banyu_teleop owns /dev/esp32_kill)",
         choices=["True", "False"],
     )
 
@@ -91,8 +164,8 @@ def generate_launch_description():
         name="bypass_rc",
         default_value="False",
         description=(
-            "No transmitter: POR vehicle status ignores RC freshness and takes the mode from "
-            "the ESP32 trigger (launch_por.sh --no-rc)."
+            "No transmitter: vehicle status ignores RC freshness and takes the mode from "
+            "the ESP32 trigger /banyu/trigger/cmd (launch_por.sh / launch_task2.sh --no-rc)."
         ),
         choices=["True", "False"],
     )
@@ -122,6 +195,44 @@ def generate_launch_description():
     use_sim = LaunchConfiguration("use_sim")
     debug = LaunchConfiguration("debug")
     task2_params = LaunchConfiguration("task2_params_file")
+    # One small overlay file per tier, loaded after the params file: a later file wins, while a dict or a -p
+    # override in this launch did not (launch_ros puts its parameter files after the arguments).
+    task2_tier_file = PythonExpression(
+        ["'", banyu_bringup_share, "/config/task2_tier_' + '", LaunchConfiguration("tier"), "' + '.yaml'"]
+    )
+    task2_sensors_file = PythonExpression(
+        ["'", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"), "' + '.yaml'"]
+    )
+    # Simulation only: the site's coordinates (a no-op re-load of the sensors overlay when there is no site or on hardware).
+    task2_site_file = PythonExpression([
+        "'", banyu_bringup_share, "/config/task2_site_' + '", LaunchConfiguration("site"), "' + '.yaml' if '",
+        LaunchConfiguration("site"), "' and '", LaunchConfiguration("use_sim"), "'.lower() == 'true' else '",
+        banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"), "' + '.yaml'"])
+    # Hydrophone opt-in overlay (a no-op re-load of the sensors overlay when off).
+    task2_hydrophone_file = PythonExpression([
+        "'", banyu_bringup_share, "/config/task2_hydrophone_on.yaml' if '", LaunchConfiguration("use_hydrophone"),
+        "'.lower() == 'true' else '", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"),
+        "' + '.yaml'"])
+    # Dive point overlay for midpoint and auto (= midpoint; a no-op re-load of the sensors overlay for buoy).
+    task2_dive_file = PythonExpression([
+        "'", banyu_bringup_share, "/config/task2_dive_midpoint.yaml' if '", LaunchConfiguration("dive_point"),
+        "' != 'buoy' else '", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"),
+        "' + '.yaml'"])
+    # Test mission overlay, loaded last (a no-op re-load of the sensors overlay when off).
+    task2_test_file = PythonExpression([
+        "'", banyu_bringup_share, "/config/task2_test_mission.yaml' if '", LaunchConfiguration("test_mission"),
+        "'.lower() == 'true' else '", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"),
+        "' + '.yaml'"])
+    # Waypoint test mission overlay, loaded last (a no-op re-load of the sensors overlay when off).
+    task2_waypoint_file = PythonExpression([
+        "'", banyu_bringup_share, "/config/task2_waypoint_mission.yaml' if '", LaunchConfiguration("waypoint_mission"),
+        "'.lower() == 'true' else '", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"),
+        "' + '.yaml'"])
+    # Turns off the SB Up auto-start, loaded after the waypoint overlay (a no-op re-load of the sensors overlay when on).
+    task2_auto_start_file = PythonExpression([
+        "'", banyu_bringup_share, "/config/task2_no_auto_start.yaml' if '", LaunchConfiguration("auto_start"),
+        "'.lower() == 'false' else '", banyu_bringup_share, "/config/task2_sensors_' + '", LaunchConfiguration("sensors"),
+        "' + '.yaml'"])
     por_params = LaunchConfiguration("por_params_file")
     hardware_params = LaunchConfiguration("hardware_params_file")
 
@@ -167,13 +278,19 @@ def generate_launch_description():
             {
                 "mission_mode": mode,
             },
+            task2_tier_file,
+            task2_sensors_file,
+            task2_site_file,
+            task2_dive_file,
+            task2_test_file,
+            task2_waypoint_file,
+            task2_auto_start_file,
         ],
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
 
-    use_compressed_image = ParameterValue(
-        EqualsSubstitution(use_sim, "False"), value_type=bool
-    )
+    on_robot = ParameterValue(EqualsSubstitution(use_sim, "False"), value_type=bool)
+    use_compressed_image = on_robot
 
     por_detection = Node(
         package="banyu_detection",
@@ -230,7 +347,15 @@ def generate_launch_description():
         package="banyu_bringup",
         executable="task2_sim_provider.py",
         name="task2_sim_provider",
-        parameters=[task2_params],
+        parameters=[
+            task2_params,
+            task2_hydrophone_file,
+            {
+                f"scenario_{n}": ParameterValue(
+                    PythonExpression(["'", LaunchConfiguration(n), "' or '0.0'"]), value_type=float)
+                for n in ("pipe_dx", "pipe_dy", "pipe_dyaw_deg", "buoy_error_x", "buoy_error_y")
+            },
+        ],
         output="screen",
         condition=IfCondition(task2_fixture_mode),
     )
@@ -241,7 +366,12 @@ def generate_launch_description():
         name="task2_pipeline_detector",
         parameters=[
             task2_params,
-            {"use_gui": debug, "use_compressed_image": use_compressed_image},
+            {
+                "use_gui": debug,
+                "use_compressed_image": use_compressed_image,
+                "apply_image_rotation": on_robot,
+                "publish_debug_images": ParameterValue(LaunchConfiguration("debug_topics"), value_type=bool),
+            },
         ],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
@@ -254,6 +384,9 @@ def generate_launch_description():
         name="banyu_vehicle_status",
         parameters=[
             task2_params,
+            task2_sensors_file,
+            task2_test_file,
+            task2_waypoint_file,
             {
                 "default_operational_mode": ParameterValue(
                     default_op_mode_expr,
@@ -265,6 +398,7 @@ def generate_launch_description():
                     ),
                     value_type=str,
                 ),
+                "bypass_rc": ParameterValue(LaunchConfiguration("bypass_rc"), value_type=bool),
             },
         ],
         output="screen",
@@ -275,7 +409,7 @@ def generate_launch_description():
         package="banyu_detection",
         executable="ring_tracker_node",
         name="ring_tracker",
-        parameters=[task2_params, task2_hardware_override],
+        parameters=[task2_params, task2_hardware_override, task2_sensors_file, task2_dive_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -293,7 +427,10 @@ def generate_launch_description():
         package="banyu_communication",
         executable="uuv_comm_node",
         name="uuv_comm_node",
-        parameters=[task2_params],
+        parameters=[
+            task2_params, task2_tier_file, task2_sensors_file, task2_site_file, task2_test_file, task2_waypoint_file,
+            {"survey.gamble_red_positions": ParameterValue(LaunchConfiguration("gamble_red"), value_type=str)},
+        ],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -311,7 +448,7 @@ def generate_launch_description():
         package="banyu_vehicle_execution",
         executable="vehicle_execution_node",
         name="vehicle_execution_node",
-        parameters=[task2_params],
+        parameters=[task2_params, task2_sensors_file, task2_hydrophone_file, task2_test_file, task2_waypoint_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -320,7 +457,7 @@ def generate_launch_description():
         package="banyu_detection",
         executable="pipeline_end_node",
         name="pipeline_end_node",
-        parameters=[task2_params],
+        parameters=[task2_params, task2_dive_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -329,7 +466,16 @@ def generate_launch_description():
         package="banyu_vehicle_execution",
         executable="calibrated_depth_node",
         name="calibrated_depth_node",
-        parameters=[task2_params],
+        parameters=[task2_params, task2_sensors_file],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+    )
+
+    task2_underwater_odometry = Node(
+        package="banyu_vehicle_execution",
+        executable="underwater_odometry_node",
+        name="underwater_odometry_node",
+        parameters=[task2_params, task2_hydrophone_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -338,7 +484,16 @@ def generate_launch_description():
         package="banyu_detection",
         executable="survey_evidence_node",
         name="survey_evidence_node",
-        parameters=[task2_params],
+        parameters=[task2_params, task2_tier_file],
+        output="screen",
+        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+    )
+
+    task2_resource_code_decoder = Node(
+        package="banyu_detection",
+        executable="resource_code_decoder_node",
+        name="resource_code_decoder",
+        parameters=[task2_params, task2_tier_file],
         output="screen",
         condition=IfCondition(EqualsSubstitution(mode, "task2")),
     )
@@ -349,7 +504,8 @@ def generate_launch_description():
         name="pinger_localization",
         parameters=[task2_params],
         output="screen",
-        condition=IfCondition(EqualsSubstitution(mode, "task2")),
+        condition=IfCondition(AndSubstitution(
+            EqualsSubstitution(mode, "task2"), EqualsSubstitution(LaunchConfiguration("use_hydrophone"), "True"))),
     )
 
     active_params = PythonExpression([
@@ -390,11 +546,19 @@ def generate_launch_description():
         ),
     )
     return LaunchDescription(
-        [
+        scenario_args + [
             mode_arg,
             use_sim_arg,
             use_sim_time_arg,
             debug_arg,
+            debug_topics_arg,
+            tier_arg,
+            sensors_arg,
+            use_hydrophone_arg,
+            dive_point_arg,
+            test_mission_arg,
+            waypoint_mission_arg,
+            auto_start_arg,
             task2_params_arg,
             por_params_arg,
             hardware_params_arg,
@@ -418,7 +582,9 @@ def generate_launch_description():
             task2_vehicle_execution,
             task2_pipeline_end,
             task2_calibrated_depth,
+            task2_underwater_odometry,
             task2_survey_evidence,
+            task2_resource_code_decoder,
             task2_pinger_localization,
             esp32_bridge,
             esp32_trigger,

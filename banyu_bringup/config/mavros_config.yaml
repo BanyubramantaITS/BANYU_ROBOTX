@@ -24,7 +24,7 @@
 # Process-level params of the mavros executable (declared in its main).
 mavros:
   ros__parameters:
-    # fcu_url and use_sim_time are passed by tools/scripts/launch_mavros.sh.
+    # fcu_url and use_sim_time are passed by tools/scripts/run/launch_mavros.sh.
     gcs_url: ""
     tgt_system: 1
     tgt_component: 1

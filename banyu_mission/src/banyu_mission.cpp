@@ -3,13 +3,17 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <mutex>
 #include <utility>
 #include <vector>
 #include <cstdlib>
 #include <filesystem>
 #include <random>
 #include <sstream>
+#include <stdexcept>
 #include "rx_msgs/msg/rx_task.hpp"
+#include "std_msgs/msg/bool.hpp"
+#include "banyu_msgs/msg/task4_zones.hpp"
 #include "rx_msgs/msg/vehicle_type.hpp"
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
@@ -31,20 +35,23 @@ bool finite(double value)
   return std::isfinite(value);
 }
 
-class WaitSurveyComplete : public BT::StatefulActionNode
+// Polls a check every tick: RUNNING until it reports SUCCESS or FAILURE.
+class WaitUntil : public BT::StatefulActionNode
 {
 public:
-  WaitSurveyComplete(
+  WaitUntil(
     const std::string & name, const BT::NodeConfig & config,
-    std::function<BT::NodeStatus()> check)
-  : StatefulActionNode(name, config), check_(std::move(check)) {}
+    std::function<BT::NodeStatus()> check,
+    std::function<void()> on_halt = {})
+  : StatefulActionNode(name, config), check_(std::move(check)), on_halt_(std::move(on_halt)) {}
   static BT::PortsList providedPorts() {return {};}
   BT::NodeStatus onStart() override {return check_();}
   BT::NodeStatus onRunning() override {return check_();}
-  void onHalted() override {}
+  void onHalted() override {if (on_halt_) {on_halt_();}}
 
 private:
   std::function<BT::NodeStatus()> check_;
+  std::function<void()> on_halt_;
 };
 
 class MissionTreeLogger : public BT::StatusChangeLogger
@@ -96,18 +103,102 @@ void registerMissionNodes(
   std::function<void()> on_abort,
   std::function<BT::NodeStatus()> on_survey_complete,
   std::function<BT::NodeStatus()> on_surface_success,
-  std::function<BT::NodeStatus()> on_lock_buoy_target)
+  std::function<BT::NodeStatus()> on_lock_buoy_target,
+  std::function<BT::NodeStatus()> on_give_up_survey,
+  std::function<BT::NodeStatus()> on_shift_buoy_target,
+  std::function<BT::NodeStatus()> on_wait_buoy_target)
 {
   registerConditionNodes(factory, state);
   registerActionNodes(factory, node, state, std::move(on_abort));
   if (!on_survey_complete) {on_survey_complete = []() {return BT::NodeStatus::FAILURE;};}
   if (!on_surface_success) {on_surface_success = []() {return BT::NodeStatus::FAILURE;};}
-  factory.registerNodeType<WaitSurveyComplete>("WaitSurveyComplete", on_survey_complete);
+  factory.registerNodeType<WaitUntil>("WaitSurveyComplete", on_survey_complete);
   factory.registerSimpleAction("ConfirmSurfaceAction",
     [on_surface_success](BT::TreeNode &) {return on_surface_success();});
   if (!on_lock_buoy_target) {on_lock_buoy_target = []() {return BT::NodeStatus::SUCCESS;};}
   factory.registerSimpleAction("LockBuoyTarget",
     [on_lock_buoy_target](BT::TreeNode &) {return on_lock_buoy_target();});
+  if (!on_give_up_survey) {on_give_up_survey = []() {return BT::NodeStatus::FAILURE;};}
+  factory.registerSimpleAction("GiveUpSurvey",
+    [on_give_up_survey](BT::TreeNode &) {return on_give_up_survey();});
+  if (!on_shift_buoy_target) {on_shift_buoy_target = []() {return BT::NodeStatus::SUCCESS;};}
+  factory.registerSimpleAction("ShiftBuoyTarget",
+    [on_shift_buoy_target](BT::TreeNode &) {return on_shift_buoy_target();});
+  if (!on_wait_buoy_target) {on_wait_buoy_target = []() {return BT::NodeStatus::SUCCESS;};}
+  factory.registerNodeType<WaitUntil>("WaitForBuoyTarget", on_wait_buoy_target);
+  // Task 4: after the report, stay on the surface (the vehicle execution keeps it out of the zones) while a RoboCommand
+  // keep-out zone or moving object is active, then release after mission.zones.release_s without one.
+  {
+    struct ZoneWatch
+    {
+      std::mutex mutex;
+      bool active{false};
+      bool holding{false};
+      rclcpp::Time hold_start{0, 0, RCL_ROS_TIME};
+      rclcpp::Time last_active{0, 0, RCL_ROS_TIME};
+    };
+    auto watch = std::make_shared<ZoneWatch>();
+    if (!node->has_parameter("topics.task4_zones")) {
+      node->declare_parameter<std::string>("topics.task4_zones", "/banyu/task4/zones");
+    }
+    const double release_s = node->has_parameter("mission.zones.release_s") ?
+      node->get_parameter("mission.zones.release_s").as_double() :
+      node->declare_parameter<double>("mission.zones.release_s", 10.0);
+    const double max_hold_s = node->has_parameter("mission.zones.max_hold_s") ?
+      node->get_parameter("mission.zones.max_hold_s").as_double() :
+      node->declare_parameter<double>("mission.zones.max_hold_s", 600.0);
+    auto zones_sub = node->create_subscription<banyu_msgs::msg::Task4Zones>(
+      node->get_parameter("topics.task4_zones").as_string(), rclcpp::QoS(1).reliable().transient_local(),
+      [watch](banyu_msgs::msg::Task4Zones::ConstSharedPtr msg) {
+        std::lock_guard<std::mutex> lock(watch->mutex);
+        watch->active = !msg->static_radius_m.empty() || msg->moving_active;
+      });
+    factory.registerNodeType<WaitUntil>("KeepClearOfZones", std::function<BT::NodeStatus()>(
+      [node, watch, zones_sub, release_s, max_hold_s]() {
+        std::lock_guard<std::mutex> lock(watch->mutex);
+        const auto t = node->now();
+        if (watch->active) {
+          if (!watch->holding) {
+            watch->holding = true;
+            watch->hold_start = t;
+            RCLCPP_WARN(node->get_logger(), "Task 4 zone active after the report: staying on the surface, clear of it");
+          }
+          watch->last_active = t;
+          if ((t - watch->hold_start).seconds() > max_hold_s) {
+            RCLCPP_WARN(node->get_logger(), "Task 4 zone still active after %.0f s: ending the run", max_hold_s);
+            watch->holding = false;
+            return BT::NodeStatus::SUCCESS;
+          }
+          return BT::NodeStatus::RUNNING;
+        }
+        if (watch->holding && (t - watch->last_active).seconds() < release_s) {return BT::NodeStatus::RUNNING;}
+        watch->holding = false;
+        return BT::NodeStatus::SUCCESS;
+      }),
+      std::function<void()>([watch]() {
+        std::lock_guard<std::mutex> lock(watch->mutex);
+        watch->holding = false;
+      }));
+  }
+  // Ring recording on or off for the ring tracker (off while diving and backing up to the pipe's start).
+  if (!node->has_parameter("topics.ring_recording")) {
+    node->declare_parameter<std::string>("topics.ring_recording", "/banyu/mission/ring_recording");
+  }
+  auto recording_pub = node->create_publisher<std_msgs::msg::Bool>(
+    node->get_parameter("topics.ring_recording").as_string(), rclcpp::QoS(1).reliable().transient_local());
+  factory.registerSimpleAction("SetRingRecording",
+    [recording_pub, node](BT::TreeNode & tree_node) {
+      std_msgs::msg::Bool msg;
+      msg.data = tree_node.getInput<bool>("enable").value_or(true);
+      recording_pub->publish(msg);
+      RCLCPP_INFO(node->get_logger(), "Ring recording %s", msg.data ? "on" : "off");
+      return BT::NodeStatus::SUCCESS;
+    }, {BT::InputPort<bool>("enable")});
+  factory.registerSimpleAction("StartSurveyLeg",
+    [state](BT::TreeNode &) {
+      state->startSurveyLeg();
+      return BT::NodeStatus::SUCCESS;
+    });
 }
 
 BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
@@ -125,8 +216,9 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
     declare_parameter<std::string>("autonomy_mode", "GUIDED"),
     declare_parameter<std::string>("autonomy_authority", ""),
     mission_mode != "por");
+  state_->setStandbyMode(declare_parameter<std::string>("standby_mode", ""));
   declare_parameter<int>("groot_port", 1666);
-  fallback_mode_ = declare_parameter<std::string>("fallback_mode", "SURFACE");
+  fallback_mode_ = declare_parameter<std::string>("fallback_mode", "MANUAL");
   set_mode_service_ = declare_parameter<std::string>("services.set_mode", "/mavros/set_mode");
   set_mode_client_ = create_client<mavros_msgs::srv::SetMode>(set_mode_service_);
   arming_service_ = declare_parameter<std::string>("services.arming", "/mavros/cmd/arming");
@@ -136,6 +228,7 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
   reset_timeout_s_ = declare_parameter<double>("timing.run_reset_timeout_s", 3.0);
   execution_readiness_timeout_s_ = declare_parameter<double>(
     "timing.execution_readiness_timeout_s", 1.0);
+  readiness_pose_timeout_s_ = declare_parameter<double>("timing.readiness_pose_timeout_s", 1.0);
   const auto lifecycle_topic = declare_parameter<std::string>(
     "topics.run_lifecycle", "/banyu/mission/run_lifecycle");
   const auto command_topic = declare_parameter<std::string>(
@@ -149,6 +242,7 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
   const auto tier = declare_parameter<int>("mission.task2_tier", 2);
   if (tier < 2 || tier > 4) {throw std::invalid_argument("Invalid declared Task 2 tier");}
   task2_tier_ = static_cast<uint8_t>(tier);
+  auto_start_on_auto_ = declare_parameter<bool>("mission.auto_start_on_auto", false);
   const auto reset_services = declare_parameter<std::vector<std::string>>(
     "run.reset_services", {"/banyu/pipeline/reset_tracker", "/banyu/pipeline/reset_end"});
   if (mission_mode_ == "task2") {
@@ -225,7 +319,8 @@ BanyuMission::BanyuMission(const rclcpp::NodeOptions & options)
         (pose->header.stamp.sec != 0 || pose->header.stamp.nanosec != 0);
         const double source_age = (now() - rclcpp::Time(pose->header.stamp,
           get_clock()->get_clock_type())).seconds();
-        pose_valid_ = pose_valid_ && source_age >= -kMaxFutureStampS && source_age <= 1.0;
+        pose_valid_ = pose_valid_ && source_age >= -kMaxFutureStampS &&
+        source_age <= readiness_pose_timeout_s_;
         pose_received_at_ = std::chrono::steady_clock::now();
       });
     for (const auto & service : reset_services) {
@@ -331,8 +426,9 @@ bool BanyuMission::autonomousReady() const
     phase == RunCoordinator::Phase::SurveyComplete || phase == RunCoordinator::Phase::Surfaced;
   return mission_config_valid_ && vehicle.fcu_connected && vehicle.fcu_status_fresh &&
          vehicle.rc_fresh && vehicle.armed && !vehicle.operator_takeover &&
-         (underway || vehicle.gps_available) && vehicle.mode == state_->autonomyMode() && pose_valid_ &&
-         std::chrono::steady_clock::now() - pose_received_at_ < std::chrono::seconds(1);
+         (underway || vehicle.gps_available) && state_->autonomyModeAllowed(vehicle.mode) && pose_valid_ &&
+         std::chrono::duration<double>(std::chrono::steady_clock::now() - pose_received_at_).count() <
+         readiness_pose_timeout_s_;
 }
 
 std::string BanyuMission::autonomyNotReadyReason() const
@@ -347,10 +443,12 @@ std::string BanyuMission::autonomyNotReadyReason() const
   if (!vehicle.armed) {return "disarmed";}
   if (vehicle.operator_takeover) {return "operator takeover";}
   if (!underway && !vehicle.gps_available) {return "GPS unavailable";}
-  if (vehicle.mode != state_->autonomyMode()) {return "mode " + vehicle.mode;}
-  if (!pose_valid_) {return "pose invalid or stamp older than 1 s";}
-  if (std::chrono::steady_clock::now() - pose_received_at_ >= std::chrono::seconds(1)) {
-    return "pose not received for 1 s";
+  if (!state_->autonomyModeAllowed(vehicle.mode)) {return "mode " + vehicle.mode;}
+  if (!pose_valid_) {return "pose invalid or stamp too old";}
+  if (std::chrono::duration<double>(std::chrono::steady_clock::now() - pose_received_at_).count() >=
+    readiness_pose_timeout_s_)
+  {
+    return "pose not received within timing.readiness_pose_timeout_s";
   }
   return "ready";
 }
@@ -359,7 +457,7 @@ bool BanyuMission::operatorHasControl() const
 {
   const auto vehicle = state_->snapshot();
   return vehicle.operator_takeover || (vehicle.fcu_connected && vehicle.fcu_status_fresh &&
-         !vehicle.mode.empty() && vehicle.mode != state_->autonomyMode());
+         !vehicle.mode.empty() && !state_->autonomyModeAllowed(vehicle.mode));
 }
 
 bool BanyuMission::executionHolding() const
@@ -419,6 +517,8 @@ void BanyuMission::commandCallback(const rx_msgs::msg::Command::SharedPtr comman
   std::lock_guard<std::recursive_mutex> lock(control_mutex_);
   using Command = rx_msgs::msg::Command;
   using Lifecycle = banyu_msgs::msg::RunLifecycle;
+  RCLCPP_INFO(get_logger(), "GCS command type %u seq %u run %u target %u", command->command_type,
+    command->command_seq, command->run_id, command->target_vehicle);
   if (!run_ || (command->target_vehicle != rx_msgs::msg::VehicleType::TYPE_UUV &&
     command->target_vehicle != rx_msgs::msg::VehicleType::TYPE_UNKNOWN)) {return;}
   if (command->command_type == Command::CMD_MISSION_DONE) {
@@ -447,6 +547,8 @@ void BanyuMission::commandCallback(const rx_msgs::msg::Command::SharedPtr comman
     command->run_id, command->command_seq,
     initialized_ && autonomousReady() && executionHolding());
   if (result.disposition == RunCoordinator::Disposition::Rejected) {
+    RCLCPP_WARN(get_logger(), "Run start %u rejected: %s (ready %d, holding %d, not ready: %s)", command->run_id,
+      result.reason.c_str(), autonomousReady(), executionHolding(), autonomyNotReadyReason().c_str());
     publishLifecycle(Lifecycle::START_REJECTED, result.reason, command->run_id);
   } else if (result.disposition == RunCoordinator::Disposition::Duplicate) {
     publishLifecycle(Lifecycle::START_DUPLICATE, result.reason, command->run_id);
@@ -570,12 +672,41 @@ void BanyuMission::terminateRun(bool failure, const std::string & reason, bool r
   {fallbackToSurface();}
 }
 
+void BanyuMission::shiftTargetAlongHeading(double distance_m)
+{
+  if (!blackboard_ || distance_m == 0.0) {return;}
+  const double lat = blackboard_->get<double>("target_latitude");
+  const double lon = blackboard_->get<double>("target_longitude");
+  const double heading = blackboard_->get<double>("heading");
+  constexpr double kEarthRadiusM = 6378137.0;
+  blackboard_->set("target_latitude", lat + (distance_m * std::sin(heading) / kEarthRadiusM) * 180.0 / M_PI);
+  blackboard_->set("target_longitude",
+    lon + (distance_m * std::cos(heading) / (kEarthRadiusM * std::cos(lat * M_PI / 180.0))) * 180.0 / M_PI);
+}
+
 void BanyuMission::applyBuoyTarget()
 {
   if (!blackboard_ || !buoy_target_) {return;}
   const auto & target = *buoy_target_;
-  blackboard_->set("target_latitude", target.latitude);
-  blackboard_->set("target_longitude", target.longitude);
+  // Both buoys are kept clear of on the surface transit.
+  blackboard_->set("start_buoy_latitude", target.latitude);
+  blackboard_->set("start_buoy_longitude", target.longitude);
+  const bool other_known = target.other_valid && finite(target.other_latitude) && finite(target.other_longitude);
+  blackboard_->set("end_buoy_latitude", other_known ? target.other_latitude : std::nan(""));
+  blackboard_->set("end_buoy_longitude", other_known ? target.other_longitude : std::nan(""));
+  const bool midpoint = dive_point_ == "midpoint" && target.other_valid && finite(target.other_latitude) &&
+    finite(target.other_longitude);
+  if (midpoint) {
+    // Midway between the buoys: the pipe is surely below, and both buoys are far away (no collision on the surface).
+    blackboard_->set("target_latitude", 0.5 * (target.latitude + target.other_latitude));
+    blackboard_->set("target_longitude", 0.5 * (target.longitude + target.other_longitude));
+  } else {
+    if (dive_point_ == "midpoint") {
+      RCLCPP_WARN(get_logger(), "Midpoint dive needs both buoys: the USV gave only the start buoy, diving near it");
+    }
+    blackboard_->set("target_latitude", target.latitude);
+    blackboard_->set("target_longitude", target.longitude);
+  }
   const bool use_heading = target.heading_valid && finite(target.heading_enu_rad) &&
     !explicit_heading_;
   if (use_heading) {
@@ -584,11 +715,13 @@ void BanyuMission::applyBuoyTarget()
     blackboard_->set("heading", heading);
     blackboard_->set("heading_prior", heading);
   }
+  if (!midpoint) {shiftTargetAlongHeading(std::max(dive_offset_m_, buoy_standoff_m_));}
   const auto heading_text = use_heading ?
     std::to_string(target.heading_enu_rad) + " rad" : std::string("unchanged");
   RCLCPP_INFO(
-    get_logger(), "Task 2 target from USV PipelineBuoys seq=%u: %.7f, %.7f, heading %s",
-    target.source_seq, target.latitude, target.longitude, heading_text.c_str());
+    get_logger(), "Task 2 target from USV PipelineBuoys seq=%u: %.7f, %.7f, heading %s, dive point %s",
+    target.source_seq, target.latitude, target.longitude, heading_text.c_str(),
+    midpoint ? "midway between the buoys" : "inside the start buoy");
 }
 
 std::string BanyuMission::xmlPath()
@@ -605,9 +738,19 @@ std::string BanyuMission::xmlPath()
   } else if (por_use_vision_return_) {
     por_tree = "por_hybrid_mission.xml";
   }
+  std::string task2_tree = "banyu_mission.xml";
+  if (mission_mode != "por") {
+    const auto strategy = declare_parameter<std::string>("mission.strategy", "survey");
+    if (strategy == "gamble") {
+      task2_tree = "task2_gamble_mission.xml";
+    } else if (strategy == "test") {
+      task2_tree = "task2_test_mission.xml";
+    } else if (strategy == "waypoint") {
+      task2_tree = "task2_waypoint_mission.xml";
+    }
+  }
   const auto default_tree = ament_index_cpp::get_package_share_directory(
-    "banyu_mission") + "/bt/" +
-    (mission_mode == "por" ? por_tree : std::string("banyu_mission.xml"));
+    "banyu_mission") + "/bt/" + (mission_mode == "por" ? por_tree : task2_tree);
   return declare_parameter<std::string>(
     "bt_xml", default_tree);
 }
@@ -649,11 +792,9 @@ void BanyuMission::initialize()
     "mission.end_latitude", std::numeric_limits<double>::quiet_NaN());
   const auto end_longitude = declare_parameter<double>(
     "mission.end_longitude", std::numeric_limits<double>::quiet_NaN());
+  // Optional: Task 2 takes its buoys only from the USV (WaitForBuoyTarget), so none are required at the start.
   mission_config_valid_ = state_->configureMissionCoordinates(
-    start_latitude, start_longitude, target_latitude, target_longitude, mission_mode != "por");
-  if (mission_mode == "por") {
-    mission_config_valid_ = true;
-  }
+    start_latitude, start_longitude, target_latitude, target_longitude, false);
   const auto positive = [this](double value) {return finite(value) && value > 0.0;};
   const auto nonnegative = [this](double value) {return finite(value) && value >= 0.0;};
   const auto gps_tolerance = declare_parameter<double>("mission.gps_tolerance_m", 3.0);
@@ -669,9 +810,41 @@ void BanyuMission::initialize()
   const auto sweep_rate = declare_parameter<double>("mission.sweep_rate_rad_s", 0.2);
   const auto ring_tolerance = declare_parameter<double>("mission.ring_tolerance", 0.08);
   const auto hold_duration = declare_parameter<double>("mission.hold_duration_s", 3.0);
+  // Advanced and Disruptive: stay on the repaired ring while the flash code is read (5 s steady green,
+  // then the code for 30 s, plus the probe hold before it).
+  const auto decode_window = declare_parameter<double>("mission.decode_window_s", 40.0);
+  // Depth for the probe hold (Advanced and Disruptive): the probe tip hangs below the camera and the magnetic
+  // switch only reacts at a few centimetres. Defaults to the inspection depth (no extra descent).
+  const auto repair_depth_param = declare_parameter<double>("mission.repair_depth_m", 0.0);
+  // Looser alignment for the probe step (the tip sits ahead of the camera) and a time limit per repair step.
+  const auto repair_ring_tolerance = declare_parameter<double>("mission.repair_ring_tolerance", 0.25);
+  const auto repair_step_timeout_s = declare_parameter<double>("mission.repair_step_timeout_s", 60.0);
+  // Core repair by camera: sink onto the red ring with the ring centred, stop when it is big enough in the image
+  // (the probe is on the switch), hold until it turns GREEN, climb back. The pipe depth is not known.
+  const auto approach_rate = declare_parameter<double>("mission.approach_descent_rate_mps", 0.12);
+  const auto approach_contact_size = declare_parameter<double>("mission.approach_contact_ring_size", 0.14);
+  const auto approach_max_descent = declare_parameter<double>("mission.approach_max_descent_m", 2.5);
+  const auto approach_hold_s = declare_parameter<double>("mission.approach_hold_s", 14.0);
+  // The decoder window covers the whole repair: two repair steps, then the code reading hold.
+  const double decode_total = 2.0 * repair_step_timeout_s + decode_window + 15.0;
+  // Flight mode for the dive and everything under water; must be the second entry of autonomy_mode.
+  const auto underwater_mode = declare_parameter<std::string>("mission.underwater_mode", "ALT_HOLD");
   const auto surface_depth = declare_parameter<double>("mission.surface_depth_m", 0.0);
   const auto surface_tolerance = declare_parameter<double>("mission.surface_tolerance_m", 0.2);
   const auto retries = declare_parameter<int>("mission.max_retries", 3);
+  retry_dive_offset_m_ = declare_parameter<double>("mission.retry_dive_offset_m", 3.0);
+  dive_offset_m_ = declare_parameter<double>("mission.dive_offset_m", 0.0);
+  buoy_standoff_m_ = std::max(0.0, declare_parameter<double>("mission.buoy_standoff_m", 1.5));
+  buoy_keep_out_m_ = std::max(0.0, declare_parameter<double>("mission.buoy_keep_out_m", 1.2));
+  if (buoy_keep_out_m_ > 0.0 && buoy_keep_out_m_ >= buoy_standoff_m_) {
+    // The start buoy's circle then contains the goal and the transit drops it (only the end buoy is avoided).
+    RCLCPP_WARN(get_logger(), "mission.buoy_keep_out_m (%.1f) is not smaller than mission.buoy_standoff_m (%.1f): "
+      "the start buoy is not kept clear of", buoy_keep_out_m_, buoy_standoff_m_);
+  }
+  dive_point_ = declare_parameter<std::string>("mission.dive_point", "buoy");
+  if (dive_point_ != "buoy" && dive_point_ != "midpoint") {
+    throw std::invalid_argument("mission.dive_point must be buoy or midpoint");
+  }
   const auto crc = declare_parameter<int64_t>("mission.crc32", 0);
   const auto camera = declare_parameter<std::string>("mission.camera_name", "front_camera");
   const auto id = declare_parameter<std::string>("mission.id", "banyu-mission");
@@ -691,6 +864,8 @@ void BanyuMission::initialize()
     (std::isnan(end_longitude) || finite(end_longitude)) &&
     positive(search_span) && search_span <= 2.0 * kPi && positive(sweep_rate) &&
     positive(ring_tolerance) && ring_tolerance <= 1.0 && positive(hold_duration) &&
+    positive(approach_rate) && positive(approach_contact_size) && approach_contact_size <= 1.0 &&
+    positive(approach_max_descent) && positive(approach_hold_s) &&
     nonnegative(surface_depth) && positive(surface_tolerance) && retries >= 0 && retries <= 255 &&
     crc >= 0 && crc <= std::numeric_limits<uint32_t>::max() && !camera.empty() && !id.empty();
 
@@ -751,9 +926,46 @@ void BanyuMission::initialize()
         RCLCPP_INFO(
           get_logger(), "Buoy target locked at %.7f, %.7f (%s)",
           blackboard_->get<double>("target_latitude"), blackboard_->get<double>("target_longitude"),
-          buoy_target_ ? "USV PipelineBuoys" : "configured");
+          buoy_target_ ? "USV PipelineBuoys" : "no USV target");
       }
       return BT::NodeStatus::SUCCESS;
+    },
+    // The survey could not be completed (pipe not found, traverse lost): end it so the vehicle can surface and send the
+    // best-effort Core survey (the report service only sends from SURFACED, which follows SURVEY_COMPLETE).
+    [this]() {
+      if (!run_ || state_->lifecycle() != MissionState::Lifecycle::Active) {return BT::NodeStatus::FAILURE;}
+      const auto context = run_->snapshot();
+      if (context.phase == RunCoordinator::Phase::SurveyComplete) {return BT::NodeStatus::SUCCESS;}
+      if (context.phase != RunCoordinator::Phase::Active ||
+        !run_->transition(context.epoch, RunCoordinator::Phase::SurveyComplete, "SURVEY_INCOMPLETE_BEST_EFFORT"))
+      {return BT::NodeStatus::FAILURE;}
+      RCLCPP_WARN(get_logger(), "Survey not complete: reporting what was seen (best effort)");
+      publishLifecycle();
+      return BT::NodeStatus::SUCCESS;
+    },
+    // Second dive try further along the buoy line (toward the other buoy): the pipe lies between the buoys.
+    [this]() {
+      std::lock_guard<std::recursive_mutex> lock(control_mutex_);
+      const double lat = blackboard_->get<double>("target_latitude");
+      const double lon = blackboard_->get<double>("target_longitude");
+      const double heading = blackboard_->get<double>("heading");
+      const double d = retry_dive_offset_m_;
+      constexpr double kEarthRadiusM = 6378137.0;
+      const double new_lat = lat + (d * std::sin(heading) / kEarthRadiusM) * 180.0 / M_PI;
+      const double new_lon = lon + (d * std::cos(heading) / (kEarthRadiusM * std::cos(lat * M_PI / 180.0))) * 180.0 / M_PI;
+      blackboard_->set("target_latitude", new_lat);
+      blackboard_->set("target_longitude", new_lon);
+      RCLCPP_WARN(get_logger(), "Second dive %.1f m along the buoy line: %.7f, %.7f", d, new_lat, new_lon);
+      return BT::NodeStatus::SUCCESS;
+    },
+    // No fallback to the configured buoy coordinates: stand by on the surface until the USV's active buoy arrives.
+    [this]() {
+      std::lock_guard<std::recursive_mutex> lock(control_mutex_);
+      if (buoy_target_) {return BT::NodeStatus::SUCCESS;}
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 5000,
+        "Standing by on the surface: waiting for the active buoy from the USV (PipelineBuoys); abort to stop");
+      return BT::NodeStatus::RUNNING;
   });
   auto blackboard = BT::Blackboard::create();
   blackboard_ = blackboard;
@@ -764,6 +976,67 @@ void BanyuMission::initialize()
   blackboard->set("start_longitude", start_longitude);
   blackboard->set("gps_tolerance", gps_tolerance);
   blackboard->set("heading", effective_heading);
+  shiftTargetAlongHeading(std::max(dive_offset_m_, buoy_standoff_m_));
+  blackboard->set("two_legs", dive_point_ == "midpoint");
+  blackboard->set("keep_out_radius", buoy_keep_out_m_);
+  blackboard->set("start_buoy_latitude", std::nan(""));
+  blackboard->set("start_buoy_longitude", std::nan(""));
+  blackboard->set("end_buoy_latitude", std::nan(""));
+  blackboard->set("end_buoy_longitude", std::nan(""));
+  blackboard->set("leg_end_lost_s", declare_parameter<double>("mission.leg_end_lost_s", 6.0));
+  // Test mission (mission.strategy test, task2_test_mission.xml): dive, then timed forward and backward legs.
+  const auto test_depth = declare_parameter<double>("mission.test.depth_m", 1.0);
+  const auto test_dive_timeout = declare_parameter<double>("mission.test.dive_timeout_s", 40.0);
+  const auto test_settle = declare_parameter<double>("mission.test.settle_s", 3.0);
+  const auto test_leg_duration = declare_parameter<double>("mission.test.leg_duration_s", 6.0);
+  const auto test_leg_speed = declare_parameter<double>("mission.test.leg_speed_mps", 0.3);
+  const auto test_depth_kp = declare_parameter<double>("mission.test.depth_kp", 0.7);
+  const auto test_max_depth_speed = declare_parameter<double>("mission.test.max_depth_speed_mps", 0.3);
+  const auto test_transit_timeout = declare_parameter<double>("mission.test.transit_timeout_s", 300.0);
+  mission_config_valid_ = mission_config_valid_ && nonnegative(test_depth) && positive(test_dive_timeout) &&
+    nonnegative(test_settle) && nonnegative(test_leg_duration) && nonnegative(test_leg_speed) &&
+    positive(test_depth_kp) && positive(test_max_depth_speed) && positive(test_transit_timeout);
+  blackboard->set("test_depth_m", test_depth);
+  blackboard->set("test_dive_timeout_s", test_dive_timeout);
+  blackboard->set("test_settle_s", test_settle);
+  blackboard->set("test_leg_duration_s", test_leg_duration);
+  blackboard->set("test_leg_speed_mps", test_leg_speed);
+  blackboard->set("test_leg_speed_back_mps", -test_leg_speed);
+  blackboard->set("test_depth_kp", test_depth_kp);
+  blackboard->set("test_max_depth_speed_mps", test_max_depth_speed);
+  blackboard->set("test_transit_timeout_ms", static_cast<unsigned>(test_transit_timeout * 1000.0));
+  // Gamble (mission.strategy gamble, task2_gamble_mission.xml): dive to a Bar30 depth, then timed surge, sway
+  // and yaw legs out and back holding that depth.
+  const auto gamble_depth = declare_parameter<double>("mission.gamble.depth_m", 1.0);
+  const auto gamble_dive_timeout = declare_parameter<double>("mission.gamble.dive_timeout_s", 40.0);
+  const auto gamble_settle = declare_parameter<double>("mission.gamble.settle_s", 3.0);
+  const auto gamble_depth_kp = declare_parameter<double>("mission.gamble.depth_kp", 0.7);
+  const auto gamble_max_depth_speed = declare_parameter<double>("mission.gamble.max_depth_speed_mps", 0.3);
+  const auto gamble_surge_duration = declare_parameter<double>("mission.gamble.surge_duration_s", 5.0);
+  const auto gamble_surge_speed = declare_parameter<double>("mission.gamble.surge_speed_mps", 0.3);
+  const auto gamble_sway_duration = declare_parameter<double>("mission.gamble.sway_duration_s", 5.0);
+  const auto gamble_sway_speed = declare_parameter<double>("mission.gamble.sway_speed_mps", 0.2);
+  const auto gamble_yaw_duration = declare_parameter<double>("mission.gamble.yaw_duration_s", 5.0);
+  const auto gamble_yaw_rate = declare_parameter<double>("mission.gamble.yaw_rate_rad_s", 0.3);
+  mission_config_valid_ = mission_config_valid_ && nonnegative(gamble_depth) && positive(gamble_dive_timeout) &&
+    nonnegative(gamble_settle) && positive(gamble_depth_kp) && positive(gamble_max_depth_speed) &&
+    nonnegative(gamble_surge_duration) && nonnegative(gamble_surge_speed) &&
+    nonnegative(gamble_sway_duration) && nonnegative(gamble_sway_speed) &&
+    nonnegative(gamble_yaw_duration) && nonnegative(gamble_yaw_rate);
+  blackboard->set("gamble_depth_m", gamble_depth);
+  blackboard->set("gamble_dive_timeout_s", gamble_dive_timeout);
+  blackboard->set("gamble_settle_s", gamble_settle);
+  blackboard->set("gamble_depth_kp", gamble_depth_kp);
+  blackboard->set("gamble_max_depth_speed_mps", gamble_max_depth_speed);
+  blackboard->set("gamble_surge_duration_s", gamble_surge_duration);
+  blackboard->set("gamble_forward_mps", gamble_surge_speed);
+  blackboard->set("gamble_backward_mps", -gamble_surge_speed);
+  blackboard->set("gamble_sway_duration_s", gamble_sway_duration);
+  blackboard->set("gamble_sway_left_mps", gamble_sway_speed);
+  blackboard->set("gamble_sway_right_mps", -gamble_sway_speed);
+  blackboard->set("gamble_yaw_duration_s", gamble_yaw_duration);
+  blackboard->set("gamble_yaw_left_rad_s", gamble_yaw_rate);
+  blackboard->set("gamble_yaw_right_rad_s", -gamble_yaw_rate);
   blackboard->set("heading_tolerance", heading_tolerance);
   blackboard->set("inspection_depth", inspection_depth);
   blackboard->set("depth_tolerance", depth_tolerance);
@@ -775,6 +1048,23 @@ void BanyuMission::initialize()
   blackboard->set("sweep_rate", sweep_rate);
   blackboard->set("ring_tolerance", ring_tolerance);
   blackboard->set("hold_duration", hold_duration);
+  blackboard->set("approach_descent_rate", approach_rate);
+  blackboard->set("approach_contact_ring_size", approach_contact_size);
+  blackboard->set("approach_max_descent", approach_max_descent);
+  blackboard->set("approach_hold_s", approach_hold_s);
+  // Sink, hold, climb back, with margin; the action ends itself earlier when the ring is lost.
+  blackboard->set(
+    "approach_timeout_ms",
+    static_cast<unsigned>((2.0 * approach_max_descent / approach_rate + approach_hold_s + 20.0) * 1000.0));
+  blackboard->set("underwater_mode", underwater_mode);
+  blackboard->set("surface_mode", state_->autonomyMode());
+  blackboard->set("repair_depth", repair_depth_param > 0.0 ? repair_depth_param : inspection_depth);
+  blackboard->set("repair_ring_tolerance", repair_ring_tolerance);
+  blackboard->set("repair_step_timeout_ms", static_cast<unsigned>(repair_step_timeout_s * 1000.0));
+  blackboard->set("decode_enabled", task2_tier_ >= 3);
+  blackboard->set("decode_window", decode_window);
+  blackboard->set("decode_total", decode_total);
+  blackboard->set("hold_total", hold_duration + decode_window);
   blackboard->set("mission_id", id);
   blackboard->set("crc32", static_cast<uint32_t>(crc));
   blackboard->set("max_retries", static_cast<uint8_t>(retries));
@@ -824,6 +1114,58 @@ void BanyuMission::tickLoop(int tick_period_ms)
       }
       if (std::chrono::steady_clock::now() - lifecycle_published_at_ >=
         std::chrono::milliseconds(250)) {publishLifecycle();}
+      if (auto_start_on_auto_) {
+        const auto current_phase = run_->snapshot().phase;
+        const auto status = state_->snapshot();
+        const bool switched_to_auto = (last_operational_mode_ != 2 && status.operational_mode == 2);
+        last_operational_mode_ = status.operational_mode;
+
+        if (status.operational_mode == 2 && !status.hardware_kill_active) {
+          if ((current_phase == RunCoordinator::Phase::Idle ||
+               (switched_to_auto && (current_phase == RunCoordinator::Phase::Interrupted ||
+                                     current_phase == RunCoordinator::Phase::Failed ||
+                                     current_phase == RunCoordinator::Phase::Succeeded))) &&
+              initialized_ && mission_config_valid_.load() &&
+              status.fcu_connected && status.fcu_status_fresh && status.rc_fresh &&
+              !status.operator_takeover && status.gps_available)
+          {
+            if (run_->beginPreparation()) {
+              start_commands_.clear();
+              last_stop_sequence_ = 0;
+              execution_readiness_ = banyu_msgs::msg::ExecutionReadiness{};
+              execution_received_at_ = {};
+              preparation_hold_seen_ = false;
+              state_->prepareAutonomy();
+              preparation_tree_->haltTree();
+              preparation_started_ = std::chrono::steady_clock::now();
+              publishLifecycle();
+              RCLCPP_INFO(get_logger(), "Auto-start on SB Up: preparation began");
+            }
+          } else if (current_phase == RunCoordinator::Phase::Ready &&
+                     initialized_ && autonomousReady() && executionHolding())
+          {
+            const uint32_t auto_run_id = 1;
+            const uint32_t auto_cmd_seq = 1;
+            const auto result = run_->requestStart(auto_run_id, auto_cmd_seq, true);
+            if (result.disposition == RunCoordinator::Disposition::Accepted) {
+              initialization_started_ = std::chrono::steady_clock::now();
+              accepted_run_at_ = now();
+              survey_progress_ = banyu_msgs::msg::Task2SurveyProgress{};
+              survey_progress_received_at_ = {};
+              for (auto & consumer : reset_consumers_) {
+                consumer.client->prune_pending_requests();
+                consumer.future = {};
+                consumer.acknowledged = false;
+              }
+              last_fallback_time_ = rclcpp::Time(0, 0, get_clock()->get_clock_type());
+              buoy_target_locked_ = false;
+              applyBuoyTarget();
+              publishLifecycle(banyu_msgs::msg::RunLifecycle::START_ACCEPTED, result.reason, auto_run_id);
+              RCLCPP_INFO(get_logger(), "Auto-start on SB Up: run %u start accepted", auto_run_id);
+            }
+          }
+        }
+      }
     }
     if (state_->lifecycle() != MissionState::Lifecycle::Active) {
       started_log = false;

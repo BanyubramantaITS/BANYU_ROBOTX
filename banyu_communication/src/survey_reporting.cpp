@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <random>
 #include <limits>
 #include <set>
 #include <stdexcept>
@@ -25,6 +26,16 @@ bool allowed(const std::vector<std::string> & sources, const std::string & sourc
 bool historicalStamp(int64_t stamp, int64_t start, int64_t now)
 {
   return stamp > 0 && stamp >= start && stamp <= now;
+}
+
+// Report order: rings are recorded only in the forward survey from the pipe's start (the active buoy end), so the order
+// they were first seen in is the order along the pipe. No pipe map or underwater position is needed for it.
+void sortByFirstSighting(std::vector<banyu_msgs::msg::Task2RingRecord> & rings, bool from_active_end)
+{
+  std::sort(rings.begin(), rings.end(), [from_active_end](const auto & first, const auto & second) {
+      return from_active_end ? first.frame_sequence < second.frame_sequence :
+             first.frame_sequence > second.frame_sequence;
+    });
 }
 
 bool validReportId(const std::string & report_id)
@@ -141,8 +152,11 @@ std::string SurveyLedger::ingest(
     value.low_progress_endpoint_id != evidence_.low_progress_endpoint_id ||
     value.high_progress_endpoint_id != evidence_.high_progress_endpoint_id))
   {return fail("ACTIVE_ENDPOINT_CHANGED_DURING_SURVEY");}
-  if (value.rings.size() > 4) {
-    return fail("SURVEY_INCOMPLETE observed=" + std::to_string(value.rings.size()) + " expected=4");
+  // Records the ring tracker merged into another one (one node recorded twice) are not nodes.
+  const auto live = static_cast<std::size_t>(std::count_if(value.rings.begin(), value.rings.end(),
+      [](const auto & ring) {return !ring.superseded;}));
+  if (live > 4) {
+    return fail("SURVEY_INCOMPLETE observed=" + std::to_string(live) + " expected=4");
   }
 
   std::vector<double> current_progress;
@@ -150,6 +164,11 @@ std::string SurveyLedger::ingest(
   std::string snapshot_failure;
 
   for (const auto & ring : value.rings) {
+    if (ring.superseded && ring.run_id == run_id_ && ring.epoch == epoch_) {
+      originals_.erase(ring.node_id);
+      identities.insert(ring.node_id);
+      continue;
+    }
     if (ring.run_id != run_id_ || ring.epoch != epoch_ || !identities.insert(ring.node_id).second) {
       if (snapshot_failure.empty()) {
         snapshot_failure = "NODE_IDENTITY_AMBIGUOUS";
@@ -196,6 +215,12 @@ std::string SurveyLedger::ingest(
       }
       originals_.emplace(ring.node_id, ring);
     } else {
+      // A light only ever goes RED to GREEN (repair). One first seen GREEN from afar that later reads RED, before
+      // any repair is verified, was RED all along: upgrade it. After the repair a RED flash on a GREEN node is the
+      // resource code, not the original condition.
+      if (!value.repair_verified && ring.color == 1 && originals_.at(ring.node_id).color != 1) {
+        originals_.at(ring.node_id).color = ring.color;
+      }
       if (originals_.at(ring.node_id).pipeline_progress_m != ring.pipeline_progress_m) {
         if (snapshot_failure.empty()) {
           snapshot_failure = "ORDER_UNVERIFIED: original progression changed";
@@ -235,10 +260,13 @@ std::string SurveyLedger::ingest(
     return fail(snapshot_failure);
   }
 
-  if (value.rings.size() != 4 || originals_.size() != 4) {
-    return fail("SURVEY_INCOMPLETE observed=" + std::to_string(value.rings.size()) + " expected=4");
+  if (live != 4 || originals_.size() != 4) {
+    return fail("SURVEY_INCOMPLETE observed=" + std::to_string(live) + " expected=4");
   }
-  if (value.tier != config_.tier) {return fail("TIER_CONTEXT_MISMATCH");}
+  // A higher tier whose repair or flash code could not be confirmed reports as the Core survey only (the evidence
+  // node then sends tier 2): the Core points do not depend on the code.
+  const bool core_fallback = value.tier == 2 && config_.tier > 2;
+  if (value.tier != config_.tier && !core_fallback) {return fail("TIER_CONTEXT_MISMATCH");}
   if (!value.traversal_complete) {return fail("TRAVERSAL_INCOMPLETE");}
   if (value.tier != 2) {
     if (!value.repair_verified) {return fail("REPAIR_UNVERIFIED");}
@@ -275,12 +303,68 @@ SurveyLedger::Report SurveyLedger::build(const std::string & report_id) const
     ordered.push_back(ring.second);
   }
   const bool ascending = evidence_.active_buoy.endpoint_id == evidence_.low_progress_endpoint_id;
-  std::sort(ordered.begin(), ordered.end(), [ascending](const auto & first, const auto & second) {
-      return ascending ? first.pipeline_progress_m<second.pipeline_progress_m :
-             first.pipeline_progress_m> second.pipeline_progress_m;
-    });
+  sortByFirstSighting(ordered, ascending);
   for (std::size_t i = 0; i < 4 && i < ordered.size(); ++i) {
     report.original_conditions[i] = ordered[i].color == 1 ? 2 : 1;
+  }
+  return report;
+}
+
+bool SurveyLedger::bestEffortAvailable() const
+{
+  return evidence_.revision != 0 && evidence_.run_id == run_id_ && evidence_.epoch == epoch_ &&
+         !evidence_.active_buoy.endpoint_id.empty() && std::isfinite(evidence_.active_buoy.fix.latitude) &&
+         std::isfinite(evidence_.active_buoy.fix.longitude);
+}
+
+SurveyLedger::Report SurveyLedger::buildBestEffort(const std::string & report_id) const
+{
+  if (complete_) {return build(report_id);}
+  if (!bestEffortAvailable()) {throw std::logic_error("BEST_EFFORT_UNAVAILABLE: no verified active buoy");}
+  if (!validReportId(report_id)) {
+    throw std::invalid_argument("Invalid report identity: " + report_id);
+  }
+  Report report;
+  report.run_id = run_id_;
+  report.epoch = epoch_;
+  report.report_id = report_id;
+  report.course_id = course_id_;
+  report.tier = 2;
+  report.buoy_latitude = evidence_.active_buoy.fix.latitude;
+  report.buoy_longitude = evidence_.active_buoy.fix.longitude;
+  // A verified repair and a complete flash code are worth their points even when the order could not be verified.
+  if (evidence_.tier > 2 && evidence_.tier == config_.tier && evidence_.repair_verified &&
+    evidence_.resource_code_complete && evidence_.delivery_circle_color >= 1 && evidence_.delivery_circle_color <= 3 &&
+    ((evidence_.tier == 3 && evidence_.resource_color == 4) ||
+    (evidence_.tier == 4 && evidence_.resource_color >= 1 && evidence_.resource_color <= 3)))
+  {
+    report.tier = evidence_.tier;
+    report.resource_color = evidence_.resource_color;
+    report.delivery_circle_color = evidence_.delivery_circle_color;
+  }
+
+  std::vector<banyu_msgs::msg::Task2RingRecord> seen;
+  for (const auto & ring : originals_) {seen.push_back(ring.second);}
+  if (seen.empty()) {
+    for (const auto & ring : evidence_.rings) {
+      if (!ring.superseded && (ring.color == 1 || ring.color == 2) && std::isfinite(ring.pipeline_progress_m)) {
+        seen.push_back(ring);
+      }
+    }
+  }
+  const bool ascending = evidence_.active_buoy.endpoint_id == evidence_.low_progress_endpoint_id;
+  sortByFirstSighting(seen, ascending);
+  report.original_conditions.fill(1);  // GREEN where nothing was seen
+  for (std::size_t i = 0; i < 4 && i < seen.size(); ++i) {
+    report.original_conditions[i] = seen[i].color == 1 ? 2 : 1;
+  }
+  const bool red_seen = std::find(
+    report.original_conditions.begin(), report.original_conditions.end(), 2) != report.original_conditions.end();
+  if (config_.gamble_order && !red_seen && !config_.gamble_red_positions.empty()) {
+    std::random_device device;
+    const auto last = static_cast<int>(config_.gamble_red_positions.size()) - 1;
+    const int position = config_.gamble_red_positions[std::uniform_int_distribution<int>(0, last)(device)];
+    report.original_conditions[position - 1] = 2;
   }
   return report;
 }

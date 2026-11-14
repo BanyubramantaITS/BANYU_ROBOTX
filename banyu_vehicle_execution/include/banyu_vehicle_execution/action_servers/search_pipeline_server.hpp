@@ -6,6 +6,7 @@
 #include "banyu_msgs/action/search_pipeline.hpp"
 #include "banyu_msgs/msg/pipeline_observation.hpp"
 #include "banyu_vehicle_execution/action_servers/typed_action_server.hpp"
+#include "banyu_vehicle_execution/light_cue.hpp"
 
 namespace banyu_vehicle_execution
 {
@@ -24,7 +25,10 @@ public:
     double retrace_speed = 0.2,
     double pinger_timeout_s = 3.0,
     double pinger_kp = 0.8,
-    double pinger_forward_speed = 0.25);
+    double pinger_forward_speed = 0.25,
+    bool use_pinger = false);
+
+  void setLightCue(const LightCueConfig & config) {light_cue_ = config;}
 
   MotionIntent tick(
     const VehicleTelemetry & telemetry, const rclcpp::Time & now,
@@ -42,12 +46,17 @@ private:
   double pinger_timeout_s_{3.0};
   double pinger_kp_{0.8};
   double pinger_forward_speed_{0.25};
+  // Off on the competition vehicle (no hydrophone): retrace + sweep only.
+  bool use_pinger_{false};
   bool retrace_started_{false};
   bool retrace_done_{false};
   double retrace_origin_x_{0.0};
   double retrace_origin_y_{0.0};
   double retrace_heading_{0.0};
   double retrace_elapsed_s_{0.0};
+  LightCueConfig light_cue_{};
+  double light_cue_used_s_{0.0};
+  bool light_cue_logged_{false};
 };
 
 }  // namespace banyu_vehicle_execution

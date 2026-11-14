@@ -1,0 +1,48 @@
+# Task 2 test mission overlay (test_mission:=True, launch_task2.sh --test-mission): task2_test_mission.xml instead of the
+# survey. Same run start, the same buoys (the USV's PipelineBuoys) and the same midpoint dive point as the real Task 2:
+# the vehicle goes midway between the buoys (keep-out, arrival radius as in task2_params.yaml), turns to face the end
+# buoy, dives to mission.test.depth_m, flies timed forward (toward the end buoy) and backward legs holding that depth,
+# surfaces and sends the best-effort Core survey. With only the start buoy it dives buoy_standoff_m inside it, like the
+# real run. mission.launch.py loads it last.
+# No GUIDED anywhere (this AUV gets no position hold from ArduSub): waits for the buoys in MANUAL (task2_params.yaml
+# standby_mode: the hull floats and keeps the link), STABILIZE driving on the surface, ALT_HOLD under water, every command
+# as RC override sticks. The four nodes must list the same modes.
+banyu_mission:
+  ros__parameters:
+    autonomy_mode: "STABILIZE,ALT_HOLD"
+    mission:
+      strategy: "test"
+      dive_point: "midpoint"
+      depth_tolerance_m: 0.2    # the dive ends once within this of test.depth_m for 0.5 s
+      test:
+        depth_m: 1.0            # depth of the dive and of both legs (Bar30, calibrated at the surface)
+        dive_timeout_s: 40.0    # the dive ends after this even if the depth was not reached
+        settle_s: 3.0           # hold still at depth before the forward leg and between the legs
+        # Forward leg, then the backward leg, each this long: 6 s x 0.3 m/s ~ 1.8 m from the midpoint toward the end
+        # buoy. Keep it well short of half the buoy spacing (the end buoy's mooring line is at that depth).
+        leg_duration_s: 6.0
+        leg_speed_mps: 0.3      # commanded surge (backward = the same, negative)
+        depth_kp: 0.7
+        max_depth_speed_mps: 0.3
+        transit_timeout_s: 300.0   # surface transit retries stop after this; the vehicle then dives where it is
+vehicle_execution_node:
+  ros__parameters:
+    control:
+      autonomy_mode: "STABILIZE,ALT_HOLD"
+      output_mode: "rc_override"
+    # Venue trial: never move on the surface without the GCS course boundary (task2_params.yaml fence.*).
+    fence:
+      required: true
+    # The legs keep the heading the vehicle had when the leg started.
+    timed_move:
+      heading_hold:
+        enabled: true
+        kp: 1.0
+        max_yaw_rate_rad_s: 0.3
+        deadband_rad: 0.02
+banyu_vehicle_status:
+  ros__parameters:
+    autonomy_mode: "STABILIZE,ALT_HOLD"
+uuv_comm_node:
+  ros__parameters:
+    autonomy_mode: "STABILIZE,ALT_HOLD"

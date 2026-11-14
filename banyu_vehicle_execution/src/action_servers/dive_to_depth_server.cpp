@@ -2,7 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <memory>
+#include <stdexcept>
+
+#include "banyu_msgs/msg/pipeline_observation.hpp"
 
 namespace banyu_vehicle_execution
 {
@@ -21,6 +25,32 @@ DiveToDepthServer::DiveToDepthServer(
 {
 }
 
+void DiveToDepthServer::setCameraDescent(double rate_mps, double lock_s, double max_time_s, double surge_mps)
+{
+  camera_surge_mps_ = std::isfinite(surge_mps) ? std::max(0.0, surge_mps) : 0.0;
+  if (!(rate_mps > 0.0) || !(lock_s > 0.0) || !(max_time_s > 0.0)) {
+    throw std::invalid_argument("camera descent rate, lock time and maximum time must be positive");
+  }
+  camera_rate_mps_ = rate_mps;
+  camera_lock_s_ = lock_s;
+  camera_max_time_s_ = max_time_s;
+}
+
+void DiveToDepthServer::setCameraDescentWithDepth(double max_depth_m)
+{
+  if (!(max_depth_m > 0.0)) {
+    throw std::invalid_argument("camera descent maximum depth must be positive");
+  }
+  camera_with_depth_ = true;
+  camera_max_depth_m_ = max_depth_m;
+}
+
+void DiveToDepthServer::onGoalStarted()
+{
+  elapsed_s_ = 0.0;
+  locked_s_ = 0.0;
+}
+
 bool DiveToDepthServer::validateGoal(const Goal & goal, std::string & reason)
 {
   if (goal.depth_tolerance_m <= 0.0 || goal.heading_tolerance_rad <= 0.0) {
@@ -30,8 +60,62 @@ bool DiveToDepthServer::validateGoal(const Goal & goal, std::string & reason)
   return true;
 }
 
+MotionIntent DiveToDepthServer::cameraDescentTick(
+  const VehicleTelemetry & telemetry, const rclcpp::Time & now, double dt, const Goal & goal)
+{
+  elapsed_s_ += std::max(0.0, dt);
+  const bool pipe = telemetry.pipeline_obs_valid &&
+    telemetry.pipeline_status == banyu_msgs::msg::PipelineObservation::TRACKED && telemetry.camera_range_valid;
+  // Only the pipe (with a range from its width) ends the descent: a lit light alone can be the start buoy's indicator at the
+  // surface (a dive ended at 0.2 m depth on it).
+  const bool light = false;
+  locked_s_ = pipe ? locked_s_ + std::max(0.0, dt) : 0.0;
+  const bool heading_valid = telemetry.pose_valid || telemetry.imu_valid;
+  const double yaw = telemetry.pose_valid ? telemetry.yaw : telemetry.imu_yaw;
+  const double heading_err = heading_valid ? normalizeAngle(goal.target_heading_rad - yaw) : 0.0;
+  const double depth = telemetry.depth_m;
+
+  auto feedback = std::make_shared<Feedback>();
+  feedback->stamp = now;
+  feedback->current_depth_m = depth;
+  feedback->current_heading_rad = yaw;
+  feedback->depth_error_m = std::numeric_limits<double>::quiet_NaN();
+  feedback->heading_error_rad = heading_err;
+  active_handle_->publish_feedback(feedback);
+
+  if (locked_s_ >= camera_lock_s_) {
+    auto result = std::make_shared<Result>();
+    result->success = true;
+    result->reason = pipe ? "Pipe in view of the bottom camera" : "Light in view of the bottom camera";
+    result->final_depth_m = depth;
+    result->final_heading_rad = yaw;
+    active_handle_->succeed(result);
+    coordinator_->completeGoal(GoalHandle{active_identity_});
+    active_handle_.reset();
+    active_identity_ = {};
+    return zeroIntent();
+  }
+  const bool too_deep = !pipe && depth >= camera_max_depth_m_;
+  if (elapsed_s_ >= camera_max_time_s_ || too_deep) {
+    auto result = std::make_shared<Result>();
+    result->success = false;
+    result->reason = too_deep ? "Descent reached the maximum depth with nothing in view of the bottom camera" :
+      "Descent time limit reached with nothing in view of the bottom camera";
+    result->final_depth_m = depth;
+    result->final_heading_rad = yaw;
+    abortActiveWithResult(result);
+    return zeroIntent();
+  }
+  // Something in view: stop sinking while the lock is confirmed.
+  const double vz = (pipe || light) ? 0.0 : -camera_rate_mps_;
+  const double yaw_rate = std::clamp(yaw_kp_ * heading_err, -max_yaw_rate_, max_yaw_rate_);
+  const double surge = (pipe || light || !heading_valid) ? 0.0 : camera_surge_mps_;
+  const auto local = bodyFluToLocalEnu(MotionIntent::bodyFlu(surge, 0.0, vz, yaw_rate), yaw);
+  return local.value_or(MotionIntent::localEnu(0.0, 0.0, vz, yaw_rate));
+}
+
 MotionIntent DiveToDepthServer::tick(
-  const VehicleTelemetry & telemetry, const rclcpp::Time & now, double /*dt*/)
+  const VehicleTelemetry & telemetry, const rclcpp::Time & now, double dt)
 {
   if (!active_handle_) {
     return zeroIntent();
@@ -40,11 +124,15 @@ MotionIntent DiveToDepthServer::tick(
     cancelActive();
     return zeroIntent();
   }
+  const auto goal = active_handle_->get_goal();
+  if (camera_with_depth_) {
+    // Wait for a depth sample: it is the floor of the descent.
+    return telemetry.depth_valid ? cameraDescentTick(telemetry, now, dt, *goal) : zeroIntent();
+  }
   if (!telemetry.depth_valid || !telemetry.pose_valid) {
     return zeroIntent();
   }
 
-  const auto goal = active_handle_->get_goal();
   const double depth_err = goal->target_depth_m - telemetry.depth_m;
   const double heading_err = normalizeAngle(goal->target_heading_rad - telemetry.yaw);
 
