@@ -13,6 +13,7 @@ RC override on the `RCMAP_*` channels, as POR did.
 | `yaw.sh --dir left\|right --angle 90` | turn by an angle on the compass (`--time N` = open loop) | same |
 | `waypoint.sh --ne 10,0 ...` | drive to RTK GPS waypoints at the surface | STABILIZE |
 | `where.sh` | print the GPS fix and heading, no arming (to note waypoints) | – |
+| `sauvc.sh --speed V` | SAUVC video run: dive 1 m, forward 5 m, turn 180° clockwise, forward back to the start, hover 5 s, **disarm and float up** | ALT_HOLD |
 
 Every run ends with neutral sticks and **disarm** (`--no-disarm` keeps it armed at the end of a
 normal surface run; not allowed with a dive). It also stops and disarms on Ctrl+C, SSH drop (SIGHUP), SIGTERM, a mode change or disarm
@@ -56,6 +57,28 @@ cd ~/ros_ws/src/BANYU_ROBOTX/tools/scripts/move
 ./waypoint.sh --wp -7.2819000,112.7945000 --radius 2
 ./waypoint.sh --file my_points.txt         # lines 'LAT,LON' or 'ne N,E', # comments
 ```
+
+## SAUVC video run (`sauvc.sh`)
+
+Dive to `--depth` (1.0 m), settle, forward for `--distance / --speed` seconds, turn 180° clockwise
+on the compass (then a small trim so the heading is the start heading + 180°), forward the same time
+back (`--return-time` to change it), hover `--hold` s (5), disarm and float up. There is no position
+sensor under water (no DVL, no GPS), so "back to the start" is the same push time on the reverse
+heading: current and the turn put the end within about a metre (0.7 m in the Gazebo sim).
+
+The forward time comes from a measured speed at the same `--power` (30 % default). Measure it first:
+`./forward.sh --time 10` at the surface prints the GPS m/s, or tape the distance of a 10 s push in
+the pool. `--time S` sets the push time directly instead.
+
+```bash
+./sauvc.sh --speed 0.4 --dry-run           # plan: 12.5 s each way for 5 m
+./sauvc.sh --speed 0.4                     # dive 1 m, 5 m out, 180 deg CW, back, hover 5 s
+./sauvc.sh --speed 0.4 --distance 4 --depth 1.2 --hold 8
+./sauvc.sh --time 10 --return-time 11      # timed legs; lengthen the return if it comes up short
+```
+
+The result prints the heading drift on each leg, the heading after the turn (want +180°) and the
+depth while moving and hovering.
 
 ## Useful options
 

@@ -9,6 +9,9 @@ Tests:
   yaw       turn --angle deg --dir left|right on the compass (or --time s open loop)
   waypoint  surface GPS waypoints (RTK): --ne N,E (metres from the start), --wp LAT,LON, --file
   where     print the GPS fix and heading until Ctrl+C (no arming), to note waypoints
+  sauvc     SAUVC video run: dive to --depth (1 m), forward --distance (5 m), turn 180 deg
+            clockwise on the compass, forward the same time back to the start, hover --hold s,
+            then disarm and float up
 
 How it flies: MAVLink to the Pixhawk through MAVProxy (run/run_mavproxy.sh, udp 14552) and
 RC_CHANNELS_OVERRIDE on the stick channels (RCMAP_*), as POR did. At --depth 0 it flies
@@ -337,6 +340,14 @@ class Run:
             lines.append(f"Plan    : dive to {a.depth} m, hold {a.hold} s, disarm and float up")
         elif a.test == "where":
             lines.append("Plan    : print GPS and heading, no arming")
+        elif a.test == "sauvc":
+            dist = f" (~{a.distance:g} m at {a.speed:g} m/s)" if a.speed else ""
+            lines += [f"Plan    : dive to {a.depth} m, settle {a.settle} s",
+                      f"          forward {a.time:.1f} s{dist} at {a.power:.0f}% stick, coast {a.coast} s",
+                      f"          turn 180 deg clockwise on the compass at up to {a.yaw_power:.0f}% stick, "
+                      f"coast {a.coast} s",
+                      f"          forward {a.return_time:.1f} s back to the start, coast {a.coast} s",
+                      f"          hover {a.hold} s, disarm and float up"]
         else:
             where = f"at {a.depth} m (dive first, settle {a.settle} s)" if a.depth > 0 else "at the surface"
             if a.test in LINEAR:
@@ -494,32 +505,33 @@ class Run:
         if g0 is None and a.depth == 0:
             self.say("  no GPS fix: distance not measured")
 
-    def yaw(self):
+    def yaw(self, angle, direction, power, open_time=0.0):
+        """Turn by angle deg on the compass (or open_time s open loop); returns degrees turned."""
         a, v = self.a, self.v
-        sign = 1.0 if a.dir == "right" else -1.0
-        p = a.power / 100.0
+        sign = 1.0 if direction == "right" else -1.0
+        p = power / 100.0
         self.phase = "yaw"
         turned, prev = 0.0, v.heading()
         start = time.time()
         depths = []
-        if a.time:
-            self.say(f"Yaw {a.dir} at {a.power:.0f}% for {a.time} s (open loop) ...")
-            while time.time() - start < a.time:
+        if open_time:
+            self.say(f"Yaw {direction} at {power:.0f}% for {open_time} s (open loop) ...")
+            while time.time() - start < open_time:
                 self.step(yaw=sign * p * self.ramp(time.time() - start), thr=self.depth_stick(a.depth))
                 turned += wrap180(v.heading() - prev)
                 prev = v.heading()
                 depths.append(v.depth())
         else:
-            self.say(f"Yaw {a.dir} {a.angle} deg at up to {a.power:.0f}% ...")
-            limit = 15.0 + a.angle / 5.0
+            self.say(f"Yaw {direction} {angle:.1f} deg at up to {power:.0f}% ...")
+            limit = 15.0 + angle / 5.0
             rate, t_prev = 0.0, time.time()
             while True:
                 # release early by the turn rate x --yaw-lead: the vehicle keeps turning after it
-                remaining = a.angle - sign * turned
+                remaining = angle - sign * turned
                 if remaining < a.yaw_tol + abs(rate) * a.yaw_lead:
                     break
                 if time.time() - start > limit:
-                    raise Abort(f"turned only {sign * turned:.0f} of {a.angle} deg in {limit:.0f} s")
+                    raise Abort(f"turned only {sign * turned:.0f} of {angle} deg in {limit:.0f} s")
                 # slow down over the last 45 deg; the minimum clears the yaw stick dead zone
                 cmd = clamp(remaining / 45.0, 0.0, 1.0) * p
                 cmd = max(cmd, min(p, 0.15))
@@ -537,11 +549,51 @@ class Run:
             self.step(thr=self.depth_stick(a.depth))
             turned += wrap180(v.heading() - prev)
             prev = v.heading()
-        self.say(f"Result yaw: turned {sign * turned:.1f} deg {a.dir} in {elapsed:.1f} s "
+        self.say(f"Result yaw: turned {sign * turned:.1f} deg {direction} in {elapsed:.1f} s "
                  f"({abs(turned) / max(elapsed, 0.1):.0f} deg/s avg incl. coast)"
-                 + ("" if a.time else f", error {sign * turned - a.angle:+.1f} deg after {a.coast} s settle"))
+                 + ("" if open_time else f", error {sign * turned - angle:+.1f} deg after {a.coast} s settle"))
         if a.depth > 0:
             self.stats(depths, "depth", "m")
+        return sign * turned
+
+    def straight(self, seconds, phase):
+        """Forward stick for seconds (ramped), holding the depth; returns (depths, heading changes)."""
+        a, v = self.a, self.v
+        self.phase = phase
+        p = a.power / 100.0
+        h0 = v.heading()
+        depths, headings = [], []
+        start = time.time()
+        while time.time() - start < seconds:
+            self.step(fwd=p * self.ramp(time.time() - start), thr=self.depth_stick(a.depth))
+            depths.append(v.depth())
+            headings.append(wrap180(v.heading() - h0))
+        self.hold(a.depth, a.coast, phase + "_coast")
+        return depths, headings
+
+    def sauvc(self):
+        a, v = self.a, self.v
+        h0 = v.heading()
+        self.say(f"Forward {a.time:.1f} s at {a.power:.0f}% (heading {h0:.0f} deg) ...")
+        d_out, h_out = self.straight(a.time, "out")
+        self.yaw(180.0, "right", a.yaw_power)
+        # the return leg is only as straight as this heading: trim what the turn left over
+        err = wrap180(h0 + 180.0 - v.heading())
+        if abs(err) > a.yaw_tol:
+            self.say(f"Trim {err:+.1f} deg to face the start ...")
+            self.yaw(abs(err), "right" if err > 0 else "left", a.yaw_power)
+        h_turn = v.heading()
+        self.say(f"Forward {a.return_time:.1f} s back to the start (heading {h_turn:.0f} deg) ...")
+        d_back, h_back = self.straight(a.return_time, "back")
+        self.say(f"Hovering {a.hold} s ...")
+        d_hover, _ = self.hold(a.depth, a.hold, "hover")
+        self.say("Result sauvc:")
+        self.stats(h_out, "heading change out ", "deg", ".1f")
+        self.say(f"  heading after the turn: {wrap180(h_turn - h0):+.1f} deg from the start heading "
+                 f"(want +180, error {wrap180(h_turn - h0 - 180.0):+.1f})")
+        self.stats(h_back, "heading change back", "deg", ".1f")
+        self.stats(d_out + d_back, "depth while moving", "m")
+        self.stats(d_hover, "depth while hovering", "m")
 
     def waypoint(self):
         a, v = self.a, self.v
@@ -694,6 +746,13 @@ class Run:
         self.say(f"{datetime.now():%Y-%m-%d %H:%M:%S} {' '.join(sys.argv[1:])}")
         reason = None
         try:
+            # Neutral overrides first: without a receiver the Pixhawk sits in radio failsafe until
+            # it hears RC, and refuses an arm sent with the very first override.
+            end = time.time() + 1.0
+            while time.time() < end:
+                v.send_sticks(0, 0, 0, 0)
+                v.update()
+                time.sleep(0.05)
             v.set_mode(a.mode)
             if not v.arm(True):
                 raise Abort("arming refused (see the [pixhawk] messages above)")
@@ -712,7 +771,10 @@ class Run:
             else:
                 if a.depth > 0 and a.settle > 0:
                     self.hold(a.depth, a.settle, "settle")
-                {"yaw": self.yaw, "waypoint": self.waypoint}.get(a.test, self.linear)()
+                if a.test == "yaw":
+                    self.yaw(a.angle, a.dir, a.power, a.time)
+                else:
+                    {"waypoint": self.waypoint, "sauvc": self.sauvc}.get(a.test, self.linear)()
         except Abort as e:
             reason = f"ABORT: {e}"
             print("!!! " + reason, flush=True)
@@ -733,11 +795,12 @@ class Run:
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("test", choices=["dive", "forward", "backward", "sway", "yaw", "waypoint", "where"])
+    p.add_argument("test", choices=["dive", "forward", "backward", "sway", "yaw", "waypoint", "where", "sauvc"])
     g = p.add_argument_group("manoeuvre")
     g.add_argument("--depth", type=float, default=None,
-                   help="depth in m (dive: required; other tests: 0 = at the surface, default)")
-    g.add_argument("--hold", type=float, default=10.0, help="dive: seconds to hold the depth (default 10)")
+                   help="depth in m (dive: required; sauvc: default 1.0; other tests: 0 = at the surface, default)")
+    g.add_argument("--hold", type=float, default=None,
+                   help="dive: seconds to hold the depth (default 10); sauvc: hover seconds at the end (default 5)")
     g.add_argument("--time", type=float, default=None,
                    help="forward/backward/sway: thrust seconds (default 5); yaw: open loop seconds instead of --angle")
     g.add_argument("--dir", choices=["left", "right"], default="right", help="sway / yaw direction (default right)")
@@ -754,6 +817,13 @@ def parse_args():
                    help="flight mode (default STABILIZE at the surface, ALT_HOLD below)")
     g.add_argument("--no-disarm", action="store_true",
                    help="surface tests: stay armed with neutral sticks at the end (aborts always disarm)")
+    v = p.add_argument_group("sauvc")
+    v.add_argument("--distance", type=float, default=5.0, help="sauvc: forward distance in m (default 5)")
+    v.add_argument("--speed", type=float, default=None,
+                   help="sauvc: measured forward speed in m/s at --power; forward time = --distance / --speed "
+                        "(measure with forward.sh --time 10 at the surface, or tape it in the pool)")
+    v.add_argument("--return-time", type=float, default=None,
+                   help="sauvc: forward seconds back to the start (default: the same as the way out)")
     w = p.add_argument_group("waypoint")
     w.add_argument("--ne", action="append", default=[], metavar="N,E",
                    help="waypoint N metres north, E metres east of the start fix (repeatable)")
@@ -764,7 +834,8 @@ def parse_args():
     w.add_argument("--wp-hold", type=float, default=5.0, help="neutral seconds at each waypoint (default 5)")
     w.add_argument("--slow-distance", type=float, default=4.0,
                    help="slow down inside this distance, to 40%% of --power (default 4 m)")
-    w.add_argument("--yaw-power", type=float, default=25.0, help="max yaw stick %% while steering (default 25)")
+    w.add_argument("--yaw-power", type=float, default=25.0,
+                   help="max yaw stick %% while steering, and for the sauvc 180 deg turn (default 25)")
     w.add_argument("--max-distance", type=float, default=60.0,
                    help="refuse waypoints farther than this from the start; geofence at +20 m (default 60)")
     w.add_argument("--wp-timeout", type=float, default=None,
@@ -804,6 +875,24 @@ def parse_args():
     if a.test == "dive":
         if a.depth is None or a.depth <= 0:
             p.error("dive needs --depth > 0")
+    if a.test == "sauvc":
+        if a.depth is None:
+            a.depth = 1.0
+        if a.depth <= 0:
+            p.error("sauvc runs under water: --depth must be > 0")
+        if a.time is None:
+            if a.speed is None:
+                p.error("sauvc needs the forward time: --speed V (m/s measured at --power, time = "
+                        "--distance / V) or --time S")
+            if a.speed <= 0 or a.distance <= 0:
+                p.error("--speed and --distance must be > 0")
+            a.time = a.distance / a.speed
+        if a.time <= 0:
+            p.error("--time must be > 0")
+        if a.return_time is None:
+            a.return_time = a.time
+    if a.hold is None:
+        a.hold = 5.0 if a.test == "sauvc" else 10.0
     a.depth = a.depth or 0.0
     if a.depth < 0:
         p.error("--depth must be >= 0")
@@ -855,6 +944,10 @@ def parse_args():
             a.timeout = 30.0 + 15.0 * a.depth + a.hold + 30.0
         elif a.test == "waypoint":
             a.timeout = 600.0
+        elif a.test == "sauvc":
+            # dive + settle, two legs and three coasts, the 180 deg turn cap (15 + 180 / 5 s), hover
+            a.timeout = (30.0 + 15.0 * a.depth + a.settle + a.time + a.return_time + 3 * a.coast
+                         + 51.0 + a.hold + 30.0)
         else:
             a.timeout = (30.0 + 15.0 * a.depth + a.settle if a.depth > 0 else 0.0) + (a.time or 60.0) + a.coast + 30.0
     return a
