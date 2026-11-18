@@ -342,12 +342,14 @@ class Run:
             lines.append("Plan    : print GPS and heading, no arming")
         elif a.test == "sauvc":
             dist = f" (~{a.distance:g} m at {a.speed:g} m/s)" if a.speed else ""
-            lines += [f"Plan    : dive to {a.depth} m, settle {a.settle} s",
+            where = f"dive to {a.depth} m, settle {a.settle} s" if a.depth > 0 else "at the surface (depth 0 m)"
+            disarm_str = f"hover {a.hold} s, disarm and float up" if a.depth > 0 else f"hover {a.hold} s, disarm"
+            lines += [f"Plan    : {where}",
                       f"          forward {a.time:.1f} s{dist} at {a.power:.0f}% stick, coast {a.coast} s",
                       f"          turn 180 deg clockwise on the compass at up to {a.yaw_power:.0f}% stick, "
                       f"coast {a.coast} s",
                       f"          forward {a.return_time:.1f} s back to the start, coast {a.coast} s",
-                      f"          hover {a.hold} s, disarm and float up"]
+                      f"          {disarm_str}"]
         else:
             where = f"at {a.depth} m (dive first, settle {a.settle} s)" if a.depth > 0 else "at the surface"
             if a.test in LINEAR:
@@ -420,18 +422,15 @@ class Run:
         time.sleep(max(0.0, self.next_t - time.time()))
 
     def depth_stick(self, target):
-        """Throttle stick toward the target depth; neutral inside the band, ALT_HOLD holds there."""
+        """Throttle stick toward the target depth; keeps vertical thrusters active against buoyancy."""
         if target <= 0:
             return 0.0
-        err = target - self.v.depth()            # > 0: too shallow
-        band = 0.10 if self.hold_correcting else self.a.depth_tol
-        if abs(err) < band:
-            self.hold_correcting = False
-            return 0.0
-        self.hold_correcting = True
-        # min stick clears the ALT_HOLD throttle dead zone (THR_DZ)
-        mag = min(self.a.dive_power / 100.0, 0.25 + 0.3 * abs(err))
-        return -mag if err > 0 else mag
+        err = target - self.v.depth()            # > 0: too shallow, need more down thrust
+        base = self.a.hold_power / 100.0         # continuous downward hold thrust against buoyancy
+        max_dive = self.a.dive_power / 100.0
+        # Continuous proportional hold: downward thrust increases when too shallow, decreases when too deep
+        thr = -clamp(base + 0.6 * err, -0.20, max_dive)
+        return thr
 
     def ramp(self, t_in):
         return clamp(t_in / self.a.ramp, 0.0, 1.0) if self.a.ramp > 0 else 1.0
@@ -449,12 +448,15 @@ class Run:
         start = time.time()
         timeout = a.dive_timeout or (15.0 + 15.0 * target)
         self.say(f"Diving to {target:.2f} m ...")
-        while not v.depth() >= target - 0.10:   # NaN-safe
+        cutoff = max(target - 0.03, target * 0.92) if target <= 0.5 else target - 0.10
+        while not v.depth() >= cutoff:   # NaN-safe
             if time.time() - start > timeout:
                 raise Abort(f"did not reach {target:.2f} m in {timeout:.0f} s (depth {v.depth():.2f} m): "
                             "buoyancy, dive power or thrusters")
             self.hold_correcting = True
-            self.step(thr=-min(a.dive_power / 100.0, 0.25 + 0.3 * (target - v.depth())))
+            rem = max(0.0, target - v.depth())
+            power = min(a.dive_power / 100.0, 0.15 + 0.5 * rem)
+            self.step(thr=-power)
         self.dived = True
         self.say(f"  reached {v.depth():.2f} m after {time.time() - start:.1f} s")
 
@@ -574,16 +576,11 @@ class Run:
     def sauvc(self):
         a, v = self.a, self.v
         h0 = v.heading()
-        self.say(f"Forward {a.time:.1f} s at {a.power:.0f}% (heading {h0:.0f} deg) ...")
+        self.say(f"Forward {a.time:.1f} s at {a.power:.0f}% ...")
         d_out, h_out = self.straight(a.time, "out")
         self.yaw(180.0, "right", a.yaw_power)
-        # the return leg is only as straight as this heading: trim what the turn left over
-        err = wrap180(h0 + 180.0 - v.heading())
-        if abs(err) > a.yaw_tol:
-            self.say(f"Trim {err:+.1f} deg to face the start ...")
-            self.yaw(abs(err), "right" if err > 0 else "left", a.yaw_power)
         h_turn = v.heading()
-        self.say(f"Forward {a.return_time:.1f} s back to the start (heading {h_turn:.0f} deg) ...")
+        self.say(f"Forward {a.return_time:.1f} s back to the start ...")
         d_back, h_back = self.straight(a.return_time, "back")
         self.say(f"Hovering {a.hold} s ...")
         d_hover, _ = self.hold(a.depth, a.hold, "hover")
@@ -809,6 +806,8 @@ def parse_args():
                    help="stick %% of full (default 30; yaw 25); above 50 needs --allow-high-power")
     g.add_argument("--dive-power", type=float, default=35.0,
                    help="max throttle stick %% while diving / correcting depth (default 35)")
+    g.add_argument("--hold-power", type=float, default=15.0,
+                   help="vertical stick %% to hold depth against positive buoyancy (default 15)")
     g.add_argument("--settle", type=float, default=3.0, help="seconds to hold the depth before the move (default 3)")
     g.add_argument("--coast", type=float, default=3.0,
                    help="neutral seconds after the move, logged before disarming (default 3)")
@@ -878,8 +877,8 @@ def parse_args():
     if a.test == "sauvc":
         if a.depth is None:
             a.depth = 1.0
-        if a.depth <= 0:
-            p.error("sauvc runs under water: --depth must be > 0")
+        if a.depth < 0:
+            p.error("sauvc: --depth must be >= 0")
         if a.time is None:
             if a.speed is None:
                 p.error("sauvc needs the forward time: --speed V (m/s measured at --power, time = "
@@ -904,7 +903,7 @@ def parse_args():
         a.power = 25.0 if a.test == "yaw" else 30.0
     if a.time is None and a.test in LINEAR:
         a.time = 5.0
-    for name in ("power", "dive_power", "yaw_power"):
+    for name in ("power", "dive_power", "yaw_power", "hold_power"):
         val = getattr(a, name)
         if not 0 < val <= 100:
             p.error(f"--{name.replace('_', '-')} must be in (0, 100]")
