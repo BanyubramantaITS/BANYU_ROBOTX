@@ -731,6 +731,8 @@ std::string BanyuMission::xmlPath()
   std::string por_tree = "por_timed_mission.xml";
   if (por_use_replay_) {
     por_tree = "por_replay_mission.xml";
+  } else if (por_use_sauvc_) {
+    por_tree = "por_sauvc_mission.xml";
   } else if (por_use_vision_) {
     por_tree = "por_mission.xml";
   } else if (por_use_vision_assist_) {
@@ -749,10 +751,13 @@ std::string BanyuMission::xmlPath()
       task2_tree = "task2_waypoint_mission.xml";
     }
   }
-  const auto default_tree = ament_index_cpp::get_package_share_directory(
-    "banyu_mission") + "/bt/" + (mission_mode == "por" ? por_tree : task2_tree);
-  return declare_parameter<std::string>(
-    "bt_xml", default_tree);
+  const auto bt_dir = ament_index_cpp::get_package_share_directory("banyu_mission") + "/bt/";
+  const auto default_tree = bt_dir + (mission_mode == "por" ? por_tree : task2_tree);
+  const auto configured = declare_parameter<std::string>("bt_xml", default_tree);
+  if (!configured.empty() && configured.find('/') == std::string::npos) {
+    return bt_dir + configured;
+  }
+  return configured;
 }
 
 void BanyuMission::configurePorBlackboard(const BT::Blackboard::Ptr & blackboard)
@@ -764,6 +769,7 @@ void BanyuMission::configurePorBlackboard(const BT::Blackboard::Ptr & blackboard
     por_use_vision_return_ = config.use_vision_return;
     por_use_vision_assist_ = config.use_vision_assist;
     por_use_replay_ = config.use_replay;
+    por_use_sauvc_ = config.use_sauvc;
     if (config.replay) {
       RCLCPP_INFO(
         get_logger(), "Replay track '%s': %zu samples, %.1f s, max depth %.2f m (%s)",

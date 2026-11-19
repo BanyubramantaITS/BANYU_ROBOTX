@@ -1,0 +1,227 @@
+# SAUVC video mission profile (bt/por_sauvc_mission.xml):
+#   dive to depth -> settle -> move forward -> pause -> turn around 180 deg ->
+#   pause -> move forward back to start -> hover -> surface -> disarm (auto on SUCCESS).
+# Flies in ALT_HOLD + RC override (Bar30 depth hold, IMU yaw cap + heading hold).
+banyu_mission:
+  ros__parameters:
+    mission_mode: "por"
+    autonomy_mode: "ALT_HOLD" # POR/SAUVC flies ALT_HOLD + RC override, not GUIDED
+    fallback_mode: "DISARM"
+    topics:
+      pipeline_end_state: "/banyu/pipeline/end_state"
+      run_lifecycle: "/banyu/mission/run_lifecycle"
+      run_command: "/system/mission/command"
+      readiness_pose: "/mavros/local_position/pose"
+      execution_readiness: "/banyu/execution/readiness"
+      survey_progress: "/banyu/communication/survey_progress"
+    timing:
+      preparation_timeout_s: 30.0
+      execution_readiness_timeout_s: 1.0
+      run_reset_timeout_s: 3.0
+    run:
+      reset_services:
+        ["/banyu/pipeline/reset_tracker", "/banyu/pipeline/reset_end"]
+    mission:
+      task2_tier: 2
+      surface_depth_m: 0.0
+      surface_tolerance_m: 0.25
+      surface_watchdog_timeout_s: 5.0
+      use_vision: false
+      use_vision_return: false
+      use_replay: false
+      use_sauvc: true
+      use_sensors: true        # false = pure timer (no Bar30 depth hold or IMU yaw cap)
+      use_baro_depth: true
+      use_imu_yaw_cap: true
+      depth_kp: 0.7
+      max_depth_speed_mps: 0.4
+      enable_collision_guard: false
+      collision_distance_m: 0.8
+
+      # 1. Dive to target depth
+      sauvc_depth_m: 1.0
+      sauvc_depth_tolerance_m: 0.15
+      sauvc_dive_duration_s: 15.0        # cap only: dive ends 0.5 s after reaching target depth
+      sauvc_dive_speed_z_mps: -0.5       # fallback downward speed when use_sensors is false
+      sauvc_settle_duration_s: 2.0       # hold depth before moving forward (0.0 to skip)
+
+      # 2. Move forward for a set time
+      sauvc_forward_duration_s: 10.0
+      sauvc_forward_speed_x_mps: 0.6     # 0.6 * 300 = 180 us (~45% forward stick)
+      sauvc_coast_duration_s: 1.5        # pause before and after 180 deg turn (0.0 to skip)
+
+      # 3. Turn around 180 deg in place (IMU yaw cap stops the turn)
+      sauvc_turn_duration_s: 12.0        # safety cap; IMU yaw cap ends the turn earlier
+      sauvc_turn_yaw_rate_rad_s: -0.6    # negative = clockwise (right), positive = CCW (left)
+      sauvc_turn_target_angle_rad: 3.05  # ~175 deg to leave room for rotational coast to ~180 deg
+
+      # 4. Move forward back to start
+      sauvc_return_duration_s: 10.0
+      sauvc_return_speed_x_mps: 0.6
+      sauvc_hover_duration_s: 2.0        # hover at start before surfacing (0.0 to skip)
+
+      # 5. Surface (BanyuMission disarms and switches to MANUAL as soon as this completes)
+      timed_surface_duration_s: 8.0
+      timed_surface_speed_x_mps: 0.0
+      timed_surface_speed_y_mps: 0.0
+      timed_surface_speed_z_mps: 0.4
+      timed_surface_yaw_rate_rad_s: 0.0
+    actions:
+      acquire_gate: "/banyu/actions/acquire_gate"
+      search_marker: "/banyu/actions/search_marker"
+      search_gate: "/banyu/actions/search_gate"
+      align_gate: "/banyu/actions/align_gate"
+      align_marker: "/banyu/actions/align_marker"
+      pass_gate: "/banyu/actions/pass_gate"
+      orbit_marker: "/banyu/actions/orbit_marker"
+      turn_around: "/banyu/actions/turn_around"
+      timed_move: "/banyu/actions/timed_move"
+      surface: "/banyu/actions/surface"
+
+por_detection:
+  ros__parameters:
+    target_priority: "largest"
+    fallback_focal_length_px: 500.0
+    buoy_reference_height_m: 1.5
+    buoy_reference_width_m: 0.3
+    gate_reference_height_m: 2.0
+    gate_reference_width_m: 2.0
+    edge_margin_px: 5
+    min_height_px: 10
+    min_width_px: 10
+    image_topic: "/front_camera/image_raw"
+    # Launch sets this true on the real AUV (use_sim:=False)
+    use_compressed_image: false
+    camera_info_topic: "/camera/camera_info"
+    max_distance_m: 20.0
+
+vehicle_execution_node:
+  ros__parameters:
+    rc_override: # = Pixhawk RCMAP_FORWARD/LATERAL/THROTTLE/YAW (robot: 2/1/3/4, CH2/CH1/CH3/CH4)
+      channel_forward: 2
+      channel_lateral: 1
+      channel_throttle: 3
+      channel_yaw: 4
+      gain_xy_pwm_per_mps: 300.0
+      gain_z_pwm_per_mps: 400.0
+      gain_yaw_pwm_per_rad_s: 143.4
+      max_delta_pwm: 400
+      neutral_pwm: 1500
+      deadzone_xy_pwm: 0
+      deadzone_z_pwm: 50
+      deadzone_yaw_pwm: 20
+      idle_release_s: 2.0
+    timed_move:
+      max_horizontal_speed_mps: 0.0
+      heading_hold:
+        # Straight timed legs hold the heading from segment start
+        enabled: true
+        kp: 1.0
+        max_yaw_rate_rad_s: 0.3
+        deadband_rad: 0.02
+    control:
+      require_calibrated_surface_depth: false
+      surface_hold_time_s: 1.0
+      surface_depth_timeout_s: 0.5
+      surface_max_depth_m: 0.2
+      require_run_authorization: false
+      run_lifecycle_timeout_s: 1.0
+      enable_mavros_publish: true
+      publish_rate_hz: 20.0
+      require_guided: true
+      autonomy_mode: "ALT_HOLD"
+      output_mode: "rc_override"
+      max_linear_speed: 1.4
+      max_yaw_rate: 0.8
+    surface:
+      depth_sources: ["pressure_depth"]
+    topics:
+      water_depth: "/banyu/vehicle/water_depth"
+      run_lifecycle: "/banyu/mission/run_lifecycle"
+      execution_readiness: "/banyu/execution/readiness"
+      status: "/banyu/vehicle_status"
+      pose: "/mavros/local_position/pose"
+      imu: "/mavros/imu/data" # heading fallback for camera actions without a pose
+      gps: "/mavros/global_position/raw/fix"
+      detection: "/banyu/detection"
+      preview_target: "/banyu/execution/preview_target"
+      mavros_target: "/mavros/setpoint_raw/local"
+    actions:
+      surface: "/banyu/actions/surface"
+      acquire_gate: "/banyu/actions/acquire_gate"
+      search_marker: "/banyu/actions/search_marker"
+      search_gate: "/banyu/actions/search_gate"
+      align_gate: "/banyu/actions/align_gate"
+      align_marker: "/banyu/actions/align_marker"
+      pass_gate: "/banyu/actions/pass_gate"
+      orbit_marker: "/banyu/actions/orbit_marker"
+      turn_around: "/banyu/actions/turn_around"
+      timed_move: "/banyu/actions/timed_move"
+
+banyu_vehicle_status:
+  ros__parameters:
+    state_topic: "/mavros/state"
+    rc_topic: "/mavros/rc/in"
+    gps_topic: "/mavros/global_position/raw/fix"
+    status_topic: "/banyu/vehicle_status"
+    publish_rate_hz: 10.0
+    fcu_timeout_s: 5.0
+    rc_timeout_s: 3.0
+    gps_timeout_s: 5.0
+    rc_takeover_channel: -1 # RC override drives the stick channels; takeover is SB (operational_mode)
+    rc_takeover_threshold: 1700
+    autonomy_mode: "ALT_HOLD"
+    default_operational_mode: 0
+    kill_switch_timeout_s: 1.0
+    # bypass_rc is set by the launch (launch_por.sh --no-rc), not per profile.
+    bypass_operational_mode: 2 # mode with bypass_rc until the first trigger command
+
+esp32_bridge_node:
+  ros__parameters:
+    port: "/dev/esp32_kill"
+    baud: 115200
+    heartbeat_rate_hz: 10.0
+    serial_timeout_s: 0.5
+
+esp32_serial_node:
+  ros__parameters:
+    port: "/dev/esp32_kill"
+    baud: 115200
+    timer_period_s: 0.1
+    append_newline: false
+    default_trigger_cmd: "2"
+    trigger_on_cmd: "2"
+    trigger_off_cmd: "0"
+    trigger_service: "/banyu/trigger/fire"
+    set_trigger_service: "/banyu/trigger/set"
+    command_service: "/banyu/trigger/command"
+    command_topic: "/banyu/trigger/cmd"
+    monitor_topic: "/banyu/trigger/monitor"
+    use_hardware_kill: true
+    kill_report_grace_s: 0.3
+    resend_period_s: 1.0
+
+esp32_trigger_node:
+  ros__parameters:
+    port: "/dev/esp32_kill"
+    baud: 115200
+    timer_period_s: 0.1
+    append_newline: false
+    default_trigger_cmd: "2"
+    trigger_on_cmd: "2"
+    trigger_off_cmd: "0"
+    trigger_service: "/banyu/trigger/fire"
+    set_trigger_service: "/banyu/trigger/set"
+    command_service: "/banyu/trigger/command"
+    command_topic: "/banyu/trigger/cmd"
+    monitor_topic: "/banyu/trigger/monitor"
+    use_hardware_kill: true
+    kill_report_grace_s: 0.3
+    resend_period_s: 1.0
+
+sim_rc_deadman_node:
+  ros__parameters:
+    rc_topic: "/sim/supervisor_rc"
+    publish_rate_hz: 10.0
+    num_channels: 8
+    channel_value: 1500

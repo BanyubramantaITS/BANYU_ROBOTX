@@ -147,6 +147,7 @@ private:
   bool por_use_vision_return_{false};
   bool por_use_vision_assist_{false};
   bool por_use_replay_{false};
+  bool por_use_sauvc_{false};
   std::string fallback_mode_{"MANUAL"};
   std::string set_mode_service_{"/mavros/set_mode"};
   rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr set_mode_client_;

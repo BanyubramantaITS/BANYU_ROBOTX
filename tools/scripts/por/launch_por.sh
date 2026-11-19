@@ -78,6 +78,7 @@ Strategy Profile Presets (--profile <name>):
   safe                  : por_params_timed_safe.yaml         (box of 90 deg IMU turns; sim default)
   fastest               : por_params_timed_fastest.yaml      (diamond, back up through gate)
   replay, teach         : por_params_replay.yaml             (fly a recorded manual drive, see below)
+  sauvc                 : por_params_sauvc.yaml              (SAUVC video: dive, fwd, 180 turn, fwd, surface)
   Thrusters 2+3 dead: generate a profile from pool measurements with
     tools/scripts/por/dead_thruster_por.py (docs/por/tuning.md section 6) and pass its path.
   Any other file by path (relative to banyu_bringup/config/ or absolute).
@@ -242,6 +243,7 @@ else
     safe) PROFILE="por_params_timed_safe.yaml" ;;
     fastest|fastest-diamond) PROFILE="por_params_timed_fastest.yaml" ;;
     replay|teach) PROFILE="por_params_replay.yaml" ;;
+    sauvc) PROFILE="por_params_sauvc.yaml" ;;
   esac
 fi
 

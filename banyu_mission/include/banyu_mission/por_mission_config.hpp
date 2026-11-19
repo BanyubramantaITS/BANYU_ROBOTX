@@ -89,6 +89,8 @@ struct PorMissionConfig
   bool use_replay {false};
   std::string replay_track {"latest"};
   std::shared_ptr<const ReplayTrack> replay;
+  // SAUVC video mission (bt/por_sauvc_mission.xml): dive, forward, 180 deg turn, forward back, surface & disarm.
+  bool use_sauvc {false};
   bool use_sensors {true};
   bool use_baro_depth {true};
   bool use_imu_yaw_cap {true};
@@ -183,6 +185,22 @@ struct PorMissionConfig
   double timed_surface_speed_y_mps {0.0};
   double timed_surface_speed_z_mps {0.4};
   double timed_surface_yaw_rate_rad_s {0.0};
+
+  // SAUVC video mission parameters (used when use_sauvc == true)
+  double sauvc_depth_m {1.0};
+  double sauvc_depth_tolerance_m {0.15};
+  double sauvc_dive_duration_s {15.0};
+  double sauvc_dive_speed_z_mps {-0.5};
+  double sauvc_settle_duration_s {2.0};
+  double sauvc_forward_duration_s {10.0};
+  double sauvc_forward_speed_x_mps {0.6};
+  double sauvc_coast_duration_s {1.5};
+  double sauvc_turn_duration_s {12.0};
+  double sauvc_turn_yaw_rate_rad_s {-0.6};
+  double sauvc_turn_target_angle_rad {3.05};
+  double sauvc_return_duration_s {10.0};
+  double sauvc_return_speed_x_mps {0.6};
+  double sauvc_hover_duration_s {2.0};
 
   static PorMissionConfig load(rclcpp::Node & node);
   void validate() const;

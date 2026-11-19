@@ -118,6 +118,7 @@ PorMissionConfig PorMissionConfig::load(rclcpp::Node & node)
   config.use_vision_return = bool_param("use_vision_return", config.use_vision_return);
   config.use_vision_assist = bool_param("use_vision_assist", config.use_vision_assist);
   config.use_replay = bool_param("use_replay", config.use_replay);
+  config.use_sauvc = bool_param("use_sauvc", config.use_sauvc);
   const std::string replay_param = "mission.replay_track";
   config.replay_track = node.has_parameter(replay_param) ?
     node.get_parameter(replay_param).as_string() :
@@ -303,6 +304,32 @@ PorMissionConfig PorMissionConfig::load(rclcpp::Node & node)
     "timed_surface_speed_z_mps", config.timed_surface_speed_z_mps);
   config.timed_surface_yaw_rate_rad_s = parameter(
     "timed_surface_yaw_rate_rad_s", config.timed_surface_yaw_rate_rad_s);
+
+  config.sauvc_depth_m = parameter("sauvc_depth_m", config.sauvc_depth_m);
+  config.sauvc_depth_tolerance_m = parameter(
+    "sauvc_depth_tolerance_m", config.sauvc_depth_tolerance_m);
+  config.sauvc_dive_duration_s = parameter("sauvc_dive_duration_s", config.sauvc_dive_duration_s);
+  config.sauvc_dive_speed_z_mps = parameter(
+    "sauvc_dive_speed_z_mps", config.sauvc_dive_speed_z_mps);
+  config.sauvc_settle_duration_s = parameter(
+    "sauvc_settle_duration_s", config.sauvc_settle_duration_s);
+  config.sauvc_forward_duration_s = parameter(
+    "sauvc_forward_duration_s", config.sauvc_forward_duration_s);
+  config.sauvc_forward_speed_x_mps = parameter(
+    "sauvc_forward_speed_x_mps", config.sauvc_forward_speed_x_mps);
+  config.sauvc_coast_duration_s = parameter(
+    "sauvc_coast_duration_s", config.sauvc_coast_duration_s);
+  config.sauvc_turn_duration_s = parameter("sauvc_turn_duration_s", config.sauvc_turn_duration_s);
+  config.sauvc_turn_yaw_rate_rad_s = parameter(
+    "sauvc_turn_yaw_rate_rad_s", config.sauvc_turn_yaw_rate_rad_s);
+  config.sauvc_turn_target_angle_rad = parameter(
+    "sauvc_turn_target_angle_rad", config.sauvc_turn_target_angle_rad);
+  config.sauvc_return_duration_s = parameter(
+    "sauvc_return_duration_s", config.sauvc_return_duration_s);
+  config.sauvc_return_speed_x_mps = parameter(
+    "sauvc_return_speed_x_mps", config.sauvc_return_speed_x_mps);
+  config.sauvc_hover_duration_s = parameter(
+    "sauvc_hover_duration_s", config.sauvc_hover_duration_s);
   return config;
 }
 
@@ -327,7 +354,8 @@ void PorMissionConfig::validate() const
     return_gate_pass_target_distance_m, return_gate_pass_minimum_distance_m,
     return_gate_pass_blind_duration_s, return_gate_pass_timeout_s,
     depth_kp, max_depth_speed_mps, assist_gate_deadband, assist_marker_standoff_min_m,
-    assist_marker_standoff_max_m, assist_marker_deadband, assist_align_hold_s};
+    assist_marker_standoff_max_m, assist_marker_deadband, assist_align_hold_s,
+    sauvc_depth_m, sauvc_depth_tolerance_m};
   for (const double value : values) {
     if (!std::isfinite(value) || value <= 0.0) {
       throw std::invalid_argument("POR mission parameters must be finite and positive");
@@ -348,7 +376,10 @@ void PorMissionConfig::validate() const
     circle_turn_3_duration_s, circle_turn_3_target_angle_rad, circle_forward_3_duration_s,
     circle_turn_4_duration_s, circle_turn_4_target_angle_rad, circle_forward_4_duration_s,
     return_turn_duration_s, return_turn_target_angle_rad, return_to_gate_duration_s,
-    timed_surface_duration_s};
+    timed_surface_duration_s,
+    sauvc_dive_duration_s, sauvc_settle_duration_s, sauvc_forward_duration_s,
+    sauvc_coast_duration_s, sauvc_turn_duration_s, sauvc_turn_target_angle_rad,
+    sauvc_return_duration_s, sauvc_hover_duration_s};
   for (const double value : nonnegative_values) {
     if (!std::isfinite(value) || value < 0.0) {
       throw std::invalid_argument("POR duration/angle parameters must be finite and nonnegative");
@@ -381,7 +412,9 @@ void PorMissionConfig::validate() const
     return_to_gate_speed_x_mps, return_to_gate_speed_y_mps,
     return_to_gate_speed_z_mps, return_to_gate_yaw_rate_rad_s,
     timed_surface_speed_x_mps, timed_surface_speed_y_mps,
-    timed_surface_speed_z_mps, timed_surface_yaw_rate_rad_s};
+    timed_surface_speed_z_mps, timed_surface_yaw_rate_rad_s,
+    sauvc_dive_speed_z_mps, sauvc_forward_speed_x_mps,
+    sauvc_turn_yaw_rate_rad_s, sauvc_return_speed_x_mps};
   for (const double value : finite_signed_values) {
     if (!std::isfinite(value)) {
       throw std::invalid_argument("POR timed speed/yaw-rate parameters must be finite");
@@ -457,6 +490,7 @@ void PorMissionConfig::apply(const BT::Blackboard::Ptr & blackboard) const
   blackboard->set("use_vision_return", use_vision_return);
   blackboard->set("use_vision_assist", use_vision_assist);
   blackboard->set("use_replay", use_replay);
+  blackboard->set("use_sauvc", use_sauvc);
   if (replay) {blackboard->set("replay_track", replay);}
   // BT Timeout decorators take whole milliseconds.
   blackboard->set(
@@ -564,6 +598,21 @@ void PorMissionConfig::apply(const BT::Blackboard::Ptr & blackboard) const
   blackboard->set("timed_surface_speed_y_mps", timed_surface_speed_y_mps);
   blackboard->set("timed_surface_speed_z_mps", timed_surface_speed_z_mps);
   blackboard->set("timed_surface_yaw_rate_rad_s", timed_surface_yaw_rate_rad_s);
+
+  blackboard->set("sauvc_depth_m", sauvc_depth_m);
+  blackboard->set("sauvc_depth_tolerance_m", sauvc_depth_tolerance_m);
+  blackboard->set("sauvc_dive_duration_s", sauvc_dive_duration_s);
+  blackboard->set("sauvc_dive_speed_z_mps", sauvc_dive_speed_z_mps);
+  blackboard->set("sauvc_settle_duration_s", sauvc_settle_duration_s);
+  blackboard->set("sauvc_forward_duration_s", sauvc_forward_duration_s);
+  blackboard->set("sauvc_forward_speed_x_mps", sauvc_forward_speed_x_mps);
+  blackboard->set("sauvc_coast_duration_s", sauvc_coast_duration_s);
+  blackboard->set("sauvc_turn_duration_s", sauvc_turn_duration_s);
+  blackboard->set("sauvc_turn_yaw_rate_rad_s", sauvc_turn_yaw_rate_rad_s);
+  blackboard->set("sauvc_turn_target_angle_rad", sauvc_turn_target_angle_rad);
+  blackboard->set("sauvc_return_duration_s", sauvc_return_duration_s);
+  blackboard->set("sauvc_return_speed_x_mps", sauvc_return_speed_x_mps);
+  blackboard->set("sauvc_hover_duration_s", sauvc_hover_duration_s);
 }
 
 }  // namespace banyu_mission

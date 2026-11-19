@@ -1110,3 +1110,66 @@ TEST_F(MissionTest, PorReplayLoadsLatestTrackAndBuildsReplayTree)
   std::filesystem::remove_all(dir);
   ::unsetenv("BANYU_REPLAY_DIR");
 }
+
+TEST_F(MissionTest, PorSauvcTreeLoadsAndUsesOrderedSegments)
+{
+  const auto sauvc_params = ament_index_cpp::get_package_share_directory("banyu_bringup") +
+    "/config/por_params_sauvc.yaml";
+  rclcpp::NodeOptions options;
+  options.arguments({"--ros-args", "--params-file", sauvc_params});
+  options.parameter_overrides({rclcpp::Parameter("groot_port", 2771)});
+  auto node = std::make_shared<rclcpp::Node>("banyu_mission", options);
+  const auto config = banyu_mission::PorMissionConfig::load(*node);
+  EXPECT_TRUE(config.use_sauvc);
+  EXPECT_FALSE(config.use_vision);
+  EXPECT_FALSE(config.use_replay);
+  EXPECT_TRUE(config.use_sensors);
+  EXPECT_TRUE(config.use_baro_depth);
+  EXPECT_TRUE(config.use_imu_yaw_cap);
+  EXPECT_NO_THROW(config.validate());
+
+  auto state = std::make_shared<banyu_mission::MissionState>(node.get(), false);
+  BT::BehaviorTreeFactory factory;
+  banyu_mission::registerMissionNodes(factory, node, state);
+  auto blackboard = BT::Blackboard::create();
+  config.apply(blackboard);
+  EXPECT_DOUBLE_EQ(blackboard->get<double>("sauvc_depth_m"), config.sauvc_depth_m);
+  EXPECT_DOUBLE_EQ(
+    blackboard->get<double>("sauvc_turn_target_angle_rad"),
+    config.sauvc_turn_target_angle_rad);
+
+  std::string sauvc_tree_path = ament_index_cpp::get_package_share_directory("banyu_mission") +
+    "/bt/por_sauvc_mission.xml";
+#ifdef BANYU_MISSION_SOURCE_DIR
+  const auto source_path = std::string(BANYU_MISSION_SOURCE_DIR) + "/bt/por_sauvc_mission.xml";
+  if (std::filesystem::exists(source_path)) {
+    sauvc_tree_path = source_path;
+  }
+#endif
+  EXPECT_NO_THROW(factory.registerBehaviorTreeFromFile(sauvc_tree_path));
+  EXPECT_NO_THROW(
+  {
+    auto tree = factory.createTree("Main", blackboard);
+    (void)tree;
+  });
+
+  const auto xml = readFile(sauvc_tree_path);
+  EXPECT_EQ(xml.find("<ReactiveSequence"), std::string::npos);
+  const std::vector<std::string> segments {
+    "dive", "settle_after_dive", "forward_out", "coast_after_forward",
+    "turn_around_180", "settle_after_turn", "forward_return",
+    "hover_before_surface", "surface"};
+  std::size_t previous = 0;
+  for (const auto & segment : segments) {
+    const auto current = xml.find("segment_name=\"" + segment + "\"", previous);
+    ASSERT_NE(current, std::string::npos) << segment;
+    previous = current + segment.size();
+  }
+  EXPECT_NE(xml.find("target_yaw_delta_rad=\"{sauvc_turn_target_angle_rad}\""), std::string::npos);
+  EXPECT_NE(xml.find("check_depth_reached=\"{use_sensors}\""), std::string::npos);
+  node.reset();
+
+  auto mission = std::make_shared<banyu_mission::BanyuMission>(options);
+  EXPECT_NO_THROW(mission->initialize());
+  mission.reset();
+}

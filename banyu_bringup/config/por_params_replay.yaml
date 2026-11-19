@@ -111,6 +111,7 @@ banyu_mission:
       # a manual drive cut from a bag by tools/scripts/por/por_teach_extract.py, then the timed
       # surface leg. The track comes from the replay_track launch argument (default: newest).
       use_replay: true
+      use_sauvc: false
       use_sensors: true   # false = pure timer (not re-verified in ALT_HOLD)
       use_baro_depth: true
       use_imu_yaw_cap: true

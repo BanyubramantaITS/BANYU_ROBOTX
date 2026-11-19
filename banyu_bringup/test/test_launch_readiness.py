@@ -84,6 +84,7 @@ def test_gazebo_por_nodes_are_all_sim_gated():
 def test_yaml_configs_are_valid_and_free_of_dead_fixture_keys():
     for fname in (
         "por_params_timed_safe.yaml",
+        "por_params_sauvc.yaml",
         "task2_params.yaml",
         "hardware_params.yaml",
         "front_camera_info.yaml",

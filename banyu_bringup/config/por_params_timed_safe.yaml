@@ -112,6 +112,7 @@ banyu_mission:
       # true: timed outbound + loop, then camera TurnAround/SearchGate/AlignGate/PassGate
       # return (bt/por_hybrid_mission.xml); timed return_to_gate is the fallback.
       use_vision_return: false
+      use_sauvc: false
       use_sensors: true # false = pure timer (not re-verified in ALT_HOLD)
       use_baro_depth: true
       use_imu_yaw_cap: true

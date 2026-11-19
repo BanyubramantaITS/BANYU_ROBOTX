@@ -37,6 +37,7 @@ file profil, jadi satu file dipakai untuk dua-duanya.
 | `safe` (default sim) | `por_params_timed_safe.yaml` | kotak dengan empat putaran 90° di tempat (berhenti oleh IMU), tanpa geser; maju full stick (1,33), kedalaman 1,4 ± 0,1 m. Dituning di trial 30 Okt |
 | `fastest` | `por_params_timed_fastest.yaml` | diamond (maju + geser diagonal) di sekitar marker, mundur lewat gate; kedalaman 1,0 ± 0,3 m |
 | `replay` | `por_params_replay.yaml` | putar ulang rute yang dikemudikan manual (§4.8) |
+| `sauvc` | `por_params_sauvc.yaml` | video SAUVC (`por_sauvc_mission.xml`): selam, maju, putar 180°, maju balik ke start, muncul, disarm |
 
 - **Thruster 2 + 3 mati:** buat profil dari hasil ukur di kolam dengan
   `tools/scripts/por/dead_thruster_por.py` ([`tuning.md`](tuning.md) §6), lalu pakai
